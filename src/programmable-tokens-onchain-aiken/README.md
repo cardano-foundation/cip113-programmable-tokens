@@ -227,12 +227,10 @@ This is high-quality research and development code with the following characteri
 
 ## Migration from Plutarch
 
-This is a complete Aiken migration of the original Plutarch implementation. Key improvements:
+This is a complete Aiken migration of the original Plutarch implementation. Some improvements:
 
-- **Type Safety** - Aiken's strong type system catches errors at compile time
-- **Readability** - More accessible syntax for smart contract developers
-- **Tooling** - Better IDE support and testing framework
-- **Performance** - Comparable or better execution costs
+- **Performance** - Comparable or slightly worse
+- **Error Prevention** - Target addresses are tested for staking keys 
 
 See [Migration Notes](./docs/07-MIGRATION-NOTES.md) for detailed comparison.
 
