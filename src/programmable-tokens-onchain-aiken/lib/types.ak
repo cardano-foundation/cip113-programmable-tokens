@@ -67,11 +67,17 @@ pub type BlacklistProof {
 pub type ProgrammableLogicGlobalRedeemer {
   /// Transfer action with proofs for each token type
   TransferAct { proofs: List<RegistryProof> }
-  /// Third party action for admin operations (seizure, etc.)
+  /// Third party action for admin operations (seizure, freeze, etc.)
+  /// Supports multiple UTxOs in a single transaction
   ThirdPartyAct {
-    seize_input_idx: Int,
-    seize_output_idx: Int,
+    /// Index of the registry node in reference inputs
     registry_node_idx: Int,
+    /// List of input indices to process (supports multi-UTxO operations)
+    input_idxs: List<Int>,
+    /// Starting index in outputs where processed outputs begin
+    outputs_start_idx: Int,
+    /// Length of input_idxs list (for validation)
+    length_input_idxs: Int,
   }
 }
 
