@@ -10,9 +10,8 @@ use cardano/assets.{
 }
 use cardano/transaction.{Input, Output, Transaction}
 use types.{
-  RegistryNode, ProgrammableLogicGlobalParams,
-  ProgrammableLogicGlobalRedeemer, ThirdPartyAct, TokenDoesNotExist, TokenExists,
-  RegistryProof, TransferAct,
+  ProgrammableLogicGlobalParams, ProgrammableLogicGlobalRedeemer, RegistryNode,
+  RegistryProof, ThirdPartyAct, TokenDoesNotExist, TokenExists, TransferAct,
 }
 use utils.{
   bytearray_lt, elem_at, expect_inline_datum, has_currency_symbol,
@@ -62,14 +61,20 @@ validator programmable_logic_global(protocol_params_cs: PolicyId) {
           invoked_scripts,
         )
 
-      ThirdPartyAct { seize_input_idx, seize_output_idx, registry_node_idx } ->
-        validate_seize(
+      ThirdPartyAct {
+        registry_node_idx,
+        input_idxs,
+        outputs_start_idx,
+        length_input_idxs,
+      } ->
+        validate_third_party(
           self,
           prog_logic_cred,
           registry_node_cs,
-          seize_input_idx,
-          seize_output_idx,
           registry_node_idx,
+          input_idxs,
+          outputs_start_idx,
+          length_input_idxs,
           invoked_scripts,
         )
     }
@@ -136,54 +141,71 @@ fn validate_transfer(
   }
 }
 
-/// Validate a third party action (seize, etc.)
-fn validate_seize(
+/// Validate a third party action (seizure, freeze, etc.) on multiple UTxOs
+/// Migrated from Plutarch multi-seize PR #99
+fn validate_third_party(
   tx: Transaction,
   prog_logic_cred: Credential,
   registry_node_cs: PolicyId,
-  seize_input_idx: Int,
-  seize_output_idx: Int,
   registry_node_idx: Int,
+  input_idxs: List<Int>,
+  outputs_start_idx: Int,
+  length_input_idxs: Int,
   invoked_scripts: List<Credential>,
 ) -> Bool {
-  // Get the input being seized
-  let seize_input = elem_at(tx.inputs, seize_input_idx)
+  trace @"validate_third_party: processing multiple inputs"
 
-  // Must be from prog_logic_cred
-  expect seize_input.output.address.payment_credential == prog_logic_cred
+  // Verify length parameter matches actual list length
+  expect list.length(input_idxs) == length_input_idxs
 
-  // Get the registry node for this token
+  // Get the registry node for this token policy
   let registry_ref_input = elem_at(tx.reference_inputs, registry_node_idx)
   let registry_datum = expect_inline_datum(registry_ref_input.output)
   expect registry_node: RegistryNode = registry_datum
 
-  // Validate registry node is authentic
-  expect
-    has_currency_symbol(registry_ref_input.output.value, registry_node_cs)
+  // Get the policy ID from the registry
+  let policy_id = registry_node.key
 
-  // The third party transfer logic script must be invoked
-  expect list.has(invoked_scripts, registry_node.third_party_transfer_logic_script)
+  // Process each input-output pair
+  // For each input at input_idxs[i], there should be a corresponding output at outputs_start_idx + i
+  let matching_outputs =
+    list.indexed_foldr(
+      input_idxs,
+      True,
+      fn(idx, input_idx, acc) {
+        // Get the input being processed
+        let input = elem_at(tx.inputs, input_idx)
 
-  // Get the expected output (seized tokens removed)
-  let seize_output = elem_at(tx.outputs, seize_output_idx)
+        // Calculate corresponding output index
+        let output_idx = outputs_start_idx + idx
+        let output = elem_at(tx.outputs, output_idx)
 
-  // Filter the input value to only include tokens from the seized policy
-  let seized_cs = registry_node.key
-  let filtered_value = restricted_to(seize_input.output.value, [seized_cs])
+        // Filter the input value to only include tokens from this policy
+        let filtered_value = restricted_to(input.output.value, [policy_id])
 
-  // Expected output value is input value with seized tokens removed
-  let expected_output_value =
-    merge(seize_input.output.value, negate(filtered_value))
+        // Expected output value is input value with policy tokens removed
+        let expected_output_value =
+          merge(input.output.value, negate(filtered_value))
 
-  // Validate the output matches expectations
-  expect seize_output.address == seize_input.output.address
-  expect seize_output.value == expected_output_value
-  expect seize_output.datum == seize_input.output.datum
+        and {
+          acc,
+          // Must be from prog_logic_cred
+          input.output.address.payment_credential == prog_logic_cred,
+          // Validate the output matches expectations:
+          // - Same address
+          // - Value with tokens removed
+          // - Same datum
+          output.address == input.output.address,
+          output.value == expected_output_value,
+          output.datum == input.output.datum,
+          // Prevent DDOS: must actually remove some tokens
+          input.output.value != expected_output_value,
+        }
+      },
+    )
 
-  // Prevent DDOS: must actually remove some tokens
-  expect seize_input.output.value != expected_output_value
-
-  // Only allow one input from prog_logic_cred (the seized input)
+  // Verify that ONLY the specified inputs from prog_logic_cred are consumed
+  // Count how many inputs from prog_logic_cred are in the transaction
   let prog_input_count =
     list.length(
       list.filter(
@@ -191,9 +213,16 @@ fn validate_seize(
         fn(input) { input.output.address.payment_credential == prog_logic_cred },
       ),
     )
-  expect prog_input_count == 1
 
-  True
+  and {
+    // Validate registry node is authentic
+    has_currency_symbol(registry_ref_input.output.value, registry_node_cs),
+    // The third party transfer logic script must be invoked
+    list.has(invoked_scripts, registry_node.third_party_transfer_logic_script),
+    matching_outputs,
+    // Must match the number of inputs we're processing
+    prog_input_count == length_input_idxs,
+  }
 }
 
 /// Get inputs from prog_logic_cred and verify ALL have proper authorization
