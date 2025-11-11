@@ -5,7 +5,7 @@ use aiken/collection/list
 // Migrated from various Plutarch utility modules
 
 use cardano/address.{Credential}
-use cardano/assets.{PolicyId, Value, flatten, quantity_of, tokens}
+use cardano/assets.{PolicyId, Value, flatten, quantity_of}
 use cardano/transaction.{InlineDatum, Input, Output, Transaction}
 
 /// Check if a value contains at least the required amount of a specific asset
@@ -15,6 +15,28 @@ pub fn value_contains(value: Value, required: Value) -> Bool {
     fn(asset) {
       let (policy, name, req_qty) = asset
       quantity_of(value, policy, name) >= req_qty
+    },
+  )
+}
+
+// Is there any chance values have same assets.....
+pub fn value_contains_v2(value: Value, required: Value) -> Bool {
+  assets.reduce(
+    required,
+    True,
+    fn(policy, name, req_qty, acc) {
+      acc && quantity_of(value, policy, name) >= req_qty
+    },
+  )
+}
+
+// Is there any chance values have same assets.....
+pub fn expect_value_contains_v3(value: Value, required: Value) -> Void {
+  assets.reduce(
+    required,
+    Void,
+    fn(policy, name, req_qty, _acc) {
+      expect quantity_of(value, policy, name) >= req_qty
     },
   )
 }
@@ -46,7 +68,10 @@ pub fn must_find_input(
 
 /// Check if a currency symbol is present in a value
 pub fn has_currency_symbol(value: Value, cs: PolicyId) -> Bool {
-  !dict.is_empty(tokens(value, cs))
+  // Check if I have assets name () -> quantity_of
+  // to_dict - values are dict. , and 
+  assets.to_dict(value) |> dict.has_key(cs)
+  // !dict.is_empty(tokens(value, cs))
 }
 
 /// Count unique tokens in a value (number of distinct currency symbol + token name pairs)

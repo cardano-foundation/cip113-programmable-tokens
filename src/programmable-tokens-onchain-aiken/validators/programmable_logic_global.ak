@@ -1,3 +1,4 @@
+use aiken/collection/dict
 use aiken/collection/list
 // Programmable Logic Global Stake Validator
 // This is the core CIP-0143 validator that coordinates all programmable token transfers
@@ -5,8 +6,7 @@ use aiken/collection/list
 
 use cardano/address.{Credential, Inline, Script, VerificationKey}
 use cardano/assets.{
-  PolicyId, Value, merge, negate, policies, restricted_to, without_lovelace,
-  zero,
+  PolicyId, Value, merge, negate, policies, restricted_to, zero,
 }
 use cardano/transaction.{Input, Output, Transaction}
 use types.{
@@ -25,15 +25,11 @@ validator programmable_logic_global(protocol_params_cs: PolicyId) {
     self: Transaction,
   ) {
     trace @"Starting programmable_logic_global validation"
+
     // Extract protocol parameters from reference inputs
-    let protocol_params_ref_opt =
-      list.find(
-        self.reference_inputs,
-        fn(input) {
-          has_currency_symbol(input.output.value, protocol_params_cs)
-        },
-      )
-    expect Some(protocol_params_ref) = protocol_params_ref_opt
+    let protocol_params_ref <-
+      get_protocol_params_ref(protocol_params_cs, self.reference_inputs)
+
     let protocol_params_utxo = protocol_params_ref.output
     let params_datum = expect_inline_datum(protocol_params_utxo)
     expect params: ProgrammableLogicGlobalParams = params_datum
@@ -50,7 +46,6 @@ validator programmable_logic_global(protocol_params_cs: PolicyId) {
           cred
         },
       )
-
     when redeemer is {
       TransferAct { proofs } ->
         validate_transfer(
@@ -82,6 +77,22 @@ validator programmable_logic_global(protocol_params_cs: PolicyId) {
 
   else(_) {
     fail
+  }
+}
+
+fn get_protocol_params_ref(
+  protocol_params_cs: PolicyId,
+  ref_inputs: List<Input>,
+  return: fn(Input) -> result,
+) -> result {
+  when ref_inputs is {
+    [] -> fail @"Protocol parameters reference input not found"
+    [first_ref, ..rest_refs] ->
+      if has_currency_symbol(first_ref.output.value, protocol_params_cs) {
+        return(first_ref)
+      } else {
+        get_protocol_params_ref(protocol_params_cs, rest_refs, return)
+      }
   }
 }
 
@@ -283,11 +294,7 @@ fn check_transfer_logic_and_filter(
   proofs: List<RegistryProof>,
   invoked_scripts: List<Credential>,
 ) -> Value {
-  // Get all currency symbols from the value (except Ada)
-  let stripped = without_lovelace(value)
-  // Group by currency symbol
-  let currency_symbols = policies(stripped)
-
+  expect [_, ..currency_symbols] = policies(value)
   // For each currency symbol, check the proof
   validate_currency_symbols(
     currency_symbols,
@@ -295,7 +302,7 @@ fn check_transfer_logic_and_filter(
     reference_inputs,
     registry_node_cs,
     invoked_scripts,
-    stripped,
+    value,
     // Pass the original value so we can filter by CS
     zero,
   )
@@ -334,8 +341,11 @@ fn validate_currency_symbols(
           let new_acc =
             if validated {
               // Add this CS's tokens from the original value to the accumulator
-              let cs_tokens = restricted_to(original_value, [cs])
-              merge(acc_value, cs_tokens)
+              dict.foldl(
+                assets.tokens(original_value, cs),
+                acc_value,
+                fn(name, amount, acc) { assets.add(acc, cs, name, amount) },
+              )
             } else {
               // Not a programmable token, skip it
               acc_value

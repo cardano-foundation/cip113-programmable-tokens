@@ -4,8 +4,8 @@ use cardano/address.{Address, Credential, Inline, Script, VerificationKey}
 use cardano/assets.{PolicyId, from_asset, merge, negate, zero}
 use cardano/transaction.{Input, NoDatum, Output, OutputReference}
 use types.{
-  ProgrammableLogicGlobalParams, RegistryNode, ThirdPartyAct, TokenDoesNotExist,
-  TokenExists, TransferAct,
+  ProgrammableLogicGlobalParams, RegistryNode, TokenDoesNotExist, TokenExists,
+  TransferAct,
 }
 use utils.{bytearray_lt}
 
