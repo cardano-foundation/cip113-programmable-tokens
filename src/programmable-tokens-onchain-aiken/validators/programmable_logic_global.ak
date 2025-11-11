@@ -106,10 +106,11 @@ fn validate_transfer(
   // by summing all inputs from the programmable logic credential
 
   // Get all inputs from prog_logic_cred where the owner (stake credential) has signed
-  let prog_inputs = get_signed_prog_inputs(tx, prog_logic_cred)
+  // let prog_inputs = get_signed_prog_inputs(tx, prog_logic_cred)
 
   // Sum up the value from those inputs
-  let total_prog_value = sum_input_values(prog_inputs)
+  // let total_prog_value = sum_input_values(prog_inputs)
+  let total_prog_value = get_signed_prog_value(tx, prog_logic_cred)
 
   // Check transfer logic for each programmable token type and filter to only programmable tokens
   let validated_prog_value =
@@ -172,6 +173,7 @@ fn validate_third_party(
     input_idxs,
     Void,
     fn(idx, input_idx, _acc) {
+      // TODO: improvements Check if the inputs are ordered
       // Get the input being processed
       let input = elem_at(tx.inputs, input_idx)
 
@@ -219,51 +221,80 @@ fn validate_third_party(
   }
 }
 
-/// Get inputs from prog_logic_cred and verify ALL have proper authorization
-/// This function enforces ownership by requiring that every input from prog_logic_cred
-/// is authorized by its stake credential (signature or script invocation).
-/// If ANY input lacks authorization, the transaction FAILS.
-fn get_signed_prog_inputs(
-  tx: Transaction,
-  prog_logic_cred: Credential,
-) -> List<Input> {
-  // First, collect ALL inputs from prog_logic_cred
-  let prog_cred_inputs =
-    list.filter(
-      tx.inputs,
-      fn(input) { input.output.address.payment_credential == prog_logic_cred },
-    )
+fn get_signed_prog_value(tx: Transaction, prog_logic_cred: Credential) -> Value {
+  list.foldl(
+    tx.inputs,
+    assets.zero,
+    fn(input, acc) {
+      if input.output.address.payment_credential == prog_logic_cred {
+        expect Some(Inline(stake_cred)) = input.output.address.stake_credential
 
-  // Verify each input is properly authorized and return them
-  // If any input is NOT authorized, the transaction fails with an error
-  list.map(
-    prog_cred_inputs,
-    fn(input) {
-      expect Some(Inline(stake_cred)) = input.output.address.stake_credential
-
-      when stake_cred is {
-        VerificationKey(pkh) ->
-          if is_signed_by(tx, pkh) {
-            input
-          } else {
-            fail @"Missing required pk witness"
-          }
-        Script(_hash) ->
-          if is_script_invoked(tx, stake_cred) {
-            input
-          } else {
-            fail @"Missing required script witness"
-          }
+        when stake_cred is {
+          VerificationKey(pkh) ->
+            if is_signed_by(tx, pkh) {
+              merge(acc, input.output.value)
+            } else {
+              fail @"Missing required pk witness"
+            }
+          Script(_hash) ->
+            if is_script_invoked(tx, stake_cred) {
+              merge(acc, input.output.value)
+            } else {
+              fail @"Missing required script witness"
+            }
+        }
+      } else {
+        acc
       }
     },
   )
 }
 
-/// Sum values from a list of inputs
-fn sum_input_values(inputs: List<Input>) -> Value {
-  list.foldl(inputs, zero, fn(input, acc) { merge(acc, input.output.value) })
-}
+// fn get_signed_prog_inputs(
+//   tx: Transaction,
+//   prog_logic_cred: Credential,
+// ) -> List<Input> {
+//   // First, collect ALL inputs from prog_logic_cred
+//   let prog_cred_inputs =
+//     list.filter(
+//       tx.inputs,
+//       fn(input) { input.output.address.payment_credential == prog_logic_cred },
+//     )
 
+//   // Verify each input is properly authorized and return them
+//   // If any input is NOT authorized, the transaction fails with an error
+//   list.map(
+//     prog_cred_inputs,
+//     fn(input) {
+//       expect Some(Inline(stake_cred)) = input.output.address.stake_credential
+
+//       when stake_cred is {
+//         VerificationKey(pkh) ->
+//           if is_signed_by(tx, pkh) {
+//             input
+//           } else {
+//             fail @"Missing required pk witness"
+//           }
+//         Script(_hash) ->
+//           if is_script_invoked(tx, stake_cred) {
+//             input
+//           } else {
+//             fail @"Missing required script witness"
+//           }
+//       }
+//     },
+//   )
+// }
+
+// fn sum_input_values(inputs: List<Input>) -> Value {
+//   list.foldl(inputs, zero, fn(input, acc) { merge(acc, input.output.value) })
+// }
+
+/// Get inputs from prog_logic_cred and verify ALL have proper authorization
+/// This function enforces ownership by requiring that every input from prog_logic_cred
+/// is authorized by its stake credential (signature or script invocation).
+/// If ANY input lacks authorization, the transaction FAILS.
+/// Sum values from a list of inputs
 /// Check transfer logic for each currency symbol and filter to only programmable tokens
 fn check_transfer_logic_and_filter(
   value: Value,
