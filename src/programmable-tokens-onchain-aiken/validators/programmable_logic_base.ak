@@ -21,18 +21,13 @@ validator programmable_logic_base(stake_cred: Credential) {
     // via the withdraw-zero pattern
     // Check that the stake credential is invoked
     // Optimization: check first withdrawal before scanning the rest
-    expect [first_wdrl, ..rest_wdrls] = self.withdrawals
-    let Pair(first_cred, _amount) = first_wdrl
-    or {
-      (first_cred == stake_cred)?,
-      list.any(
-        rest_wdrls,
-        fn(wdrl) {
-          let Pair(cred, _amount) = wdrl
-          cred == stake_cred
-        },
-      ),
-    }
+    list.any(
+      self.withdrawals,
+      fn(wdrl) {
+        let Pair(cred, _amount) = wdrl
+        cred == stake_cred
+      },
+    )
   }
 
   else(_) {

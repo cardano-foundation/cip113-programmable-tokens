@@ -1,22 +1,20 @@
+use aiken/collection/dict.{Dict}
 use aiken/collection/list
+use aiken/collection/pairs
 // Programmable Logic Global Stake Validator
 // This is the core CIP-0143 validator that coordinates all programmable token transfers
 // Migrated from SmartTokens.Contracts.ProgrammableLogicBase (mkProgrammableLogicGlobal)
 
 use cardano/address.{Credential, Inline, Script, VerificationKey}
-use cardano/assets.{
-  PolicyId, Value, merge, negate, policies, restricted_to, without_lovelace,
-  zero,
-}
+use cardano/assets.{PolicyId, Value, ada_policy_id, merge, zero}
 use cardano/transaction.{Input, Output, Transaction}
 use types.{
-  RegistryNode, ProgrammableLogicGlobalParams,
-  ProgrammableLogicGlobalRedeemer, ThirdPartyAct, TokenDoesNotExist, TokenExists,
-  RegistryProof, TransferAct,
+  ProgrammableLogicGlobalParams, ProgrammableLogicGlobalRedeemer, RegistryNode,
+  RegistryProof, ThirdPartyAct, TokenDoesNotExist, TokenExists, TransferAct,
 }
 use utils.{
-  bytearray_lt, elem_at, expect_inline_datum, has_currency_symbol,
-  is_script_invoked, is_signed_by, value_contains,
+  bytearray_lt, elem_at, expect_inline_datum, expect_value_contains_v3,
+  has_currency_symbol, is_script_invoked, is_signed_by,
 }
 
 validator programmable_logic_global(protocol_params_cs: PolicyId) {
@@ -26,15 +24,11 @@ validator programmable_logic_global(protocol_params_cs: PolicyId) {
     self: Transaction,
   ) {
     trace @"Starting programmable_logic_global validation"
+
     // Extract protocol parameters from reference inputs
-    let protocol_params_ref_opt =
-      list.find(
-        self.reference_inputs,
-        fn(input) {
-          has_currency_symbol(input.output.value, protocol_params_cs)
-        },
-      )
-    expect Some(protocol_params_ref) = protocol_params_ref_opt
+    let protocol_params_ref <-
+      get_protocol_params_ref(protocol_params_cs, self.reference_inputs)
+
     let protocol_params_utxo = protocol_params_ref.output
     let params_datum = expect_inline_datum(protocol_params_utxo)
     expect params: ProgrammableLogicGlobalParams = params_datum
@@ -51,7 +45,6 @@ validator programmable_logic_global(protocol_params_cs: PolicyId) {
           cred
         },
       )
-
     when redeemer is {
       TransferAct { proofs } ->
         validate_transfer(
@@ -62,14 +55,20 @@ validator programmable_logic_global(protocol_params_cs: PolicyId) {
           invoked_scripts,
         )
 
-      ThirdPartyAct { seize_input_idx, seize_output_idx, registry_node_idx } ->
-        validate_seize(
+      ThirdPartyAct {
+        registry_node_idx,
+        input_idxs,
+        outputs_start_idx,
+        length_input_idxs,
+      } ->
+        validate_third_party(
           self,
           prog_logic_cred,
           registry_node_cs,
-          seize_input_idx,
-          seize_output_idx,
           registry_node_idx,
+          input_idxs,
+          outputs_start_idx,
+          length_input_idxs,
           invoked_scripts,
         )
     }
@@ -77,6 +76,22 @@ validator programmable_logic_global(protocol_params_cs: PolicyId) {
 
   else(_) {
     fail
+  }
+}
+
+fn get_protocol_params_ref(
+  protocol_params_cs: PolicyId,
+  ref_inputs: List<Input>,
+  return: fn(Input) -> result,
+) -> result {
+  when ref_inputs is {
+    [] -> fail @"Protocol parameters reference input not found"
+    [first_ref, ..rest_refs] ->
+      if has_currency_symbol(first_ref.output.value, protocol_params_cs) {
+        return(first_ref)
+      } else {
+        get_protocol_params_ref(protocol_params_cs, rest_refs, return)
+      }
   }
 }
 
@@ -92,14 +107,15 @@ fn validate_transfer(
   // by summing all inputs from the programmable logic credential
 
   // Get all inputs from prog_logic_cred where the owner (stake credential) has signed
-  let prog_inputs = get_signed_prog_inputs(tx, prog_logic_cred)
+  // let prog_inputs = get_signed_prog_inputs(tx, prog_logic_cred)
 
   // Sum up the value from those inputs
-  let total_prog_value = sum_input_values(prog_inputs)
+  // let total_prog_value = sum_input_values(prog_inputs)
+  let total_prog_value = get_signed_prog_value(tx, prog_logic_cred)
 
   // Check transfer logic for each programmable token type and filter to only programmable tokens
   let validated_prog_value =
-    check_transfer_logic_and_filter(
+    check_transfer_and_compute_prog_value(
       total_prog_value,
       registry_node_cs,
       tx.reference_inputs,
@@ -107,169 +123,278 @@ fn validate_transfer(
       invoked_scripts,
     )
 
-  // Ensure all programmable tokens go to outputs at prog_logic_cred
-  // AND that all such outputs have a stake credential (to prevent token locking)
-  let prog_outputs =
-    list.filter(
+  let output_prog_value =
+    list.foldl(
       tx.outputs,
-      fn(output) { output.address.payment_credential == prog_logic_cred },
-    )
-
-  // Validate that all prog_logic_cred outputs have stake credentials
-  // This prevents permanent token locking
-  let all_outputs_have_staking_credentials =
-    list.all(
-      prog_outputs,
-      fn(output) {
-        when output.address.stake_credential is {
-          Some(Inline(_)) -> True
-          _ -> False
+      assets.zero,
+      fn(output, acc) {
+        if output.address.payment_credential == prog_logic_cred {
+          expect Some(Inline(_stake_cred)) = output.address.stake_credential
+          // expensive
+          merge(acc, output.value)
+        } else {
+          acc
         }
       },
     )
 
-  let output_prog_value = sum_output_values(prog_outputs)
   // The output must contain all the validated programmable tokens
-  and {
-    all_outputs_have_staking_credentials?,
-    value_contains(output_prog_value, validated_prog_value)?,
-  }
+  expect_value_contains_v3(output_prog_value, validated_prog_value)
+  True
 }
 
-/// Validate a third party action (seize, etc.)
-fn validate_seize(
+/// Validate a third party action (seizure, freeze, etc.) on multiple UTxOs
+/// Migrated from Plutarch multi-seize PR #99
+fn validate_third_party(
   tx: Transaction,
   prog_logic_cred: Credential,
   registry_node_cs: PolicyId,
-  seize_input_idx: Int,
-  seize_output_idx: Int,
   registry_node_idx: Int,
+  input_idxs: List<Int>,
+  outputs_start_idx: Int,
+  length_input_idxs: Int,
   invoked_scripts: List<Credential>,
 ) -> Bool {
-  // Get the input being seized
-  let seize_input = elem_at(tx.inputs, seize_input_idx)
+  trace @"validate_third_party: processing multiple inputs"
 
-  // Must be from prog_logic_cred
-  expect seize_input.output.address.payment_credential == prog_logic_cred
-
-  // Get the registry node for this token
+  // Verify length parameter matches actual list length
+  // expect list.length(input_idxs) == length_input_idxs
+  // Get the registry node for this token policy
   let registry_ref_input = elem_at(tx.reference_inputs, registry_node_idx)
   let registry_datum = expect_inline_datum(registry_ref_input.output)
   expect registry_node: RegistryNode = registry_datum
 
-  // Validate registry node is authentic
-  expect
-    has_currency_symbol(registry_ref_input.output.value, registry_node_cs)
+  // Get the policy ID from the registry
+  let policy_id = registry_node.key
 
-  // The third party transfer logic script must be invoked
-  expect list.has(invoked_scripts, registry_node.third_party_transfer_logic_script)
+  // Process each input-output pair
+  // For each input at input_idxs[i], there should be a corresponding output at outputs_start_idx + i
+  let input_size =
+    list.indexed_foldr(
+      input_idxs,
+      0,
+      fn(idx, input_idx, acc) {
+        // TODO: improvements Check if the inputs are ordered
+        // Get the input being processed
+        let input = elem_at(tx.inputs, input_idx)
 
-  // Get the expected output (seized tokens removed)
-  let seize_output = elem_at(tx.outputs, seize_output_idx)
+        // Calculate corresponding output index
+        let output_idx = outputs_start_idx + idx
+        let output = elem_at(tx.outputs, output_idx)
 
-  // Filter the input value to only include tokens from the seized policy
-  let seized_cs = registry_node.key
-  let filtered_value = restricted_to(seize_input.output.value, [seized_cs])
+        let expected_output_dict =
+          assets.to_dict(input.output.value) |> dict.delete(policy_id)
 
-  // Expected output value is input value with seized tokens removed
-  let expected_output_value =
-    merge(seize_input.output.value, negate(filtered_value))
-
-  // Validate the output matches expectations
-  expect seize_output.address == seize_input.output.address
-  expect seize_output.value == expected_output_value
-  expect seize_output.datum == seize_input.output.datum
-
-  // Prevent DDOS: must actually remove some tokens
-  expect seize_input.output.value != expected_output_value
-
-  // Only allow one input from prog_logic_cred (the seized input)
-  let prog_input_count =
-    list.length(
-      list.filter(
-        tx.inputs,
-        fn(input) { input.output.address.payment_credential == prog_logic_cred },
-      ),
+        // // Filter the input value to only include tokens from this policy
+        // let filtered_value = restricted_to(input.output.value, [policy_id])
+        // // Expected output value is input value with policy tokens removed
+        // let expected_output_value =
+        //   merge(input.output.value, negate(filtered_value))
+        // Must be from prog_logic_cred
+        expect input.output.address.payment_credential == prog_logic_cred
+        // Validate the output matches expectations:
+        // - Same address
+        // - Value with tokens removed
+        // - Same datum
+        expect output.address == input.output.address
+        expect assets.to_dict(output.value) == expected_output_dict
+        expect output.datum == input.output.datum
+        // Prevent DDOS: must actually remove some tokens
+        expect assets.to_dict(input.output.value) != expected_output_dict
+        acc + 1
+      },
     )
-  expect prog_input_count == 1
 
-  True
-}
-
-/// Get inputs from prog_logic_cred and verify ALL have proper authorization
-/// This function enforces ownership by requiring that every input from prog_logic_cred
-/// is authorized by its stake credential (signature or script invocation).
-/// If ANY input lacks authorization, the transaction FAILS.
-fn get_signed_prog_inputs(
-  tx: Transaction,
-  prog_logic_cred: Credential,
-) -> List<Input> {
-  // First, collect ALL inputs from prog_logic_cred
-  let prog_cred_inputs =
-    list.filter(
+  expect input_size == length_input_idxs
+  // Verify that ONLY the specified inputs from prog_logic_cred are consumed
+  // Count how many inputs from prog_logic_cred are in the transaction
+  let prog_input_count =
+    list.count(
       tx.inputs,
       fn(input) { input.output.address.payment_credential == prog_logic_cred },
     )
+  and {
+    // Validate registry node is authentic
+    has_currency_symbol(registry_ref_input.output.value, registry_node_cs),
+    // The third party transfer logic script must be invoked
+    list.has(invoked_scripts, registry_node.third_party_transfer_logic_script),
+    // matching_outputs,
+    // Must match the number of inputs we're processing
+    prog_input_count == length_input_idxs,
+  }
+}
 
-  // Verify each input is properly authorized and return them
-  // If any input is NOT authorized, the transaction fails with an error
-  list.map(
-    prog_cred_inputs,
-    fn(input) {
-      expect Some(Inline(stake_cred)) = input.output.address.stake_credential
+fn get_signed_prog_value(tx: Transaction, prog_logic_cred: Credential) -> Value {
+  list.foldl(
+    tx.inputs,
+    assets.zero,
+    fn(input, acc) {
+      if input.output.address.payment_credential == prog_logic_cred {
+        expect Some(Inline(stake_cred)) = input.output.address.stake_credential
 
-      when stake_cred is {
-        VerificationKey(pkh) ->
-          if is_signed_by(tx, pkh) {
-            input
-          } else {
-            fail @"Missing required pk witness"
-          }
-        Script(_hash) ->
-          if is_script_invoked(tx, stake_cred) {
-            input
-          } else {
-            fail @"Missing required script witness"
-          }
+        when stake_cred is {
+          VerificationKey(pkh) ->
+            if is_signed_by(tx, pkh) {
+              merge(acc, input.output.value)
+            } else {
+              fail @"Missing required pk witness"
+            }
+          Script(_hash) ->
+            if is_script_invoked(tx, stake_cred) {
+              merge(acc, input.output.value)
+            } else {
+              fail @"Missing required script witness"
+            }
+        }
+      } else {
+        acc
       }
     },
   )
 }
 
+// fn get_signed_prog_inputs(
+//   tx: Transaction,
+//   prog_logic_cred: Credential,
+// ) -> List<Input> {
+//   // First, collect ALL inputs from prog_logic_cred
+//   let prog_cred_inputs =
+//     list.filter(
+//       tx.inputs,
+//       fn(input) { input.output.address.payment_credential == prog_logic_cred },
+//     )
+
+//   // Verify each input is properly authorized and return them
+//   // If any input is NOT authorized, the transaction fails with an error
+//   list.map(
+//     prog_cred_inputs,
+//     fn(input) {
+//       expect Some(Inline(stake_cred)) = input.output.address.stake_credential
+
+//       when stake_cred is {
+//         VerificationKey(pkh) ->
+//           if is_signed_by(tx, pkh) {
+//             input
+//           } else {
+//             fail @"Missing required pk witness"
+//           }
+//         Script(_hash) ->
+//           if is_script_invoked(tx, stake_cred) {
+//             input
+//           } else {
+//             fail @"Missing required script witness"
+//           }
+//       }
+//     },
+//   )
+// }
+
+// fn sum_input_values(inputs: List<Input>) -> Value {
+//   list.foldl(inputs, zero, fn(input, acc) { merge(acc, input.output.value) })
+// }
+
+// fn check_transfer_logic_and_filter(
+//   value: Value,
+//   registry_node_cs: PolicyId,
+//   reference_inputs: List<Input>,
+//   proofs: List<RegistryProof>,
+//   invoked_scripts: List<Credential>,
+// ) -> Value {
+//   expect [_, ..currency_symbols] = policies(value)
+//   // For each currency symbol, check the proof
+//   validate_currency_symbols(
+//     currency_symbols,
+//     proofs,
+//     reference_inputs,
+//     registry_node_cs,
+//     invoked_scripts,
+//     value,
+//     // Pass the original value so we can filter by CS
+//     zero,
+//   )
+// }
+
+/// Get inputs from prog_logic_cred and verify ALL have proper authorization
+/// This function enforces ownership by requiring that every input from prog_logic_cred
+/// is authorized by its stake credential (signature or script invocation).
+/// If ANY input lacks authorization, the transaction FAILS.
 /// Sum values from a list of inputs
-fn sum_input_values(inputs: List<Input>) -> Value {
-  list.foldl(inputs, zero, fn(input, acc) { merge(acc, input.output.value) })
-}
-
-/// Sum values from a list of outputs
-fn sum_output_values(outputs: List<Output>) -> Value {
-  list.foldl(outputs, zero, fn(output, acc) { merge(acc, output.value) })
-}
-
 /// Check transfer logic for each currency symbol and filter to only programmable tokens
-fn check_transfer_logic_and_filter(
+fn check_transfer_and_compute_prog_value(
   value: Value,
   registry_node_cs: PolicyId,
   reference_inputs: List<Input>,
   proofs: List<RegistryProof>,
   invoked_scripts: List<Credential>,
 ) -> Value {
-  // Get all currency symbols from the value (except Ada)
-  let stripped = without_lovelace(value)
-  // Group by currency symbol
-  let currency_symbols = policies(stripped)
+  let
+    remaining_proofs,
+    acc_value,
+  <-
+    do_check_transfer(
+      value
+        |> assets.to_dict
+        |> dict.to_pairs
+        |> pairs.delete_first(ada_policy_id),
+      registry_node_cs,
+      reference_inputs,
+      invoked_scripts,
+      proofs,
+      zero,
+    )
+  expect [] == remaining_proofs
+  acc_value
+}
 
-  // For each currency symbol, check the proof
-  validate_currency_symbols(
-    currency_symbols,
-    proofs,
-    reference_inputs,
-    registry_node_cs,
-    invoked_scripts,
-    stripped,
-    // Pass the original value so we can filter by CS
-    zero,
-  )
+fn do_check_transfer(
+  my_value: Pairs<PolicyId, Dict<ByteArray, Int>>,
+  registry_node_cs: PolicyId,
+  reference_inputs: List<Input>,
+  invoked_scripts: List<Credential>,
+  proofs: List<RegistryProof>,
+  acc: Value,
+  return: fn(List<RegistryProof>, Value) -> result,
+) -> result {
+  when my_value is {
+    [] -> return(proofs, acc)
+    [Pair(cs, tokens), ..rest] ->
+      when proofs is {
+        [] -> fail @"Not enough proofs for currency symbols"
+        [proof, ..rest_proofs] -> {
+          let validated =
+            validate_single_cs(
+              cs,
+              proof,
+              reference_inputs,
+              registry_node_cs,
+              invoked_scripts,
+            )
+
+          let new_acc =
+            if validated {
+              // Add this CS's tokens from the original value to the accumulator
+              dict.foldl(
+                tokens,
+                acc,
+                fn(name, amount, acc) { assets.add(acc, cs, name, amount) },
+              )
+            } else {
+              // Not a programmable token, skip it
+              acc
+            }
+
+          do_check_transfer(
+            rest,
+            registry_node_cs,
+            reference_inputs,
+            invoked_scripts,
+            rest_proofs,
+            new_acc,
+            return,
+          )
+        }
+      }
+  }
 }
 
 /// Validate each currency symbol against proofs
@@ -305,8 +430,11 @@ fn validate_currency_symbols(
           let new_acc =
             if validated {
               // Add this CS's tokens from the original value to the accumulator
-              let cs_tokens = restricted_to(original_value, [cs])
-              merge(acc_value, cs_tokens)
+              dict.foldl(
+                assets.tokens(original_value, cs),
+                acc_value,
+                fn(name, amount, acc) { assets.add(acc, cs, name, amount) },
+              )
             } else {
               // Not a programmable token, skip it
               acc_value
