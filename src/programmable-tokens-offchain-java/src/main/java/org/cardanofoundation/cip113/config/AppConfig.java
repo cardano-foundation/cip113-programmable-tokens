@@ -29,13 +29,24 @@ public class AppConfig {
     @Getter
     public static class ProtocolParamsConfig {
 
+        @Value("${network}")
+        private String network;
+
         private List<String> transactionIds;
 
         @PostConstruct
         public void init() {
             try {
                 ObjectMapper objectMapper = new ObjectMapper();
-                ClassPathResource resource = new ClassPathResource("protocol-params.json");
+                String fileName = "protocol-params-" + network + ".json";
+                ClassPathResource resource = new ClassPathResource(fileName);
+
+                if (!resource.exists()) {
+                    log.warn("Protocol params file not found: {}, using empty transaction list", fileName);
+                    transactionIds = new ArrayList<>();
+                    return;
+                }
+
                 JsonNode rootNode = objectMapper.readTree(resource.getInputStream());
 
                 transactionIds = new ArrayList<>();
@@ -44,9 +55,9 @@ public class AppConfig {
                     txIdsNode.forEach(node -> transactionIds.add(node.asText()));
                 }
 
-                log.info("Loaded {} transaction IDs from protocol-params.json", transactionIds.size());
+                log.info("Loaded {} transaction IDs from {} for network: {}", transactionIds.size(), fileName, network);
             } catch (IOException e) {
-                log.error("Failed to load protocol-params.json", e);
+                log.error("Failed to load protocol-params-{}.json", network, e);
                 transactionIds = new ArrayList<>();
             }
         }
