@@ -6,6 +6,7 @@ spring:
     schemas: ${DB_SCHEMA:public}
     locations:
       - classpath:db/store/{vendor}
+      - classpath:db/migration
     out-of-order: true
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/cip113}
@@ -61,7 +62,7 @@ store:
     port: 0
     protocol-magic: 2
     # Start from the block that minted the ref input for the contract
-    sync-start-blockhash: c8e25e3b3125b049bb88333531f6da6e0882cd2eda3c369c50009a50175107c8
-    sync-start-slot: 93790678
+    sync-start-blockhash: e7090a1847bcd8df1c5d2ab4db6c670d80eb85aec154edbc040c981b77953258
+    sync-start-slot: 96214546
   blocks:
     epoch-calculation-interval=14400:  # 14400 = 4 hours
