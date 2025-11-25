@@ -1,15 +1,16 @@
 spring:
   flyway:
-    url: ${DB_URL:jdbc:postgresql://localhost:5432/cip143}
-    user: ${DB_USERNAME:cip143}
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/cip113}
+    user: ${DB_USERNAME:cardano}
     password: ${DB_PASSWORD:password}
     schemas: ${DB_SCHEMA:public}
     locations:
       - classpath:db/store/{vendor}
+      - classpath:db/migration
     out-of-order: true
   datasource:
-    url: ${DB_URL:jdbc:postgresql://localhost:5432/cip143}
-    username: ${DB_USERNAME:cip143}
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/cip113}
+    username: ${DB_USERNAME:cardano}
     password: ${DB_PASSWORD:password}
 
 network: mainnet
@@ -30,8 +31,6 @@ store:
     sync-start-blockhash: 586ead1770fc2a59021b824bc0d65bf1d6060585384f257971204d5925f054c2
     sync-start-slot: 154984561
     keep-alive-interval: 1000
-  blocks:
-    epoch-calculation-interval=14400:  # 14400 = 4 hours
 
 apiPrefix: /api/v1
 
@@ -40,6 +39,28 @@ management:
     web:
       exposure:
         include: health,prometheus
+
+---
+spring:
+  config:
+    activate:
+      on-profile: preprod
+
+network: preprod
+
+wallet:
+  mnemonic: ""
+
+blockfrost:
+  url: https://cardano-preprod.blockfrost.io/api/v0/
+
+store:
+  cardano:
+    host: ""
+    port: 0
+    protocol-magic: 1
+    sync-start-blockhash: ""
+    sync-start-slot: 0
 
 ---
 spring:
@@ -60,8 +81,5 @@ store:
     host: ""
     port: 0
     protocol-magic: 2
-    # Start from the block that minted the ref input for the contract
-    sync-start-blockhash: c8e25e3b3125b049bb88333531f6da6e0882cd2eda3c369c50009a50175107c8
-    sync-start-slot: 93790678
-  blocks:
-    epoch-calculation-interval=14400:  # 14400 = 4 hours
+    sync-start-blockhash: c196c1915bf07235284131d5f84b395061477285d74aba8634a82b5c2b22ed2f
+    sync-start-slot: 69599150
