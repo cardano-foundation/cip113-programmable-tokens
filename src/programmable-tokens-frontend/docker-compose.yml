@@ -1,0 +1,73 @@
+version: '3.8'
+
+services:
+  # Preview network deployment
+  frontend-preview:
+    image: easy1staking/cip113-frontend:preview
+    container_name: cip113-frontend-preview
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+    networks:
+      - cip113-network
+    labels:
+      - "com.cip113.network=preview"
+      - "com.cip113.service=frontend"
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000', (r) => {if (r.statusCode !== 200) throw new Error(r.statusCode)})"]
+      interval: 30s
+      timeout: 3s
+      start_period: 10s
+      retries: 3
+
+  # Preprod network deployment
+  frontend-preprod:
+    image: easy1staking/cip113-frontend:preprod
+    container_name: cip113-frontend-preprod
+    ports:
+      - "3001:3000"
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+    networks:
+      - cip113-network
+    labels:
+      - "com.cip113.network=preprod"
+      - "com.cip113.service=frontend"
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000', (r) => {if (r.statusCode !== 200) throw new Error(r.statusCode)})"]
+      interval: 30s
+      timeout: 3s
+      start_period: 10s
+      retries: 3
+    profiles:
+      - preprod
+
+  # Mainnet network deployment
+  frontend-mainnet:
+    image: easy1staking/cip113-frontend:mainnet
+    container_name: cip113-frontend-mainnet
+    ports:
+      - "3002:3000"
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+    networks:
+      - cip113-network
+    labels:
+      - "com.cip113.network=mainnet"
+      - "com.cip113.service=frontend"
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000', (r) => {if (r.statusCode !== 200) throw new Error(r.statusCode)})"]
+      interval: 30s
+      timeout: 3s
+      start_period: 10s
+      retries: 3
+    profiles:
+      - mainnet
+
+networks:
+  cip113-network:
+    driver: bridge

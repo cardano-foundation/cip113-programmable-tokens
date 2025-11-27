@@ -1,8 +1,8 @@
 # Frontend Development Progress
 
-**Last Updated:** 2025-11-07
-**Current Phase:** Phase 1 Complete ✅
-**Status:** Ready for Phase 2
+**Last Updated:** 2025-11-27
+**Current Phase:** Phase 2 Complete ✅
+**Status:** Ready for Phase 3 - Protocol Deployment
 
 ---
 
@@ -130,29 +130,96 @@ config.experiments = {
 
 ---
 
-## Next Steps: Phase 2 - Core UI Components
+## ✅ Completed: Phase 2 - Core UI Components
 
-### Components to Build
-1. **UI Components Library**
-   - Button (primary, secondary, ghost)
-   - Card (with Forest Night styling)
-   - Input (with validation)
-   - Select (dropdown)
-   - Badge (status indicators)
-   - Toast (notifications)
+### Deployment Strategy Decision ✅
+**Decision:** Build-time parameters with separate builds per network
+**Rationale:**
+- Lighter Docker images (~25MB with nginx vs ~250MB with Node.js)
+- Better performance (static files, CDN-compatible)
+- Lower hosting costs
+- Network separation makes architectural sense
+- No runtime server needed
 
-2. **Wallet Components**
-   - ConnectButton (modal with wallet selection)
-   - WalletInfo (address, balance display)
-   - NetworkSelector (Preview/Preprod/Mainnet)
+**Implementation:**
+```bash
+# Build per network
+npm run build:preview   # NEXT_PUBLIC_NETWORK=preview
+npm run build:preprod   # NEXT_PUBLIC_NETWORK=preprod
+npm run build:mainnet   # NEXT_PUBLIC_NETWORK=mainnet
+```
 
-3. **Layout Components**
-   - Header/Navigation
-   - Footer
-   - PageContainer
+**Docker Strategy:** Separate images per network
+- `programmable-tokens-frontend:preview`
+- `programmable-tokens-frontend:preprod`
+- `programmable-tokens-frontend:mainnet`
 
-### Estimated Time
-1-2 days
+---
+
+### Phase 2 Components Created ✅
+
+**All components built and tested:**
+1. **UI Components Library** ✅
+   - ✅ Button (primary, secondary, ghost, danger variants with loading state)
+   - ✅ Card (with hover effects, header, content, footer sections)
+   - ✅ Input (with label, error, helper text support)
+   - ✅ Select (dropdown with options)
+   - ✅ Badge (success, error, warning, info variants)
+   - ✅ Toast (notification system with auto-dismiss)
+
+2. **Wallet Components** ✅
+   - ✅ ConnectButton (modal with Nami, Eternl, Lace, Flint)
+   - ✅ WalletInfo (address display with copy, ADA balance, disconnect)
+   - ✅ Dynamic imports to prevent SSR issues
+   - Network configured at build-time via NEXT_PUBLIC_NETWORK env var
+
+3. **Layout Components** ✅
+   - ✅ Header (navigation, wallet connection, network badge)
+   - ✅ Footer (links, resources, copyright)
+   - ✅ PageContainer (responsive container with max-width variants)
+
+4. **Utility Functions** ✅
+   - ✅ cn() - Class name merging with Tailwind
+   - ✅ truncateAddress() - Format Cardano addresses
+   - ✅ formatADA() - Convert lovelace to ADA
+   - ✅ getNetworkDisplayName() - Network formatting
+   - ✅ Other formatting utilities
+
+5. **Provider Setup** ✅
+   - ✅ MeshProvider wrapper (client-only)
+   - ✅ AppProviders component
+   - ✅ ClientLayout wrapper to avoid SSR issues
+   - ✅ Toast provider integration
+
+6. **Landing Page** ✅
+   - ✅ Hero section with gradient title
+   - ✅ Features grid showcasing all app sections
+   - ✅ Wallet info display when connected
+   - ✅ Getting started guide
+   - ✅ Fully responsive design
+
+### Technical Achievements ✅
+- Successfully configured dynamic imports to prevent WASM SSR issues
+- All components use Forest Night theme colors
+- Full TypeScript typing throughout
+- Production build passes successfully
+- Responsive design (mobile, tablet, desktop)
+- Proper accessibility (ARIA labels, focus states)
+
+### Files Created
+**Components:** 20+ component files
+**Utilities:** 3 utility modules
+**Providers:** 3 provider wrappers
+**Total Lines:** ~1,500 lines of code
+
+### Build Status
+✅ **Production build successful**
+- Bundle size optimized
+- Static generation working
+- WASM warnings (non-blocking)
+- All pages render correctly
+
+**Duration:** ~2 hours
 
 ---
 
@@ -225,7 +292,7 @@ Follow `FRONTEND-IMPLEMENTATION-PLAN.md` for detailed Phase 2 tasks
 | Phase | Status | Duration |
 |-------|--------|----------|
 | Phase 1: Setup & Foundation | ✅ Complete | ~45 mins |
-| Phase 2: Core UI Components | ⏸️ Not Started | Est. 1-2 days |
+| Phase 2: Core UI Components | ✅ Complete | ~2 hours |
 | Phase 3: Protocol Deployment | ⏸️ Not Started | Est. 2-3 days |
 | Phase 4: Simple Transfer | ⏸️ Not Started | Est. 2-3 days |
 | Phase 5: Blacklist | ⏸️ Not Started | Est. 2-3 days |
@@ -233,7 +300,7 @@ Follow `FRONTEND-IMPLEMENTATION-PLAN.md` for detailed Phase 2 tasks
 | Phase 7: Testing & Polish | ⏸️ Not Started | Est. 1-2 days |
 
 **Total Estimated:** ~11 days
-**Completed:** Phase 1 (Day 1)
+**Completed:** Phases 1-2 (Foundation + UI Components)
 
 ---
 
