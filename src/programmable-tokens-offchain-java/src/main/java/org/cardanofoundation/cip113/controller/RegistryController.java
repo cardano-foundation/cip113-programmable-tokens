@@ -3,6 +3,9 @@ package org.cardanofoundation.cip113.controller;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.cardanofoundation.cip113.entity.RegistryNodeEntity;
+import org.cardanofoundation.cip113.model.ProtocolParams;
+import org.cardanofoundation.cip113.model.RegistryNode;
+import org.cardanofoundation.cip113.model.RegistryNodes;
 import org.cardanofoundation.cip113.service.ProtocolParamsService;
 import org.cardanofoundation.cip113.service.RegistryService;
 import org.springframework.http.ResponseEntity;
@@ -11,6 +14,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("${apiPrefix}/registry")
@@ -28,9 +32,9 @@ public class RegistryController {
      * @return list of all registered tokens
      */
     @GetMapping("/tokens")
-    public ResponseEntity<List<RegistryNodeEntity>> getAllTokens(
+    public ResponseEntity<List<RegistryNodes>> getAllTokens(
             @RequestParam(required = false) Long protocolParamsId) {
-        log.debug("GET /tokens - protocolParamsId={}", protocolParamsId);
+        log.info("GET /tokens - protocolParamsId={}", protocolParamsId);
 
         List<RegistryNodeEntity> tokens;
         if (protocolParamsId != null) {
@@ -39,7 +43,14 @@ public class RegistryController {
             tokens = registryService.getAllTokens();
         }
 
-        return ResponseEntity.ok(tokens);
+        var registryNodes = tokens.stream()
+                .collect(Collectors.groupingBy(RegistryNodeEntity::getProtocolParams, Collectors.mapping(RegistryNode::from, Collectors.toList())))
+                .entrySet()
+                .stream()
+                .map(protocolParamsEntity -> new RegistryNodes(new ProtocolParams(protocolParamsEntity.getKey().getRegistryNodePolicyId(), protocolParamsEntity.getKey().getProgLogicScriptHash()), protocolParamsEntity.getValue()))
+                .toList();
+
+        return ResponseEntity.ok(registryNodes);
     }
 
     /**
@@ -49,9 +60,10 @@ public class RegistryController {
      * @return the token configuration or 404 if not found
      */
     @GetMapping("/token/{policyId}")
-    public ResponseEntity<RegistryNodeEntity> getTokenByPolicyId(@PathVariable String policyId) {
+    public ResponseEntity<RegistryNode> getTokenByPolicyId(@PathVariable String policyId) {
         log.debug("GET /token/{} - fetching token configuration", policyId);
         return registryService.getByKey(policyId)
+                .map(RegistryNode::from)
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
     }
@@ -103,11 +115,17 @@ public class RegistryController {
      * @return list of tokens sorted by key
      */
     @GetMapping("/tokens/sorted")
-    public ResponseEntity<List<RegistryNodeEntity>> getTokensSorted(
+    public ResponseEntity<List<RegistryNodes>> getTokensSorted(
             @RequestParam Long protocolParamsId) {
         log.debug("GET /tokens/sorted - protocolParamsId={}", protocolParamsId);
         List<RegistryNodeEntity> tokens = registryService.getTokensSorted(protocolParamsId);
-        return ResponseEntity.ok(tokens);
+        var registryNodes = tokens.stream()
+                .collect(Collectors.groupingBy(RegistryNodeEntity::getProtocolParams, Collectors.mapping(RegistryNode::from, Collectors.toList())))
+                .entrySet()
+                .stream()
+                .map(protocolParamsEntity -> new RegistryNodes(new ProtocolParams(protocolParamsEntity.getKey().getRegistryNodePolicyId(), protocolParamsEntity.getKey().getProgLogicScriptHash()), protocolParamsEntity.getValue()))
+                .toList();
+        return ResponseEntity.ok(registryNodes);
     }
 
     /**
@@ -117,10 +135,16 @@ public class RegistryController {
      * @return list of all nodes including sentinel
      */
     @GetMapping("/nodes/all")
-    public ResponseEntity<List<RegistryNodeEntity>> getAllNodes(
+    public ResponseEntity<List<RegistryNodes>> getAllNodes(
             @RequestParam Long protocolParamsId) {
         log.debug("GET /nodes/all - protocolParamsId={}", protocolParamsId);
         List<RegistryNodeEntity> nodes = registryService.getAllNodes(protocolParamsId);
-        return ResponseEntity.ok(nodes);
+        var registryNodes = nodes.stream()
+                .collect(Collectors.groupingBy(RegistryNodeEntity::getProtocolParams, Collectors.mapping(RegistryNode::from, Collectors.toList())))
+                .entrySet()
+                .stream()
+                .map(protocolParamsEntity -> new RegistryNodes(new ProtocolParams(protocolParamsEntity.getKey().getRegistryNodePolicyId(), protocolParamsEntity.getKey().getProgLogicScriptHash()), protocolParamsEntity.getValue()))
+                .toList();
+        return ResponseEntity.ok(registryNodes);
     }
 }

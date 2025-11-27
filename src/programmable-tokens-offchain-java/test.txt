@@ -1,3 +1,0 @@
-AIKEN: RedeemerError { tag: "Withdraw", index: 0, err: Machine(DeserialisationError("UnIData", Con(Data(Constr(Constr { tag: 121, any_constructor: None, fields: Def([]) })))), ExBudget { mem: 518, cpu: 1144795 }, []) }
-AIKEN: RedeemerError { tag: "Withdraw", index: 0, err: Machine(DeserialisationError("UnIData", Con(Data(Constr(Constr { tag: 122, any_constructor: None, fields: Def([]) })))), ExBudget { mem: 518, cpu: 1144795 }, []) }
-AIKEN: RedeemerError { tag: "Withdraw", index: 0, err: Machine(EvaluationFailure, ExBudget { mem: 520, cpu: 1273177 }, []) }

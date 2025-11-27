@@ -1,6 +1,5 @@
 package org.cardanofoundation.cip113.util;
 
-import com.bloxbean.cardano.client.address.Address;
 import com.bloxbean.cardano.client.address.Credential;
 import com.bloxbean.cardano.client.util.HexUtil;
 import lombok.extern.slf4j.Slf4j;
@@ -51,7 +50,13 @@ public class AddressUtil {
      */
     public static AddressComponents decompose(String bech32Address) {
         try {
-            Address address = new Address(bech32Address);
+
+            var addressOpt = com.easy1staking.cardano.util.AddressUtil.extractShelleyAddress(bech32Address);
+            if (addressOpt.isEmpty()) {
+                return null;
+            }
+
+            var address = addressOpt.get();
 
             String paymentScriptHash = null;
             String stakeKeyHash = null;
@@ -88,7 +93,7 @@ public class AddressUtil {
      * Check if an address uses a specific payment script hash
      *
      * @param bech32Address the address to check
-     * @param scriptHash the script hash to match
+     * @param scriptHash    the script hash to match
      * @return true if the address uses this script hash, false otherwise
      */
     public static boolean hasPaymentScriptHash(String bech32Address, String scriptHash) {
