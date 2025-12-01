@@ -33,6 +33,7 @@ import org.cardanofoundation.cip113.service.SubstandardService;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.ResponseEntity;
 import jakarta.validation.Valid;
+import org.cardanofoundation.cip113.exception.ApiException;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -73,7 +74,7 @@ public class IssueTokenController {
                     .outputIndex(protocolParamsUtxoRef.outputIndex())
                     .build());
             if (protocolParamsUtxoOpt.isEmpty()) {
-                return ResponseEntity.internalServerError().body("could not resolve protocol params");
+                throw ApiException.internalError("Could not resolve protocol params UTxO");
             }
 
             var protocolParamsUtxo = protocolParamsUtxoOpt.get();
@@ -85,7 +86,7 @@ public class IssueTokenController {
                     .outputIndex(issuanceUtxoRef.outputIndex())
                     .build());
             if (issuanceUtxoOpt.isEmpty()) {
-                return ResponseEntity.internalServerError().body("could not resolve issuance params");
+                throw ApiException.internalError("Could not resolve issuance UTxO");
             }
             var issuanceUtxo = issuanceUtxoOpt.get();
             log.info("issuanceUtxo: {}", issuanceUtxo);
@@ -99,7 +100,7 @@ public class IssueTokenController {
 
             var issuerUtxosOpt = utxoRepository.findUnspentByOwnerAddr(registerTokenRequest.issuerBaseAddress(), Pageable.unpaged());
             if (issuerUtxosOpt.isEmpty()) {
-                return ResponseEntity.badRequest().body("issuer wallet is empty");
+                throw ApiException.badRequest("Issuer wallet is empty");
             }
             var issuerUtxos = issuerUtxosOpt.get().stream().map(UtxoUtil::toUtxo).toList();
 
@@ -109,7 +110,7 @@ public class IssueTokenController {
                     .outputIndex(directoryUtxoRef.outputIndex())
                     .build());
             if (directoryUtxoOpt.isEmpty()) {
-                return ResponseEntity.internalServerError().body("could not resolve directories");
+                throw ApiException.internalError("Could not resolve directory UTxO");
             }
 
             var directoryUtxo = UtxoUtil.toUtxo(directoryUtxoOpt.get());
@@ -118,7 +119,7 @@ public class IssueTokenController {
             var directorySetNode = DirectorySetNode.fromInlineDatum(directoryUtxo.getInlineDatum());
             if (directorySetNode.isEmpty()) {
                 log.error("could not deserialise directorySetNode for utxo: {}", directoryUtxo);
-                return ResponseEntity.internalServerError().body("could not deserialise directorySetNode");
+                throw ApiException.internalError("Could not deserialize directory set node");
             }
             log.info("directorySetNode: {}", directorySetNode);
 
@@ -127,7 +128,7 @@ public class IssueTokenController {
 
             if (substandardIssuanceContractOpt.isEmpty() || substandardTransferContractOpt.isEmpty()) {
                 log.warn("substandard issuance or transfer contract are empty");
-                return ResponseEntity.badRequest().body("substandard issuance or transfer contract are empty");
+                throw ApiException.badRequest("Substandard issuance or transfer contract not found");
             }
 
             var substandardIssueContract = PlutusBlueprintUtil.getPlutusScriptFromCompiledCode(substandardIssuanceContractOpt.get().scriptBytes(), PlutusVersion.v3);
