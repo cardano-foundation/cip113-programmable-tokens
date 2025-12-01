@@ -4,8 +4,8 @@
 This PR addresses critical issues across the entire codebase including frontend browser compatibility, backend type safety, comprehensive test suite fixes, and documentation improvements. All tests now pass with integration tests properly skipped when prerequisites are unavailable.
 
 ## Test Results Summary
-- **Total Tests:** 130
-- **Passing:** 130
+- **Total Tests:** 145
+- **Passing:** 145
 - **Skipped:** 0
 - **Failures:** 0
 - **Errors:** 0
@@ -15,6 +15,8 @@ This PR addresses critical issues across the entire codebase including frontend 
 - **SubstandardControllerTest** - 5 tests for `/api/v1/substandards` endpoints
 - **ProtocolControllerTest** - 4 tests for `/api/v1/protocol` endpoints
 - **BalanceControllerTest** - 9 tests for `/api/v1/balances` endpoints
+- **HistoryControllerTest** - 4 tests for `/api/v1/history` endpoints
+- **RegistryControllerTest** - 11 tests for `/api/v1/registry` endpoints
 - **MintTokenRequestValidationTest** - 36 parameterized tests for Bean Validation
 - **GlobalExceptionHandlerTest** - 9 tests for exception handling consistency
 
