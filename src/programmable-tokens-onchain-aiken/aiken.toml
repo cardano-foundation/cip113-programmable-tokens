@@ -1,6 +1,6 @@
 name = "iohk/programmable-tokens"
 version = "0.3.0"
-compiler = "v1.1.17"
+compiler = "v1.1.19"
 plutus = "v3"
 license = "Apache-2.0"
 description = "Aiken implementation of CIP-0143 programmable tokens (migrated from Plutarch)"
