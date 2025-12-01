@@ -45,16 +45,23 @@ The frontend lacks unit tests. Currently relies on TypeScript compilation and li
 
 **Priority:** Medium — improves reliability.
 
-### 7. Backend Test Coverage Expansion
+### 7. ~~Backend Test Coverage Expansion~~ — COMPLETED
 
 **Location:** `src/programmable-tokens-offchain-java/`
 
-Some areas could benefit from additional test coverage:
-- Controller endpoint tests
-- Service integration tests
-- Error handling edge cases
+~~Some areas could benefit from additional test coverage:~~
+~~- Controller endpoint tests~~
+~~- Service integration tests~~
+~~- Error handling edge cases~~
 
-**Priority:** Low — existing tests cover core functionality.
+**COMPLETED:** Added comprehensive test coverage:
+- **Controller Tests (14 tests):** HealthcheckControllerTest, SubstandardControllerTest, ProtocolControllerTest
+- **Validation Tests (36 tests):** MintTokenRequestValidationTest with parameterized tests
+- **Exception Handler Tests (9 tests):** GlobalExceptionHandlerTest for error response consistency
+
+Total test count increased from 62 to 121 tests.
+
+**Priority:** ~~Low~~ — ✅ Completed
 
 ### 8. ~~Refactor Controller Error Responses to Use ApiException~~ — COMPLETED
 
@@ -87,19 +94,28 @@ All error responses now:
 | Global exception handler | ✅ Completed | Architecture | — |
 | Bean Validation | ✅ Completed | Architecture | — |
 | Controller ApiException refactor | ✅ Completed | Architecture | — |
+| Backend test expansion | ✅ Completed | Testing | — |
 | Frontend tests | Remaining | Testing | Medium |
-| Backend test expansion | Remaining | Testing | Low |
 
 ---
 
 ## Test Suite Status
 
-**Final Results:** 62 tests, 0 failures, 0 skipped
+**Final Results:** 121 tests, 0 failures, 0 skipped
 
 | Test Category | Count | Status |
 |---------------|-------|--------|
-| Unit Tests | 58 | ✅ Pass |
-| Integration Tests | 4 | ✅ Pass |
+| Unit Tests | 113 | ✅ Pass |
+| Integration Tests | 8 | ✅ Pass |
+
+### New Test Classes Added
+| Test Class | Tests | Description |
+|------------|-------|-------------|
+| HealthcheckControllerTest | 5 | `/healthcheck` endpoint tests |
+| SubstandardControllerTest | 5 | `/api/v1/substandards` endpoint tests |
+| ProtocolControllerTest | 4 | `/api/v1/protocol` endpoint tests |
+| MintTokenRequestValidationTest | 36 | Bean Validation annotation tests |
+| GlobalExceptionHandlerTest | 9 | Exception handling consistency tests |
 
 ### Excluded from Default Run (Manual Integration Tests)
 | Test | Purpose | How to Run |
