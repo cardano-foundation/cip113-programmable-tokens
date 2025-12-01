@@ -54,6 +54,17 @@ Spring Boot application providing transaction building and blockchain integratio
 
 📖 **[View Setup Instructions](./src/programmable-tokens-offchain-java/README.md)**
 
+### 3. Frontend Application (Next.js)
+**Location:** [`src/programmable-tokens-frontend/`](./src/programmable-tokens-frontend/)
+
+Next.js 15 web application for interacting with programmable tokens:
+- Token minting with substandard selection
+- Token transfer with validation
+- Protocol dashboard with registry view
+- Mesh SDK wallet integration
+
+📖 **[View Setup Instructions](./src/programmable-tokens-frontend/README.md)**
+
 ---
 
 ## What Are Programmable Tokens?
@@ -82,8 +93,9 @@ This is high-quality research code with strong implementation:
 - ✅ Registry operations functional
 - ✅ Token issuance and transfer flows working
 - ✅ Example freeze & seize functionality complete
-- ✅ Good test coverage (89 passing tests)
+- ✅ Comprehensive test coverage (300 tests: 155 Java, 80 Aiken, 65 Frontend)
 - ✅ Limited testing on Preview testnet
+- ✅ Frontend with minting, transfer, and dashboard
 - ⏳ Comprehensive real-world testing required
 - ⏳ **Professional security audit pending**
 
@@ -99,21 +111,31 @@ This is high-quality research code with strong implementation:
 ## Quick Start
 
 ### Prerequisites
-- [Aiken](https://aiken-lang.org/installation-instructions) v1.0.29+ (for smart contracts)
+- [Aiken](https://aiken-lang.org/installation-instructions) v1.1.19+ (for smart contracts)
 - Java 17+ and Gradle (for off-chain)
+- Node.js 18+ and npm (for frontend)
 - [Cardano CLI](https://github.com/IntersectMBO/cardano-cli) (optional, for deployment)
 
 ### Build Smart Contracts
 ```bash
 cd src/programmable-tokens-onchain-aiken
 aiken build
-aiken check  # Run tests
+aiken check  # Run 80 tests
 ```
 
 ### Build Off-Chain Application
 ```bash
 cd src/programmable-tokens-offchain-java
 ./gradlew build
+./gradlew test  # Run 155 tests
+```
+
+### Build Frontend
+```bash
+cd src/programmable-tokens-frontend
+npm install
+npm run build
+npm test  # Run 65 tests
 ```
 
 For detailed setup, testing, and deployment instructions, see the respective README files in each subdirectory.

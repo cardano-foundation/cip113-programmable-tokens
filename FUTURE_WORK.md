@@ -28,22 +28,49 @@ Created comprehensive documentation for Aiken smart contracts:
 ### 5. RegistryNodeParserTest: Fixed CBOR Data — COMPLETED
 Created `GenerateCborTest.java` utility to generate valid CBOR programmatically. Updated tests with correct CBOR structures. All 3 tests pass.
 
+### 6. GitHub Actions CI — COMPLETED
+Added automated CI pipeline (`.github/workflows/ci.yml`) that runs:
+- Aiken smart contract tests (80 tests)
+- Java backend tests with PostgreSQL service (155 tests)
+- Frontend lint, tests, and build verification (65 tests)
+- All-pass gate job for PR status checks
+
+### 7. Frontend Pages — COMPLETED
+Added missing frontend pages:
+- **Transfer Page** (`/transfer`) - Token selection, transfer form, preview, success flow
+- **Dashboard Page** (`/dashboard`) - Protocol stats, registered tokens, quick actions
+- Enhanced UI components with `outline` button variant and `destructive` toast variant
+
 ---
 
 ## Remaining Items
 
-### 6. Frontend Test Coverage
+### 8. ~~Frontend Test Coverage~~ — COMPLETED
 
 **Location:** `src/programmable-tokens-frontend/`
 
-The frontend lacks unit tests. Currently relies on TypeScript compilation and linting for validation.
+~~The frontend lacks unit tests. Currently relies on TypeScript compilation and linting for validation.~~
 
-**Recommendation:**
-- Add Jest/Vitest for component testing
-- Test critical paths: minting flow, wallet connection, API functions
-- Add Playwright/Cypress for E2E testing
+**COMPLETED:** Added comprehensive frontend test coverage using Vitest:
+- **Minting API Tests (19 tests):** `stringToHex`, `hexToString`, `prepareMintRequest` functions
+- **API Client Tests (7 tests):** GET/POST requests, error handling, timeout handling
+- **Validation Tests (26 tests):** Token name, quantity, address, hex validation
+- **Hook Tests (5 tests):** `useSubstandards` hook with loading, error, and refetch states
+- **Type Tests (8 tests):** `ApiException` and type structure validation
 
-**Priority:** Medium — improves reliability.
+**Test Setup:**
+- Vitest 2.1.6 with React Testing Library
+- jsdom environment for React component testing
+- 65 unit tests, 0 failures
+
+**Scripts Added:**
+```bash
+npm test           # Run tests once
+npm run test:watch # Run tests in watch mode
+npm run test:coverage # Run with coverage report
+```
+
+**Priority:** ~~Medium~~ — ✅ Completed
 
 ### 7. ~~Backend Test Coverage Expansion~~ — COMPLETED
 
@@ -91,24 +118,28 @@ All error responses now:
 | Test fixture docs | ✅ Improved | Testing | — |
 | Documentation plan | ✅ Completed | Docs | — |
 | RegistryNodeParserTest | ✅ Completed | Testing | — |
+| GitHub Actions CI | ✅ Completed | DevOps | — |
+| Frontend pages (transfer/dashboard) | ✅ Completed | Frontend | — |
 | Global exception handler | ✅ Completed | Architecture | — |
 | Bean Validation | ✅ Completed | Architecture | — |
 | Controller ApiException refactor | ✅ Completed | Architecture | — |
 | Backend test expansion | ✅ Completed | Testing | — |
-| Frontend tests | Remaining | Testing | Medium |
+| Frontend tests | ✅ Completed | Testing | — |
 
 ---
 
 ## Test Suite Status
 
-**Final Results:** 155 tests, 0 failures, 0 skipped
+**Final Results:** 300 total tests (155 Java + 80 Aiken + 65 Frontend), 0 failures
 
 | Test Category | Count | Status |
 |---------------|-------|--------|
-| Unit Tests | 147 | ✅ Pass |
-| Integration Tests | 8 | ✅ Pass |
+| Java Unit Tests | 147 | ✅ Pass |
+| Java Integration Tests | 8 | ✅ Pass |
+| Aiken Smart Contract Tests | 80 | ✅ Pass |
+| Frontend Unit Tests | 65 | ✅ Pass |
 
-### New Test Classes Added
+### Java Backend Test Classes (155 tests)
 | Test Class | Tests | Description |
 |------------|-------|-------------|
 | HealthcheckControllerTest | 5 | `/healthcheck` endpoint tests |
@@ -120,6 +151,28 @@ All error responses now:
 | ProtocolParamsControllerTest | 10 | `/api/v1/protocol-params` endpoint tests |
 | MintTokenRequestValidationTest | 36 | Bean Validation annotation tests |
 | GlobalExceptionHandlerTest | 9 | Exception handling consistency tests |
+
+### Frontend Test Classes (65 tests)
+| Test File | Tests | Description |
+|-----------|-------|-------------|
+| minting.test.ts | 19 | Hex encoding, request preparation |
+| client.test.ts | 7 | API client, error handling, timeouts |
+| validation.test.ts | 26 | Token name, quantity, address validation |
+| use-substandards.test.ts | 5 | React hook loading, error, refetch states |
+| api.test.ts | 8 | ApiException and type structure tests |
+
+### Aiken Smart Contract Tests (80 tests)
+| Test Module | Tests | Description |
+|-------------|-------|-------------|
+| blacklist_mint.test | 8 | Blacklist linked list operations |
+| example_transfer_logic.test | 12 | Transfer logic validators |
+| issuance_mint.test | 11 | Token minting policy |
+| linked_list_test | 8 | Sorted linked list utilities |
+| programmable_logic_base.test | 10 | Base script delegation |
+| programmable_logic_global.test | 14 | Core CIP-113 validator |
+| registry_mint.test | 5 | Registry operations |
+| types_test | 1 | Type utilities |
+| utils_test | 11 | Utility functions |
 
 ### Excluded from Default Run (Manual Integration Tests)
 | Test | Purpose | How to Run |

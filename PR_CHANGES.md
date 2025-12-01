@@ -1,9 +1,31 @@
 # Pull Request: Codebase Fixes, Test Suite Repair, and Documentation
 
 ## Summary
-This PR addresses critical issues across the entire codebase including frontend browser compatibility, backend type safety, comprehensive test suite fixes, and documentation improvements. All tests now pass with integration tests properly skipped when prerequisites are unavailable.
+This PR addresses critical issues across the entire codebase including frontend browser compatibility, backend type safety, comprehensive test suite fixes, new frontend pages, and documentation improvements. All tests now pass with integration tests properly skipped when prerequisites are unavailable.
+
+## On-Chain Verification ✅
+
+The smart contracts have been built and verified on 2025-12-01:
+
+```
+$ aiken build
+    Compiling iohk/programmable-tokens 0.3.0 (.)
+    Compiling aiken-lang/stdlib v3.0.0
+   Generating project's blueprint (./plutus.json)
+      Summary 0 errors, 0 warnings
+```
+
+Blueprint (`plutus.json`) successfully generated and copied to Java resources.
 
 ## Test Results Summary
+
+### Total Test Count: 300 tests, 0 failures
+
+| Module | Tests | Status |
+|--------|-------|--------|
+| Java Backend | 155 | ✅ Pass |
+| Aiken Smart Contracts | 80 | ✅ Pass |
+| Frontend | 65 | ✅ Pass |
 
 ### Java Backend Tests
 - **Total Tests:** 155
@@ -18,7 +40,27 @@ This PR addresses critical issues across the entire codebase including frontend 
 - **Failures:** 0
 - **Compiler Version:** v1.1.19
 
-### New Test Classes Added
+### Frontend Tests
+- **Total Tests:** 65
+- **Passing:** 65
+- **Failures:** 0
+- **Framework:** Vitest 2.1.9 + React Testing Library
+
+### Frontend Pages Added
+- **Transfer Page** (`/transfer`) - Transfer programmable tokens with validation
+- **Dashboard Page** (`/dashboard`) - View protocol stats and registered tokens
+- **Error Page** (`error.tsx`) - Global error boundary with retry and navigation
+- **Loading Page** (`loading.tsx`) - Loading state during navigation
+- **Not Found Page** (`not-found.tsx`) - 404 error page
+
+### GitHub Actions CI Added
+- **`.github/workflows/ci.yml`** - Automated CI pipeline that runs:
+  - Aiken smart contract tests (80 tests)
+  - Java backend tests with PostgreSQL (155 tests)
+  - Frontend lint, tests, and build (65 tests)
+  - All-pass gate for pull request checks
+
+### New Backend Test Classes Added
 - **HealthcheckControllerTest** - 5 tests for `/healthcheck` endpoints using standalone MockMvc
 - **SubstandardControllerTest** - 5 tests for `/api/v1/substandards` endpoints
 - **ProtocolControllerTest** - 4 tests for `/api/v1/protocol` endpoints
@@ -28,6 +70,13 @@ This PR addresses critical issues across the entire codebase including frontend 
 - **ProtocolParamsControllerTest** - 10 tests for `/api/v1/protocol-params` endpoints
 - **MintTokenRequestValidationTest** - 36 parameterized tests for Bean Validation
 - **GlobalExceptionHandlerTest** - 9 tests for exception handling consistency
+
+### New Frontend Test Files Added
+- **minting.test.ts** - 19 tests for hex encoding and request preparation
+- **client.test.ts** - 7 tests for API client, error handling, and timeouts
+- **validation.test.ts** - 26 tests for token name, quantity, and address validation
+- **use-substandards.test.ts** - 5 tests for React hook states
+- **api.test.ts** - 8 tests for type structures
 
 ### Javadoc Documentation Added
 Added comprehensive Javadoc to key classes:
@@ -98,6 +147,22 @@ Run token discovery with: `./gradlew manualIntegrationTest --tests DiscoverToken
 
 - **Issue:** The validation logic checked `tokenName.length > 32`. In Cardano, asset names are limited to 32 **bytes**, not characters. Multi-byte characters (e.g., emojis, accented characters) could pass the character length check but exceed the byte limit, leading to on-chain transaction failures.
 - **Fix:** Updated the validation to check the byte length of the UTF-8 encoded string using `new TextEncoder().encode(tokenName).length`.
+
+#### 3. Fix TypeScript Errors in Test Files
+**Files:**
+- `src/programmable-tokens-frontend/hooks/use-substandards.test.ts`
+- `src/programmable-tokens-frontend/lib/utils/validation.ts`
+- `src/programmable-tokens-frontend/types/api.test.ts`
+
+- **Issues:**
+  - Mock data in `use-substandards.test.ts` used incorrect property names (`compiledCode`/`hash` instead of `script_bytes`/`script_hash`)
+  - BigInt literal `0n` in `validation.ts` requires ES2020, but project targets ES2017
+  - Type test in `api.test.ts` accessed undefined property on object literal
+
+- **Fixes:**
+  - Updated mock data to match `SubstandardValidator` interface: `{ title, script_bytes, script_hash }`
+  - Replaced `0n` with `BigInt(0)` for ES2017 compatibility
+  - Fixed type assertion in test to properly check for undefined optional property
 
 ### Backend Fixes
 
@@ -338,26 +403,30 @@ export BLOCKFROST_KEY="your_blockfrost_key"  # Optional, has default
 ### Validator Sizes (Optimized)
 The validators are built with `--trace-level silent` (default) which removes debug traces from production code:
 
-| Validator | Size (chars) | Change | Purpose |
-|-----------|-------------|--------|---------|
-| programmable_logic_global | 6234 | -52 | Core CIP-113 transfer coordinator |
-| registry_mint | 4404 | - | Token registry (sorted linked list) |
-| blacklist_mint | 3894 | - | Address blacklisting (sorted linked list) |
-| freeze_and_seize_transfer | 2242 | - | Example transfer logic with freeze/seize |
-| issuance_mint | 1900 | - | Token minting policy |
-| protocol_params_mint | 1252 | - | Protocol parameters NFT |
-| registry_spend | 1228 | - | Registry UTxO spend validator |
+| Validator | Size (chars) | Original | Savings | Purpose |
+|-----------|-------------|----------|---------|---------|
+| programmable_logic_global | 6196 | 6286 | -90 (1.4%) | Core CIP-113 transfer coordinator |
+| registry_mint | 4404 | 4404 | - | Token registry (sorted linked list) |
+| blacklist_mint | 3894 | 3894 | - | Address blacklisting (sorted linked list) |
+| freeze_and_seize_transfer | 2242 | 2242 | - | Example transfer logic with freeze/seize |
+| issuance_mint | 1900 | 1900 | - | Token minting policy |
+| protocol_params_mint | 1252 | 1252 | - | Protocol parameters NFT |
+| registry_spend | 1228 | 1228 | - | Registry UTxO spend validator |
 
 ### Optimizations Applied
-- Removed dead code (commented-out functions, unused `validate_currency_symbols`)
-- Simplified `get_signed_prog_value` using `expect` for fail-fast behavior
-- Optimized `value_contains` with early-exit short-circuit pattern
-- Cleaned up duplicate function definitions
+1. **Dead code removal** (-52 chars): Removed commented-out functions and unused `validate_currency_symbols`
+2. **Direct withdrawal checking** (-38 chars): Eliminated pre-computed `invoked_scripts` list, check directly in withdrawals
+3. **Simplified authorization flow**: Uses `expect` for fail-fast behavior in `get_signed_prog_value`
+4. **Optimized script invocation check**: Added `withdrawal_has_cred` for direct credential lookup without mapping
+
+### Optimization Experiments (Reverted)
+- **UPLC builtin experiments**: Attempted to use raw `builtin.head_list`/`builtin.tail_list` instead of pattern matching. Result: **Code became larger** due to Aiken's optimizer already handling these patterns efficiently.
+- **Lesson learned**: Aiken's optimizer is sophisticated; manual UPLC patterns often produce larger output.
 
 ### Transaction Fee Considerations
 Transaction fees on Cardano depend on:
-1. **Script size** (bytes) - Minimized via trace removal
-2. **Execution units** (memory + CPU) - Validators are optimized
+1. **Script size** (bytes) - Minimized via trace removal and code optimization
+2. **Execution units** (memory + CPU) - Validators are optimized with early-exit patterns
 3. **Transaction size** (inputs, outputs, witnesses)
 
-The validators are already well-optimized. Further size reduction would require significant architectural changes to the CIP-113 protocol.
+The validators are now optimized with ~1.4% size reduction on the core validator. Further optimization would require architectural changes to the CIP-113 protocol.

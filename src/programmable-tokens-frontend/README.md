@@ -116,12 +116,28 @@ Transfer logic configurations are in `config/substandards/`:
 ## Development Phases
 
 - [x] Phase 1: Setup & Foundation
-- [ ] Phase 2: Core UI Components
-- [ ] Phase 3: Protocol Deployment
-- [ ] Phase 4: Simple Transfer Substandard
-- [ ] Phase 5: Blacklist Substandard
-- [ ] Phase 6: Dashboard & Token Details
-- [ ] Phase 7: Testing & Polish
+- [x] Phase 2: Core UI Components
+- [x] Phase 3: Protocol Deployment (UI ready, backend pending)
+- [x] Phase 4: Token Minting Flow
+- [x] Phase 5: Transfer & Dashboard
+- [x] Phase 6: Testing (65 unit tests)
+- [ ] Phase 7: Blacklist Substandard (Coming Soon)
+
+## Testing
+
+Run the test suite:
+
+```bash
+npm test           # Run tests once
+npm run test:watch # Run tests in watch mode
+```
+
+**Test Coverage:**
+- API client tests (7 tests)
+- Minting API tests (19 tests)
+- Validation tests (26 tests)
+- Hook tests (5 tests)
+- Type tests (8 tests)
 
 ## License
 

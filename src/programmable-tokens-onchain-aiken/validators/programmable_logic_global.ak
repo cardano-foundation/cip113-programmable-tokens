@@ -17,6 +17,23 @@ use utils.{
   has_currency_symbol, is_script_invoked, is_signed_by,
 }
 
+/// Check if a credential is in the withdrawals list (script invocation check)
+/// Optimized: Direct check without pre-mapping
+fn withdrawal_has_cred(
+  withdrawals: Pairs<Credential, Int>,
+  cred: Credential,
+) -> Bool {
+  when withdrawals is {
+    [] -> False
+    [Pair(w_cred, _amount), ..rest] ->
+      if w_cred == cred {
+        True
+      } else {
+        withdrawal_has_cred(rest, cred)
+      }
+  }
+}
+
 validator programmable_logic_global(protocol_params_cs: PolicyId) {
   withdraw(
     redeemer: ProgrammableLogicGlobalRedeemer,
@@ -36,15 +53,7 @@ validator programmable_logic_global(protocol_params_cs: PolicyId) {
     let prog_logic_cred = params.prog_logic_cred
     let registry_node_cs = params.registry_node_cs
 
-    // Get all invoked scripts via withdrawals
-    let invoked_scripts =
-      list.map(
-        self.withdrawals,
-        fn(wdrl) {
-          let Pair(cred, _amount) = wdrl
-          cred
-        },
-      )
+    // Pass withdrawals directly - check invocation inline instead of pre-mapping
     when redeemer is {
       TransferAct { proofs } ->
         validate_transfer(
@@ -52,7 +61,7 @@ validator programmable_logic_global(protocol_params_cs: PolicyId) {
           prog_logic_cred,
           registry_node_cs,
           proofs,
-          invoked_scripts,
+          self.withdrawals,
         )
 
       ThirdPartyAct {
@@ -69,7 +78,7 @@ validator programmable_logic_global(protocol_params_cs: PolicyId) {
           input_idxs,
           outputs_start_idx,
           length_input_idxs,
-          invoked_scripts,
+          self.withdrawals,
         )
     }
   }
@@ -101,16 +110,10 @@ fn validate_transfer(
   prog_logic_cred: Credential,
   registry_node_cs: PolicyId,
   proofs: List<RegistryProof>,
-  invoked_scripts: List<Credential>,
+  withdrawals: Pairs<Credential, Int>,
 ) -> Bool {
   // Calculate the total value of programmable tokens being transferred
   // by summing all inputs from the programmable logic credential
-
-  // Get all inputs from prog_logic_cred where the owner (stake credential) has signed
-  // let prog_inputs = get_signed_prog_inputs(tx, prog_logic_cred)
-
-  // Sum up the value from those inputs
-  // let total_prog_value = sum_input_values(prog_inputs)
   let total_prog_value = get_signed_prog_value(tx, prog_logic_cred)
 
   // Check transfer logic for each programmable token type and filter to only programmable tokens
@@ -120,7 +123,7 @@ fn validate_transfer(
       registry_node_cs,
       tx.reference_inputs,
       proofs,
-      invoked_scripts,
+      withdrawals,
     )
 
   let output_prog_value =
@@ -130,7 +133,6 @@ fn validate_transfer(
       fn(output, acc) {
         if output.address.payment_credential == prog_logic_cred {
           expect Some(Inline(_stake_cred)) = output.address.stake_credential
-          // expensive
           merge(acc, output.value)
         } else {
           acc
@@ -153,7 +155,7 @@ fn validate_third_party(
   input_idxs: List<Int>,
   outputs_start_idx: Int,
   length_input_idxs: Int,
-  invoked_scripts: List<Credential>,
+  withdrawals: Pairs<Credential, Int>,
 ) -> Bool {
   trace @"validate_third_party: processing multiple inputs"
 
@@ -220,7 +222,7 @@ fn validate_third_party(
     // Validate registry node is authentic
     has_currency_symbol(registry_ref_input.output.value, registry_node_cs),
     // The third party transfer logic script must be invoked
-    list.has(invoked_scripts, registry_node.third_party_transfer_logic_script),
+    withdrawal_has_cred(withdrawals, registry_node.third_party_transfer_logic_script),
     // matching_outputs,
     // Must match the number of inputs we're processing
     prog_input_count == length_input_idxs,
@@ -258,7 +260,7 @@ fn check_transfer_and_compute_prog_value(
   registry_node_cs: PolicyId,
   reference_inputs: List<Input>,
   proofs: List<RegistryProof>,
-  invoked_scripts: List<Credential>,
+  withdrawals: Pairs<Credential, Int>,
 ) -> Value {
   let
     remaining_proofs,
@@ -271,7 +273,7 @@ fn check_transfer_and_compute_prog_value(
         |> pairs.delete_first(ada_policy_id),
       registry_node_cs,
       reference_inputs,
-      invoked_scripts,
+      withdrawals,
       proofs,
       zero,
     )
@@ -283,7 +285,7 @@ fn do_check_transfer(
   my_value: Pairs<PolicyId, Dict<ByteArray, Int>>,
   registry_node_cs: PolicyId,
   reference_inputs: List<Input>,
-  invoked_scripts: List<Credential>,
+  withdrawals: Pairs<Credential, Int>,
   proofs: List<RegistryProof>,
   acc: Value,
   return: fn(List<RegistryProof>, Value) -> result,
@@ -300,7 +302,7 @@ fn do_check_transfer(
               proof,
               reference_inputs,
               registry_node_cs,
-              invoked_scripts,
+              withdrawals,
             )
 
           let new_acc =
@@ -320,7 +322,7 @@ fn do_check_transfer(
             rest,
             registry_node_cs,
             reference_inputs,
-            invoked_scripts,
+            withdrawals,
             rest_proofs,
             new_acc,
             return,
@@ -338,7 +340,7 @@ fn validate_single_cs(
   proof: RegistryProof,
   reference_inputs: List<Input>,
   registry_node_cs: PolicyId,
-  invoked_scripts: List<Credential>,
+  withdrawals: Pairs<Credential, Int>,
 ) -> Bool {
   when proof is {
     TokenExists { node_idx } -> {
@@ -353,7 +355,7 @@ fn validate_single_cs(
         // Validate the node's key matches the currency symbol
         node.key == cs,
         // Validate the transfer logic script is invoked
-        list.has(invoked_scripts, node.transfer_logic_script),
+        withdrawal_has_cred(withdrawals, node.transfer_logic_script),
       }
     }
 

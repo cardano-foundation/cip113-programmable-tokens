@@ -37,6 +37,10 @@ function Toast({ toast, onDismiss }: ToastProps) {
       container: "bg-dark-800 border-red-500/50",
       icon: <XCircle className="h-5 w-5 text-red-500" />,
     },
+    destructive: {
+      container: "bg-dark-800 border-red-500/50",
+      icon: <XCircle className="h-5 w-5 text-red-500" />,
+    },
     warning: {
       container: "bg-dark-800 border-accent-500/50",
       icon: <AlertCircle className="h-5 w-5 text-accent-500" />,

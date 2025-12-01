@@ -4,6 +4,21 @@
 
 Our Aiken validators are approximately **~20% less efficient** than the original Plutarch implementation in [input-output-hk/wsc-poc](https://github.com/input-output-hk/wsc-poc).
 
+### Optimization Progress
+
+| Optimization | Status | Size Impact |
+|--------------|--------|-------------|
+| Dead code removal | ✅ Done | -52 chars |
+| Remove pre-computed invoked_scripts | ✅ Done | -38 chars |
+| Direct withdrawal checking | ✅ Done | (included above) |
+| UPLC builtin experiments | ❌ Reverted | Made code larger |
+
+**Current validator sizes:**
+- `programmable_logic_global`: 6196 chars (from original 6286, **-1.4%**)
+- `registry_mint`: 4404 chars
+- `blacklist_mint`: 3894 chars
+- `freeze_and_seize_transfer`: 2242 chars
+
 ## Key Differences Identified
 
 ### 1. List Operations

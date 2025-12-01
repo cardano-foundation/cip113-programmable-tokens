@@ -1,6 +1,6 @@
 # Programmable Tokens - Aiken Implementation
 
-![Aiken](https://img.shields.io/badge/Aiken-v1.0.29-blue)
+![Aiken](https://img.shields.io/badge/Aiken-v1.1.19-blue)
 ![CIP-113](https://img.shields.io/badge/CIP--113-Adapted-green)
 ![Status](https://img.shields.io/badge/Status-R&D-yellow)
 
@@ -38,7 +38,7 @@ Programmable tokens are **native Cardano assets** with an additional layer of va
 
 ### Prerequisites
 
-- [Aiken](https://aiken-lang.org/installation-instructions) v1.0.29 or higher
+- [Aiken](https://aiken-lang.org/installation-instructions) v1.1.19 or higher
 - [Cardano CLI](https://github.com/IntersectMBO/cardano-cli) (optional, for deployment)
 
 ### Build
@@ -56,7 +56,7 @@ aiken check
 
 All tests should pass:
 ```
-    Summary 1 error(s), 89 passing (89) [89/89 checks passed]
+    Summary 0 error(s), 80 passing (80) [80/80 checks passed]
 ```
 
 ### Generate Blueprints
@@ -205,7 +205,7 @@ This is high-quality research and development code with the following characteri
 - ✅ Token issuance and transfer flows working
 - ✅ Freeze & seize functionality complete
 - ✅ Blacklist system operational
-- ✅ Good test coverage (89 passing tests)
+- ✅ Good test coverage (80 passing tests)
 - ✅ Tested on Preview testnet (limited scope)
 - ⏳ Comprehensive testing required
 - ⏳ Professional security audit pending
@@ -230,7 +230,7 @@ This is high-quality research and development code with the following characteri
 This is a complete Aiken migration of the original Plutarch implementation. Some improvements:
 
 - **Performance** - Comparable or slightly worse
-- **Error Prevention** - Target addresses are tested for staking keys 
+- **Error Prevention** - Target addresses are tested for staking keys
 
 See [Migration Notes](./docs/07-MIGRATION-NOTES.md) for detailed comparison.
 

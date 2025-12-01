@@ -1,7 +1,7 @@
 # Frontend Development - Current Status
 
-**Date:** 2025-11-07
-**Phase:** 1 Complete ✅
+**Date:** 2025-12-01
+**Phase:** 4 Complete ✅ (Transfer & Dashboard Added)
 **Location:** `programmable-tokens-frontend/`
 
 ---
@@ -28,24 +28,59 @@ npm run dev
 
 ## What's Complete
 
-✅ **Phase 1: Setup & Foundation** (~45 minutes)
+✅ **Phase 1: Setup & Foundation**
 - Next.js 15 + TypeScript + Tailwind CSS
 - Mesh SDK v1.7 installed and configured
 - Forest Night theme (Emerald + Orange + Lime)
 - Configuration files structure
 - Project directory structure
-- Development server verified working
+
+✅ **Phase 2: Core UI Components**
+- Reusable UI components: Button, Card, Input, Select, Badge, Toast
+- Wallet components: ConnectButton, WalletInfo
+- Layout components: Header, Footer, PageContainer
+
+✅ **Phase 3: Minting Flow**
+- `/mint` page with form → preview → success workflow
+- Substandard selector
+- Transaction builder toggle (Mesh/Java backend)
+- Hex encoding utilities with validation
+
+✅ **Phase 4: Transfer & Dashboard**
+- `/transfer` page with token selection and transfer form
+- `/dashboard` page with protocol stats and token registry
+- Balance fetching via backend API
+- Token registry display
+
+✅ **Testing Infrastructure**
+- Vitest 2.1.9 with React Testing Library
+- 65 unit tests covering API, validation, hooks, and types
+- All tests passing
+
+---
+
+## Available Pages
+
+| Route | Status | Description |
+|-------|--------|-------------|
+| `/` | ✅ Complete | Landing page with feature overview |
+| `/mint` | ✅ Complete | Mint programmable tokens |
+| `/transfer` | ✅ Complete | Transfer tokens with validation |
+| `/dashboard` | ✅ Complete | View protocol state and tokens |
+| `/deploy` | 🚧 Coming Soon | Protocol deployment (admin) |
+| `/blacklist` | 🚧 Coming Soon | Blacklist management |
 
 ---
 
 ## What's Next
 
-⏭️ **Phase 2: Core UI Components** (Est. 1-2 days)
+⏭️ **Phase 5: Blacklist Management** (Optional)
+- `/blacklist` page for managing blacklisted addresses
+- Blacklist checking UI
 
-Build reusable component library:
-- Button, Card, Input, Select, Badge, Toast
-- Wallet components (ConnectButton, WalletInfo)
-- Layout components (Header, Footer, Navigation)
+⏭️ **Phase 6: Protocol Deployment** (Admin)
+- `/deploy` page for one-time protocol setup
+- Protocol bootstrap JSON generation
 
 ---
 
@@ -53,42 +88,42 @@ Build reusable component library:
 
 | File | Purpose |
 |------|---------|
-| `FRONTEND-IMPLEMENTATION-PLAN.md` | Complete 11-day implementation plan |
-| `PROGRESS.md` | Detailed progress tracker |
-| `PHASE1-COMPLETE.md` | Phase 1 completion details |
-| `README.md` | Setup and development instructions |
-| `config/cip113-blueprint.json` | CIP-113 core validators |
-| `config/substandards/simple-transfer.json` | Simple transfer logic |
+| `app/page.tsx` | Landing page |
+| `app/mint/page.tsx` | Token minting flow |
+| `app/transfer/page.tsx` | Token transfer flow |
+| `app/dashboard/page.tsx` | Protocol dashboard |
+| `components/mint/*` | Minting components |
+| `components/wallet/*` | Wallet integration |
+| `lib/api/*` | Backend API client |
+| `lib/utils/validation.ts` | Form validation utilities |
 
 ---
 
-## Architecture Decisions
+## Test Summary
 
-- **Theme:** Forest Night (different from Fluid Tokens)
-- **Network:** Preview (parametric for switching)
-- **Tx Builder:** Mesh SDK + Blockfrost
+```bash
+npm test           # Run tests once
+npm run test:watch # Run tests in watch mode
+```
+
+| Test File | Tests | Description |
+|-----------|-------|-------------|
+| minting.test.ts | 19 | Hex encoding, request preparation |
+| client.test.ts | 7 | API client, error handling |
+| validation.test.ts | 26 | Token name, quantity, address validation |
+| use-substandards.test.ts | 5 | React hook states |
+| api.test.ts | 8 | Type structures |
+
+---
+
+## Architecture
+
+- **Theme:** Forest Night (Emerald + Orange + Lime)
+- **Network:** Preview (configurable via env)
+- **Tx Builder:** Mesh SDK + Java backend API
 - **Wallets:** Nami, Eternl, Lace, Flint
-- **Config:** 3-tier (CIP-113 blueprint, protocol bootstrap, substandards)
+- **Testing:** Vitest + React Testing Library
 
 ---
 
-## Current State
-
-- **Git Status:** Untracked (ready to commit)
-- **Node Modules:** Installed (843 packages)
-- **Build Status:** ✅ Working
-- **Dev Servers:** Stopped
-- **Last Verified:** http://localhost:3001 (successfully loaded)
-
----
-
-## To Resume
-
-1. Read `PROGRESS.md` for full details
-2. Read `FRONTEND-IMPLEMENTATION-PLAN.md` for Phase 2 plan
-3. Start dev server: `npm run dev`
-4. Begin Phase 2 implementation
-
----
-
-**Status:** ✅ Ready to resume anytime
+**Status:** ✅ Ready for production testing
