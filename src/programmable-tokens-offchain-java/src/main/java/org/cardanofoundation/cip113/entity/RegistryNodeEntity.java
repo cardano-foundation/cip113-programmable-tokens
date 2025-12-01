@@ -10,7 +10,7 @@ import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "registry_node", indexes = {
-    @Index(name = "idx_registry_key", columnList = "key"),
+    @Index(name = "idx_registry_key", columnList = "\"key\""),
     @Index(name = "idx_registry_next", columnList = "next"),
     @Index(name = "idx_registry_protocol_params", columnList = "protocolParamsId"),
     @Index(name = "idx_registry_last_slot", columnList = "lastSlot")
@@ -25,7 +25,8 @@ public class RegistryNodeEntity {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false, unique = true, length = 64)
+    // Note: Column named with quotes to escape SQL reserved word "key"
+    @Column(name = "\"key\"", nullable = false, unique = true, length = 64)
     private String key;
 
     @Column(nullable = false, length = 64)

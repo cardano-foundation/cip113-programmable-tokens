@@ -10,14 +10,18 @@ import { apiPost } from './client';
  * Required for assetName in minting requests
  */
 export function stringToHex(str: string): string {
-  return Buffer.from(str, 'utf8').toString('hex');
+  const encoder = new TextEncoder();
+  const encoded = encoder.encode(str);
+  return Array.from(encoded).map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
 /**
  * Convert hex to string
  */
 export function hexToString(hex: string): string {
-  return Buffer.from(hex, 'hex').toString('utf8');
+  const bytes = new Uint8Array(hex.match(/.{1,2}/g)?.map(byte => parseInt(byte, 16)) || []);
+  const decoder = new TextDecoder();
+  return decoder.decode(bytes);
 }
 
 /**

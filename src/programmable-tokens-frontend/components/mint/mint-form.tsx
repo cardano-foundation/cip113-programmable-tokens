@@ -50,8 +50,8 @@ export function MintForm({ substandards, onTransactionBuilt }: MintFormProps) {
 
     if (!tokenName.trim()) {
       newErrors.tokenName = 'Token name is required';
-    } else if (tokenName.length > 32) {
-      newErrors.tokenName = 'Token name must be 32 characters or less';
+    } else if (new TextEncoder().encode(tokenName).length > 32) {
+      newErrors.tokenName = 'Token name must be 32 bytes or less';
     }
 
     if (!quantity.trim()) {

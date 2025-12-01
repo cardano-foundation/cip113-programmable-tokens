@@ -8,6 +8,9 @@ public record ProtocolBootstrapParams(ProtocolParams protocolParams,
                                       DirectorySpendParams directorySpendParams,
                                       TxInput programmableBaseRefInput,
                                       TxInput programmableGlobalRefInput,
+                                      TxInput protocolParamsUtxo,
+                                      TxInput directoryUtxo,
+                                      TxInput issuanceUtxo,
                                       String txHash) {
 
 }

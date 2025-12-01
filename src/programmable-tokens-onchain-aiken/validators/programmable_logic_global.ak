@@ -174,7 +174,10 @@ fn validate_third_party(
       input_idxs,
       0,
       fn(idx, input_idx, acc) {
-        // TODO: improvements Check if the inputs are ordered
+        // Note: Input ordering is implicitly validated because:
+        // 1. Currency symbols in Value are ordered lexicographically (Aiken's pairs)
+        // 2. Proofs must match currency symbols in order via validate_single_cs (node.key == cs check)
+        // 3. If proofs are out of order, the key validation will fail
         // Get the input being processed
         let input = elem_at(tx.inputs, input_idx)
 

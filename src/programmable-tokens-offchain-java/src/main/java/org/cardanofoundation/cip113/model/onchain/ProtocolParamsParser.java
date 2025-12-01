@@ -21,7 +21,7 @@ public class ProtocolParamsParser {
 
             var data = PlutusData.deserialize(HexUtil.decodeHexString(inlineDatum));
             var jsonData = objectMapper.readTree(objectMapper.writeValueAsString(data));
-            log.info("jsonData: {}", jsonData);
+            log.debug("Parsing protocol params: {}", jsonData);
 
             String rootName;
             if (jsonData.has("constructor")) {
@@ -38,7 +38,7 @@ public class ProtocolParamsParser {
                     .programmableLogicBaseScriptHash(programmableLogicBaseScriptHash)
                     .build());
         } catch (Exception e) {
-            log.warn("error", e);
+            log.warn("Failed to parse protocol params from inline datum: {}", e.getMessage());
             return Optional.empty();
         }
     }

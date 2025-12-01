@@ -281,6 +281,10 @@ public class ProtocolDeploymentMintTest extends AbstractPreviewTest {
         var directorySpendParams = new DirectorySpendParams(protocolParamsContract.getPolicyId(), directorySpendContract.getPolicyId());
         var programmableBaseRefInput = new TxInput(txHash, 3);
         var programmableGlobalRefInput = new TxInput(txHash, 4);
+        // UTxO references for protocol components
+        var protocolParamsUtxo = new TxInput(txHash, 0);
+        var directoryUtxo = new TxInput(txHash, 1);
+        var issuanceUtxo = new TxInput(txHash, 2);
 
         var protocolBootstrapParams = new ProtocolBootstrapParams(protocolParams,
                 programmableLogicGlobalParams,
@@ -290,6 +294,9 @@ public class ProtocolDeploymentMintTest extends AbstractPreviewTest {
                 directorySpendParams,
                 programmableBaseRefInput,
                 programmableGlobalRefInput,
+                protocolParamsUtxo,
+                directoryUtxo,
+                issuanceUtxo,
                 txHash);
 
         var stakeRegistrationTx = new Tx()

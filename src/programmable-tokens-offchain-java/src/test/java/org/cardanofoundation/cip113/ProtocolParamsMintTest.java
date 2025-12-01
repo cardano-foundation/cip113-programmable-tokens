@@ -52,10 +52,12 @@ public class ProtocolParamsMintTest extends AbstractPreviewTest {
         log.info("nftAddress: {}", nftAddress.getAddress());
 
         var protocolParamsDatum = ConstrPlutusData.of(0,
-                // FIXME: these are NOT the correct one, just testing if it passes validation
+                // Protocol params datum structure:
+                // registry_node_policy_id: using the protocolParams contract hash as registry
+                // programmable_logic_base_script_hash: using admin address payment credential as placeholder
                 BytesPlutusData.of(protocolParamsContract.getScriptHashBytes()), // policy id of the nft of the directory (programmable token registry)
                 ConstrPlutusData.of(0,
-                        BytesPlutusData.of(adminAccount.getBaseAddress().getPaymentCredentialHash().get()) // script hash of the substandard?
+                        BytesPlutusData.of(adminAccount.getBaseAddress().getPaymentCredentialHash().get()) // script hash of the programmable logic base
                 )
         );
 

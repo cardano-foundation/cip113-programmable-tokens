@@ -66,12 +66,10 @@ public class IssueTokenController {
 
             var protocolBootstrapParams = protocolBootstrapService.getProtocolBootstrapParams();
 
-            var bootstrapTxHash = protocolBootstrapParams.txHash();
-
-            // TODO: add these utxo to the protocol bootstrap json
+            var protocolParamsUtxoRef = protocolBootstrapParams.protocolParamsUtxo();
             var protocolParamsUtxoOpt = utxoRepository.findById(UtxoId.builder()
-                    .txHash(bootstrapTxHash)
-                    .outputIndex(0)
+                    .txHash(protocolParamsUtxoRef.txHash())
+                    .outputIndex(protocolParamsUtxoRef.outputIndex())
                     .build());
             if (protocolParamsUtxoOpt.isEmpty()) {
                 return ResponseEntity.internalServerError().body("could not resolve protocol params");
@@ -80,7 +78,11 @@ public class IssueTokenController {
             var protocolParamsUtxo = protocolParamsUtxoOpt.get();
             log.info("protocolParamsUtxo: {}", protocolParamsUtxo);
 
-            var issuanceUtxoOpt = utxoRepository.findById(UtxoId.builder().txHash(bootstrapTxHash).outputIndex(2).build());
+            var issuanceUtxoRef = protocolBootstrapParams.issuanceUtxo();
+            var issuanceUtxoOpt = utxoRepository.findById(UtxoId.builder()
+                    .txHash(issuanceUtxoRef.txHash())
+                    .outputIndex(issuanceUtxoRef.outputIndex())
+                    .build());
             if (issuanceUtxoOpt.isEmpty()) {
                 return ResponseEntity.internalServerError().body("could not resolve issuance params");
             }
@@ -100,7 +102,11 @@ public class IssueTokenController {
             }
             var issuerUtxos = issuerUtxosOpt.get().stream().map(UtxoUtil::toUtxo).toList();
 
-            var directoryUtxoOpt = utxoRepository.findById(UtxoId.builder().txHash(bootstrapTxHash).outputIndex(1).build());
+            var directoryUtxoRef = protocolBootstrapParams.directoryUtxo();
+            var directoryUtxoOpt = utxoRepository.findById(UtxoId.builder()
+                    .txHash(directoryUtxoRef.txHash())
+                    .outputIndex(directoryUtxoRef.outputIndex())
+                    .build());
             if (directoryUtxoOpt.isEmpty()) {
                 return ResponseEntity.internalServerError().body("could not resolve directories");
             }
@@ -306,12 +312,10 @@ public class IssueTokenController {
 
             var protocolBootstrapParams = protocolBootstrapService.getProtocolBootstrapParams();
 
-            var bootstrapTxHash = protocolBootstrapParams.txHash();
-
-            // TODO: add these utxo to the protocol bootstrap json
+            var protocolParamsUtxoRef = protocolBootstrapParams.protocolParamsUtxo();
             var protocolParamsUtxoOpt = utxoRepository.findById(UtxoId.builder()
-                    .txHash(bootstrapTxHash)
-                    .outputIndex(0)
+                    .txHash(protocolParamsUtxoRef.txHash())
+                    .outputIndex(protocolParamsUtxoRef.outputIndex())
                     .build());
             if (protocolParamsUtxoOpt.isEmpty()) {
                 return ResponseEntity.internalServerError().body("could not resolve protocol params");
@@ -320,7 +324,11 @@ public class IssueTokenController {
             var protocolParamsUtxo = protocolParamsUtxoOpt.get();
             log.info("protocolParamsUtxo: {}", protocolParamsUtxo);
 
-            var issuanceUtxoOpt = utxoRepository.findById(UtxoId.builder().txHash(bootstrapTxHash).outputIndex(2).build());
+            var issuanceUtxoRef = protocolBootstrapParams.issuanceUtxo();
+            var issuanceUtxoOpt = utxoRepository.findById(UtxoId.builder()
+                    .txHash(issuanceUtxoRef.txHash())
+                    .outputIndex(issuanceUtxoRef.outputIndex())
+                    .build());
             if (issuanceUtxoOpt.isEmpty()) {
                 return ResponseEntity.internalServerError().body("could not resolve issuance params");
             }
@@ -433,7 +441,7 @@ public class IssueTokenController {
             return ResponseEntity.ok(transaction.serializeToHex());
 
         } catch (Exception e) {
-            log.warn("error", e);
+            log.warn("Failed to mint token: {}", e.getMessage(), e);
             return ResponseEntity.internalServerError().body(e.getMessage());
         }
     }
@@ -445,12 +453,10 @@ public class IssueTokenController {
 
             var protocolBootstrapParams = protocolBootstrapService.getProtocolBootstrapParams();
 
-            var bootstrapTxHash = protocolBootstrapParams.txHash();
-
-            // TODO: add these utxo to the protocol bootstrap json
+            var protocolParamsUtxoRef = protocolBootstrapParams.protocolParamsUtxo();
             var protocolParamsUtxoOpt = utxoRepository.findById(UtxoId.builder()
-                    .txHash(bootstrapTxHash)
-                    .outputIndex(0)
+                    .txHash(protocolParamsUtxoRef.txHash())
+                    .outputIndex(protocolParamsUtxoRef.outputIndex())
                     .build());
             if (protocolParamsUtxoOpt.isEmpty()) {
                 return ResponseEntity.internalServerError().body("could not resolve protocol params");
@@ -459,7 +465,11 @@ public class IssueTokenController {
             var protocolParamsUtxo = protocolParamsUtxoOpt.get();
             log.info("protocolParamsUtxo: {}", protocolParamsUtxo);
 
-            var issuanceUtxoOpt = utxoRepository.findById(UtxoId.builder().txHash(bootstrapTxHash).outputIndex(2).build());
+            var issuanceUtxoRef = protocolBootstrapParams.issuanceUtxo();
+            var issuanceUtxoOpt = utxoRepository.findById(UtxoId.builder()
+                    .txHash(issuanceUtxoRef.txHash())
+                    .outputIndex(issuanceUtxoRef.outputIndex())
+                    .build());
             if (issuanceUtxoOpt.isEmpty()) {
                 return ResponseEntity.internalServerError().body("could not resolve issuance params");
             }
@@ -479,7 +489,11 @@ public class IssueTokenController {
             }
             var issuerUtxos = issuerUtxosOpt.get().stream().map(UtxoUtil::toUtxo).toList();
 
-            var directoryUtxoOpt = utxoRepository.findById(UtxoId.builder().txHash(bootstrapTxHash).outputIndex(1).build());
+            var directoryUtxoRef = protocolBootstrapParams.directoryUtxo();
+            var directoryUtxoOpt = utxoRepository.findById(UtxoId.builder()
+                    .txHash(directoryUtxoRef.txHash())
+                    .outputIndex(directoryUtxoRef.outputIndex())
+                    .build());
             if (directoryUtxoOpt.isEmpty()) {
                 return ResponseEntity.internalServerError().body("could not resolve directories");
             }

@@ -41,5 +41,17 @@
     "txHash": "a7ce8276a4120f2b5b4a7a073de059fdf65e314c5bad8df9892fb36dbc4a92fd",
     "outputIndex": 4
   },
+  "protocolParamsUtxo": {
+    "txHash": "a7ce8276a4120f2b5b4a7a073de059fdf65e314c5bad8df9892fb36dbc4a92fd",
+    "outputIndex": 0
+  },
+  "directoryUtxo": {
+    "txHash": "a7ce8276a4120f2b5b4a7a073de059fdf65e314c5bad8df9892fb36dbc4a92fd",
+    "outputIndex": 1
+  },
+  "issuanceUtxo": {
+    "txHash": "a7ce8276a4120f2b5b4a7a073de059fdf65e314c5bad8df9892fb36dbc4a92fd",
+    "outputIndex": 2
+  },
   "txHash": "a7ce8276a4120f2b5b4a7a073de059fdf65e314c5bad8df9892fb36dbc4a92fd"
 }

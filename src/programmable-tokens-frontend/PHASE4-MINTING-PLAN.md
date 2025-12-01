@@ -37,8 +37,10 @@
 
 ### 3. Minting API
 **Controller:** `IssueTokenController` (Java backend)
-**Endpoints:** See backend `/mint` endpoints
-**TODO:** Define exact endpoints and request/response format
+**Endpoints:**
+- `POST /api/v1/issue-token/mint` - Mint new programmable tokens
+- `POST /api/v1/issue-token/register` - Register new token substandards
+**Status:** Implemented
 
 ---
 
