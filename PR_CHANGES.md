@@ -98,39 +98,51 @@ Run token discovery with: `./gradlew manualIntegrationTest --tests DiscoverToken
 - **Issue:** Hardcoded UTxO output indices (0, 1, 2) made deployments fragile.
 - **Fix:** Extended `ProtocolBootstrapParams` to include explicit UTxO references, making deployments configuration-driven.
 
+#### 6. Add Global Exception Handler
+**Files:**
+- `src/programmable-tokens-offchain-java/src/main/java/org/cardanofoundation/cip113/exception/GlobalExceptionHandler.java` (NEW)
+- `src/programmable-tokens-offchain-java/src/main/java/org/cardanofoundation/cip113/exception/ApiException.java` (NEW)
+
+- **Issue:** No centralized exception handling for REST controllers, leading to inconsistent error responses.
+- **Fix:** Added `@ControllerAdvice` global exception handler with:
+  - Custom `ApiException` class with HTTP status codes and static factory methods
+  - Structured JSON error responses with timestamp, status, error type, message, and path
+  - Handlers for `ApiException`, `IllegalArgumentException`, and generic exceptions
+  - Consistent error format across all API endpoints
+
 ### Test Suite Fixes
 
-#### 6. Fix `ProtocolParamsParserTest`
+#### 7. Fix `ProtocolParamsParserTest`
 **File:** `src/programmable-tokens-offchain-java/src/test/java/org/cardanofoundation/cip113/model/onchain/ProtocolParamsParserTest.java`
 
 - **Issue:** `testOk2` had incorrect expected values (copy-paste error from `testOk1`).
 - **Fix:** Updated expected values to match the actual parsed CBOR data.
 
-#### 7. Fix `BalanceValueHelperTest`
+#### 8. Fix `BalanceValueHelperTest`
 **File:** `src/programmable-tokens-offchain-java/src/test/java/org/cardanofoundation/cip113/util/BalanceValueHelperTest.java`
 
 - **Issue:** Tests used invalid policy IDs like `"policyId1"` instead of proper 56-character hex strings.
 - **Fix:** Added valid test constants `TEST_POLICY_ID` (56-char hex) and `TEST_ASSET_NAME` (8-char hex), updated all test methods.
 
-#### 8. Fix `AddressUtilTest`
+#### 9. Fix `AddressUtilTest`
 **File:** `src/programmable-tokens-offchain-java/src/test/java/org/cardanofoundation/cip113/util/AddressUtilTest.java`
 
 - **Issue:** Tests used placeholder addresses (`"addr1q9xyz..."`) that couldn't be decoded as real Cardano addresses.
 - **Fix:** Updated tests to use real bech32 testnet addresses for proper address decomposition testing.
 
-#### 9. Fix `RegistryNodeEntity` for H2 Database
+#### 10. Fix `RegistryNodeEntity` for H2 Database
 **File:** `src/programmable-tokens-offchain-java/src/main/java/org/cardanofoundation/cip113/entity/RegistryNodeEntity.java`
 
 - **Issue:** The column name `key` is a SQL reserved word, causing H2 database failures in tests.
 - **Fix:** Added `@Column(name = "\"key\"")` annotation to quote the column name, also updated the index annotation.
 
-#### 10. Fix `BalanceServiceTest`
+#### 11. Fix `BalanceServiceTest`
 **File:** `src/programmable-tokens-offchain-java/src/test/java/org/cardanofoundation/cip113/service/BalanceServiceTest.java`
 
 - **Issue:** Same policy ID issue as BalanceValueHelperTest, plus overly strict assertions on asset names.
 - **Fix:** Added valid test constants, updated helper method `createBalanceWithAssets()`, relaxed assertions to not assume specific asset name formats.
 
-#### 11. Fix `RegistryNodeParserTest`
+#### 12. Fix `RegistryNodeParserTest`
 **File:** `src/programmable-tokens-offchain-java/src/test/java/org/cardanofoundation/cip113/model/onchain/RegistryNodeParserTest.java`
 
 - **Issue:** Tests used malformed CBOR test data that couldn't be parsed correctly.
@@ -140,7 +152,7 @@ Run token discovery with: `./gradlew manualIntegrationTest --tests DiscoverToken
   - Fixed the sentinel node CBOR which had incorrect byte lengths (50 f's instead of 54)
   - All 3 tests (testParseRegistryNode, testParseSentinelNode, testParseInvalidDatum) now pass
 
-#### 12. Fix Integration Tests with Graceful Skip
+#### 13. Fix Integration Tests with Graceful Skip
 **Files:**
 - `src/programmable-tokens-offchain-java/src/test/java/org/cardanofoundation/cip113/AbstractPreviewTest.java`
 - `src/programmable-tokens-offchain-java/src/test/java/org/cardanofoundation/cip113/PreviewConstants.java`
@@ -155,12 +167,12 @@ Run token discovery with: `./gradlew manualIntegrationTest --tests DiscoverToken
 
 ### Documentation Updates
 
-#### 13. Input Ordering Documentation
+#### 14. Input Ordering Documentation
 **File:** `src/programmable-tokens-onchain-aiken/validators/programmable_logic_global.ak`
 
 - Updated TODO comment to document how input ordering is implicitly validated through Aiken's lexicographic ordering and existing validation checks.
 
-#### 14. Test Fixture Documentation
+#### 15. Test Fixture Documentation
 **Files:** Multiple test files
 
 - Replaced misleading FIXME comments with accurate documentation explaining datum structure fields.
@@ -205,6 +217,12 @@ Run token discovery with: `./gradlew manualIntegrationTest --tests DiscoverToken
 - `.github/copilot-instructions.md` - Copilot instructions for the project
 - `PR_CHANGES.md` - This file documenting PR changes
 - `FUTURE_WORK.md` - Technical debt documentation
+- `src/programmable-tokens-offchain-java/src/main/java/org/cardanofoundation/cip113/exception/GlobalExceptionHandler.java` - Centralized REST exception handling
+- `src/programmable-tokens-offchain-java/src/main/java/org/cardanofoundation/cip113/exception/ApiException.java` - Custom exception with HTTP status codes
+- `src/programmable-tokens-offchain-java/src/test/java/org/cardanofoundation/cip113/GenerateSubAccountsTest.java` - Utility for HD wallet sub-account derivation
+- `src/programmable-tokens-offchain-java/src/test/java/org/cardanofoundation/cip113/FundSubAccountsTest.java` - Utility for funding test sub-accounts
+- `src/programmable-tokens-offchain-java/src/test/java/org/cardanofoundation/cip113/SetupProgrammableAddressesTest.java` - Utility for setting up programmable addresses
+- `src/programmable-tokens-offchain-java/src/test/java/org/cardanofoundation/cip113/DiscoverTokensTest.java` - Utility for discovering tokens at addresses
 
 ## Test Wallet (Preview Network)
 A test wallet is pre-configured in `PreviewConstants.java` for running integration tests:
