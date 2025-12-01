@@ -59,7 +59,7 @@ The frontend lacks unit tests. Currently relies on TypeScript compilation and li
 - **Validation Tests (36 tests):** MintTokenRequestValidationTest with parameterized tests
 - **Exception Handler Tests (9 tests):** GlobalExceptionHandlerTest for error response consistency
 
-Total test count increased from 62 to 121 tests.
+Total test count increased from 62 to 155 tests.
 
 **Priority:** ~~Low~~ — ✅ Completed
 
@@ -101,11 +101,11 @@ All error responses now:
 
 ## Test Suite Status
 
-**Final Results:** 121 tests, 0 failures, 0 skipped
+**Final Results:** 155 tests, 0 failures, 0 skipped
 
 | Test Category | Count | Status |
 |---------------|-------|--------|
-| Unit Tests | 113 | ✅ Pass |
+| Unit Tests | 147 | ✅ Pass |
 | Integration Tests | 8 | ✅ Pass |
 
 ### New Test Classes Added
@@ -114,6 +114,10 @@ All error responses now:
 | HealthcheckControllerTest | 5 | `/healthcheck` endpoint tests |
 | SubstandardControllerTest | 5 | `/api/v1/substandards` endpoint tests |
 | ProtocolControllerTest | 4 | `/api/v1/protocol` endpoint tests |
+| BalanceControllerTest | 9 | `/api/v1/balances` endpoint tests |
+| HistoryControllerTest | 4 | `/api/v1/history` endpoint tests |
+| RegistryControllerTest | 11 | `/api/v1/registry` endpoint tests |
+| ProtocolParamsControllerTest | 10 | `/api/v1/protocol-params` endpoint tests |
 | MintTokenRequestValidationTest | 36 | Bean Validation annotation tests |
 | GlobalExceptionHandlerTest | 9 | Exception handling consistency tests |
 
