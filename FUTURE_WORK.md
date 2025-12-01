@@ -56,6 +56,33 @@ Some areas could benefit from additional test coverage:
 
 **Priority:** Low — existing tests cover core functionality.
 
+### 8. Refactor Controller Error Responses to Use ApiException
+
+**Location:** `src/programmable-tokens-offchain-java/src/main/java/org/cardanofoundation/cip113/controller/IssueTokenController.java`
+
+The controller has ~20+ inline `ResponseEntity.badRequest()` and `ResponseEntity.internalServerError()` calls that return plain string bodies. These should be refactored to throw `ApiException` for consistent error formatting.
+
+**Example of current pattern:**
+```java
+if (protocolParamsUtxoOpt.isEmpty()) {
+    return ResponseEntity.internalServerError().body("could not resolve protocol params");
+}
+```
+
+**Recommended pattern:**
+```java
+if (protocolParamsUtxoOpt.isEmpty()) {
+    throw ApiException.internalServerError("could not resolve protocol params");
+}
+```
+
+This would:
+- Provide consistent JSON error responses via GlobalExceptionHandler
+- Reduce duplication in controller code
+- Make error handling more testable
+
+**Priority:** Low — functional but inconsistent error format.
+
 ---
 
 ## Summary Table
@@ -67,8 +94,11 @@ Some areas could benefit from additional test coverage:
 | Test fixture docs | ✅ Improved | Testing | — |
 | Documentation plan | ✅ Completed | Docs | — |
 | RegistryNodeParserTest | ✅ Completed | Testing | — |
+| Global exception handler | ✅ Completed | Architecture | — |
+| Bean Validation | ✅ Completed | Architecture | — |
 | Frontend tests | Remaining | Testing | Medium |
 | Backend test expansion | Remaining | Testing | Low |
+| Controller ApiException refactor | Remaining | Architecture | Low |
 
 ---
 
