@@ -4,11 +4,19 @@
 This PR addresses critical issues across the entire codebase including frontend browser compatibility, backend type safety, comprehensive test suite fixes, and documentation improvements. All tests now pass with integration tests properly skipped when prerequisites are unavailable.
 
 ## Test Results Summary
+
+### Java Backend Tests
 - **Total Tests:** 155
 - **Passing:** 155
 - **Skipped:** 0
 - **Failures:** 0
 - **Errors:** 0
+
+### Aiken Smart Contract Tests
+- **Total Tests:** 80
+- **Passing:** 80
+- **Failures:** 0
+- **Compiler Version:** v1.1.19
 
 ### New Test Classes Added
 - **HealthcheckControllerTest** - 5 tests for `/healthcheck` endpoints using standalone MockMvc
@@ -317,3 +325,33 @@ export WALLET_MNEMONIC="your 24 word mnemonic here"
 export BLOCKFROST_KEY="your_blockfrost_key"  # Optional, has default
 ./gradlew test
 ```
+
+## Aiken Smart Contract Updates
+
+### Compiler Version Update
+**File:** `src/programmable-tokens-onchain-aiken/aiken.toml`
+
+- **Change:** Updated compiler version from `v1.1.17` to `v1.1.19`
+- **Result:** All 80 smart contract tests pass
+- **Build:** Blueprint rebuilt and copied to Java resources
+
+### Validator Sizes (Optimized)
+The validators are built with `--trace-level silent` (default) which removes debug traces from production code:
+
+| Validator | Size (chars) | Purpose |
+|-----------|-------------|---------|
+| programmable_logic_global | 6286 | Core CIP-113 transfer coordinator |
+| registry_mint | 4404 | Token registry (sorted linked list) |
+| blacklist_mint | 3894 | Address blacklisting (sorted linked list) |
+| freeze_and_seize_transfer | 2242 | Example transfer logic with freeze/seize |
+| issuance_mint | 1900 | Token minting policy |
+| protocol_params_mint | 1252 | Protocol parameters NFT |
+| registry_spend | 1228 | Registry UTxO spend validator |
+
+### Transaction Fee Considerations
+Transaction fees on Cardano depend on:
+1. **Script size** (bytes) - Minimized via trace removal
+2. **Execution units** (memory + CPU) - Validators are optimized
+3. **Transaction size** (inputs, outputs, witnesses)
+
+The validators are already well-optimized. Further size reduction would require significant architectural changes to the CIP-113 protocol.
