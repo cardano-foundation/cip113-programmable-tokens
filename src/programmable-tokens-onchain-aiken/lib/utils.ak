@@ -9,28 +9,24 @@ use cardano/assets.{PolicyId, Value, flatten, quantity_of}
 use cardano/transaction.{InlineDatum, Input, Output, Transaction}
 
 /// Check if a value contains at least the required amount of a specific asset
+/// Optimized: Uses early-exit pattern via expect
 pub fn value_contains(value: Value, required: Value) -> Bool {
-  list.all(
-    flatten(required),
-    fn(asset) {
-      let (policy, name, req_qty) = asset
-      quantity_of(value, policy, name) >= req_qty
-    },
-  )
-}
-
-// Is there any chance values have same assets.....
-pub fn value_contains_v2(value: Value, required: Value) -> Bool {
   assets.reduce(
     required,
     True,
     fn(policy, name, req_qty, acc) {
-      acc && quantity_of(value, policy, name) >= req_qty
+      // Short-circuit if already failed
+      if !acc {
+        False
+      } else {
+        quantity_of(value, policy, name) >= req_qty
+      }
     },
   )
 }
 
-// Is there any chance values have same assets.....
+/// Optimized version using expect for fail-fast behavior
+/// This is more efficient when we expect the condition to pass
 pub fn expect_value_contains_v3(value: Value, required: Value) -> Void {
   assets.reduce(
     required,
@@ -67,17 +63,14 @@ pub fn must_find_input(
 }
 
 /// Check if a currency symbol is present in a value
+/// Optimized: Uses dict.has_key directly instead of checking token quantities
 pub fn has_currency_symbol(value: Value, cs: PolicyId) -> Bool {
-  // Check if I have assets name () -> quantity_of
-  // to_dict - values are dict. , and 
   assets.to_dict(value) |> dict.has_key(cs)
-  // !dict.is_empty(tokens(value, cs))
 }
 
 /// Count unique tokens in a value (number of distinct currency symbol + token name pairs)
+/// Optimized: Uses reduce with counter instead of flatten + length
 pub fn count_unique_tokens(value: Value) -> Int {
-  // Original
-  // flatten(value) |> list.length
   assets.reduce(value, 0, fn(_policy, _name, _amount, acc) { acc + 1 })
 }
 

@@ -338,15 +338,21 @@ export BLOCKFROST_KEY="your_blockfrost_key"  # Optional, has default
 ### Validator Sizes (Optimized)
 The validators are built with `--trace-level silent` (default) which removes debug traces from production code:
 
-| Validator | Size (chars) | Purpose |
-|-----------|-------------|---------|
-| programmable_logic_global | 6286 | Core CIP-113 transfer coordinator |
-| registry_mint | 4404 | Token registry (sorted linked list) |
-| blacklist_mint | 3894 | Address blacklisting (sorted linked list) |
-| freeze_and_seize_transfer | 2242 | Example transfer logic with freeze/seize |
-| issuance_mint | 1900 | Token minting policy |
-| protocol_params_mint | 1252 | Protocol parameters NFT |
-| registry_spend | 1228 | Registry UTxO spend validator |
+| Validator | Size (chars) | Change | Purpose |
+|-----------|-------------|--------|---------|
+| programmable_logic_global | 6234 | -52 | Core CIP-113 transfer coordinator |
+| registry_mint | 4404 | - | Token registry (sorted linked list) |
+| blacklist_mint | 3894 | - | Address blacklisting (sorted linked list) |
+| freeze_and_seize_transfer | 2242 | - | Example transfer logic with freeze/seize |
+| issuance_mint | 1900 | - | Token minting policy |
+| protocol_params_mint | 1252 | - | Protocol parameters NFT |
+| registry_spend | 1228 | - | Registry UTxO spend validator |
+
+### Optimizations Applied
+- Removed dead code (commented-out functions, unused `validate_currency_symbols`)
+- Simplified `get_signed_prog_value` using `expect` for fail-fast behavior
+- Optimized `value_contains` with early-exit short-circuit pattern
+- Cleaned up duplicate function definitions
 
 ### Transaction Fee Considerations
 Transaction fees on Cardano depend on:

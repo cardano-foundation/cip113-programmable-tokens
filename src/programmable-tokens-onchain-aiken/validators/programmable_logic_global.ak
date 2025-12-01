@@ -228,27 +228,22 @@ fn validate_third_party(
 }
 
 fn get_signed_prog_value(tx: Transaction, prog_logic_cred: Credential) -> Value {
+  // Optimized: Combine authorization check into single fold
+  // Uses expect for fail-fast behavior instead of if-then-fail
   list.foldl(
     tx.inputs,
     assets.zero,
     fn(input, acc) {
       if input.output.address.payment_credential == prog_logic_cred {
         expect Some(Inline(stake_cred)) = input.output.address.stake_credential
-
-        when stake_cred is {
-          VerificationKey(pkh) ->
-            if is_signed_by(tx, pkh) {
-              merge(acc, input.output.value)
-            } else {
-              fail @"Missing required pk witness"
-            }
-          Script(_hash) ->
-            if is_script_invoked(tx, stake_cred) {
-              merge(acc, input.output.value)
-            } else {
-              fail @"Missing required script witness"
-            }
-        }
+        // Authorization check - fail immediately if not authorized
+        let is_authorized =
+          when stake_cred is {
+            VerificationKey(pkh) -> is_signed_by(tx, pkh)
+            Script(_hash) -> is_script_invoked(tx, stake_cred)
+          }
+        expect is_authorized
+        merge(acc, input.output.value)
       } else {
         acc
       }
@@ -256,73 +251,8 @@ fn get_signed_prog_value(tx: Transaction, prog_logic_cred: Credential) -> Value 
   )
 }
 
-// fn get_signed_prog_inputs(
-//   tx: Transaction,
-//   prog_logic_cred: Credential,
-// ) -> List<Input> {
-//   // First, collect ALL inputs from prog_logic_cred
-//   let prog_cred_inputs =
-//     list.filter(
-//       tx.inputs,
-//       fn(input) { input.output.address.payment_credential == prog_logic_cred },
-//     )
-
-//   // Verify each input is properly authorized and return them
-//   // If any input is NOT authorized, the transaction fails with an error
-//   list.map(
-//     prog_cred_inputs,
-//     fn(input) {
-//       expect Some(Inline(stake_cred)) = input.output.address.stake_credential
-
-//       when stake_cred is {
-//         VerificationKey(pkh) ->
-//           if is_signed_by(tx, pkh) {
-//             input
-//           } else {
-//             fail @"Missing required pk witness"
-//           }
-//         Script(_hash) ->
-//           if is_script_invoked(tx, stake_cred) {
-//             input
-//           } else {
-//             fail @"Missing required script witness"
-//           }
-//       }
-//     },
-//   )
-// }
-
-// fn sum_input_values(inputs: List<Input>) -> Value {
-//   list.foldl(inputs, zero, fn(input, acc) { merge(acc, input.output.value) })
-// }
-
-// fn check_transfer_logic_and_filter(
-//   value: Value,
-//   registry_node_cs: PolicyId,
-//   reference_inputs: List<Input>,
-//   proofs: List<RegistryProof>,
-//   invoked_scripts: List<Credential>,
-// ) -> Value {
-//   expect [_, ..currency_symbols] = policies(value)
-//   // For each currency symbol, check the proof
-//   validate_currency_symbols(
-//     currency_symbols,
-//     proofs,
-//     reference_inputs,
-//     registry_node_cs,
-//     invoked_scripts,
-//     value,
-//     // Pass the original value so we can filter by CS
-//     zero,
-//   )
-// }
-
-/// Get inputs from prog_logic_cred and verify ALL have proper authorization
-/// This function enforces ownership by requiring that every input from prog_logic_cred
-/// is authorized by its stake credential (signature or script invocation).
-/// If ANY input lacks authorization, the transaction FAILS.
-/// Sum values from a list of inputs
 /// Check transfer logic for each currency symbol and filter to only programmable tokens
+/// This function iterates through the value's currency symbols and validates each proof
 fn check_transfer_and_compute_prog_value(
   value: Value,
   registry_node_cs: PolicyId,
@@ -400,64 +330,9 @@ fn do_check_transfer(
   }
 }
 
-/// Validate each currency symbol against proofs
-fn validate_currency_symbols(
-  currency_symbols: List<PolicyId>,
-  proofs: List<RegistryProof>,
-  reference_inputs: List<Input>,
-  registry_node_cs: PolicyId,
-  invoked_scripts: List<Credential>,
-  original_value: Value,
-  acc_value: Value,
-) -> Value {
-  // By the looks of it this multy array traversing/foldin requires the currency_symbols and proofs to be
-  // in the right order. Plutarch data structure makes it implicit to have policies in order.
-  // In aiken seems to be enforced at pairs level where keys are ordered lexicographically.
-  // Is this correct?
-
-  when currency_symbols is {
-    [] -> acc_value
-    [cs, ..rest_cs] ->
-      when proofs is {
-        [] -> fail @"Not enough proofs for currency symbols"
-        [proof, ..rest_proofs] -> {
-          let validated =
-            validate_single_cs(
-              cs,
-              proof,
-              reference_inputs,
-              registry_node_cs,
-              invoked_scripts,
-            )
-
-          let new_acc =
-            if validated {
-              // Add this CS's tokens from the original value to the accumulator
-              dict.foldl(
-                assets.tokens(original_value, cs),
-                acc_value,
-                fn(name, amount, acc) { assets.add(acc, cs, name, amount) },
-              )
-            } else {
-              // Not a programmable token, skip it
-              acc_value
-            }
-
-          validate_currency_symbols(
-            rest_cs,
-            rest_proofs,
-            reference_inputs,
-            registry_node_cs,
-            invoked_scripts,
-            original_value,
-            new_acc,
-          )
-        }
-      }
-  }
-}
-
 /// Validate a single currency symbol against its proof
+/// Returns true if the CS is a programmable token that passed validation,
+/// false if it's not a programmable token (TokenDoesNotExist proof valid)
 fn validate_single_cs(
   cs: PolicyId,
   proof: RegistryProof,
