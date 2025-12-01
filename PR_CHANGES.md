@@ -4,11 +4,17 @@
 This PR addresses critical issues across the entire codebase including frontend browser compatibility, backend type safety, comprehensive test suite fixes, and documentation improvements. All tests now pass with integration tests properly skipped when prerequisites are unavailable.
 
 ## Test Results Summary
-- **Total Tests:** 62
-- **Passing:** 62
+- **Total Tests:** 117
+- **Passing:** 117
 - **Skipped:** 0
 - **Failures:** 0
 - **Errors:** 0
+
+### New Test Classes Added
+- **HealthcheckControllerTest** - 5 tests for `/healthcheck` endpoints using standalone MockMvc
+- **SubstandardControllerTest** - 5 tests for `/api/v1/substandards` endpoints
+- **MintTokenRequestValidationTest** - 36 parameterized tests for Bean Validation
+- **GlobalExceptionHandlerTest** - 9 tests for exception handling consistency
 
 ### Integration Tests Verified
 The following integration tests were verified against Preview network with a funded test wallet:
@@ -143,6 +149,30 @@ Run token discovery with: `./gradlew manualIntegrationTest --tests DiscoverToken
   - Structured JSON response with timestamps
   - Individual component status (UP/DOWN)
 
+#### 9. Comprehensive Controller and Validation Tests
+**New Test Files:**
+- `src/programmable-tokens-offchain-java/src/test/java/org/cardanofoundation/cip113/controller/HealthcheckControllerTest.java` (NEW)
+- `src/programmable-tokens-offchain-java/src/test/java/org/cardanofoundation/cip113/controller/SubstandardControllerTest.java` (NEW)
+- `src/programmable-tokens-offchain-java/src/test/java/org/cardanofoundation/cip113/model/MintTokenRequestValidationTest.java` (NEW)
+- `src/programmable-tokens-offchain-java/src/test/java/org/cardanofoundation/cip113/exception/GlobalExceptionHandlerTest.java` (NEW)
+
+- **Issue:** No controller-level tests, no validation tests for request DTOs.
+- **Fix:** Added comprehensive test coverage following best practices:
+  - **Controller Tests (10 tests)**: Using standalone MockMvc for fast, isolated testing
+    - Healthcheck endpoint tests (basic and detailed health check)
+    - Substandard endpoint tests (list all, get by ID, 404 handling)
+  - **Validation Tests (36 tests)**: Parameterized tests for `MintTokenRequest`
+    - Address format validation (bech32 testnet/mainnet)
+    - Asset name hex format validation (1-64 chars)
+    - Quantity positive integer validation
+    - Substandard name required validation
+  - **Exception Handler Tests (9 tests)**: Unit tests for `GlobalExceptionHandler`
+    - ApiException handling with correct HTTP status codes
+    - IllegalArgumentException as 400 Bad Request
+    - IllegalStateException as 409 Conflict
+    - RuntimeException as 500 Internal Server Error
+    - Validation error message formatting
+
 ### Test Suite Fixes
 
 #### 9. Fix `ProtocolParamsParserTest`
@@ -215,9 +245,11 @@ Run token discovery with: `./gradlew manualIntegrationTest --tests DiscoverToken
 - ✅ Frontend TypeScript: `npx tsc --noEmit` - No type errors
 - ✅ Frontend build: `npm run build` - Completes successfully
 - ✅ Backend compile: `./gradlew compileJava` - Completes successfully
-- ✅ **Full test suite: `./gradlew test` - BUILD SUCCESSFUL (62 tests, 0 failures, 0 skipped)**
+- ✅ **Full test suite: `./gradlew test` - BUILD SUCCESSFUL (117 tests, 0 failures, 0 skipped)**
 - ✅ Verified no `Buffer` usage remains in frontend source code
 - ✅ Integration tests verified on Preview network with funded wallet
+- ✅ Controller tests verify API endpoint behavior with mocked services
+- ✅ Validation tests verify Bean Validation annotations work correctly
 
 ## Files Changed
 
@@ -252,6 +284,10 @@ Run token discovery with: `./gradlew manualIntegrationTest --tests DiscoverToken
 - `FUTURE_WORK.md` - Technical debt documentation
 - `src/programmable-tokens-offchain-java/src/main/java/org/cardanofoundation/cip113/exception/GlobalExceptionHandler.java` - Centralized REST exception handling
 - `src/programmable-tokens-offchain-java/src/main/java/org/cardanofoundation/cip113/exception/ApiException.java` - Custom exception with HTTP status codes
+- `src/programmable-tokens-offchain-java/src/test/java/org/cardanofoundation/cip113/controller/HealthcheckControllerTest.java` - Controller tests for health endpoints
+- `src/programmable-tokens-offchain-java/src/test/java/org/cardanofoundation/cip113/controller/SubstandardControllerTest.java` - Controller tests for substandard endpoints
+- `src/programmable-tokens-offchain-java/src/test/java/org/cardanofoundation/cip113/model/MintTokenRequestValidationTest.java` - Bean Validation tests for request DTOs
+- `src/programmable-tokens-offchain-java/src/test/java/org/cardanofoundation/cip113/exception/GlobalExceptionHandlerTest.java` - Exception handler unit tests
 - `src/programmable-tokens-offchain-java/src/test/java/org/cardanofoundation/cip113/GenerateSubAccountsTest.java` - Utility for HD wallet sub-account derivation
 - `src/programmable-tokens-offchain-java/src/test/java/org/cardanofoundation/cip113/FundSubAccountsTest.java` - Utility for funding test sub-accounts
 - `src/programmable-tokens-offchain-java/src/test/java/org/cardanofoundation/cip113/SetupProgrammableAddressesTest.java` - Utility for setting up programmable addresses
