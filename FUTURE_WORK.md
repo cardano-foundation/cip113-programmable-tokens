@@ -55,7 +55,7 @@ The frontend lacks unit tests. Currently relies on TypeScript compilation and li
 ~~- Error handling edge cases~~
 
 **COMPLETED:** Added comprehensive test coverage:
-- **Controller Tests (14 tests):** HealthcheckControllerTest, SubstandardControllerTest, ProtocolControllerTest
+- **Controller Tests (23 tests):** HealthcheckControllerTest, SubstandardControllerTest, ProtocolControllerTest, BalanceControllerTest
 - **Validation Tests (36 tests):** MintTokenRequestValidationTest with parameterized tests
 - **Exception Handler Tests (9 tests):** GlobalExceptionHandlerTest for error response consistency
 
