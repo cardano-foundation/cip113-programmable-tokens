@@ -1,3 +1,25 @@
+/**
+ * UI Components Module
+ *
+ * Barrel export for all reusable UI primitives. These components
+ * provide consistent styling and behavior across the application.
+ *
+ * ## Available Components
+ * - **Button**: Primary action buttons with variants
+ * - **Card**: Content containers with header/content/footer
+ * - **Input**: Form text inputs with validation
+ * - **Select**: Dropdown selection inputs
+ * - **Badge**: Status indicators and labels
+ * - **Toast/Toaster**: Notification system
+ *
+ * ## Usage
+ * ```tsx
+ * import { Button, Card, Input, Badge } from '@/components/ui';
+ * ```
+ *
+ * @module components/ui
+ */
+
 export { Button } from "./button";
 export type { ButtonProps } from "./button";
 

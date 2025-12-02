@@ -1,3 +1,31 @@
+/**
+ * Wallet Connect Button Component
+ *
+ * This component provides a button for connecting Cardano wallets using
+ * the Mesh SDK. It displays a modal with supported wallet options and
+ * shows connection status when connected.
+ *
+ * ## Supported Wallets
+ * - Nami
+ * - Eternl
+ * - Lace
+ * - Flint
+ *
+ * ## States
+ * - **Disconnected**: Shows "Connect Wallet" button
+ * - **Connecting**: Shows loading state during connection
+ * - **Connected**: Shows wallet name with success badge
+ *
+ * ## Connection Flow
+ * 1. User clicks "Connect Wallet"
+ * 2. Modal appears with wallet options
+ * 3. User selects wallet (must be installed)
+ * 4. Mesh SDK handles CIP-30 connection
+ * 5. Badge shows connected wallet name
+ *
+ * @module components/wallet/connect-button
+ */
+
 "use client";
 
 import { useState } from "react";
@@ -8,6 +36,9 @@ import { Badge } from "@/components/ui/badge";
 import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
+/**
+ * List of wallet configurations for connection modal.
+ */
 const SUPPORTED_WALLETS = [
   { id: "nami", name: "Nami", icon: "🦎" },
   { id: "eternl", name: "Eternl", icon: "♾️" },
@@ -15,6 +46,20 @@ const SUPPORTED_WALLETS = [
   { id: "flint", name: "Flint", icon: "🔥" },
 ];
 
+/**
+ * Wallet connection button with modal selector.
+ *
+ * Integrates with Mesh SDK to connect to CIP-30 compatible Cardano wallets.
+ * Displays connection status and provides modal for wallet selection.
+ *
+ * @returns React component
+ *
+ * @example
+ * ```tsx
+ * // In header component
+ * <ConnectButton />
+ * ```
+ */
 export function ConnectButton() {
   const { connect, connected, name } = useWallet();
   const [showModal, setShowModal] = useState(false);

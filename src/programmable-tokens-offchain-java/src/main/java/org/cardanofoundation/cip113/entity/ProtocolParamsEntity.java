@@ -8,6 +8,24 @@ import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
 
+/**
+ * JPA Entity for CIP-113 Protocol Parameters.
+ *
+ * <p>Stores versioned protocol parameters that define the on-chain
+ * configuration for programmable tokens. Each version is immutable and
+ * identified by the transaction hash that created it.</p>
+ *
+ * <h2>Protocol Parameters</h2>
+ * <ul>
+ *   <li><b>registryNodePolicyId:</b> Policy ID for registry NFTs</li>
+ *   <li><b>progLogicScriptHash:</b> Script hash for programmable logic</li>
+ *   <li><b>transLogicScriptHash:</b> Script hash for transfer logic</li>
+ *   <li><b>illiquidSupplyScriptHash:</b> Script hash for illiquid supply tracking</li>
+ * </ul>
+ *
+ * @see org.cardanofoundation.cip113.service.ProtocolParamsService
+ * @see org.cardanofoundation.cip113.repository.ProtocolParamsRepository
+ */
 @Entity
 @Table(name = "protocol_params", indexes = {
     @Index(name = "idx_tx_hash", columnList = "txHash"),

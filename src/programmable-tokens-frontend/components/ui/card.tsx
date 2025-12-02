@@ -1,3 +1,36 @@
+/**
+ * Card Components
+ *
+ * A set of composable card components for building structured content containers.
+ * Cards use a dark theme with rounded corners and subtle borders.
+ *
+ * ## Components
+ * - **Card**: Main container with optional hover effects
+ * - **CardHeader**: Top section for title and description
+ * - **CardTitle**: Styled heading within CardHeader
+ * - **CardDescription**: Muted text for card subtitle
+ * - **CardContent**: Main content area with padding
+ * - **CardFooter**: Bottom section for actions
+ *
+ * @module components/ui/card
+ *
+ * @example
+ * ```tsx
+ * <Card hover>
+ *   <CardHeader>
+ *     <CardTitle>Token Details</CardTitle>
+ *     <CardDescription>Programmable token information</CardDescription>
+ *   </CardHeader>
+ *   <CardContent>
+ *     <p>Token content here</p>
+ *   </CardContent>
+ *   <CardFooter>
+ *     <Button>Action</Button>
+ *   </CardFooter>
+ * </Card>
+ * ```
+ */
+
 import { HTMLAttributes, forwardRef } from "react";
 import { cn } from "@/lib/utils";
 

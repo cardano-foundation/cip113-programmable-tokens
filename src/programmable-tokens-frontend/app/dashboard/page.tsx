@@ -1,3 +1,27 @@
+/**
+ * Dashboard Page
+ *
+ * Overview dashboard for CIP-0113 protocol status and user portfolio.
+ * Displays protocol statistics, registered tokens, and user balances.
+ *
+ * ## Sections
+ * - **Protocol Stats**: Protocol params, registered token count
+ * - **Registered Tokens**: List of tokens in the registry
+ * - **Wallet Portfolio**: Connected wallet's token balances
+ * - **Quick Actions**: Links to mint and transfer
+ *
+ * ## Data Sources
+ * - Protocol stats from `/api/v1/protocol-params`
+ * - Registry tokens from `/api/v1/registry`
+ * - Wallet balances from connected wallet via Mesh SDK
+ *
+ * ## Refresh Behavior
+ * - Auto-refreshes on wallet connection change
+ * - Manual refresh button for registry data
+ *
+ * @module app/dashboard/page
+ */
+
 "use client";
 
 import { useState, useEffect } from 'react';
@@ -21,12 +45,17 @@ import {
 import { apiGet } from '@/lib/api/client';
 import { useToast } from '@/components/ui/use-toast';
 
-// Dynamically import wallet-dependent components
+/**
+ * Dynamically import wallet-dependent components.
+ */
 const WalletInfoDynamic = dynamic(
   () => import('@/components/wallet').then((mod) => ({ default: mod.WalletInfo })),
   { ssr: false }
 );
 
+/**
+ * Registry node data from backend.
+ */
 interface RegistryNode {
   policyId: string;
   transferLogic: string;
@@ -35,6 +64,9 @@ interface RegistryNode {
   slot: number;
 }
 
+/**
+ * Protocol statistics summary.
+ */
 interface ProtocolStats {
   protocolParamsId: number;
   registryNodePolicyId: string;
@@ -42,6 +74,9 @@ interface ProtocolStats {
   tokenCount: number;
 }
 
+/**
+ * Token balance for portfolio display.
+ */
 interface TokenBalance {
   unit: string;
   policyId: string;

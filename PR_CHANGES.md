@@ -3,6 +3,29 @@
 ## Summary
 This PR addresses critical issues across the entire codebase including frontend browser compatibility, backend type safety, comprehensive test suite fixes, new frontend pages, and documentation improvements. All tests now pass with integration tests properly skipped when prerequisites are unavailable.
 
+## Critical Fix: WebAssembly Loading for Mesh SDK
+
+Fixed a critical rendering issue where the frontend page would not render (only dark background) due to WebAssembly loading errors with the Mesh SDK.
+
+### Problem
+- `@meshsdk/react` imports WebAssembly modules from `@sidan-lab/sidan-csl-rs-browser`
+- Static imports caused "async/await not supported in target environment" errors
+- This prevented the entire React tree from rendering
+
+### Solution
+1. **Dynamic MeshProvider Loading** (`components/providers/app-providers.tsx`):
+   - Changed from static import to dynamic `useEffect` + `import()` pattern
+   - Added loading spinner while MeshProvider initializes
+   - Graceful fallback if MeshProvider fails to load
+
+2. **Webpack Configuration Updates** (`next.config.js`):
+   - Added explicit WASM module rule
+   - Excluded `@meshsdk/core-csl` from server-side bundling
+   - Disabled React strict mode to prevent double renders affecting WASM loading
+
+3. **Client Layout Loading State** (`components/layout/client-layout.tsx`):
+   - Added loading component for dynamic import
+
 ## On-Chain Verification ✅
 
 The smart contracts have been built and verified on 2025-12-01:
@@ -430,3 +453,164 @@ Transaction fees on Cardano depend on:
 3. **Transaction size** (inputs, outputs, witnesses)
 
 The validators are now optimized with ~1.4% size reduction on the core validator. Further optimization would require architectural changes to the CIP-113 protocol.
+
+---
+
+## Comprehensive Inline Documentation (2025-12-01)
+
+### Documentation Standards Applied
+Added comprehensive inline documentation across all three modules following best practices:
+- **Aiken**: Module headers, section dividers, function documentation, field-level comments
+- **Java**: Javadoc with class/method descriptions, @param/@return/@throws tags, code examples
+- **TypeScript**: TSDoc with module headers, function documentation, usage examples
+
+### Aiken Smart Contract Documentation
+
+#### Core Library Files
+| File | Documentation Added |
+|------|---------------------|
+| `lib/types.ak` | Module header, section dividers, field-level comments for all CIP-0113 types |
+| `lib/utils.ak` | Module header, section headers, function documentation with purpose and return values |
+| `lib/linked_list.ak` | Architectural overview, sorted linked list explanation, function documentation |
+
+#### Validator Files
+| File | Documentation Added |
+|------|---------------------|
+| `validators/programmable_logic_global.ak` | Security documentation, phase explanations, transfer validation logic |
+| `validators/programmable_logic_base.ak` | Comprehensive module documentation, spend validation explanation |
+
+### Java Backend Documentation
+
+#### Service Layer
+| File | Documentation Added |
+|------|---------------------|
+| `IssueTokenController.java` | Class-level Javadoc, endpoint documentation with request/response details |
+| `SubstandardService.java` | Service purpose, caching strategy, method documentation |
+| `ProtocolBootstrapService.java` | Bootstrap loading explanation, Plutus blueprint documentation |
+| `RegistryService.java` | Registry architecture, linked list structure, method documentation |
+| `BalanceService.java` | Balance tracking model, event processing, Value representation |
+| `ProtocolParamsService.java` | Versioning strategy, caching implementation, method documentation |
+
+### Frontend Documentation
+
+#### API Layer
+| File | Documentation Added |
+|------|---------------------|
+| `types/api.ts` | TSDoc for all interfaces (Substandard, Validator, MintRequest, etc.) |
+| `lib/api/client.ts` | Module header, fetch wrapper documentation, error handling explanation |
+| `lib/api/minting.ts` | Minting flow documentation, hex encoding, request preparation |
+| `lib/api/substandards.ts` | Substandards API documentation, helper functions |
+| `lib/api/index.ts` | Module re-export documentation with usage examples |
+
+#### Utilities
+| File | Documentation Added |
+|------|---------------------|
+| `lib/utils/validation.ts` | Validation function documentation, Cardano-specific rules |
+| `lib/utils/format.ts` | Formatting function documentation (ADA, addresses) |
+| `lib/utils/cn.ts` | Tailwind class merging utility documentation |
+| `lib/utils/index.ts` | Module re-export documentation |
+
+#### React Hooks
+| File | Documentation Added |
+|------|---------------------|
+| `hooks/use-substandards.ts` | Hook usage documentation, state management explanation |
+
+#### UI Components
+| File | Documentation Added |
+|------|---------------------|
+| `components/ui/button.tsx` | Variants, sizes, loading state documentation |
+| `components/ui/card.tsx` | Composable card components documentation |
+| `components/ui/badge.tsx` | Status badge variants documentation |
+| `components/ui/input.tsx` | Form input with validation documentation |
+| `components/ui/select.tsx` | Dropdown select component documentation |
+| `components/ui/toast.tsx` | Toast notification system documentation |
+| `components/ui/use-toast.ts` | Toast state management hook documentation |
+| `components/ui/index.ts` | UI components barrel export documentation |
+
+#### Wallet Components
+| File | Documentation Added |
+|------|---------------------|
+| `components/wallet/connect-button.tsx` | Wallet connection modal documentation |
+| `components/wallet/wallet-info.tsx` | Connected wallet display documentation |
+| `components/wallet/index.ts` | Wallet components barrel export documentation |
+
+#### Layout Components
+| File | Documentation Added |
+|------|---------------------|
+| `components/layout/header.tsx` | Navigation header documentation |
+| `components/layout/footer.tsx` | Footer with resources documentation |
+| `components/layout/page-container.tsx` | Responsive container documentation |
+| `components/layout/client-layout.tsx` | Client-side layout wrapper documentation |
+
+#### Provider Components
+| File | Documentation Added |
+|------|---------------------|
+| `components/providers/app-providers.tsx` | Root provider composition documentation |
+| `components/providers/mesh-provider-wrapper.tsx` | Mesh SDK wrapper documentation |
+
+#### Mint Components
+| File | Documentation Added |
+|------|---------------------|
+| `components/mint/mint-form.tsx` | Minting form with validation documentation |
+| `components/mint/transaction-preview.tsx` | Transaction signing flow documentation |
+| `components/mint/mint-success.tsx` | Success confirmation documentation |
+| `components/mint/substandard-selector.tsx` | Cascading selector documentation |
+| `components/mint/transaction-builder-toggle.tsx` | Builder mode toggle documentation |
+
+#### App Pages
+| File | Documentation Added |
+|------|---------------------|
+| `app/layout.tsx` | Root layout with metadata documentation |
+| `app/page.tsx` | Landing page features documentation |
+| `app/error.tsx` | Error boundary documentation |
+| `app/loading.tsx` | Global loading state documentation |
+| `app/not-found.tsx` | 404 page documentation |
+| `app/mint/page.tsx` | 3-step minting workflow documentation |
+| `app/transfer/page.tsx` | 4-step transfer workflow documentation |
+| `app/dashboard/page.tsx` | Dashboard overview documentation |
+| `app/opengraph-image.tsx` | OpenGraph image generator documentation |
+| `app/twitter-image.tsx` | Twitter card image generator documentation |
+
+### Java Backend Additional Documentation
+
+#### Main Application
+| File | Documentation Added |
+|------|---------------------|
+| `Cip113OffchainApp.java` | Application overview, components, configuration |
+
+#### Configuration Classes
+| File | Documentation Added |
+|------|---------------------|
+| `config/AppConfig.java` | Network configuration and beans documentation |
+| `config/BlockfrostConfig.java` | Blockfrost API setup documentation |
+| `config/WebConfig.java` | CORS configuration documentation |
+| `config/YaciConfiguration.java` | QuickTxBuilder bean documentation |
+
+#### Entity Classes
+| File | Documentation Added |
+|------|---------------------|
+| `entity/BalanceLogEntity.java` | Balance tracking entity with indexes |
+| `entity/ProtocolParamsEntity.java` | Protocol params versioning entity |
+| `entity/RegistryNodeEntity.java` | Linked list node entity documentation |
+
+#### Repository Interfaces
+| File | Documentation Added |
+|------|---------------------|
+| `repository/BalanceLogRepository.java` | Balance query methods documentation |
+| `repository/ProtocolParamsRepository.java` | Protocol params queries documentation |
+| `repository/RegistryNodeRepository.java` | Registry node queries documentation |
+
+#### Model Records
+| File | Documentation Added |
+|------|---------------------|
+| `model/Substandard.java` | Substandard category documentation |
+| `model/SubstandardValidator.java` | Validator script documentation |
+| `model/RegistryNode.java` | Registry node DTO documentation |
+| `model/ProtocolParams.java` | Protocol params DTO documentation |
+
+### Documentation Verification
+All documentation changes verified:
+- ✅ Aiken: 80 tests pass, 0 errors, 0 warnings
+- ✅ Java: 155 tests pass
+- ✅ Frontend: 65 tests pass, lint passes
+

@@ -1,3 +1,17 @@
+/**
+ * Global Loading State
+ *
+ * Displays a loading spinner during page transitions and
+ * route segment loading. Used by Next.js Suspense boundaries.
+ *
+ * ## Display
+ * - Centered spinner animation
+ * - "Loading..." text below spinner
+ * - Uses PageContainer for consistent layout
+ *
+ * @module app/loading
+ */
+
 import { PageContainer } from '@/components/layout/page-container';
 
 export default function Loading() {

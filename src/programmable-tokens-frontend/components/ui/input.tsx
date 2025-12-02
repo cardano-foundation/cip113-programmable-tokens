@@ -1,3 +1,34 @@
+/**
+ * Input Component
+ *
+ * A styled form input with optional label, error state, and helper text.
+ * Extends all standard HTML input attributes.
+ *
+ * ## Features
+ * - Optional label rendered above input
+ * - Error state with red border and message
+ * - Helper text for guidance
+ * - Dark theme styling with focus rings
+ * - Full width by default
+ *
+ * ## Accessibility
+ * - Label properly associated with input
+ * - Error messages visible to screen readers
+ * - Focus states meet WCAG requirements
+ *
+ * @module components/ui/input
+ *
+ * @example
+ * ```tsx
+ * <Input
+ *   label="Asset Name"
+ *   placeholder="Enter token name"
+ *   error={errors.assetName}
+ *   helperText="Must be alphanumeric"
+ * />
+ * ```
+ */
+
 import { InputHTMLAttributes, forwardRef } from "react";
 import { cn } from "@/lib/utils";
 

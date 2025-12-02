@@ -11,11 +11,49 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
 import java.util.Optional;
 
+/**
+ * Service for managing the CIP-0113 programmable token registry.
+ *
+ * <p>The registry maintains a sorted linked list of registered programmable tokens,
+ * stored on-chain as UTxOs and synchronized to a local database for efficient querying.
+ * Each registry node contains:</p>
+ * <ul>
+ *   <li><strong>Key</strong>: The token policy ID (hex-encoded)</li>
+ *   <li><strong>Next</strong>: Pointer to the next node in the sorted list</li>
+ *   <li><strong>Configuration</strong>: Token-specific parameters and transfer logic reference</li>
+ * </ul>
+ *
+ * <h2>Linked List Structure</h2>
+ * <p>The registry uses a sorted linked list for efficient on-chain operations:</p>
+ * <pre>
+ * Sentinel ("") → Token_A → Token_B → Token_C → ""
+ *                 ↓           ↓           ↓
+ *              Config_A    Config_B    Config_C
+ * </pre>
+ *
+ * <p>The sentinel node (empty key) serves as the list head, enabling O(1) insertion
+ * at any position without modifying the entire list.</p>
+ *
+ * <h2>Synchronization</h2>
+ * <p>Registry state is synchronized from the blockchain via {@link RegistryEventListener},
+ * which processes registry transactions and calls {@link #upsert(RegistryNodeEntity)}
+ * to update the local database.</p>
+ *
+ * <h2>Protocol Params Versioning</h2>
+ * <p>The registry supports multiple protocol parameter versions, allowing tracking
+ * of registry state across protocol upgrades. Each node is associated with a
+ * specific {@link ProtocolParamsEntity} version.</p>
+ *
+ * @see RegistryNodeEntity
+ * @see RegistryEventListener
+ * @see RegistryNodeRepository
+ */
 @Service
 @Slf4j
 @RequiredArgsConstructor
 public class RegistryService {
 
+    /** Repository for registry node persistence operations */
     private final RegistryNodeRepository repository;
 
     /**

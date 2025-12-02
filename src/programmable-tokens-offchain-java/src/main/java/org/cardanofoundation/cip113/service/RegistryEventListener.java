@@ -17,6 +17,32 @@ import java.util.Map;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
+/**
+ * Event listener for synchronizing the programmable token registry from blockchain.
+ *
+ * <p>This listener processes blockchain events to maintain a local copy of the
+ * CIP-0113 token registry. The registry is a sorted linked list of registered
+ * programmable tokens stored on-chain as UTxOs with NFT markers.</p>
+ *
+ * <h2>Registry Structure</h2>
+ * <p>Each registry node UTxO contains:</p>
+ * <ul>
+ *   <li>An NFT with the registry policy ID marking ownership</li>
+ *   <li>A datum containing the token's policy ID (key) and next pointer</li>
+ *   <li>Configuration for the token's transfer logic</li>
+ * </ul>
+ *
+ * <h2>Synchronization Process</h2>
+ * <p>When UTxO events are received:</p>
+ * <ol>
+ *   <li>Filter for UTxOs containing registry node NFTs</li>
+ *   <li>Parse the registry node datum using CBOR decoder</li>
+ *   <li>Upsert the node into local database (handles inserts and updates)</li>
+ * </ol>
+ *
+ * @see RegistryService
+ * @see RegistryNodeParser
+ */
 @Service
 @Slf4j
 @RequiredArgsConstructor

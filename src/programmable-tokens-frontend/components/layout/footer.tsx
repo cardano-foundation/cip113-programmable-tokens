@@ -1,6 +1,24 @@
+/**
+ * Footer Component
+ *
+ * Site-wide footer with links to resources and documentation.
+ * Displays:
+ * - Project description
+ * - Links to CIP-113 specification and GitHub
+ * - Documentation links
+ * - Copyright information
+ *
+ * @module components/layout/footer
+ */
+
 import Link from "next/link";
 import { Github, FileText, BookOpen } from "lucide-react";
 
+/**
+ * Application footer with resource links and branding.
+ *
+ * @returns React component
+ */
 export function Footer() {
   const currentYear = new Date().getFullYear();
 

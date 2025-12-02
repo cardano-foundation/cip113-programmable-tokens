@@ -1,3 +1,24 @@
+/**
+ * Twitter Card Image Generator
+ *
+ * Dynamically generates the Twitter card preview image for social sharing.
+ * Uses Next.js ImageResponse for edge-rendered image generation.
+ *
+ * ## Specifications
+ * - Size: 1200x600 pixels (Twitter 2:1 ratio)
+ * - Format: PNG
+ * - Runtime: Edge for fast generation
+ *
+ * ## Design
+ * - Dark background (#0F172A)
+ * - Split layout with text and logo
+ * - "CIP-113 Programmable Tokens" title
+ * - Description and Cardano branding
+ *
+ * @see https://nextjs.org/docs/app/api-reference/file-conventions/metadata/opengraph-image
+ * @module app/twitter-image
+ */
+
 import { ImageResponse } from 'next/og';
 
 // Route segment config

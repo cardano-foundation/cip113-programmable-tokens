@@ -10,6 +10,24 @@ import org.springframework.stereotype.Repository;
 import java.util.List;
 import java.util.Optional;
 
+/**
+ * JPA Repository for CIP-113 Token Balance Entries.
+ *
+ * <p>Provides data access methods for querying and persisting token balance
+ * records. Supports queries by address, payment script hash, stake key, and
+ * historical balance lookups.</p>
+ *
+ * <h2>Query Methods</h2>
+ * <ul>
+ *   <li><b>findLatestByAddress:</b> Latest balance for a specific address</li>
+ *   <li><b>findHistoryByAddress:</b> Balance history with pagination</li>
+ *   <li><b>findLatestByPaymentScriptHash:</b> Balances by programmable logic script</li>
+ *   <li><b>findAllHolders:</b> All unique addresses holding tokens</li>
+ * </ul>
+ *
+ * @see BalanceLogEntity
+ * @see org.cardanofoundation.cip113.service.BalanceService
+ */
 @Repository
 public interface BalanceLogRepository extends JpaRepository<BalanceLogEntity, Long> {
 

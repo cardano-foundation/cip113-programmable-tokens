@@ -9,6 +9,28 @@ import org.springframework.stereotype.Repository;
 import java.util.List;
 import java.util.Optional;
 
+/**
+ * JPA Repository for CIP-113 Registry Nodes.
+ *
+ * <p>Provides data access for the sorted linked list registry. Supports
+ * queries for individual nodes, all nodes by protocol params, and counting
+ * registered tokens.</p>
+ *
+ * <h2>Query Methods</h2>
+ * <ul>
+ *   <li><b>findByKey:</b> Lookup node by unique key</li>
+ *   <li><b>findAllExcludingSentinel:</b> All token nodes (excludes sentinel)</li>
+ *   <li><b>findAllByProtocolParamsId:</b> Nodes for a specific protocol version</li>
+ *   <li><b>countByProtocolParamsId:</b> Number of registered tokens</li>
+ * </ul>
+ *
+ * <h2>Sentinel Node</h2>
+ * <p>The linked list uses a sentinel node with empty key ("") as the head.
+ * Most queries exclude this sentinel to return only actual token entries.</p>
+ *
+ * @see RegistryNodeEntity
+ * @see org.cardanofoundation.cip113.service.RegistryService
+ */
 @Repository
 public interface RegistryNodeRepository extends JpaRepository<RegistryNodeEntity, Long> {
 

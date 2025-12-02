@@ -1,3 +1,23 @@
+/**
+ * Home Page
+ *
+ * Landing page for the CIP-0113 Programmable Tokens application.
+ * Provides an overview of features and navigation to main actions.
+ *
+ * ## Sections
+ * - **Hero**: Wallet connection and quick info
+ * - **Feature Cards**: Links to Deploy, Mint, Transfer, Dashboard
+ * - **CTA**: Primary action buttons
+ *
+ * ## Feature Availability
+ * - Deploy: Coming soon (disabled)
+ * - Mint: Available
+ * - Transfer: Available
+ * - Dashboard: Available
+ *
+ * @module app/page
+ */
+
 "use client";
 
 import Link from "next/link";
@@ -8,6 +28,9 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Coins, Send, Shield, BarChart3, Rocket } from "lucide-react";
 
+/**
+ * Dynamically import WalletInfo to avoid SSR issues.
+ */
 const WalletInfoDynamic = dynamic(
   () => import("@/components/wallet").then((mod) => ({ default: mod.WalletInfo })),
   {
@@ -24,6 +47,11 @@ const WalletInfoDynamic = dynamic(
   }
 );
 
+/**
+ * Home page component.
+ *
+ * @returns React component
+ */
 export default function Home() {
 
   const features = [

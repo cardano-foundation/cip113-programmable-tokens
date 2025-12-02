@@ -16,18 +16,60 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+/**
+ * Service for tracking programmable token balances at the programmable logic address.
+ *
+ * <p>This service maintains a log of balance changes for addresses holding CIP-0113
+ * programmable tokens. Unlike traditional token tracking, programmable tokens are
+ * held at a shared script address (the programmable logic base), with ownership
+ * determined by datum content.</p>
+ *
+ * <h2>Balance Tracking Model</h2>
+ * <p>The service uses an append-only log model where each balance change creates
+ * a new entry. This provides:</p>
+ * <ul>
+ *   <li>Complete balance history for auditing</li>
+ *   <li>Point-in-time balance reconstruction</li>
+ *   <li>Idempotent event processing (duplicate detection)</li>
+ * </ul>
+ *
+ * <h2>Address Types</h2>
+ * <p>Addresses tracked by this service include:</p>
+ * <ul>
+ *   <li><strong>Script addresses</strong>: Programmable logic base address</li>
+ *   <li><strong>Payment key hashes</strong>: Owner credentials in datums</li>
+ * </ul>
+ *
+ * <h2>Event Processing</h2>
+ * <p>Balance entries are created by {@link BalanceEventListener} when processing
+ * transaction outputs at the programmable logic address. The service ensures
+ * idempotency through transaction hash uniqueness checks.</p>
+ *
+ * <h2>Value Representation</h2>
+ * <p>Balances are stored as JSON and can be converted to Cardano-client-lib
+ * {@link Value} objects for transaction building. See {@link BalanceValueHelper}
+ * for conversion utilities.</p>
+ *
+ * @see BalanceLogEntity
+ * @see BalanceEventListener
+ * @see BalanceValueHelper
+ */
 @Service
 @Slf4j
 @RequiredArgsConstructor
 public class BalanceService {
 
+    /** Repository for balance log persistence operations */
     private final BalanceLogRepository repository;
 
     /**
-     * Append a new balance entry to the log
+     * Append a new balance entry to the log.
+     *
+     * <p>This operation is idempotent - if an entry already exists for the
+     * same address and transaction hash, it will be skipped without error.</p>
      *
      * @param entity the balance log entry to append
-     * @return the saved entity
+     * @return the saved entity (or existing entity if duplicate)
      */
     @Transactional
     public BalanceLogEntity append(BalanceLogEntity entity) {
@@ -45,10 +87,10 @@ public class BalanceService {
     }
 
     /**
-     * Get the latest balance for an address
+     * Get the latest (most recent) balance for an address.
      *
-     * @param address the address
-     * @return the latest balance entry or empty if no history
+     * @param address the address to query
+     * @return the latest balance entry, or empty if no history exists
      */
     public Optional<BalanceLogEntity> getLatestBalance(String address) {
         return repository.findLatestByAddress(address, PageRequest.of(0, 1))
@@ -57,10 +99,13 @@ public class BalanceService {
     }
 
     /**
-     * Get the current balance as a Value object
+     * Get the current balance as a Cardano-client-lib Value object.
      *
-     * @param address the address
-     * @return Value object representing current balance
+     * <p>The Value object can be used directly for transaction building
+     * and balance calculations.</p>
+     *
+     * @param address the address to query
+     * @return Value object representing current balance (empty Value if no history)
      */
     public Value getCurrentBalanceAsValue(String address) {
         return getLatestBalance(address)
@@ -69,10 +114,13 @@ public class BalanceService {
     }
 
     /**
-     * Get the current balance as a unit map
+     * Get the current balance as a map of unit to amount.
      *
-     * @param address the address
-     * @return map of unit to amount (as string)
+     * <p>Units are in the format "policyId.assetName" for native assets,
+     * or "lovelace" for ADA.</p>
+     *
+     * @param address the address to query
+     * @return map of unit to amount string (empty map if no history)
      */
     public Map<String, String> getCurrentBalanceByUnit(String address) {
         return getLatestBalance(address)
@@ -84,11 +132,13 @@ public class BalanceService {
     }
 
     /**
-     * Get balance history for an address
+     * Get balance history for an address.
      *
-     * @param address the address
+     * <p>Returns balance entries in reverse chronological order (newest first).</p>
+     *
+     * @param address the address to query
      * @param limit maximum number of entries to return
-     * @return list of balance entries (ordered by slot DESC)
+     * @return list of balance entries ordered by slot descending
      */
     public List<BalanceLogEntity> getBalanceHistory(String address, int limit) {
         Pageable pageable = PageRequest.of(0, limit);
@@ -96,7 +146,7 @@ public class BalanceService {
     }
 
     /**
-     * Get latest balances by payment script hash (one per address)
+     * Get latest balances by payment script hash (one per address).
      *
      * @param paymentScriptHash the payment script hash
      * @return list of latest balance entries

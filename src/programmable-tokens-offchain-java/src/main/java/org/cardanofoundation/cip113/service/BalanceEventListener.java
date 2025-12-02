@@ -21,6 +21,30 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+/**
+ * Event listener for tracking programmable token balances at script addresses.
+ *
+ * <p>This listener processes blockchain events from Yaci Store to track balance changes
+ * for addresses holding CIP-0113 programmable tokens. It specifically monitors the
+ * programmable logic base script address where all programmable tokens are held.</p>
+ *
+ * <h2>Event Processing</h2>
+ * <p>When a new block is processed by Yaci Store, this listener:</p>
+ * <ol>
+ *   <li>Identifies UTxOs at known programmable logic addresses</li>
+ *   <li>Extracts owner credentials from datum</li>
+ *   <li>Computes current balance from all UTxOs for that owner</li>
+ *   <li>Appends a balance log entry for audit trail</li>
+ * </ol>
+ *
+ * <h2>Balance Computation</h2>
+ * <p>Balances are computed by aggregating all UTxOs at the programmable address
+ * that belong to the same owner (determined by datum content). This provides
+ * accurate "effective balance" even though tokens are at a shared script address.</p>
+ *
+ * @see BalanceService
+ * @see AddressUtxoEvent
+ */
 @Service
 @Slf4j
 @RequiredArgsConstructor

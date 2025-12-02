@@ -513,11 +513,11 @@
     },
     "types/BlacklistProof": {
       "title": "BlacklistProof",
-      "description": "Proof of blacklist membership or non-membership",
+      "description": "Proof of blacklist non-membership for freeze/seize validation.\n\n When processing a transfer, the transfer logic can verify that an address\n is NOT on the blacklist by providing a covering node proof.",
       "anyOf": [
         {
           "title": "NonmembershipProof",
-          "description": "Proof of non-membership via covering node",
+          "description": "Proof of non-membership via covering node.\n The covering node at this index proves the address is not blacklisted.",
           "dataType": "constructor",
           "index": 0,
           "fields": [
@@ -531,18 +531,18 @@
     },
     "types/BlacklistRedeemer": {
       "title": "BlacklistRedeemer",
-      "description": "Redeemer for blacklist minting policy (linked list operations)",
+      "description": "Redeemer for the blacklist minting policy (linked list operations).\n\n The blacklist minting policy controls adding and removing addresses from\n the blacklist. Similar to the registry, it maintains sorted linked list invariants.",
       "anyOf": [
         {
           "title": "BlacklistInit",
-          "description": "Initialize the blacklist with the origin node",
+          "description": "Initialize the blacklist with the origin (sentinel) node.\n Creates the empty blacklist structure.",
           "dataType": "constructor",
           "index": 0,
           "fields": []
         },
         {
           "title": "BlacklistInsert",
-          "description": "Insert a credential into the blacklist",
+          "description": "Insert a credential (address) into the blacklist.\n The key is typically a 28-byte payment credential hash.",
           "dataType": "constructor",
           "index": 1,
           "fields": [
@@ -554,7 +554,7 @@
         },
         {
           "title": "BlacklistRemove",
-          "description": "Remove a credential from the blacklist",
+          "description": "Remove a credential from the blacklist.\n Allows previously blacklisted addresses to transfer tokens again.",
           "dataType": "constructor",
           "index": 2,
           "fields": [
@@ -568,11 +568,11 @@
     },
     "types/ProgrammableLogicGlobalRedeemer": {
       "title": "ProgrammableLogicGlobalRedeemer",
-      "description": "Redeemer for the global programmable logic stake validator",
+      "description": "Redeemer for the global programmable logic stake validator.\n\n The global validator coordinates all programmable token operations. It uses\n the \"withdraw-zero\" pattern where the stake script is invoked via a zero-value\n withdrawal, allowing it to observe and validate the entire transaction.\n\n ## Actions\n\n ### TransferAct\n Standard token transfer where users send tokens to each other. Each token\n type requires a proof (TokenExists/TokenDoesNotExist) and the corresponding\n transfer logic script must be invoked.\n\n ### ThirdPartyAct\n Administrative operations like seizure or freeze. A third party (e.g., issuer\n or regulator) can invoke the third_party_transfer_logic_script to perform\n actions on tokens without owner consent.",
       "anyOf": [
         {
           "title": "TransferAct",
-          "description": "Transfer action with proofs for each token type",
+          "description": "Transfer action with proofs for each token type.\n The proofs list must match the order of currency symbols in the transaction value.",
           "dataType": "constructor",
           "index": 0,
           "fields": [
@@ -584,28 +584,28 @@
         },
         {
           "title": "ThirdPartyAct",
-          "description": "Third party action for admin operations (seizure, freeze, etc.)\n Supports multiple UTxOs in a single transaction",
+          "description": "Third party action for admin operations (seizure, freeze, etc.).\n Supports processing multiple UTxOs in a single transaction for efficiency.",
           "dataType": "constructor",
           "index": 1,
           "fields": [
             {
               "title": "registry_node_idx",
-              "description": "Index of the registry node in reference inputs",
+              "description": "Index of the registry node in reference inputs.\n This node identifies which programmable token policy is being acted upon.",
               "$ref": "#/definitions/Int"
             },
             {
               "title": "input_idxs",
-              "description": "List of input indices to process (supports multi-UTxO operations)",
+              "description": "List of input indices to process (supports multi-UTxO operations).\n Each index points to an input from the programmable logic address.",
               "$ref": "#/definitions/List$Int"
             },
             {
               "title": "outputs_start_idx",
-              "description": "Starting index in outputs where processed outputs begin",
+              "description": "Starting index in outputs where processed outputs begin.\n For each input at input_idxs[i], output is at outputs_start_idx + i.",
               "$ref": "#/definitions/Int"
             },
             {
               "title": "length_input_idxs",
-              "description": "Length of input_idxs list (for validation)",
+              "description": "Length of input_idxs list for validation.\n Prevents malicious actors from claiming more inputs than provided.",
               "$ref": "#/definitions/Int"
             }
           ]
@@ -614,11 +614,11 @@
     },
     "types/RegistryProof": {
       "title": "RegistryProof",
-      "description": "Proof that a token is (or is not) in the registry",
+      "description": "Proof that a token policy is (or is not) in the programmable token registry.\n\n When transferring tokens, each currency symbol in the transaction needs a\n proof to determine if it's a programmable token that requires transfer logic\n validation. These proofs reference registry nodes by their index in the\n transaction's reference inputs.\n\n ## Usage in TransferAct\n\n For each currency symbol in the transaction value:\n - `TokenExists`: The token IS registered, invoke its transfer logic\n - `TokenDoesNotExist`: The token is NOT registered, skip validation\n\n ## Proof Verification\n\n - `TokenExists`: Registry node's key must equal the currency symbol\n - `TokenDoesNotExist`: Registry node must \"cover\" the currency symbol\n   (node.key < cs < node.next), proving no entry exists for this cs",
       "anyOf": [
         {
           "title": "TokenExists",
-          "description": "Token exists in the registry at this reference input index",
+          "description": "Token exists in the registry at this reference input index.\n The validator will look up the registry node and invoke its transfer_logic_script.",
           "dataType": "constructor",
           "index": 0,
           "fields": [
@@ -630,7 +630,7 @@
         },
         {
           "title": "TokenDoesNotExist",
-          "description": "Token does not exist (proof via covering node at this index)",
+          "description": "Token does not exist (proof via covering node at this index).\n The validator verifies the covering node spans this currency symbol.",
           "dataType": "constructor",
           "index": 1,
           "fields": [
@@ -644,18 +644,18 @@
     },
     "types/RegistryRedeemer": {
       "title": "RegistryRedeemer",
-      "description": "Redeemer for registry minting policy (linked list operations)",
+      "description": "Redeemer for the registry minting policy (linked list operations).\n\n The registry minting policy controls the creation and modification of\n registry entries. Each operation maintains the sorted linked list invariants.",
       "anyOf": [
         {
           "title": "RegistryInit",
-          "description": "Initialize the registry with the origin node",
+          "description": "Initialize the registry with the origin (sentinel) node.\n This must be the first operation and creates the empty list structure.\n Mints exactly one NFT with token name \"\" (empty).",
           "dataType": "constructor",
           "index": 0,
           "fields": []
         },
         {
           "title": "RegistryInsert",
-          "description": "Insert a new programmable token policy into the registry",
+          "description": "Insert a new programmable token policy into the registry.\n The key is the policy's currency symbol, and hashed_param is used\n to verify the policy was created with the correct issuance template.",
           "dataType": "constructor",
           "index": 1,
           "fields": [
@@ -673,7 +673,7 @@
     },
     "types/SmartTokenMintingAction": {
       "title": "SmartTokenMintingAction",
-      "description": "Action for the minting policy",
+      "description": "Action for the issuance minting policy.\n\n When minting new programmable tokens, this redeemer specifies which minting\n logic script must be invoked to authorize the mint.",
       "anyOf": [
         {
           "title": "SmartTokenMintingAction",
@@ -682,7 +682,7 @@
           "fields": [
             {
               "title": "minting_logic_cred",
-              "description": "The credential of the minting logic script that must be invoked",
+              "description": "The credential of the minting logic script that must be invoked.\n This script contains the business logic for minting (e.g., one-shot, redeemable).",
               "$ref": "#/definitions/cardano~1address~1Credential"
             }
           ]

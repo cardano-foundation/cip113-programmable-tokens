@@ -1,15 +1,57 @@
+/**
+ * Substandard Selector Component
+ *
+ * A cascading dropdown component for selecting a CIP-0113 substandard
+ * and its associated validator. The first dropdown selects the substandard
+ * type, and the second dropdown (populated based on first selection)
+ * selects the specific validator to use.
+ *
+ * ## Cascading Selection
+ * 1. User selects substandard (e.g., "blacklist")
+ * 2. Validator dropdown populates with validators from that substandard
+ * 3. User selects validator (e.g., "example_transfer_logic.spend")
+ * 4. Parent receives both selections via onSelect callback
+ *
+ * @module components/mint/substandard-selector
+ */
+
 "use client";
 
 import { useState, useEffect, useMemo } from 'react';
 import { Select, SelectOption } from '@/components/ui/select';
 import { Substandard } from '@/types/api';
 
+/**
+ * Props for the SubstandardSelector component.
+ */
 interface SubstandardSelectorProps {
+  /** Available substandard configurations from backend */
   substandards: Substandard[];
+  /** Callback when both substandard and validator are selected */
   onSelect: (substandardId: string, validatorTitle: string) => void;
+  /** Whether the selector should be disabled */
   disabled?: boolean;
 }
 
+/**
+ * Cascading dropdown for substandard and validator selection.
+ *
+ * Provides a two-step selection process where the validator options
+ * are dynamically populated based on the selected substandard.
+ *
+ * @param props - Component props
+ * @returns React component
+ *
+ * @example
+ * ```tsx
+ * <SubstandardSelector
+ *   substandards={substandards}
+ *   onSelect={(subId, validatorTitle) => {
+ *     console.log(`Selected ${validatorTitle} from ${subId}`);
+ *   }}
+ * />
+ * ```
+ */
 export function SubstandardSelector({
   substandards,
   onSelect,

@@ -1,3 +1,43 @@
+/**
+ * Toast State Management Hook
+ *
+ * A lightweight toast notification system using React state and
+ * external memory store for cross-component access.
+ *
+ * ## Architecture
+ * - Uses memory-based state to allow toasts from non-React contexts
+ * - Listener pattern for reactive updates across components
+ * - Auto-dismissal with configurable duration
+ *
+ * ## Toast Properties
+ * - **id**: Auto-generated unique identifier
+ * - **title**: Main toast heading (optional)
+ * - **description**: Toast body text (optional)
+ * - **variant**: Visual style (success, error, warning, info)
+ * - **duration**: Auto-dismiss time in ms (default 5000, Infinity to persist)
+ *
+ * @module components/ui/use-toast
+ *
+ * @example
+ * ```tsx
+ * const { toast, dismiss } = useToast();
+ *
+ * // Show success toast
+ * toast({
+ *   variant: 'success',
+ *   title: 'Minted!',
+ *   description: 'Token minted successfully',
+ * });
+ *
+ * // Show persistent error
+ * toast({
+ *   variant: 'error',
+ *   title: 'Failed',
+ *   duration: Infinity,
+ * });
+ * ```
+ */
+
 "use client";
 
 import { useState, useCallback } from "react";

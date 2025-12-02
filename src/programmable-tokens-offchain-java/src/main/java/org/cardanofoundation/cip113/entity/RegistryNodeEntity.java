@@ -8,6 +8,27 @@ import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
 
+/**
+ * JPA Entity for CIP-113 Registry Nodes.
+ *
+ * <p>Represents a node in the on-chain sorted linked list registry.
+ * Each node stores token metadata and points to the next node in the list,
+ * allowing efficient on-chain iteration and membership verification.</p>
+ *
+ * <h2>Linked List Structure</h2>
+ * <ul>
+ *   <li><b>key:</b> Unique token identifier (policy ID + asset name hash)</li>
+ *   <li><b>next:</b> Key of the next node in sorted order (empty for tail)</li>
+ *   <li><b>protocolParamsId:</b> Associated protocol parameters version</li>
+ * </ul>
+ *
+ * <h2>Indexing</h2>
+ * <p>Indexes on key and next enable efficient traversal and insertion
+ * operations for the sorted linked list data structure.</p>
+ *
+ * @see org.cardanofoundation.cip113.service.RegistryService
+ * @see org.cardanofoundation.cip113.repository.RegistryNodeRepository
+ */
 @Entity
 @Table(name = "registry_node", indexes = {
     @Index(name = "idx_registry_key", columnList = "\"key\""),

@@ -1,3 +1,30 @@
+/**
+ * Token Transfer Page
+ *
+ * Page for transferring CIP-0113 programmable tokens between addresses.
+ * Includes token selection, recipient input, and amount validation.
+ *
+ * ## Features
+ * - Displays programmable tokens in connected wallet
+ * - Token selection with balance display
+ * - Recipient address validation (Cardano bech32)
+ * - Amount validation against available balance
+ * - Transaction building and signing
+ *
+ * ## Step Flow
+ * 1. **Select**: Choose token from available balances
+ * 2. **Form**: Enter recipient and amount
+ * 3. **Preview**: Review and sign transaction
+ * 4. **Success**: View confirmation
+ *
+ * ## API Integration
+ * - Fetches token balances from backend
+ * - Validates addresses against Cardano format
+ * - Builds transfer transactions via backend API
+ *
+ * @module app/transfer/page
+ */
+
 "use client";
 
 import { useState, useEffect, useCallback } from 'react';
@@ -12,12 +39,17 @@ import { ArrowRight, Wallet, Send, AlertCircle, ExternalLink } from 'lucide-reac
 import { apiGet } from '@/lib/api/client';
 import { validateCardanoAddress, validateQuantity } from '@/lib/utils/validation';
 
-// Dynamically import wallet-dependent components
+/**
+ * Dynamically import wallet-dependent components.
+ */
 const WalletInfoDynamic = dynamic(
   () => import('@/components/wallet').then((mod) => ({ default: mod.WalletInfo })),
   { ssr: false }
 );
 
+/**
+ * Token balance information from backend.
+ */
 interface TokenBalance {
   unit: string;
   policyId: string;
@@ -26,10 +58,18 @@ interface TokenBalance {
   amount: string;
 }
 
+/**
+ * Transfer wizard step states.
+ */
 interface TransferStep {
   step: 'select' | 'form' | 'preview' | 'success';
 }
 
+/**
+ * Transfer page component with multi-step wizard.
+ *
+ * @returns React component
+ */
 export default function TransferPage() {
   const { toast } = useToast();
   const [currentStep, setCurrentStep] = useState<TransferStep['step']>('select');

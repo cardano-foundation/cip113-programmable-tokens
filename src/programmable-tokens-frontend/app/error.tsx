@@ -1,3 +1,26 @@
+/**
+ * Global Error Boundary Page
+ *
+ * Next.js error boundary component that catches unhandled errors
+ * in the application. Provides user-friendly error display with
+ * recovery options.
+ *
+ * ## Features
+ * - Logs errors to console (can be extended to error reporting service)
+ * - Shows error details in development mode
+ * - Provides "Try Again" button to reset error state
+ * - Links to home page for navigation escape
+ *
+ * ## Usage
+ * This file is automatically used by Next.js as the error boundary
+ * for the application. It catches errors from:
+ * - Server Components
+ * - Client Components (during rendering)
+ * - Route segment errors
+ *
+ * @module app/error
+ */
+
 'use client';
 
 import { useEffect } from 'react';
@@ -7,6 +30,14 @@ import { Button } from '@/components/ui/button';
 import { AlertTriangle, RefreshCw, Home } from 'lucide-react';
 import Link from 'next/link';
 
+/**
+ * Error boundary page component.
+ *
+ * @param props - Error component props from Next.js
+ * @param props.error - The error that was thrown
+ * @param props.reset - Function to reset the error boundary
+ * @returns React component
+ */
 export default function Error({
   error,
   reset,

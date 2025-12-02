@@ -1,3 +1,36 @@
+/**
+ * Toast Components
+ *
+ * A notification system for displaying temporary messages to users.
+ * Toasts appear in the top-right corner and auto-dismiss after duration.
+ *
+ * ## Components
+ * - **Toaster**: Container that renders all active toasts
+ * - **Toast**: Individual toast notification with dismiss action
+ *
+ * ## Variants
+ * - **default**: Neutral styling
+ * - **success**: Green icon for successful operations
+ * - **error**: Red icon for failures
+ * - **warning**: Orange icon for warnings
+ * - **info**: Blue icon for informational messages
+ *
+ * ## Usage
+ * Add `<Toaster />` to root layout, then use `useToast()` hook to show messages.
+ *
+ * @module components/ui/toast
+ *
+ * @example
+ * ```tsx
+ * // In layout.tsx
+ * <Toaster />
+ *
+ * // In component
+ * const { toast } = useToast();
+ * toast({ variant: 'success', title: 'Transaction submitted' });
+ * ```
+ */
+
 "use client";
 
 import { useToast, type Toast as ToastType } from "./use-toast";

@@ -1,3 +1,18 @@
+/**
+ * 404 Not Found Page
+ *
+ * Custom 404 page displayed when a route is not found.
+ * Provides helpful navigation back to the home page.
+ *
+ * ## Display
+ * - Centered card with icon
+ * - "Page Not Found" heading
+ * - Descriptive message
+ * - "Go Home" button for navigation
+ *
+ * @module app/not-found
+ */
+
 import Link from 'next/link';
 import { PageContainer } from '@/components/layout/page-container';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';

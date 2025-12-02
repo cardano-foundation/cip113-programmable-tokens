@@ -18,6 +18,29 @@ import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.util.ArrayList;
+
+/**
+ * Application Configuration for CIP-113 Off-Chain Service.
+ *
+ * <p>Provides configuration beans and network setup for the Cardano blockchain
+ * integration. Reads network settings from application properties and initializes
+ * the appropriate Cardano network configuration.</p>
+ *
+ * <h2>Configuration Properties</h2>
+ * <ul>
+ *   <li><b>cardano.network:</b> Network name (preview, preprod, mainnet)</li>
+ *   <li><b>cardano.protocol-magic:</b> Network protocol magic number</li>
+ * </ul>
+ *
+ * <h2>Beans Provided</h2>
+ * <ul>
+ *   <li><b>CardanoConverters:</b> Utility for address and data conversions</li>
+ *   <li><b>Network:</b> Cardano network configuration</li>
+ * </ul>
+ *
+ * @see YaciConfiguration
+ * @see BlockfrostConfig
+ */
 import java.util.List;
 
 @Configuration

@@ -11,6 +11,33 @@ import org.cardanofoundation.cip113.model.onchain.ProtocolParamsParser;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 
+/**
+ * Event listener for detecting and indexing CIP-0113 protocol parameter deployments.
+ *
+ * <p>This listener monitors the blockchain for protocol parameter NFT transactions
+ * to detect new CIP-0113 protocol deployments. Protocol parameters are the root
+ * configuration that defines all script hashes and policy IDs for a deployment.</p>
+ *
+ * <h2>Detection Mechanism</h2>
+ * <p>Protocol parameters are identified by:</p>
+ * <ul>
+ *   <li>Matching against configured transaction IDs (from protocolBootstrap.json)</li>
+ *   <li>Presence of a "ProtocolParams" token in the UTxO</li>
+ *   <li>Valid inline datum containing ProgrammableLogicGlobalParams</li>
+ * </ul>
+ *
+ * <h2>Indexed Data</h2>
+ * <p>When a protocol params UTxO is found, the following are extracted:</p>
+ * <ul>
+ *   <li>Registry node policy ID - for tracking registered tokens</li>
+ *   <li>Programmable logic script hashes - base and global validators</li>
+ *   <li>Blacklist node policy ID - for sanction list management</li>
+ *   <li>Transaction metadata (slot, block, tx hash)</li>
+ * </ul>
+ *
+ * @see ProtocolParamsService
+ * @see ProtocolParamsParser
+ */
 @Service
 @Slf4j
 @RequiredArgsConstructor

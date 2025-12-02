@@ -43,24 +43,90 @@ import java.math.BigInteger;
 import java.util.List;
 import java.util.Optional;
 
+/**
+ * REST Controller for CIP-0113 Programmable Token operations.
+ *
+ * <p>This controller provides endpoints for the complete lifecycle of programmable
+ * tokens on Cardano, including registration, minting, and issuance operations.
+ *
+ * <h2>API Endpoints</h2>
+ * <ul>
+ *   <li>{@code POST /register} - Register a new programmable token policy in the registry</li>
+ *   <li>{@code POST /mint} - Mint additional tokens for an existing policy</li>
+ *   <li>{@code POST /issue} - Combined register + mint in a single transaction</li>
+ * </ul>
+ *
+ * <h2>Transaction Flow</h2>
+ * <p>All endpoints return unsigned transaction CBOR hex. The client is responsible for:
+ * <ol>
+ *   <li>Receiving the unsigned transaction</li>
+ *   <li>Signing with the appropriate wallet</li>
+ *   <li>Submitting to the Cardano network</li>
+ * </ol>
+ *
+ * <h2>CIP-0113 Protocol Integration</h2>
+ * <p>This controller integrates with the on-chain CIP-0113 protocol:
+ * <ul>
+ *   <li>Registry operations use the sorted linked list validators</li>
+ *   <li>Minting uses parametrized issuance policies</li>
+ *   <li>All tokens are locked at the programmable logic base address</li>
+ * </ul>
+ *
+ * @see RegisterTokenRequest for registration parameters
+ * @see MintTokenRequest for minting parameters
+ * @see IssueTokenRequest for combined issue parameters
+ */
 @RestController
 @RequestMapping("${apiPrefix}/issue-token")
 @RequiredArgsConstructor
 @Slf4j
 public class IssueTokenController {
 
+    /** JSON serializer for Plutus data structures */
     private final ObjectMapper objectMapper;
 
+    /** Network configuration (mainnet/testnet) */
     private final AppConfig.Network network;
 
+    /** Repository for querying UTxOs from the indexer */
     private final UtxoRepository utxoRepository;
 
+    /** Service for loading protocol bootstrap parameters */
     private final ProtocolBootstrapService protocolBootstrapService;
 
+    /** Service for loading substandard validators */
     private final SubstandardService substandardService;
 
+    /** Transaction builder for creating Cardano transactions */
     private final QuickTxBuilder quickTxBuilder;
 
+    /**
+     * Register a new programmable token policy in the CIP-0113 registry.
+     *
+     * <p>This endpoint creates a transaction that:
+     * <ol>
+     *   <li>Inserts a new entry into the registry linked list</li>
+     *   <li>Associates the policy with transfer and issuance logic scripts</li>
+     *   <li>Does NOT mint any tokens (use /mint or /issue for that)</li>
+     * </ol>
+     *
+     * <h3>Registry Structure</h3>
+     * <p>The registry is a sorted linked list where each node contains:
+     * <ul>
+     *   <li>key: The currency symbol (policy ID)</li>
+     *   <li>next: Pointer to next entry</li>
+     *   <li>transfer_logic_script: Script that validates transfers</li>
+     *   <li>third_party_transfer_logic_script: Script for admin operations</li>
+     * </ul>
+     *
+     * @param registerTokenRequest the registration parameters including:
+     *        - issuerBaseAddress: The issuer's wallet address (bech32)
+     *        - substandardName: The substandard ID (e.g., "dummy")
+     *        - substandardIssueContractName: Name of the issuance validator
+     *        - substandardTransferContractName: Name of the transfer validator
+     * @return ResponseEntity containing the unsigned transaction CBOR hex
+     * @throws ApiException if validation fails or protocol resources unavailable
+     */
     @PostMapping("/register")
     public ResponseEntity<?> register(@Valid @RequestBody RegisterTokenRequest registerTokenRequest) {
 

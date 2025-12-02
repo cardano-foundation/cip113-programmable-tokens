@@ -1,3 +1,30 @@
+/**
+ * Badge Component
+ *
+ * A small inline status indicator with colored background and border.
+ * Used for showing status, categories, or labels.
+ *
+ * ## Variants
+ * - **default**: Neutral dark styling
+ * - **success**: Green/primary for positive status
+ * - **error**: Red for errors or failures
+ * - **warning**: Orange/accent for warnings
+ * - **info**: Blue for informational badges
+ *
+ * ## Sizes
+ * - **sm**: Compact size for dense UIs
+ * - **md**: Standard size (default)
+ *
+ * @module components/ui/badge
+ *
+ * @example
+ * ```tsx
+ * <Badge variant="success">Connected</Badge>
+ * <Badge variant="warning" size="sm">Pending</Badge>
+ * <Badge variant="error">Failed</Badge>
+ * ```
+ */
+
 import { HTMLAttributes, forwardRef } from "react";
 import { cn } from "@/lib/utils";
 

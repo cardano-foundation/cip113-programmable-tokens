@@ -1,15 +1,60 @@
+/**
+ * Transaction Builder Toggle Component
+ *
+ * An educational feature toggle that allows users to choose between
+ * backend and frontend transaction building. This helps users understand
+ * the different approaches to building Cardano transactions.
+ *
+ * ## Builder Options
+ *
+ * ### Backend Builder (Recommended)
+ * - Transactions built on the server using cardano-client-lib
+ * - Handles script references and protocol parameters
+ * - More reliable for complex programmable token transactions
+ *
+ * ### Frontend Builder
+ * - Transactions built in browser using Mesh SDK
+ * - Educational: shows client-side transaction construction
+ * - Useful for understanding the transaction building process
+ *
+ * @module components/mint/transaction-builder-toggle
+ */
+
 "use client";
 
 import { Badge } from '@/components/ui/badge';
 
+/**
+ * Transaction builder type selection.
+ */
 export type TransactionBuilder = 'backend' | 'frontend';
 
+/**
+ * Props for TransactionBuilderToggle component.
+ */
 interface TransactionBuilderToggleProps {
+  /** Currently selected builder */
   value: TransactionBuilder;
+  /** Callback when selection changes */
   onChange: (value: TransactionBuilder) => void;
+  /** Whether the toggle is disabled */
   disabled?: boolean;
 }
 
+/**
+ * Toggle for selecting transaction building approach.
+ *
+ * @param props - Component props
+ * @returns React component
+ *
+ * @example
+ * ```tsx
+ * <TransactionBuilderToggle
+ *   value={builder}
+ *   onChange={setBuilder}
+ * />
+ * ```
+ */
 export function TransactionBuilderToggle({
   value,
   onChange,
@@ -33,10 +78,9 @@ export function TransactionBuilderToggle({
           disabled={disabled}
           className={`
             p-4 rounded-lg border-2 transition-all
-            ${
-              value === 'backend'
-                ? 'border-primary-500 bg-primary-500/10'
-                : 'border-dark-700 bg-dark-800 hover:border-dark-600'
+            ${value === 'backend'
+              ? 'border-primary-500 bg-primary-500/10'
+              : 'border-dark-700 bg-dark-800 hover:border-dark-600'
             }
             ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
           `}
@@ -44,11 +88,10 @@ export function TransactionBuilderToggle({
           <div className="text-left">
             <div className="flex items-center gap-2 mb-1">
               <div
-                className={`w-4 h-4 rounded-full border-2 ${
-                  value === 'backend'
+                className={`w-4 h-4 rounded-full border-2 ${value === 'backend'
                     ? 'border-primary-500 bg-primary-500'
                     : 'border-dark-600'
-                }`}
+                  }`}
               >
                 {value === 'backend' && (
                   <div className="w-full h-full rounded-full bg-white scale-50" />

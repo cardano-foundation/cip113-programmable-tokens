@@ -1,3 +1,35 @@
+/**
+ * Button Component
+ *
+ * A versatile button component with multiple variants and sizes.
+ * Supports loading state and all standard HTML button attributes.
+ *
+ * ## Variants
+ * - **primary**: Gradient background, used for main actions
+ * - **secondary**: Accent color, used for secondary actions
+ * - **ghost**: Transparent with border, for tertiary actions
+ * - **outline**: Outline style for subtle actions
+ * - **danger**: Red background for destructive actions
+ *
+ * ## Sizes
+ * - **sm**: Small padding, text-sm
+ * - **md**: Medium padding (default)
+ * - **lg**: Large padding for prominent CTAs
+ *
+ * @module components/ui/button
+ *
+ * @example
+ * ```tsx
+ * <Button variant="primary" size="md" onClick={handleMint}>
+ *   Mint Token
+ * </Button>
+ *
+ * <Button variant="danger" isLoading={isDeleting}>
+ *   Delete
+ * </Button>
+ * ```
+ */
+
 import { ButtonHTMLAttributes, forwardRef } from "react";
 import { cn } from "@/lib/utils";
 

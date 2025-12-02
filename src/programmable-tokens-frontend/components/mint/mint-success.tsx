@@ -1,16 +1,63 @@
+/**
+ * Mint Success Component
+ *
+ * Displays a success confirmation after a token minting transaction
+ * is successfully submitted to the Cardano network. Shows transaction
+ * details and provides actions for viewing on explorer or minting more.
+ *
+ * ## Displayed Information
+ * - Transaction hash (with copy button)
+ * - Asset name that was minted
+ * - Quantity minted
+ * - Link to block explorer
+ *
+ * ## Actions
+ * - Copy transaction hash to clipboard
+ * - View transaction on CardanoScan
+ * - Mint another token (reset form)
+ *
+ * @module components/mint/mint-success
+ */
+
 "use client";
 
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 
+/**
+ * Props for the MintSuccess component.
+ */
 interface MintSuccessProps {
+  /** Transaction hash of the confirmed minting transaction */
   txHash: string;
+  /** Asset name that was minted (hex-encoded) */
   assetName: string;
+  /** Quantity that was minted (as string) */
   quantity: string;
+  /** Callback to reset form and mint another token */
   onMintAnother: () => void;
 }
 
+/**
+ * Success confirmation display after minting.
+ *
+ * Shown after a minting transaction is successfully submitted.
+ * Provides transaction details and navigation options.
+ *
+ * @param props - Component props
+ * @returns React component
+ *
+ * @example
+ * ```tsx
+ * <MintSuccess
+ *   txHash="abc123..."
+ *   assetName="4d79546f6b656e"
+ *   quantity="1000000"
+ *   onMintAnother={() => setStep('form')}
+ * />
+ * ```
+ */
 export function MintSuccess({
   txHash,
   assetName,
