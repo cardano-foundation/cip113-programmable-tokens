@@ -12,6 +12,8 @@ import { getWalletBalance, parseWalletBalance } from "@/lib/api";
 import { ParsedBalance } from "@/types/api";
 import { useProtocolVersion } from "@/contexts/protocol-version-context";
 
+const WALLET_STORAGE_KEY = 'connectedWallet';
+
 export function WalletInfo() {
   const { connected, wallet, disconnect } = useWallet();
   const { toast } = useToast();
@@ -107,6 +109,7 @@ export function WalletInfo() {
 
   const handleDisconnect = () => {
     disconnect();
+    localStorage.removeItem(WALLET_STORAGE_KEY);
     setAddress("");
     setBalance("0");
     setProgrammableBalance(null);

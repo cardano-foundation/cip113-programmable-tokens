@@ -14,11 +14,14 @@ interface InstalledWallet {
   icon: string;
 }
 
+const WALLET_STORAGE_KEY = 'connectedWallet';
+
 export function ConnectButton() {
-  const { connect, connected, name } = useWallet();
+  const { connect, connected, name, disconnect } = useWallet();
   const [showModal, setShowModal] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [installedWallets, setInstalledWallets] = useState<InstalledWallet[]>([]);
+  const [hasAttemptedAutoConnect, setHasAttemptedAutoConnect] = useState(false);
 
   // Detect installed wallets using CIP-30
   useEffect(() => {
@@ -54,24 +57,77 @@ export function ConnectButton() {
     return () => clearTimeout(timeoutId);
   }, []);
 
+  // Auto-reconnect to previously connected wallet
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (connected || hasAttemptedAutoConnect) return;
+
+    const autoReconnect = async () => {
+      try {
+        const savedWalletId = localStorage.getItem(WALLET_STORAGE_KEY);
+        if (!savedWalletId) {
+          setHasAttemptedAutoConnect(true);
+          return;
+        }
+
+        // Wait a bit for wallets to be detected
+        await new Promise(resolve => setTimeout(resolve, 600));
+
+        // Check if the saved wallet is still installed
+        if (window.cardano?.[savedWalletId]) {
+          console.log(`Auto-reconnecting to ${savedWalletId}...`);
+          await connect(savedWalletId);
+        } else {
+          // Wallet no longer installed, clear storage
+          localStorage.removeItem(WALLET_STORAGE_KEY);
+        }
+      } catch (error) {
+        console.error('Auto-reconnect failed:', error);
+        localStorage.removeItem(WALLET_STORAGE_KEY);
+      } finally {
+        setHasAttemptedAutoConnect(true);
+      }
+    };
+
+    autoReconnect();
+  }, [connect, connected, hasAttemptedAutoConnect]);
+
   const handleConnect = async (walletId: string) => {
     setIsConnecting(true);
     try {
       await connect(walletId);
+      // Save wallet ID to localStorage for auto-reconnect
+      localStorage.setItem(WALLET_STORAGE_KEY, walletId);
       setShowModal(false);
     } catch (error) {
       console.error("Failed to connect wallet:", error);
+      localStorage.removeItem(WALLET_STORAGE_KEY);
     } finally {
       setIsConnecting(false);
     }
   };
 
+  const handleDisconnect = () => {
+    disconnect();
+    localStorage.removeItem(WALLET_STORAGE_KEY);
+  };
+
   if (connected) {
     return (
-      <Badge variant="success" size="md" className="px-4 py-2">
-        <span className="w-2 h-2 rounded-full bg-primary-500 animate-pulse mr-2" />
-        Connected to {name}
-      </Badge>
+      <div className="relative group">
+        <Badge variant="success" size="md" className="px-4 py-2 cursor-pointer">
+          <span className="w-2 h-2 rounded-full bg-primary-500 animate-pulse mr-2" />
+          Connected to {name}
+        </Badge>
+
+        {/* Disconnect button on hover */}
+        <button
+          onClick={handleDisconnect}
+          className="absolute top-full right-0 mt-1 px-3 py-1.5 bg-dark-800 border border-dark-700 rounded text-xs text-dark-300 hover:text-white hover:border-red-500 transition-colors opacity-0 group-hover:opacity-100 whitespace-nowrap"
+        >
+          Disconnect
+        </button>
+      </div>
     );
   }
 
