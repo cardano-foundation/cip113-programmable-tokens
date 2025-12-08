@@ -1,5 +1,6 @@
 package org.cardanofoundation.cip113.service;
 
+import com.easy1staking.cardano.model.AssetType;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.cardanofoundation.cip113.entity.ProtocolParamsEntity;
@@ -137,5 +138,41 @@ public class RegistryService {
      */
     public Optional<RegistryNodeEntity> getByKeyAndProtocolParams(String key, Long protocolParamsId) {
         return repository.findByKeyAndProtocolParamsId(key, protocolParamsId);
+    }
+
+    /**
+     * Find registry node by policy ID extracted from a unit string.
+     * Uses AssetType utility to parse the unit into policyId and assetName.
+     *
+     * @param unit the unit string (policyId + assetNameHex)
+     * @return the registry node or empty if not found
+     */
+    public Optional<RegistryNodeEntity> findByPolicyId(String unit) {
+        // Use AssetType utility to extract policy ID from unit
+        AssetType assetType = AssetType.fromUnit(unit);
+        String policyId = assetType.policyId();
+
+        log.debug("Finding registry node by policy ID: {} (from unit: {})", policyId, unit);
+
+        return repository.findByKey(policyId);
+    }
+
+    /**
+     * Find registry node by policy ID for a specific protocol params version.
+     * Uses AssetType utility to parse the unit into policyId and assetName.
+     *
+     * @param unit the unit string (policyId + assetNameHex)
+     * @param protocolParamsId the protocol params ID
+     * @return the registry node or empty if not found
+     */
+    public Optional<RegistryNodeEntity> findByPolicyIdAndProtocolParams(String unit, Long protocolParamsId) {
+        // Use AssetType utility to extract policy ID from unit
+        AssetType assetType = AssetType.fromUnit(unit);
+        String policyId = assetType.policyId();
+
+        log.debug("Finding registry node by policy ID: {} for protocol params: {} (from unit: {})",
+                policyId, protocolParamsId, unit);
+
+        return repository.findByKeyAndProtocolParamsId(policyId, protocolParamsId);
     }
 }
