@@ -63,8 +63,7 @@ public class BafinSubstandardHandler implements SubstandardHandler {
     public TransactionContext buildTransferTransaction(
             TransferTokenRequest request,
             ProtocolBootstrapParams protocolParams,
-            ProtocolScriptBuilderService protocolScriptBuilder,
-            String senderAddress
+            ProtocolScriptBuilderService protocolScriptBuilder
     ) {
         // TODO: Implement Bafin transfer logic
         log.warn("Bafin transfer not yet implemented");

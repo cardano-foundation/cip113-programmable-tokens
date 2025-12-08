@@ -4,7 +4,6 @@ import com.easy1staking.cardano.model.AssetType;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.cardanofoundation.cip113.entity.RegistryNodeEntity;
-import org.cardanofoundation.cip113.exception.SubstandardNotFoundException;
 import org.cardanofoundation.cip113.model.MintTokenRequest;
 import org.cardanofoundation.cip113.model.RegisterTokenRequest;
 import org.cardanofoundation.cip113.model.TransactionContext;
@@ -33,7 +32,7 @@ public class TokenOperationsService {
     /**
      * Register a new programmable token
      *
-     * @param request The registration request
+     * @param request        The registration request
      * @param protocolTxHash Optional protocol version tx hash (uses default if null)
      * @return Transaction context with unsigned CBOR tx
      */
@@ -63,18 +62,18 @@ public class TokenOperationsService {
     /**
      * Mint programmable tokens
      *
-     * @param request The mint request
+     * @param request        The mint request
      * @param protocolTxHash Optional protocol version tx hash (uses default if null)
      * @return Transaction context with unsigned CBOR tx
      */
     public TransactionContext mintToken(MintTokenRequest request, String protocolTxHash) {
-        log.info("Minting token: {}, protocol: {}", request.unit(), protocolTxHash);
+        log.info("Minting token: {}, protocol: {}", request, protocolTxHash);
 
         // Get protocol bootstrap params
         var protocolParams = resolveProtocolParams(protocolTxHash);
 
         // Resolve substandard from registry
-        String substandardId = resolveSubstandardFromRegistry(request.unit());
+        String substandardId = resolveSubstandardFromRegistry("request.unit()");
 
         // Get substandard handler
         var handler = handlerFactory.getHandler(substandardId);
@@ -94,16 +93,13 @@ public class TokenOperationsService {
     /**
      * Transfer programmable tokens
      *
-     * @param request The transfer request
+     * @param request        The transfer request
      * @param protocolTxHash Optional protocol version tx hash (uses default if null)
-     * @param senderAddress The sender's wallet address
      * @return Transaction context with unsigned CBOR tx
      */
     public TransactionContext transferToken(
             TransferTokenRequest request,
-            String protocolTxHash,
-            String senderAddress
-    ) {
+            String protocolTxHash    ) {
         log.info("Transferring token: {}, protocol: {}", request.unit(), protocolTxHash);
 
         // Get protocol bootstrap params
@@ -116,12 +112,9 @@ public class TokenOperationsService {
         var handler = handlerFactory.getHandler(substandardId);
 
         // Build transfer transaction
-        var txContext = handler.buildTransferTransaction(
-                request,
+        var txContext = handler.buildTransferTransaction(request,
                 protocolParams,
-                protocolScriptBuilder,
-                senderAddress
-        );
+                protocolScriptBuilder);
 
         log.info("Transfer transaction built successfully for substandard: {}", substandardId);
 

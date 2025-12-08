@@ -11,7 +11,6 @@ import org.cardanofoundation.cip113.model.bootstrap.ProtocolBootstrapParams;
 import org.springframework.stereotype.Service;
 
 import java.util.Map;
-import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -142,31 +141,20 @@ public class ProtocolScriptBuilderService {
      * Parameters: protocol params script hash, programmable logic global script hash
      */
     public PlutusScript getParameterizedProgrammableLogicBaseScript(ProtocolBootstrapParams protocolParams) {
+
         return getCachedOrBuild(protocolParams.txHash(), "programmable_logic_base", () -> {
-            var protocolParamsScriptHash = protocolParams.protocolParams().scriptHash();
+
             var programmableLogicGlobalScriptHash = protocolParams.programmableLogicGlobalPrams().scriptHash();
 
-            var parameters = ListPlutusData.of(
-                    BytesPlutusData.of(HexUtil.decodeHexString(protocolParamsScriptHash)),
-                    BytesPlutusData.of(HexUtil.decodeHexString(programmableLogicGlobalScriptHash))
-            );
+            var parameters = ListPlutusData.of(ConstrPlutusData.of(1, BytesPlutusData.of(HexUtil.decodeHexString(programmableLogicGlobalScriptHash))));
 
             var contractOpt = protocolBootstrapService.getProtocolContract("programmable_logic_base.programmable_logic_base.spend");
-            if (contractOpt.isEmpty()) {
-                throw new IllegalStateException("Programmable logic base contract not found");
-            }
 
-            var script = PlutusBlueprintUtil.getPlutusScriptFromCompiledCode(
+            return PlutusBlueprintUtil.getPlutusScriptFromCompiledCode(
                     AikenScriptUtil.applyParamToScript(parameters, contractOpt.get()),
                     PlutusVersion.v3
             );
 
-            try {
-                log.debug("Built programmable logic base script with hash: {}", HexUtil.encodeHexString(script.getScriptHash()));
-            } catch (Exception e) {
-                log.debug("Built programmable logic base script (could not compute hash)");
-            }
-            return script;
         });
     }
 
@@ -182,7 +170,7 @@ public class ProtocolScriptBuilderService {
                     BytesPlutusData.of(HexUtil.decodeHexString(protocolParamsScriptHash))
             );
 
-            var contractOpt = protocolBootstrapService.getProtocolContract("programmable_logic_global.programmable_logic_global.spend");
+            var contractOpt = protocolBootstrapService.getProtocolContract("programmable_logic_global.programmable_logic_global.withdraw");
             if (contractOpt.isEmpty()) {
                 throw new IllegalStateException("Programmable logic global contract not found");
             }

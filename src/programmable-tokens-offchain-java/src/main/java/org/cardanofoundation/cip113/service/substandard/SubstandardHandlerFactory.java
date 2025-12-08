@@ -1,6 +1,5 @@
 package org.cardanofoundation.cip113.service.substandard;
 
-import org.cardanofoundation.cip113.exception.SubstandardNotFoundException;
 import org.springframework.stereotype.Service;
 
 import java.util.HashMap;
@@ -32,17 +31,11 @@ public class SubstandardHandlerFactory {
      *
      * @param substandardId The substandard identifier (e.g., "dummy", "bafin")
      * @return The handler for the substandard
-     * @throws SubstandardNotFoundException if the substandard is not found
      */
     public SubstandardHandler getHandler(String substandardId) {
         String normalizedId = substandardId.toLowerCase();
-        SubstandardHandler handler = handlers.get(normalizedId);
 
-        if (handler == null) {
-            throw new SubstandardNotFoundException(substandardId);
-        }
-
-        return handler;
+        return handlers.get(normalizedId);
     }
 
     /**
