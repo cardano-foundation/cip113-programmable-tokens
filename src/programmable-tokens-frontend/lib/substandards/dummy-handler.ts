@@ -3,7 +3,7 @@
  * Ports the Java DummySubstandardHandler.buildMintTransaction logic to TypeScript
  */
 
-import { Transaction } from '@meshsdk/core';
+import { Transaction, mConStr0, mConStr1, MeshTxBuilder } from '@meshsdk/core';
 import type { IWallet } from '@meshsdk/core';
 import type { ProtocolBootstrapParams, ProtocolBlueprint, SubstandardBlueprint } from '@/types/protocol';
 import { buildIssuanceMintScript } from '../protocol-script-builder';
@@ -77,61 +77,50 @@ export async function buildDummyMintTransaction(
 
     // Build issuance redeemer: constr(0, [constr(1, [bytes(substandardIssueScriptHash)])])
     const issuanceRedeemer: any = {
-      data: {
-        alternative: 0,
-        fields: [
-          {
-            alternative: 1,
-            fields: [{ bytes: getScriptHash(substandardIssueScript) }]
-          }
-        ]
-      }
+      data: mConStr0([
+        mConStr1([getScriptHash(substandardIssueScript)])
+      ])
     };
 
     // Determine recipient address
     const recipient = params.recipientAddress || params.issuerBaseAddress;
 
-    // Build target address (programmable logic base + recipient's delegation credential)
-    // For now, we'll use the recipient address directly
-    // TODO: Implement proper address derivation with script payment credential
+    // Build target address using programmable logic base script hash + recipient's delegation credential
+    // For now, use the recipient address directly
+    // TODO: Derive proper hybrid address (script payment + delegation credential)
     const targetAddress = recipient;
 
-    // Build the transaction
-    const tx = new Transaction({ initiator: wallet });
+    // Build the transaction using the lower-level MeshTxBuilder for Plutus script withdrawals
+    const txBuilder = new MeshTxBuilder();
 
-    // Add issuer UTXOs as inputs
-    issuerUtxos.forEach(utxo => {
-      tx.sendLovelace(utxo.input.txHash, params.issuerBaseAddress);
-    });
+    // Step 1: Withdrawal from substandard issue validator (must be first for script context)
+    txBuilder
+      .withdrawalPlutusScriptV3()
+      .withdrawal(substandardIssueAddress, '0') // Zero withdrawal
+      .withdrawalScript(substandardIssueScript.code)
+      .withdrawalRedeemerValue(100); // BigIntPlutusData(100)
 
-    // Mint the programmable token
-    const mintAsset = {
-      assetName: params.assetName,
-      assetQuantity: params.quantity,
-      metadata: {},
-      label: '721' as `${number}`,
-      recipient: targetAddress
-    };
+    // Step 2: Mint the programmable token
+    const policyId = getScriptHash(issuanceScript);
+    txBuilder
+      .mintPlutusScriptV3()
+      .mint(params.quantity, policyId, params.assetName)
+      .mintingScript(issuanceScript.code)
+      .mintRedeemerValue(issuanceRedeemer.data);
 
-    tx.mintAsset(
-      issuanceScript,
-      mintAsset,
-      issuanceRedeemer
-    );
-
-    // Withdraw from substandard issue validator (proof of authorization)
-    // Note: The withdrawRewards API may differ - this is a placeholder
-    // TODO: Verify correct MeshSDK withdrawRewards signature
-    tx.withdrawRewards(
-      substandardIssueAddress,
-      '0' // Zero withdrawal
-    );
+    // Step 3: Send minted token to recipient
+    txBuilder
+      .txOut(targetAddress, [
+        { unit: 'lovelace', quantity: '2000000' }, // Min ADA
+        { unit: `${policyId}${params.assetName}`, quantity: params.quantity }
+      ])
+      .txOutInlineDatumValue(mConStr0([])); // Empty datum (constr(0, []))
 
     // Set change address
-    tx.setChangeAddress(params.issuerBaseAddress);
+    txBuilder.changeAddress(params.issuerBaseAddress);
 
-    // Build unsigned transaction
-    const unsignedTx = await tx.build();
+    // Complete the transaction
+    const unsignedTx = await txBuilder.complete();
 
     return unsignedTx;
   } catch (error) {

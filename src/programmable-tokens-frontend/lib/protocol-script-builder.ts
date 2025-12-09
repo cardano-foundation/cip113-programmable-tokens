@@ -3,8 +3,8 @@
  * Mirrors the Java ProtocolScriptBuilderService functionality
  */
 
-import { PlutusScript } from '@meshsdk/core';
-import { applyParamsToAikenScript, createPlutusScript, getScriptHash } from './script-utils';
+import { mConStr0, mConStr1, PlutusScript } from '@meshsdk/core';
+import { applyParamsToAikenScript, createPlutusScriptFromEncoded, getScriptHash } from './script-utils';
 import type { ProtocolBootstrapParams, ProtocolBlueprint } from '@/types/protocol';
 
 /**
@@ -25,14 +25,8 @@ export function buildIssuanceMintScript(
 
   // Build parameters: [constr(1, [bytes(programmableLogicBaseScriptHash)]), constr(1, [bytes(substandardIssueScriptHash)])]
   const params = [
-    {
-      constructor: 1,
-      fields: [{ bytes: programmableLogicBaseScriptHash }]
-    },
-    {
-      constructor: 1,
-      fields: [{ bytes: substandardIssueScriptHash }]
-    }
+    mConStr1([programmableLogicBaseScriptHash]),
+    mConStr1([substandardIssueScriptHash])
   ];
 
   // Get the issuance mint contract from blueprint
@@ -44,10 +38,10 @@ export function buildIssuanceMintScript(
     throw new Error('Issuance mint contract not found in blueprint');
   }
 
-  // Apply parameters
+  // Apply parameters (returns already CBOR-encoded code)
   const parameterizedCode = applyParamsToAikenScript(params, issuanceMintCode);
 
-  return createPlutusScript(parameterizedCode, 'V3');
+  return createPlutusScriptFromEncoded(parameterizedCode, 'V3');
 }
 
 /**
@@ -66,14 +60,8 @@ export function buildDirectoryMintScript(
 
   // Build parameters: [constr(0, [bytes(txHash), int(outputIndex)]), bytes(issuanceScriptHash)]
   const params: any[] = [
-    {
-      constructor: 0,
-      fields: [
-        { bytes: utxo1.txHash },
-        { int: utxo1.outputIndex }
-      ]
-    },
-    { bytes: issuanceScriptHash }
+    mConStr0([utxo1.txHash, utxo1.outputIndex]),
+    issuanceScriptHash
   ];
 
   // Get the directory mint contract from blueprint
@@ -85,10 +73,10 @@ export function buildDirectoryMintScript(
     throw new Error('Directory mint contract not found in blueprint');
   }
 
-  // Apply parameters
+  // Apply parameters (returns already CBOR-encoded code)
   const parameterizedCode = applyParamsToAikenScript(params, directoryMintCode);
 
-  return createPlutusScript(parameterizedCode, 'V3');
+  return createPlutusScriptFromEncoded(parameterizedCode, 'V3');
 }
 
 /**
@@ -116,10 +104,10 @@ export function buildDirectorySpendScript(
     throw new Error('Directory spend contract not found in blueprint');
   }
 
-  // Apply parameters
+  // Apply parameters (returns already CBOR-encoded code)
   const parameterizedCode = applyParamsToAikenScript(params, directorySpendCode);
 
-  return createPlutusScript(parameterizedCode, 'V3');
+  return createPlutusScriptFromEncoded(parameterizedCode, 'V3');
 }
 
 /**
@@ -155,7 +143,7 @@ export function buildProgrammableLogicBaseScript(
   // Apply parameters
   const parameterizedCode = applyParamsToAikenScript(params, programmableLogicBaseCode);
 
-  return createPlutusScript(parameterizedCode, 'V3');
+  return createPlutusScriptFromEncoded(parameterizedCode, 'V3');
 }
 
 /**
@@ -183,8 +171,8 @@ export function buildProgrammableLogicGlobalScript(
     throw new Error('Programmable logic global contract not found in blueprint');
   }
 
-  // Apply parameters
+  // Apply parameters (returns already CBOR-encoded code)
   const parameterizedCode = applyParamsToAikenScript(params, programmableLogicGlobalCode);
 
-  return createPlutusScript(parameterizedCode, 'V3');
+  return createPlutusScriptFromEncoded(parameterizedCode, 'V3');
 }

@@ -7,7 +7,8 @@ import type { PlutusScript } from '@meshsdk/core';
 import {
   resolveScriptHash as meshResolveScriptHash,
   serializeRewardAddress,
-  applyParamsToScript
+  applyParamsToScript,
+  applyCborEncoding
 } from '@meshsdk/core';
 
 /**
@@ -23,22 +24,44 @@ export function applyParamsToAikenScript(
 ): string {
   console.log('compiledCode: ' + compiledCode)
   console.log('params: ' + JSON.stringify(params))
-  return applyParamsToScript(compiledCode, params);
+  // Apply CBOR encoding first, then apply params
+  const cborEncoded = applyCborEncoding(compiledCode);
+  console.log('cborEncoded: ' + cborEncoded)
+  return applyParamsToScript(cborEncoded, params);
 }
 
 /**
- * Create a PlutusScript from compiled code
+ * Create a PlutusScript from raw compiled code (needs CBOR encoding)
  *
- * @param compiledCode - The compiled script code (cbor hex)
+ * @param rawCompiledCode - The raw compiled script code from API (cbor hex, not yet encoded)
  * @param version - Plutus version (default: 'V3')
  * @returns PlutusScript object
  */
 export function createPlutusScript(
-  compiledCode: string,
+  rawCompiledCode: string,
   version: 'V1' | 'V2' | 'V3' = 'V3'
 ): PlutusScript {
+  // Apply CBOR encoding to raw script from API
   return {
-    code: compiledCode,
+    code: applyCborEncoding(rawCompiledCode),
+    version: version,
+  };
+}
+
+/**
+ * Create a PlutusScript from already-encoded code (from applyParamsToScript)
+ *
+ * @param encodedCode - Already CBOR encoded and parameterized script code
+ * @param version - Plutus version (default: 'V3')
+ * @returns PlutusScript object
+ */
+export function createPlutusScriptFromEncoded(
+  encodedCode: string,
+  version: 'V1' | 'V2' | 'V3' = 'V3'
+): PlutusScript {
+  // Code is already encoded, use as-is
+  return {
+    code: encodedCode,
     version: version,
   };
 }
