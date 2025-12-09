@@ -7,8 +7,11 @@ import { Input } from '@/components/ui/input';
 import { SubstandardSelector } from './substandard-selector';
 import { TransactionBuilderToggle, TransactionBuilder } from './transaction-builder-toggle';
 import { Substandard, MintFormData } from '@/types/api';
-import { prepareMintRequest, mintToken, stringToHex } from '@/lib/api';
+import { prepareMintRequest, mintToken, stringToHex, getProtocolBlueprint, getProtocolBootstrap, getSubstandardBlueprint } from '@/lib/api';
 import { useToast } from '@/components/ui/use-toast';
+import { useProtocolVersion } from '@/contexts/protocol-version-context';
+import { getSubstandardHandler } from '@/lib/substandards/factory';
+import type { MintTransactionParams } from '@/lib/substandards/dummy-handler';
 
 interface MintFormProps {
   substandards: Substandard[];
@@ -25,6 +28,7 @@ export function MintForm({
 }: MintFormProps) {
   const { connected, wallet } = useWallet();
   const { toast: showToast } = useToast();
+  const { selectedVersion } = useProtocolVersion();
 
   const [tokenName, setTokenName] = useState('');
   const [quantity, setQuantity] = useState('');
@@ -112,23 +116,62 @@ export function MintForm({
       }
       const issuerAddress = addresses[0];
 
-      // Prepare request with hex-encoded asset name
-      const formData: MintFormData = {
-        tokenName,
-        quantity,
-        substandardId,
-        validatorTitle,
-        recipientAddress: recipientAddress.trim() || undefined,
-      };
+      let unsignedTxCborHex: string;
 
-      const request = prepareMintRequest(formData, issuerAddress);
+      if (transactionBuilder === 'frontend') {
+        // Client-side transaction building
+        showToast({
+          title: 'Building Transaction',
+          description: 'Building transaction on client side...',
+          variant: 'default',
+        });
 
-      // Call backend to build transaction
-      const unsignedTxCborHex = await mintToken(request);
+        // Fetch protocol data
+        const protocolTxHash = selectedVersion?.txHash;
+        const [protocolBlueprint, protocolBootstrap, substandardBlueprint] = await Promise.all([
+          getProtocolBlueprint(),
+          getProtocolBootstrap(protocolTxHash),
+          getSubstandardBlueprint(substandardId),
+        ]);
+
+        // Get substandard handler
+        const handler = getSubstandardHandler(substandardId as 'dummy' | 'bafin');
+
+        // Prepare mint parameters
+        const mintParams: MintTransactionParams = {
+          assetName: stringToHex(tokenName),
+          quantity,
+          issuerBaseAddress: issuerAddress,
+          recipientAddress: recipientAddress.trim() || undefined,
+          substandardName: substandardId,
+          substandardIssueContractName: validatorTitle,
+        };
+
+        // Build transaction client-side
+        unsignedTxCborHex = await handler.buildMintTransaction(
+          mintParams,
+          protocolBootstrap,
+          protocolBlueprint,
+          substandardBlueprint,
+          wallet
+        );
+      } else {
+        // Server-side transaction building (existing logic)
+        const formData: MintFormData = {
+          tokenName,
+          quantity,
+          substandardId,
+          validatorTitle,
+          recipientAddress: recipientAddress.trim() || undefined,
+        };
+
+        const request = prepareMintRequest(formData, issuerAddress);
+        unsignedTxCborHex = await mintToken(request);
+      }
 
       showToast({
         title: 'Transaction Built',
-        description: 'Review and sign the transaction to mint your tokens',
+        description: `Transaction built successfully using ${transactionBuilder} builder`,
         variant: 'success',
       });
 

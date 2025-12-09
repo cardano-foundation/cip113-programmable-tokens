@@ -8,6 +8,7 @@ import org.cardanofoundation.cip113.service.ProtocolBootstrapService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -24,8 +25,15 @@ public class ProtocolController {
     }
 
     @GetMapping("/bootstrap")
-    public ResponseEntity<ProtocolBootstrapParams> getLatest() {
-        return ResponseEntity.ok(protocolBootstrapService.getProtocolBootstrapParams());
+    public ResponseEntity<ProtocolBootstrapParams> getLatest(@RequestParam(required = false) String txHash) {
+        if (txHash != null) {
+            return protocolBootstrapService.getProtocolBootstrapParamsByTxHash(txHash)
+                    .map(ResponseEntity::ok)
+                    .orElse(ResponseEntity.notFound().build());
+        } else {
+            return ResponseEntity.ok(protocolBootstrapService.getProtocolBootstrapParams());
+        }
+
     }
 
 

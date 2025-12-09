@@ -68,15 +68,33 @@ export function TransactionBuilderToggle({
         <button
           type="button"
           onClick={() => onChange('frontend')}
-          disabled={true} // Always disabled for now
-          className="p-4 rounded-lg border-2 border-dark-700 bg-dark-800 opacity-50 cursor-not-allowed"
+          disabled={disabled}
+          className={`
+            p-4 rounded-lg border-2 transition-all
+            ${
+              value === 'frontend'
+                ? 'border-primary-500 bg-primary-500/10'
+                : 'border-dark-700 bg-dark-800 hover:border-dark-600'
+            }
+            ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
+          `}
         >
           <div className="text-left">
             <div className="flex items-center gap-2 mb-1">
-              <div className="w-4 h-4 rounded-full border-2 border-dark-600" />
+              <div
+                className={`w-4 h-4 rounded-full border-2 ${
+                  value === 'frontend'
+                    ? 'border-primary-500 bg-primary-500'
+                    : 'border-dark-600'
+                }`}
+              >
+                {value === 'frontend' && (
+                  <div className="w-full h-full rounded-full bg-white scale-50" />
+                )}
+              </div>
               <span className="font-semibold text-white">Frontend</span>
-              <Badge variant="warning" size="sm">
-                Coming Soon
+              <Badge variant="info" size="sm">
+                Beta
               </Badge>
             </div>
             <p className="text-xs text-dark-400">
