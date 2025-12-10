@@ -148,6 +148,23 @@ export interface ParsedAsset {
 }
 
 // ============================================================================
+// Transaction History
+// ============================================================================
+
+export type TransactionType = 'MINT' | 'BURN' | 'TRANSFER' | 'REGISTER' | null;
+
+export interface TransactionHistoryEntry {
+  txHash: string;
+  address: string;
+  slot: number;
+  timestamp: number; // Unix timestamp in seconds
+  transactionType: TransactionType;
+  balanceDiff: Record<string, string>; // unit -> signed amount (e.g., "+1000", "-50")
+}
+
+export type TransactionHistoryResponse = TransactionHistoryEntry[];
+
+// ============================================================================
 // API Error
 // ============================================================================
 

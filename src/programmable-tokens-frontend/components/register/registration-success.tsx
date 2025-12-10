@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { getExplorerTxUrl } from '@/lib/utils/format';
 
 interface RegistrationSuccessProps {
   txHash: string;
@@ -23,7 +24,7 @@ export function RegistrationSuccess({
   quantity,
 }: RegistrationSuccessProps) {
   const router = useRouter();
-  const explorerUrl = `https://cardanoscan.io/transaction/${txHash}`;
+  const explorerUrl = getExplorerTxUrl(txHash);
 
   const handleCopyPolicyId = () => {
     navigator.clipboard.writeText(policyId);
