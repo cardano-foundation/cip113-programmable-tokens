@@ -1,9 +1,14 @@
 package org.cardanofoundation.cip113.service;
 
+import com.bloxbean.cardano.client.address.Address;
 import com.bloxbean.cardano.client.transaction.spec.Value;
+import com.bloxbean.cardano.client.util.HexUtil;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.cardanofoundation.cip113.entity.BalanceLogEntity;
+import org.cardanofoundation.cip113.model.TransactionType;
 import org.cardanofoundation.cip113.repository.BalanceLogRepository;
 import org.cardanofoundation.cip113.util.BalanceValueHelper;
 import org.springframework.data.domain.PageRequest;
@@ -16,12 +21,15 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+import static org.cardanofoundation.cip113.util.BalanceValueHelper.fromUnitMap2;
+
 @Service
 @Slf4j
 @RequiredArgsConstructor
 public class BalanceService {
 
     private final BalanceLogRepository repository;
+    private final ObjectMapper objectMapper;
 
     /**
      * Append a new balance entry to the log
@@ -43,6 +51,85 @@ public class BalanceService {
 
         return repository.save(entity);
     }
+
+    /**
+     * Append a new balance entry to the log with transaction type and balance diff
+     *
+     * @param address         the address
+     * @param txHash          the transaction hash
+     * @param slot            the slot number
+     * @param blockHeight     the block height
+     * @param balance         the complete balance map
+     * @param transactionType the type of transaction (MINT, BURN, TRANSFER, REGISTER)
+     * @param balanceDiff     the signed balance differences (e.g., "+1000", "-50")
+     * @return the saved entity
+     */
+    @Transactional
+    public BalanceLogEntity append(
+            String address,
+            String txHash,
+            Long slot,
+            Long blockHeight,
+            Map<String, BigInteger> balance,
+            TransactionType transactionType,
+            Map<String, String> balanceDiff) {
+
+        // Check if entry already exists (idempotency)
+        if (repository.existsByAddressAndTxHash(address, txHash)) {
+            log.debug("Balance entry already exists, skipping: address={}, tx={}",
+                    address, txHash);
+            // Fetch and return existing entity
+            return repository.findByTxHash(txHash).stream()
+                    .filter(e -> e.getAddress().equals(address))
+                    .findFirst()
+                    .orElseThrow();
+        }
+
+        // Serialize balance and diff to JSON
+        String balanceJson = BalanceValueHelper.toJson(fromUnitMap2(balance));
+        String balanceDiffJson = serializeBalanceDiff(balanceDiff);
+
+        var add = new Address(address);
+        var paymentHash = HexUtil.encodeHexString(add.getPaymentCredentialHash().get());
+        var stakeHash = HexUtil.encodeHexString(add.getDelegationCredentialHash().get());
+
+        // Create entity
+        BalanceLogEntity entity = BalanceLogEntity.builder()
+                .address(address)
+                .paymentScriptHash(paymentHash)
+                .stakeKeyHash(stakeHash)
+                .txHash(txHash)
+                .slot(slot)
+                .blockHeight(blockHeight)
+                .balance(balanceJson)
+                .transactionType(transactionType)
+                .balanceDiff(balanceDiffJson)
+                .build();
+
+        log.info("Appending balance entry: address={}, tx={}, slot={}, type={}",
+                address, txHash, slot, transactionType);
+
+        return repository.save(entity);
+    }
+
+    /**
+     * Serialize balance diff map to JSON string
+     *
+     * @param balanceDiff map of unit to signed amount string
+     * @return JSON string representation
+     */
+    private String serializeBalanceDiff(Map<String, String> balanceDiff) {
+        if (balanceDiff == null || balanceDiff.isEmpty()) {
+            return null;
+        }
+        try {
+            return objectMapper.writeValueAsString(balanceDiff);
+        } catch (JsonProcessingException e) {
+            log.error("Failed to serialize balance diff: {}", balanceDiff, e);
+            throw new RuntimeException("Failed to serialize balance diff", e);
+        }
+    }
+
 
     /**
      * Get the latest balance for an address
@@ -87,7 +174,7 @@ public class BalanceService {
      * Get balance history for an address
      *
      * @param address the address
-     * @param limit maximum number of entries to return
+     * @param limit   maximum number of entries to return
      * @return list of balance entries (ordered by slot DESC)
      */
     public List<BalanceLogEntity> getBalanceHistory(String address, int limit) {
@@ -119,7 +206,7 @@ public class BalanceService {
      * Get latest balances by payment script hash and stake key hash
      *
      * @param paymentScriptHash the payment script hash
-     * @param stakeKeyHash the stake key hash
+     * @param stakeKeyHash      the stake key hash
      * @return list of latest balance entries
      */
     public List<BalanceLogEntity> getLatestBalancesByPaymentScriptAndStakeKey(
@@ -140,7 +227,7 @@ public class BalanceService {
     /**
      * Calculate balance difference between two entries using Value subtraction
      *
-     * @param currentEntry the current balance entry
+     * @param currentEntry  the current balance entry
      * @param previousEntry the previous balance entry (or null if first)
      * @return Value representing the difference
      */
@@ -170,7 +257,7 @@ public class BalanceService {
         // Find the entry before this one (by slot)
         for (BalanceLogEntity historyEntry : history) {
             if (!historyEntry.getId().equals(entry.getId()) &&
-                historyEntry.getSlot() < entry.getSlot()) {
+                    historyEntry.getSlot() < entry.getSlot()) {
                 return Optional.of(historyEntry);
             }
         }
@@ -182,7 +269,7 @@ public class BalanceService {
      * Extract a specific asset amount from a balance
      *
      * @param balance the balance JSON string
-     * @param unit the asset unit (e.g., "lovelace" or "policyId+assetName")
+     * @param unit    the asset unit (e.g., "lovelace" or "policyId+assetName")
      * @return the amount or zero if not found
      */
     public BigInteger getAssetAmount(String balance, String unit) {
@@ -196,7 +283,7 @@ public class BalanceService {
      * Check if an address has a balance entry
      *
      * @param address the address
-     * @param txHash the transaction hash
+     * @param txHash  the transaction hash
      * @return true if exists
      */
     public boolean exists(String address, String txHash) {

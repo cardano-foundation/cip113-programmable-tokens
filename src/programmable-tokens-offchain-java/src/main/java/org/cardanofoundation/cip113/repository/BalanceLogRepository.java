@@ -73,4 +73,23 @@ public interface BalanceLogRepository extends JpaRepository<BalanceLogEntity, Lo
      * Check if balance entry exists for this address and transaction
      */
     boolean existsByAddressAndTxHash(String address, String txHash);
+
+    /**
+     * Find balance history by stake key hash with optional protocol filtering
+     * @param stakeKeyHash The stake key hash to filter by
+     * @param paymentScriptHash Optional payment script hash for protocol version filtering
+     * @param pageable Pagination parameters
+     * @return List of balance entries ordered by slot descending
+     */
+    @Query("""
+        SELECT bl FROM BalanceLogEntity bl
+        WHERE bl.stakeKeyHash = :stakeKeyHash
+        AND (:paymentScriptHash IS NULL OR bl.paymentScriptHash = :paymentScriptHash)
+        ORDER BY bl.slot DESC
+        """)
+    List<BalanceLogEntity> findHistoryByStakeKeyHashAndPaymentScript(
+            @Param("stakeKeyHash") String stakeKeyHash,
+            @Param("paymentScriptHash") String paymentScriptHash,
+            Pageable pageable
+    );
 }
