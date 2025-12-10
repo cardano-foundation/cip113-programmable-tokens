@@ -20,7 +20,7 @@ const contributors: Contributor[] = [
   {
     name: "Philip DiSarro",
     role: "CIP-143 Author",
-    description: "Author of CIP-143 (Web-Socket Contracts), which provided the foundational registry code that CIP-113 builds upon. Creator of the WSC Proof of Concept implementation.",
+    description: "Author of CIP-143, which provided the foundational registry code that CIP-113 builds upon. Creator of the WSC Proof of Concept implementation.",
     githubProfile: "https://github.com/PhilipDisarro",
     repositories: [
       {
