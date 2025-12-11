@@ -46,6 +46,7 @@ const navigation = [
   { name: "Deploy", href: "/deploy" },
   { name: "Mint", href: "/mint" },
   { name: "Transfer", href: "/transfer" },
+  { name: "Blacklist", href: "/blacklist" },
   { name: "Dashboard", href: "/dashboard" },
 ];
 

@@ -45,3 +45,6 @@ export * from './substandards';
 
 // Re-export minting API functions
 export * from './minting';
+
+// Re-export protocol API functions
+export * from './protocol';

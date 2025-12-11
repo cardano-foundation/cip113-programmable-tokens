@@ -3,6 +3,62 @@
 ## Summary
 This PR addresses critical issues across the entire codebase including frontend browser compatibility, backend type safety, comprehensive test suite fixes, new frontend pages, and documentation improvements. All tests now pass with integration tests properly skipped when prerequisites are unavailable.
 
+## Type Safety Fix: Badge and Button Component Variants
+
+Fixed TypeScript type errors in deploy components where incorrect variant names were used.
+
+### Issues Fixed
+- **protocol-status-card.tsx**: Changed `variant="secondary"` and `variant="destructive"` to valid Badge variants (`"default"` and `"error"`)
+- **blueprint-info-card.tsx**: Changed `variant="secondary"` to `variant="info"` for Badge components
+- **bootstrap-params-card.tsx**:
+  - Changed `variant="secondary"` to `variant="info"` for Badge components
+  - Replaced `Button` with `asChild` prop (not supported) with a styled anchor tag
+
+### Valid Component Variants
+- **Badge**: `"default" | "success" | "error" | "warning" | "info"`
+- **Button**: `"primary" | "secondary" | "ghost" | "outline" | "danger"`
+
+## New Feature: Protocol Deploy/Status Page
+
+Added a new `/deploy` page to display CIP-0113 protocol deployment status and configuration.
+
+### Components Created
+- `app/deploy/page.tsx` - Main deploy page with protocol status dashboard
+- `components/deploy/protocol-status-card.tsx` - Health check display for blueprint and bootstrap
+- `components/deploy/blueprint-info-card.tsx` - Validator list with script hashes and copy functionality
+- `components/deploy/bootstrap-params-card.tsx` - UTxO references and deployment configuration with explorer links
+- `components/deploy/index.ts` - Component exports
+- `lib/api/protocol.ts` - Protocol API functions (getProtocolBlueprint, getProtocolBootstrap, checkProtocolHealth)
+
+### Features
+- Protocol health status (blueprint/bootstrap availability)
+- Plutus blueprint validator listing with expand/collapse
+- Bootstrap parameters with UTxO references and explorer links
+- Network-aware display (mainnet/preprod/preview)
+- Quick actions linking to Mint, Transfer, CIP-0113 spec, and GitHub repo
+- Refresh functionality for live updates
+- Copy-to-clipboard for script hashes and UTxO references
+
+## New Feature: Blacklist Management Page
+
+Added a new `/blacklist` page for address restriction management information.
+
+### Components Created
+- `app/blacklist/page.tsx` - Main blacklist information page
+- `components/blacklist/blacklist-info-card.tsx` - Information card component
+- `components/blacklist/index.ts` - Component exports
+
+### Features
+- Educational content about blacklist functionality
+- Blacklist validator information (blacklist_mint)
+- Supported operations display (Initialize, Add, Remove)
+- Security requirements documentation
+- Quick links to mint with blacklist and source code
+- "Coming Soon" badge for management features awaiting backend endpoints
+
+### Navigation Update
+- Added "Blacklist" to header navigation
+
 ## Critical Fix: WebAssembly Loading for Mesh SDK
 
 Fixed a critical rendering issue where the frontend page would not render (only dark background) due to WebAssembly loading errors with the Mesh SDK.
