@@ -5,6 +5,30 @@ import com.bloxbean.cardano.client.plutus.blueprint.model.PlutusVersion;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
+/**
+ * CIP-0113 Programmable Logic Base Contract.
+ *
+ * <p>This contract serves as the shared script address for all programmable token UTxOs.
+ * It validates that transfers conform to the token's registered transfer logic by:
+ * <ul>
+ *   <li>Looking up the token's policy ID in the registry</li>
+ *   <li>Verifying the transfer logic script is executed</li>
+ *   <li>Ensuring proper datum transformations</li>
+ * </ul>
+ *
+ * <p>All programmable tokens are held at addresses derived from this script's hash,
+ * combined with the user's stake credential for rewards delegation.
+ *
+ * <h2>On-Chain Validation</h2>
+ * <p>The script checks:
+ * <ul>
+ *   <li>Registry NFT is present in transaction inputs</li>
+ *   <li>Transfer logic script (from registry) is in witness set</li>
+ *   <li>Output datums match expected state transitions</li>
+ * </ul>
+ *
+ * @see org.cardanofoundation.cip113.service.ProtocolBootstrapService
+ */
 @Component
 @Slf4j
 public class ProgrammableLogicBaseContract extends AbstractContract {

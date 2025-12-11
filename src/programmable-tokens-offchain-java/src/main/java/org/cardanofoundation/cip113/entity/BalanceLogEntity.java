@@ -9,6 +9,36 @@ import lombok.NoArgsConstructor;
 import java.math.BigInteger;
 import java.time.LocalDateTime;
 
+/**
+ * JPA entity representing a balance snapshot at a specific point in time.
+ *
+ * <p>Each entry captures the complete balance state of a programmable token address
+ * after a transaction. This enables:
+ * <ul>
+ *   <li>Current balance queries (latest entry per address)</li>
+ *   <li>Historical balance tracking</li>
+ *   <li>Balance aggregation by payment credential</li>
+ * </ul>
+ *
+ * <h2>Balance Format</h2>
+ * <p>The {@code balance} field is a JSON string mapping asset units to amounts:
+ * <pre>{@code
+ * {
+ *   "lovelace": "5000000",
+ *   "policyId+assetName": "100"
+ * }
+ * }</pre>
+ *
+ * <h2>Address Decomposition</h2>
+ * <p>Addresses are decomposed for efficient querying:
+ * <ul>
+ *   <li><b>paymentScriptHash</b>: Always the programmable logic base hash</li>
+ *   <li><b>stakeKeyHash</b>: User's stake credential for aggregation</li>
+ * </ul>
+ *
+ * @see org.cardanofoundation.cip113.service.BalanceService
+ * @see org.cardanofoundation.cip113.util.BalanceValueHelper
+ */
 @Entity
 @Table(name = "balance_log", indexes = {
     @Index(name = "idx_balance_address", columnList = "address"),

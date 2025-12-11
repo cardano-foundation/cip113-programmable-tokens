@@ -1,3 +1,49 @@
+/**
+ * Transfer Form Component
+ *
+ * This component provides the form for transferring CIP-0113 programmable tokens
+ * between addresses. Unlike standard Cardano transfers, programmable transfers
+ * are validated by on-chain smart contracts that enforce the token's registered
+ * transfer logic.
+ *
+ * ## Key Features
+ *
+ * - **Token Dropdown**: Shows all programmable tokens in the connected wallet
+ * - **Balance Display**: Real-time balance with "Max" button for full transfers
+ * - **Address Validation**: Validates Cardano bech32 address format
+ * - **Protocol Version Awareness**: Transfers use the selected protocol version
+ *
+ * ## Transfer Flow
+ *
+ * 1. User connects wallet and sees their programmable token balances
+ * 2. User selects a token from the dropdown
+ * 3. User enters quantity and recipient address
+ * 4. Form validates inputs and submits to backend
+ * 5. Backend constructs unsigned transaction with:
+ *    - Spend from sender's programmable address
+ *    - Output to recipient's programmable address
+ *    - Required validator invocations (base, global, transfer logic)
+ * 6. Parent component receives tx hex for wallet signing
+ *
+ * ## Programmable Address Handling
+ *
+ * The backend automatically handles programmable address derivation:
+ * - Sender's base address → sender's programmable address (for input)
+ * - Recipient's base address → recipient's programmable address (for output)
+ *
+ * Users work with regular bech32 addresses throughout.
+ *
+ * ## Transfer Logic Validation
+ *
+ * The token's registered transfer logic is invoked during the transfer.
+ * Common validation patterns include:
+ * - **Permissioned**: Requires issuer signature
+ * - **Blacklistable**: Rejects blacklisted addresses
+ * - **Open**: Allows all transfers (dummy substandard)
+ *
+ * @module components/transfer/transfer-form
+ */
+
 "use client";
 
 import { useState, useEffect, useRef } from 'react';
@@ -12,7 +58,18 @@ import { useProtocolVersion } from '@/contexts/protocol-version-context';
 import { ChevronDown, RefreshCw, Coins } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
+/**
+ * Props for the TransferForm component.
+ */
 interface TransferFormProps {
+  /**
+   * Callback invoked when the backend successfully builds an unsigned transaction.
+   *
+   * @param unsignedCborTx - The unsigned transaction in CBOR hex format
+   * @param unit - The token unit (policyId + assetName) being transferred
+   * @param quantity - The amount being transferred
+   * @param recipientAddress - The recipient's bech32 address
+   */
   onTransactionBuilt: (
     unsignedCborTx: string,
     unit: string,
@@ -21,6 +78,18 @@ interface TransferFormProps {
   ) => void;
 }
 
+/**
+ * Transfer form for sending programmable tokens to other addresses.
+ *
+ * This form handles the complete transfer flow:
+ * 1. Fetches and displays the user's programmable token balances
+ * 2. Allows selection of a token to transfer via dropdown
+ * 3. Validates quantity (must not exceed balance) and address format
+ * 4. Communicates with the backend to build the unsigned transaction
+ *
+ * The component is protocol-version aware and will use the currently
+ * selected version from ProtocolVersionContext.
+ */
 export function TransferForm({ onTransactionBuilt }: TransferFormProps) {
   const { connected, wallet } = useWallet();
   const { toast: showToast } = useToast();
@@ -210,8 +279,8 @@ export function TransferForm({ onTransactionBuilt }: TransferFormProps) {
         duration: 6000,
       });
 
-      // Log to console without showing Next.js error overlay
-      console.log('Transfer error:', { errorTitle, errorMessage });
+      // Log error for debugging
+      console.error('Transfer error:', { errorTitle, errorMessage });
     } finally {
       setIsBuilding(false);
     }

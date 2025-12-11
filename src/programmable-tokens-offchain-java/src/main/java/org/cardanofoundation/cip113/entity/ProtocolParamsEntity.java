@@ -8,6 +8,28 @@ import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
 
+/**
+ * JPA entity representing a CIP-0113 protocol parameters version.
+ *
+ * <p>Each protocol params entity corresponds to a unique deployment of the
+ * CIP-0113 protocol on-chain, identified by the bootstrap transaction hash.
+ * Multiple protocol versions can coexist, allowing for protocol upgrades.
+ *
+ * <h2>Key Fields</h2>
+ * <ul>
+ *   <li><b>registryNodePolicyId</b>: Policy ID for minting registry NFTs</li>
+ *   <li><b>progLogicScriptHash</b>: Programmable logic base script hash</li>
+ *   <li><b>txHash</b>: Bootstrap transaction that created this version</li>
+ * </ul>
+ *
+ * <h2>Version Management</h2>
+ * <p>Protocol versions are loaded from {@code protocolBootstrap.json} at startup.
+ * The latest version is typically used for new operations, while older versions
+ * remain queryable for historical data.
+ *
+ * @see org.cardanofoundation.cip113.service.ProtocolParamsService
+ * @see org.cardanofoundation.cip113.service.ProtocolBootstrapService
+ */
 @Entity
 @Table(name = "protocol_params", indexes = {
     @Index(name = "idx_tx_hash", columnList = "txHash"),

@@ -117,7 +117,9 @@ export function ConnectButton() {
 
         // Check if the saved wallet is still installed
         if (window.cardano?.[savedWalletId]) {
-          console.log(`Auto-reconnecting to ${savedWalletId}...`);
+          if (process.env.NODE_ENV === 'development') {
+            console.debug(`Auto-reconnecting to ${savedWalletId}...`);
+          }
           await connect(savedWalletId);
         } else {
           // Wallet no longer installed, clear storage

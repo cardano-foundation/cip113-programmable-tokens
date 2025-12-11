@@ -18,18 +18,86 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
+/**
+ * Service for managing CIP-0113 substandard validator blueprints.
+ *
+ * <p>Substandards define the programmable behavior of tokens in the CIP-0113 protocol.
+ * Each substandard provides a set of validators that implement specific token semantics,
+ * such as:</p>
+ *
+ * <ul>
+ *   <li><b>dummy</b>: Simple tokens with no transfer restrictions</li>
+ *   <li><b>permissioned</b>: Tokens requiring issuer signature for transfers</li>
+ *   <li><b>blacklistable</b>: Tokens with address blacklist enforcement</li>
+ * </ul>
+ *
+ * <h2>Substandard Structure</h2>
+ * <p>Each substandard is a directory under {@code resources/substandards/} containing
+ * a {@code plutus.json} blueprint file. The directory name becomes the substandard ID.</p>
+ *
+ * <pre>
+ * resources/substandards/
+ * ├── dummy/
+ * │   └── plutus.json          # Validators: issuance_logic, transfer_logic
+ * ├── permissioned/
+ * │   └── plutus.json          # Validators: issuance_logic, permissioned_transfer
+ * └── blacklistable/
+ *     └── plutus.json          # Validators: issuance_logic, blacklist_transfer, blacklist_check
+ * </pre>
+ *
+ * <h2>Validator Triple</h2>
+ * <p>When registering a token, users select three validators from a substandard:</p>
+ * <ol>
+ *   <li><b>Issue logic</b>: Validates token minting (required)</li>
+ *   <li><b>Transfer logic</b>: Validates token transfers (required)</li>
+ *   <li><b>Third-party logic</b>: Additional validation hook (optional)</li>
+ * </ol>
+ *
+ * <h2>Blueprint Format</h2>
+ * <p>Each {@code plutus.json} follows the Aiken blueprint format:</p>
+ * <pre>
+ * {
+ *   "validators": [
+ *     {
+ *       "title": "issuance_logic.issuance_logic.else",
+ *       "compiledCode": "59abcd...",
+ *       "hash": "abc123..."
+ *     },
+ *     ...
+ *   ]
+ * }
+ * </pre>
+ *
+ * <h2>Thread Safety</h2>
+ * <p>Substandards are loaded at startup and cached in a {@link ConcurrentHashMap}
+ * for thread-safe access. The data is immutable after initialization.</p>
+ *
+ * @see Substandard
+ * @see SubstandardValidator
+ */
 @Service
 @Slf4j
 @RequiredArgsConstructor
 public class SubstandardService {
 
+    /** JSON deserializer for parsing blueprint files */
     private final ObjectMapper objectMapper;
 
-    // Thread-safe in-memory cache of all substandards
+    /**
+     * Thread-safe cache of all loaded substandards.
+     * <p>Key: substandard ID (directory name), Value: parsed substandard</p>
+     */
     private final Map<String, Substandard> substandardsCache = new ConcurrentHashMap<>();
 
     /**
-     * Load all substandards from resources/substandards at startup
+     * Load all substandards from resources at startup.
+     *
+     * <p>This method scans the {@code classpath:substandards/} directory for
+     * subdirectories containing {@code plutus.json} files. Each valid blueprint
+     * is parsed and cached for fast access.</p>
+     *
+     * <p>Invalid or malformed blueprints are logged and skipped without
+     * preventing other substandards from loading.</p>
      */
     @PostConstruct
     public void init() {
@@ -93,24 +161,52 @@ public class SubstandardService {
     }
 
     /**
-     * Get all substandards
+     * Get all available substandards.
      *
-     * @return list of all substandards
+     * <p>Returns a copy of the cached substandards. Useful for:</p>
+     * <ul>
+     *   <li>Listing available substandards in the UI</li>
+     *   <li>Substandard selection dropdowns</li>
+     *   <li>API endpoints exposing available options</li>
+     * </ul>
+     *
+     * @return list of all loaded substandards (never null)
      */
     public List<Substandard> getAllSubstandards() {
         return new ArrayList<>(substandardsCache.values());
     }
 
     /**
-     * Get a specific substandard by ID (folder name)
+     * Get a specific substandard by ID.
      *
-     * @param id the substandard ID (folder name)
-     * @return the substandard or empty if not found
+     * <p>The ID corresponds to the directory name under {@code resources/substandards/}.
+     * For example, {@code "dummy"}, {@code "permissioned"}, or {@code "blacklistable"}.</p>
+     *
+     * @param id the substandard ID (case-sensitive directory name)
+     * @return the substandard, or empty if not found
      */
     public Optional<Substandard> getSubstandardById(String id) {
         return Optional.ofNullable(substandardsCache.get(id));
     }
 
+    /**
+     * Get a specific validator from a substandard by partial name match.
+     *
+     * <p>Searches the substandard's validators for one whose title contains the
+     * specified name. This allows flexible matching without needing the full
+     * Aiken-generated title.</p>
+     *
+     * <h3>Example</h3>
+     * <pre>
+     * // Full title: "issuance_logic.issuance_logic.else"
+     * // Match with: "issuance_logic"
+     * var validator = service.getSubstandardValidator("dummy", "issuance_logic");
+     * </pre>
+     *
+     * @param id the substandard ID
+     * @param name partial validator name to search for (case-sensitive)
+     * @return the matching validator, or empty if not found
+     */
     public Optional<SubstandardValidator> getSubstandardValidator(String id, String name) {
         return getSubstandardById(id)
                 .flatMap(substandard -> substandard.validators()

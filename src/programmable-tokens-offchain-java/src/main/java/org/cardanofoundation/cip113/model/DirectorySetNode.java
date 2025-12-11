@@ -10,9 +10,9 @@ import java.util.Optional;
 @Slf4j
 public record DirectorySetNode(String key,
                                String next,
-                               // FIXME: this should be a Credential
+                               // Note: transferLogicScript is stored as hex string of credential script hash
                                String transferLogicScript,
-                               // FIXME: this should be a Credential
+                               // Note: issuerLogicScript is stored as hex string of credential script hash
                                String issuerLogicScript,
                                String globalStateCs) {
 
@@ -21,7 +21,7 @@ public record DirectorySetNode(String key,
             var plutusData = PlutusData.deserialize(HexUtil.decodeHexString(inlineDatum));
             var om = new ObjectMapper();
             var json = om.readTree(om.writeValueAsString(plutusData));
-            System.out.println(json);
+            log.debug("Parsing DirectorySetNode from datum: {}", json);
             var key = json.path("fields").get(0).path("bytes").asText();
             var next = json.path("fields").get(1).path("bytes").asText();
             var transferLogicScript = json.path("fields")

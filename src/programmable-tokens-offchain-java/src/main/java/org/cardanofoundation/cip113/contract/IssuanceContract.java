@@ -5,6 +5,33 @@ import com.bloxbean.cardano.client.plutus.blueprint.model.PlutusVersion;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
+/**
+ * CIP-0113 Token Issuance Contract.
+ *
+ * <p>This minting policy controls the creation and burning of programmable tokens.
+ * It ensures that:
+ * <ul>
+ *   <li>Minted tokens are sent to the programmable logic base address</li>
+ *   <li>The token's policy ID is registered in the directory</li>
+ *   <li>Proper datum is attached to minted token outputs</li>
+ * </ul>
+ *
+ * <h2>Minting Requirements</h2>
+ * <ul>
+ *   <li>Token must be registered in the CIP-0113 registry</li>
+ *   <li>Output must go to programmable logic address</li>
+ *   <li>Datum must contain owner credential and metadata</li>
+ * </ul>
+ *
+ * <h2>Burning Requirements</h2>
+ * <ul>
+ *   <li>Input must come from programmable logic address</li>
+ *   <li>Burn amount must match negative quantity</li>
+ * </ul>
+ *
+ * @see DirectoryContract
+ * @see ProgrammableLogicBaseContract
+ */
 @Component
 @Slf4j
 public class IssuanceContract extends AbstractContract {

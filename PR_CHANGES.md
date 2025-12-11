@@ -3,6 +3,116 @@
 ## Summary
 This PR synchronizes with [cardano-foundation/cip113-programmable-tokens](https://github.com/cardano-foundation/cip113-programmable-tokens) upstream repository (14 commits behind) and addresses critical issues across the codebase. The sync brings multi-protocol version support, new registration flow, improved transfer functionality, and various fixes.
 
+## Extensive Inline Documentation
+
+Added comprehensive inline documentation across all modules to improve code maintainability and developer experience.
+
+### Java Backend Documentation
+
+#### Request DTOs (model/*.java)
+- **MintTokenRequest.java**: Full Javadoc explaining minting flow, address formats, asset name hex encoding, and parameter validation
+- **RegisterTokenRequest.java**: Detailed documentation of registration flow, validator triple concept, registry structure, and all parameters
+- **TransferTokenRequest.java**: Complete docs on transfer architecture, programmable addresses, token unit format, and transfer logic validation
+
+#### Controllers
+- **IssueTokenController.java**: Class-level docs explaining API purpose, multi-version support, response format, error handling. Method-level docs for `/register` (registry insertion algorithm, transaction structure) and `/mint` (minting flow, issuance logic)
+- **TransferTokenController.java**: Full documentation of transfer architecture, two-level validation, programmable addresses, and transaction structure
+
+#### Services
+- **ProtocolBootstrapService.java**: Docs on multi-version protocol support, configuration files, bootstrap structure, thread safety, and all public methods
+- **SubstandardService.java**: Documentation of substandard concept, validator triple selection, blueprint format, and lookup methods
+
+### Frontend Documentation
+
+#### API Modules (lib/api/*.ts)
+- **minting.ts**: Module docs on hex encoding, workflow. Function docs for `stringToHex`, `hexToString`, `mintToken`, `prepareMintRequest`
+- **registration.ts**: Full docs on registration vs minting, validator triple, transaction flow, with usage examples
+- **transfer.ts**: Documentation of transfer architecture, programmable addresses, token unit format, with examples
+- **balance.ts**: Comprehensive docs on programmable address aggregation, balance parsing, unit splitting, asset name decoding
+
+#### Components
+- **mint-form.tsx**: Module docs on form fields, transaction flow, and component architecture
+- **registration-form.tsx**: Full docs explaining registration vs minting, validator triple selection, form fields, and transaction flow
+- **transfer-form.tsx**: Documentation of key features, transfer flow, programmable address handling, and transfer logic validation
+
+### Additional Java Documentation (Session 2)
+
+#### Contract Classes (contract/*.java)
+- **AbstractContract.java**: Base class docs explaining script hash computation, address generation, usage example
+- **ProgrammableLogicBaseContract.java**: Documentation of shared script address, validation logic, on-chain checks
+- **IssuanceContract.java**: Minting policy docs with minting/burning requirements
+- **DirectoryContract.java**: Registry contract docs explaining linked list structure, operations
+
+#### Entity Classes (entity/*.java)
+- **RegistryNodeEntity.java**: Full Javadoc on linked list structure, database schema, sentinel node pattern
+- **BalanceLogEntity.java**: Documentation of balance snapshot format, JSON structure, address decomposition
+- **ProtocolParamsEntity.java**: Protocol version entity docs with key fields, version management
+
+#### Model Classes (model/*.java)
+- **Substandard.java**: Record docs explaining substandard concept, common patterns
+- **SubstandardValidator.java**: Validator record docs with title format, script hash explanation
+
+#### Configuration (config/*.java)
+- **AppConfig.java**: Application config docs with nested components, network settings, converters
+- **Cip113Blueprint.java**: Blueprint annotation docs explaining code generation
+
+#### Application Entry Point
+- **Cip113OffchainApp.java**: Main class docs with architecture overview, configuration guide
+
+### Additional Frontend Documentation (Session 2)
+
+#### Contexts
+- **protocol-version-context.tsx**: Module header with usage example, context value documentation
+
+### Aiken Smart Contracts
+The Aiken validators and libraries already had excellent documentation, including:
+- **types.ak**: Core data types with protocol overview, linked list structure, invariants
+- **linked_list.ak**: Sorted linked list validation with module overview, operation descriptions
+- **utils.ak**: Utility functions organized by category with usage examples
+- **programmable_logic_base.ak**: Architecture docs, validation logic, migration notes
+- **registry_mint.ak**: Registry minting policy documentation
+
+## Security Hardening: Bean Validation for API Endpoints
+
+Added Jakarta Bean Validation annotations to all request DTOs and `@Valid` to controller endpoints to ensure input validation at the API layer.
+
+### DTOs with Validation
+- **MintTokenRequest.java**
+  - `issuerBaseAddress`: `@NotBlank`, `@Pattern(bech32 format)`
+  - `substandardName`: `@NotBlank`
+  - `assetName`: `@NotBlank`, `@Pattern(1-64 hex chars)`
+  - `quantity`: `@NotBlank`, `@Pattern(positive integer)`
+  - `recipientAddress`: `@Nullable` (optional field)
+
+- **RegisterTokenRequest.java**
+  - `registrarAddress`: `@NotBlank`, `@Pattern(bech32 format)`
+  - `substandardName`: `@NotBlank`
+  - `substandardIssueContractName`: `@NotBlank`
+  - `substandardTransferContractName`: `@NotBlank`
+  - `substandardThirdPartyContractName`: `@Nullable`
+  - `assetName`: `@NotBlank`, `@Pattern(1-64 hex chars)`
+  - `quantity`: `@NotBlank`, `@Pattern(positive integer)`
+  - `recipientAddress`: `@Nullable`, `@Pattern(bech32 format when provided)`
+
+- **TransferTokenRequest.java**
+  - `senderAddress`: `@NotBlank`, `@Pattern(bech32 format)`
+  - `unit`: `@NotBlank`
+  - `quantity`: `@NotBlank`
+  - `recipientAddress`: `@NotBlank`, `@Pattern(bech32 format)`
+
+### Controllers with @Valid
+- **IssueTokenController.java**
+  - `/register` endpoint: `@Valid @RequestBody RegisterTokenRequest`
+  - `/mint` endpoint: `@Valid @RequestBody MintTokenRequest`
+
+- **TransferTokenController.java**
+  - `/transfer` endpoint: `@Valid @RequestBody TransferTokenRequest`
+
+### Frontend Logging Improvements
+- **connect-button.tsx**: Changed debug logging to environment-aware (`process.env.NODE_ENV === 'development'`)
+- **registration-form.tsx**: Changed `console.log` to `console.error` for error logging
+- **transfer-form.tsx**: Changed `console.log` to `console.error` for error logging
+
 ## Upstream Sync (December 11, 2025)
 
 Merged 14 commits from upstream/main including:
