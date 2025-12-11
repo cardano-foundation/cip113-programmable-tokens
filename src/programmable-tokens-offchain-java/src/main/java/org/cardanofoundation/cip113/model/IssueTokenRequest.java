@@ -1,5 +1,6 @@
 package org.cardanofoundation.cip113.model;
 
+import jakarta.annotation.Nullable;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 
@@ -11,7 +12,7 @@ import jakarta.validation.constraints.Pattern;
  * @param substandardIssueContractName the name of the issuance contract within the substandard
  * @param substandardTransferContractName the name of the transfer logic contract within the substandard
  * @param substandardThirdPartyContractName optional third-party contract name (can be null)
- * @param recipientAddress the address to receive the issued tokens (bech32 format)
+ * @param recipientAddress optional recipient address; if null, uses issuerBaseAddress (bech32 format)
  */
 public record IssueTokenRequest(
         @NotBlank(message = "Issuer base address is required")
@@ -27,9 +28,10 @@ public record IssueTokenRequest(
         @NotBlank(message = "Substandard transfer contract name is required")
         String substandardTransferContractName,
 
+        @Nullable
         String substandardThirdPartyContractName,
 
-        @NotBlank(message = "Recipient address is required")
+        @Nullable
         @Pattern(regexp = "^addr(_test)?1[a-z0-9]+$", message = "Invalid recipient address format")
         String recipientAddress) {
 }

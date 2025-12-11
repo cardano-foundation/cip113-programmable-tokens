@@ -21,6 +21,12 @@ import com.bloxbean.cardano.yaci.store.utxo.storage.impl.repository.UtxoReposito
 import com.easy1staking.cardano.util.UtxoUtil;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.cardanofoundation.cip113.config.AppConfig;
@@ -80,6 +86,7 @@ import java.util.Optional;
 @RequestMapping("${apiPrefix}/issue-token")
 @RequiredArgsConstructor
 @Slf4j
+@Tag(name = "Token Issuance", description = "Endpoints for minting and managing programmable tokens")
 public class IssueTokenController {
 
     /** JSON serializer for Plutus data structures */
@@ -128,6 +135,18 @@ public class IssueTokenController {
      * @throws ApiException if validation fails or protocol resources unavailable
      */
     @PostMapping("/register")
+    @Operation(
+            summary = "Register a new programmable token",
+            description = "Creates an unsigned transaction to register a new programmable token policy " +
+                    "in the CIP-0113 registry. The token is associated with transfer and issuance logic scripts. " +
+                    "Returns unsigned CBOR hex that must be signed by the issuer's wallet."
+    )
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Unsigned transaction CBOR returned",
+                    content = @Content(mediaType = "text/plain", schema = @Schema(type = "string"))),
+            @ApiResponse(responseCode = "400", description = "Invalid request parameters"),
+            @ApiResponse(responseCode = "500", description = "Protocol resources unavailable or internal error")
+    })
     public ResponseEntity<?> register(@Valid @RequestBody RegisterTokenRequest registerTokenRequest) {
 
         try {
@@ -375,6 +394,18 @@ public class IssueTokenController {
 
 
     @PostMapping("/mint")
+    @Operation(
+            summary = "Mint programmable tokens",
+            description = "Creates an unsigned transaction to mint tokens for an existing registered policy. " +
+                    "The issuer must have previously registered the token via /register. " +
+                    "Returns unsigned CBOR hex that must be signed by the issuer's wallet."
+    )
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Unsigned transaction CBOR returned",
+                    content = @Content(mediaType = "text/plain", schema = @Schema(type = "string"))),
+            @ApiResponse(responseCode = "400", description = "Invalid request parameters or policy not registered"),
+            @ApiResponse(responseCode = "500", description = "Protocol resources unavailable or internal error")
+    })
     public ResponseEntity<?> mint(@Valid @RequestBody MintTokenRequest mintTokenRequest) {
 
         try {
@@ -516,6 +547,18 @@ public class IssueTokenController {
     }
 
     @PostMapping("/issue")
+    @Operation(
+            summary = "Issue new programmable tokens (register + mint)",
+            description = "Creates an unsigned transaction that combines registration and minting in one operation. " +
+                    "This is the recommended endpoint for creating new programmable tokens. " +
+                    "Returns unsigned CBOR hex that must be signed by the issuer's wallet."
+    )
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Unsigned transaction CBOR returned",
+                    content = @Content(mediaType = "text/plain", schema = @Schema(type = "string"))),
+            @ApiResponse(responseCode = "400", description = "Invalid request parameters"),
+            @ApiResponse(responseCode = "500", description = "Protocol resources unavailable or internal error")
+    })
     public ResponseEntity<?> issueToken(@Valid @RequestBody IssueTokenRequest issueTokenRequest) {
 
         try {

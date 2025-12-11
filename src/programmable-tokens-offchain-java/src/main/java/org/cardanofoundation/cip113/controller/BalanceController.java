@@ -2,6 +2,13 @@ package org.cardanofoundation.cip113.controller;
 
 import com.bloxbean.cardano.client.transaction.spec.Value;
 import com.easy1staking.cardano.model.AssetType;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.cardanofoundation.cip113.entity.BalanceLogEntity;
@@ -21,6 +28,7 @@ import java.util.stream.Collectors;
 @RequestMapping("${apiPrefix}/balances")
 @RequiredArgsConstructor
 @Slf4j
+@Tag(name = "Balances", description = "Token balance queries")
 public class BalanceController {
 
     private final BalanceService balanceService;
@@ -34,7 +42,18 @@ public class BalanceController {
      * @return map of unit to amount
      */
     @GetMapping("/current/{address}")
-    public ResponseEntity<Map<String, String>> getCurrentBalance(@PathVariable String address) {
+    @Operation(
+            summary = "Get balance for address",
+            description = "Returns current balances for all assets at the specified address. " +
+                    "Balance is returned as a map of unit to amount."
+    )
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Balance retrieved successfully"),
+            @ApiResponse(responseCode = "404", description = "Address not found")
+    })
+    public ResponseEntity<Map<String, String>> getCurrentBalance(
+            @Parameter(description = "Bech32 address", example = "addr_test1...")
+            @PathVariable String address) {
         log.debug("GET /current/{} - fetching current balance", address);
         Map<String, String> balance = balanceService.getCurrentBalanceByUnit(address);
         return ResponseEntity.ok(balance);
@@ -48,9 +67,17 @@ public class BalanceController {
      * @return map with the asset amount
      */
     @GetMapping("/current/{address}/{unit}")
+    @Operation(
+            summary = "Get balance for specific asset",
+            description = "Returns the balance of a specific asset at the specified address."
+    )
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Balance retrieved successfully"),
+            @ApiResponse(responseCode = "404", description = "Address or asset not found")
+    })
     public ResponseEntity<Map<String, String>> getCurrentBalanceForAsset(
-            @PathVariable String address,
-            @PathVariable String unit) {
+            @Parameter(description = "Bech32 address") @PathVariable String address,
+            @Parameter(description = "Asset unit (lovelace or policyId+assetName)") @PathVariable String unit) {
         log.debug("GET /current/{}/{} - fetching balance for asset", address, unit);
 
         return balanceService.getLatestBalance(address)

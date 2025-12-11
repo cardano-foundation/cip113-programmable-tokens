@@ -93,7 +93,7 @@ This is high-quality research code with strong implementation:
 - ✅ Registry operations functional
 - ✅ Token issuance and transfer flows working
 - ✅ Example freeze & seize functionality complete
-- ✅ Comprehensive test coverage (300 tests: 155 Java, 80 Aiken, 65 Frontend)
+- ✅ Comprehensive test coverage (305 tests: 160 Java, 80 Aiken, 65 Frontend)
 - ✅ Limited testing on Preview testnet
 - ✅ Frontend with minting, transfer, and dashboard
 - ⏳ Comprehensive real-world testing required

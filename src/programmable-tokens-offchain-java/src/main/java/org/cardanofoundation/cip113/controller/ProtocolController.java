@@ -1,5 +1,11 @@
 package org.cardanofoundation.cip113.controller;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.cardanofoundation.cip113.model.blueprint.Plutus;
@@ -38,6 +44,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("${apiPrefix}/protocol")
 @RequiredArgsConstructor
 @Slf4j
+@Tag(name = "Protocol", description = "Protocol configuration and blueprint endpoints")
 public class ProtocolController {
 
     private final ProtocolBootstrapService protocolBootstrapService;
@@ -52,6 +59,18 @@ public class ProtocolController {
      * @return the Plutus blueprint with all validators
      */
     @GetMapping("/blueprint")
+    @Operation(
+            summary = "Get Plutus blueprint",
+            description = "Returns the full Aiken-generated Plutus blueprint containing compiled " +
+                    "validator bytecode and metadata for all CIP-0113 validators. " +
+                    "Frontend clients use this to build transactions with embedded script references."
+    )
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Blueprint retrieved successfully",
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(implementation = Plutus.class))),
+            @ApiResponse(responseCode = "500", description = "Blueprint not loaded or internal error")
+    })
     public ResponseEntity<Plutus> getPlutus() {
         return ResponseEntity.ok(protocolBootstrapService.getPlutus());
     }
@@ -66,6 +85,18 @@ public class ProtocolController {
      * @return the protocol bootstrap configuration
      */
     @GetMapping("/bootstrap")
+    @Operation(
+            summary = "Get bootstrap parameters",
+            description = "Returns the protocol bootstrap parameters including reference UTxO IDs, " +
+                    "policy IDs, and script hashes for the deployed CIP-0113 protocol instance. " +
+                    "These parameters are network-specific (mainnet/testnet)."
+    )
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Bootstrap parameters retrieved successfully",
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(implementation = ProtocolBootstrapParams.class))),
+            @ApiResponse(responseCode = "500", description = "Bootstrap parameters not loaded or internal error")
+    })
     public ResponseEntity<ProtocolBootstrapParams> getLatest() {
         return ResponseEntity.ok(protocolBootstrapService.getProtocolBootstrapParams());
     }

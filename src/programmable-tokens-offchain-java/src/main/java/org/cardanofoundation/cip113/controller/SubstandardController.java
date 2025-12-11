@@ -1,5 +1,12 @@
 package org.cardanofoundation.cip113.controller;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.cardanofoundation.cip113.model.Substandard;
@@ -44,6 +51,7 @@ import java.util.List;
 @RequestMapping("${apiPrefix}/substandards")
 @RequiredArgsConstructor
 @Slf4j
+@Tag(name = "Substandards", description = "CIP-113 substandard validators for programmable tokens")
 public class SubstandardController {
 
     private final SubstandardService substandardService;
@@ -54,6 +62,17 @@ public class SubstandardController {
      * @return list of all substandards with their validators
      */
     @GetMapping
+    @Operation(
+            summary = "List all substandards",
+            description = "Returns all available CIP-113 substandards with their compiled validators. " +
+                    "Substandards define the transfer validation logic for programmable tokens."
+    )
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Successfully retrieved substandards",
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(implementation = Substandard.class))),
+            @ApiResponse(responseCode = "500", description = "Internal server error")
+    })
     public ResponseEntity<List<Substandard>> getAllSubstandards() {
         log.debug("GET /substandards - fetching all substandards");
         List<Substandard> substandards = substandardService.getAllSubstandards();
@@ -67,7 +86,21 @@ public class SubstandardController {
      * @return the substandard with its validators or 404 if not found
      */
     @GetMapping("/{id}")
-    public ResponseEntity<Substandard> getSubstandardById(@PathVariable String id) {
+    @Operation(
+            summary = "Get substandard by ID",
+            description = "Returns a specific substandard by its ID (folder name). " +
+                    "Common IDs include: blacklist, whitelist, transfer-limit."
+    )
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Substandard found",
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(implementation = Substandard.class))),
+            @ApiResponse(responseCode = "404", description = "Substandard not found"),
+            @ApiResponse(responseCode = "500", description = "Internal server error")
+    })
+    public ResponseEntity<Substandard> getSubstandardById(
+            @Parameter(description = "Substandard ID (folder name)", example = "blacklist")
+            @PathVariable String id) {
         log.debug("GET /substandards/{} - fetching substandard by id", id);
         return substandardService.getSubstandardById(id)
                 .map(ResponseEntity::ok)

@@ -1,8 +1,8 @@
 package org.cardanofoundation.cip113.model;
 
+import jakarta.annotation.Nullable;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
-import jakarta.validation.constraints.Positive;
 
 /**
  * Request to mint programmable tokens.
@@ -12,7 +12,7 @@ import jakarta.validation.constraints.Positive;
  * @param substandardIssueContractName the name of the issuance contract within the substandard
  * @param assetName the hex-encoded asset name (max 64 hex chars = 32 bytes)
  * @param quantity the quantity of tokens to mint (positive integer string)
- * @param recipientAddress the address to receive the minted tokens (bech32 format)
+ * @param recipientAddress optional recipient address; if null, uses issuerBaseAddress (bech32 format)
  */
 public record MintTokenRequest(
         @NotBlank(message = "Issuer base address is required")
@@ -33,7 +33,7 @@ public record MintTokenRequest(
         @Pattern(regexp = "^[1-9][0-9]*$", message = "Quantity must be a positive integer")
         String quantity,
 
-        @NotBlank(message = "Recipient address is required")
+        @Nullable
         @Pattern(regexp = "^addr(_test)?1[a-z0-9]+$", message = "Invalid recipient address format")
         String recipientAddress) {
 }

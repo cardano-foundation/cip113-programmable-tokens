@@ -1,5 +1,12 @@
 package org.cardanofoundation.cip113.controller;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.cardanofoundation.cip113.entity.BalanceLogEntity;
@@ -17,6 +24,7 @@ import java.util.stream.Collectors;
 @RequestMapping("${apiPrefix}/history")
 @RequiredArgsConstructor
 @Slf4j
+@Tag(name = "History", description = "Transaction history")
 public class HistoryController {
 
     private final BalanceService balanceService;
@@ -32,9 +40,18 @@ public class HistoryController {
      * @return list of transaction history entries
      */
     @GetMapping("/by-stake/{stakeKeyHash}")
+    @Operation(
+            summary = "Get transaction history by stake key",
+            description = "Returns transaction history for all addresses associated with a stake key. " +
+                    "Includes balance differences for each transaction."
+    )
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "History retrieved successfully"),
+            @ApiResponse(responseCode = "404", description = "Stake key not found")
+    })
     public ResponseEntity<List<TransactionHistoryResponse>> getHistoryByStakeKey(
-            @PathVariable String stakeKeyHash,
-            @RequestParam(defaultValue = "10") int limit) {
+            @Parameter(description = "Stake key hash") @PathVariable String stakeKeyHash,
+            @Parameter(description = "Maximum entries to return") @RequestParam(defaultValue = "10") int limit) {
         log.debug("GET /history/by-stake/{} - fetching history, limit={}", stakeKeyHash, limit);
 
         // Get all latest balances for this stake key to find all addresses

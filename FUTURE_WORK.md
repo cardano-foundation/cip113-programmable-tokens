@@ -130,16 +130,16 @@ All error responses now:
 
 ## Test Suite Status
 
-**Final Results:** 300 total tests (155 Java + 80 Aiken + 65 Frontend), 0 failures
+**Final Results:** 305 total tests (160 Java + 80 Aiken + 65 Frontend), 0 failures
 
 | Test Category | Count | Status |
 |---------------|-------|--------|
-| Java Unit Tests | 147 | ✅ Pass |
+| Java Unit Tests | 152 | ✅ Pass |
 | Java Integration Tests | 8 | ✅ Pass |
 | Aiken Smart Contract Tests | 80 | ✅ Pass |
 | Frontend Unit Tests | 65 | ✅ Pass |
 
-### Java Backend Test Classes (155 tests)
+### Java Backend Test Classes (160 tests)
 | Test Class | Tests | Description |
 |------------|-------|-------------|
 | HealthcheckControllerTest | 5 | `/healthcheck` endpoint tests |
@@ -149,7 +149,7 @@ All error responses now:
 | HistoryControllerTest | 4 | `/api/v1/history` endpoint tests |
 | RegistryControllerTest | 11 | `/api/v1/registry` endpoint tests |
 | ProtocolParamsControllerTest | 10 | `/api/v1/protocol-params` endpoint tests |
-| MintTokenRequestValidationTest | 36 | Bean Validation annotation tests |
+| MintTokenRequestValidationTest | 41 | Bean Validation annotation tests (includes recipientAddress tests) |
 | GlobalExceptionHandlerTest | 9 | Exception handling consistency tests |
 
 ### Frontend Test Classes (65 tests)

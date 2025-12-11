@@ -1,5 +1,11 @@
 package org.cardanofoundation.cip113.controller;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.cardanofoundation.cip113.service.ProtocolBootstrapService;
@@ -20,6 +26,7 @@ import java.util.Map;
 @RequestMapping("/healthcheck")
 @Slf4j
 @RequiredArgsConstructor
+@Tag(name = "Health", description = "Service health checks")
 public class Healthcheck {
 
     private final ProtocolBootstrapService protocolBootstrapService;
@@ -29,6 +36,13 @@ public class Healthcheck {
      * Basic health check - returns 200 OK if the service is running.
      */
     @GetMapping
+    @Operation(
+            summary = "Basic health check",
+            description = "Returns 200 OK if the service is running. Use for Kubernetes liveness probes."
+    )
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Service is healthy")
+    })
     public ResponseEntity<Map<String, Object>> healthCheck() {
         Map<String, Object> health = new LinkedHashMap<>();
         health.put("status", "UP");
@@ -40,6 +54,14 @@ public class Healthcheck {
      * Detailed health check - returns service status with component details.
      */
     @GetMapping("/details")
+    @Operation(
+            summary = "Detailed health check",
+            description = "Returns comprehensive health status including protocol bootstrap and substandards. " +
+                    "Use for Kubernetes readiness probes."
+    )
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Health details retrieved")
+    })
     public ResponseEntity<Map<String, Object>> healthCheckDetails() {
         Map<String, Object> health = new LinkedHashMap<>();
         health.put("status", "UP");

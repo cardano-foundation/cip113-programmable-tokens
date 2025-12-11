@@ -188,6 +188,53 @@ class MintTokenRequestValidationTest {
 
             assertFalse(violations.isEmpty(), "Expected validation error for blank substandard name");
         }
+    }
+
+    @Nested
+    @DisplayName("Recipient Address Validation")
+    class RecipientAddressValidation {
+
+        @Test
+        @DisplayName("should accept null recipient address (optional)")
+        void shouldAcceptNullRecipientAddress() {
+            MintTokenRequest request = withRecipientAddress(null);
+            Set<ConstraintViolation<MintTokenRequest>> violations = validator.validate(request);
+
+            assertTrue(violations.stream().noneMatch(v ->
+                    v.getPropertyPath().toString().equals("recipientAddress")),
+                    "Expected no validation errors for null recipient address");
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = {
+                "invalid_address",
+                "addr2qz2fxv2umyhttkxyxp8x", // wrong prefix
+                "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4" // bitcoin address
+        })
+        @DisplayName("should reject invalid recipient address format when provided")
+        void shouldRejectInvalidRecipientAddressFormat(String invalidAddress) {
+            MintTokenRequest request = withRecipientAddress(invalidAddress);
+            Set<ConstraintViolation<MintTokenRequest>> violations = validator.validate(request);
+
+            assertFalse(violations.isEmpty(), "Expected validation error for invalid recipient address");
+            assertTrue(violations.stream().anyMatch(v ->
+                    v.getMessage().contains("Invalid recipient address format")));
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = {
+                "addr_test1qz2fxv2umyhttkxyxp8x0dlpdt3k6cwng5pxj3jhsydzer3jcu5d8ps7zex2k2xt3uqxgjqnnj83ws8lhrn648jjxtwq2ytjqp",
+                "addr1qz2fxv2umyhttkxyxp8x0dlpdt3k6cwng5pxj3jhsydzer3jcu5d8ps7zex2k2xt3uqxgjqnnj83ws8lhrn648jjxtwqxcl9g7"
+        })
+        @DisplayName("should accept valid recipient addresses when provided")
+        void shouldAcceptValidRecipientAddresses(String validAddress) {
+            MintTokenRequest request = withRecipientAddress(validAddress);
+            Set<ConstraintViolation<MintTokenRequest>> violations = validator.validate(request);
+
+            assertTrue(violations.stream().noneMatch(v ->
+                    v.getPropertyPath().toString().equals("recipientAddress")),
+                    "Expected no validation errors for valid recipient address");
+        }
     }    // Helper to create a valid request for modification in tests
     private MintTokenRequest createValidRequest() {
         return new MintTokenRequest(
@@ -222,5 +269,11 @@ class MintTokenRequestValidationTest {
         var base = createValidRequest();
         return new MintTokenRequest(base.issuerBaseAddress(), base.substandardName(), base.substandardIssueContractName(),
                 base.assetName(), value, base.recipientAddress());
+    }
+
+    private MintTokenRequest withRecipientAddress(String value) {
+        var base = createValidRequest();
+        return new MintTokenRequest(base.issuerBaseAddress(), base.substandardName(), base.substandardIssueContractName(),
+                base.assetName(), base.quantity(), value);
     }
 }

@@ -1,7 +1,76 @@
 # Pull Request: Codebase Fixes, Test Suite Repair, and Documentation
 
 ## Summary
-This PR addresses critical issues across the entire codebase including frontend browser compatibility, backend type safety, comprehensive test suite fixes, new frontend pages, and documentation improvements. All tests now pass with integration tests properly skipped when prerequisites are unavailable.
+This PR addresses critical issues across the entire codebase including frontend browser compatibility, backend type safety, comprehensive test suite fixes, new frontend pages, E2E testing, OpenAPI documentation, and documentation improvements. All tests now pass with integration tests properly skipped when prerequisites are unavailable.
+
+## Critical Fix: API Type Consistency (recipientAddress)
+
+Fixed inconsistency between frontend and backend API types for `recipientAddress` field.
+
+### Issue
+- **Frontend**: `recipientAddress` was correctly marked as optional (`recipientAddress?: string`)
+- **Backend**: `recipientAddress` was incorrectly marked as `@NotBlank` (required)
+- **Behavior**: The Java controller code already handled null values gracefully (falls back to `issuerBaseAddress`)
+
+### Fix Applied
+- `MintTokenRequest.java`: Changed `@NotBlank` to `@Nullable` for `recipientAddress`
+- `IssueTokenRequest.java`: Changed `@NotBlank` to `@Nullable` for `recipientAddress`
+- Added `@Nullable` annotation for `substandardThirdPartyContractName` (was already optional but not documented)
+- Added comprehensive validation tests for optional `recipientAddress` in `MintTokenRequestValidationTest.java`
+
+### Tests Added
+- `shouldAcceptNullRecipientAddress` - verifies null is accepted
+- `shouldRejectInvalidRecipientAddressFormat` - verifies format validation still works when provided
+- `shouldAcceptValidRecipientAddresses` - verifies valid addresses are accepted
+
+## New Feature: OpenAPI/Swagger Documentation
+
+Added SpringDoc OpenAPI integration for automatic API documentation generation.
+
+### Dependencies Added
+- `springdoc-openapi-starter-webmvc-ui:2.6.0` - SpringDoc OpenAPI for Spring Boot 3
+
+### Configuration
+- `OpenApiConfig.java` - OpenAPI configuration with API metadata, tags, and server URLs
+
+### API Documentation URLs
+- Swagger UI: `/swagger-ui.html`
+- OpenAPI JSON: `/v3/api-docs`
+
+### Annotated Controllers
+- **IssueTokenController** - Token Issuance endpoints (register, mint, issue)
+- **SubstandardController** - Substandard validators
+- **ProtocolController** - Protocol blueprint and bootstrap
+- **BalanceController** - Token balance queries
+- **HistoryController** - Transaction history
+- **Healthcheck** - Service health checks
+
+### Tags
+- Token Issuance, Protocol, Substandards, Registry, Balances, History, Protocol Parameters, Health
+
+## New Feature: Playwright E2E Tests
+
+Added end-to-end testing infrastructure using Playwright.
+
+### Configuration
+- `playwright.config.ts` - Playwright configuration with Chromium browser
+- `package.json` - Added E2E test scripts (`test:e2e`, `test:e2e:ui`, `test:e2e:headed`)
+- `.gitignore` - Added Playwright artifacts exclusions
+
+### Test Files Created
+- `e2e/navigation.spec.ts` - Navigation tests (7 tests)
+- `e2e/deploy.spec.ts` - Deploy page tests (3 tests)
+- `e2e/blacklist.spec.ts` - Blacklist page tests (3 tests)
+- `e2e/mint.spec.ts` - Mint page tests (3 tests)
+- `e2e/transfer.spec.ts` - Transfer page tests (3 tests)
+- `e2e/dashboard.spec.ts` - Dashboard page tests (3 tests)
+
+### Test Coverage
+- Homepage rendering and title
+- Navigation header visibility
+- Page-to-page navigation (mint, transfer, deploy, blacklist, dashboard)
+- Form element presence
+- Wallet connection prompts
 
 ## Type Safety Fix: Badge and Button Component Variants
 

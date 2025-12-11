@@ -21,8 +21,8 @@
 
 import { ImageResponse } from 'next/og';
 
-// Route segment config
-export const runtime = 'edge';
+// Route segment config - use nodejs runtime to avoid WASM issues in some environments
+export const runtime = 'nodejs';
 
 // Image metadata (Twitter uses 2:1 ratio)
 export const alt = 'CIP-113 Programmable Tokens';

@@ -25,6 +25,9 @@ dependencies {
 	implementation 'org.springframework.boot:spring-boot-starter-validation'
 	testImplementation 'org.springframework.boot:spring-boot-starter-test'
 
+	// SpringDoc OpenAPI for API documentation
+	implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.6.0'
+
 	implementation 'org.cardanofoundation:cf-cardano-conversions-java:1.2.0'
     implementation 'com.easy1staking:cardano-client-lib-extensions:0.0.2'
 
