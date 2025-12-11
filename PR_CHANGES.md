@@ -167,17 +167,18 @@ Blueprint (`plutus.json`) successfully generated and copied to Java resources.
 
 ## Test Results Summary
 
-### Total Test Count: 300 tests, 0 failures
+### Total Test Count: 273+ tests, 0 failures
 
 | Module | Tests | Status |
 |--------|-------|--------|
-| Java Backend | 155 | ✅ Pass |
+| Java Backend | 128 | ✅ Pass |
 | Aiken Smart Contracts | 80 | ✅ Pass |
-| Frontend | 65 | ✅ Pass |
+| Frontend Unit Tests | 65 | ✅ Pass |
+| Frontend E2E Tests | 22 | ✅ Created |
 
 ### Java Backend Tests
-- **Total Tests:** 155
-- **Passing:** 155
+- **Total Tests:** 128
+- **Passing:** 128
 - **Skipped:** 0
 - **Failures:** 0
 - **Errors:** 0
