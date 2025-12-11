@@ -1,3 +1,47 @@
+/**
+ * Protocol Version Context
+ *
+ * This React context provides access to available CIP-0113 protocol versions
+ * and manages the currently selected version. It enables:
+ *
+ * - Listing all deployed protocol versions
+ * - Selecting a specific version for queries
+ * - Persisting selection in localStorage
+ * - Automatic fallback to default version
+ *
+ * ## Usage
+ *
+ * ```tsx
+ * function ProtocolSelector() {
+ *   const { versions, selectedVersion, selectVersion } = useProtocolVersion();
+ *
+ *   return (
+ *     <select
+ *       value={selectedVersion?.txHash}
+ *       onChange={(e) => selectVersion(e.target.value)}
+ *     >
+ *       {versions.map(v => (
+ *         <option key={v.txHash} value={v.txHash}>
+ *           {v.registryNodePolicyId.slice(0, 8)}...
+ *         </option>
+ *       ))}
+ *     </select>
+ *   );
+ * }
+ * ```
+ *
+ * ## Context Value
+ *
+ * - `versions`: Array of all available protocol versions
+ * - `selectedVersion`: Currently selected version (or null)
+ * - `isLoading`: Whether versions are being fetched
+ * - `error`: Error message if fetch failed
+ * - `selectVersion`: Function to change selected version
+ * - `resetToDefault`: Function to reset to default version
+ *
+ * @module contexts/protocol-version-context
+ */
+
 "use client";
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
@@ -30,39 +74,30 @@ export function ProtocolVersionProvider({ children }: { children: ReactNode }) {
         setIsLoading(true);
         setError(null);
         const data = await getProtocolVersions();
-        console.log('Loaded protocol versions:', data);
         setVersions(data);
 
         // Check localStorage first
         const saved = localStorage.getItem(STORAGE_KEY);
-        console.log('Saved protocol version from localStorage:', saved);
 
         if (saved) {
           // Verify the saved version exists in the loaded data
           const savedVersion = data.find(v => v.txHash === saved);
           if (savedVersion) {
-            console.log('Using saved protocol version:', savedVersion.txHash);
             setSelectedTxHash(saved);
             return;
           } else {
-            console.log('Saved version not found in API response, clearing localStorage');
+            // Saved version not found in API response, clear localStorage
             localStorage.removeItem(STORAGE_KEY);
           }
         }
 
         // No valid saved version, use default or first available
         const defaultVersion = data.find(v => v.default);
-        console.log('Default protocol version:', defaultVersion);
 
         if (defaultVersion) {
-          console.log('Using default protocol version:', defaultVersion.txHash);
           setSelectedTxHash(defaultVersion.txHash);
-        } else {
-          console.log('No default version found, using first available');
-          if (data.length > 0) {
-            console.log('Using first protocol version:', data[0].txHash);
-            setSelectedTxHash(data[0].txHash);
-          }
+        } else if (data.length > 0) {
+          setSelectedTxHash(data[0].txHash);
         }
       } catch (err) {
         console.error('Failed to load protocol versions:', err);
@@ -91,15 +126,9 @@ export function ProtocolVersionProvider({ children }: { children: ReactNode }) {
   };
 
   const resetToDefault = () => {
-    console.log('resetToDefault called');
-    console.log('Available versions:', versions);
     const defaultVersion = versions.find(v => v.default);
-    console.log('Found default version:', defaultVersion);
     if (defaultVersion) {
-      console.log('Resetting to default version:', defaultVersion.txHash);
       setSelectedTxHash(defaultVersion.txHash);
-    } else {
-      console.warn('No default version found to reset to');
     }
   };
 

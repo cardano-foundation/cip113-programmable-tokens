@@ -1,17 +1,64 @@
 /**
- * Balance API Client
- * Handles fetching programmable token balances
+ * Balance API Module
+ *
+ * This module provides functions for fetching and parsing programmable token
+ * balances from the CIP-0113 backend. It handles the complexity of aggregating
+ * balances across multiple programmable addresses and converting between
+ * on-chain formats and UI-friendly representations.
+ *
+ * ## Programmable Token Addresses
+ *
+ * In CIP-0113, tokens are held at "programmable addresses" that combine:
+ * - Payment credential: The protocol's programmable_logic_base script
+ * - Stake credential: The user's verification key
+ *
+ * A single user may have balances across multiple programmable addresses
+ * (one per protocol version). This module aggregates them into a single view.
+ *
+ * ## Balance Format
+ *
+ * The backend returns balances as JSON strings with the format:
+ * ```json
+ * {
+ *   "lovelace": "1000000",
+ *   "abc123...def456": "100"  // policyId+assetName -> amount
+ * }
+ * ```
+ *
+ * This module parses these strings and provides typed access to the data.
+ *
+ * ## Asset Naming
+ *
+ * Cardano asset names are raw bytes, stored on-chain and in the API as hex.
+ * This module provides utilities to decode hex asset names to human-readable
+ * UTF-8 strings when possible.
+ *
+ * @module lib/api/balance
  */
 
 import { apiGet } from './client';
 import { WalletBalanceResponse, ParsedBalance, ParsedAsset } from '@/types/api';
 
 /**
- * Get comprehensive wallet balance including all programmable token addresses
+ * Get comprehensive wallet balance including all programmable token addresses.
  *
- * @param address - User's wallet address (bech32)
- * @param protocolTxHash - Optional protocol version tx hash to filter balances
- * @returns WalletBalanceResponse with merged balances from all programmable token addresses
+ * This function queries the backend for all balances associated with a wallet
+ * address across all protocol versions. The backend:
+ * 1. Derives the user's programmable addresses for each protocol version
+ * 2. Queries the UTxO set for balances at those addresses
+ * 3. Returns aggregated balance information
+ *
+ * @param address - User's wallet address in bech32 format (addr1... or addr_test1...)
+ * @param protocolTxHash - Optional protocol version to filter balances; if omitted,
+ *                         returns balances across all versions
+ * @returns Promise resolving to WalletBalanceResponse with balance entries
+ * @throws {ApiException} If the API request fails
+ *
+ * @example
+ * ```typescript
+ * const response = await getWalletBalance('addr_test1qz...');
+ * console.log(`Found ${response.balances.length} balance entries`);
+ * ```
  */
 export async function getWalletBalance(
   address: string,
@@ -22,10 +69,19 @@ export async function getWalletBalance(
 }
 
 /**
- * Parse a balance JSON string from BalanceLogEntity
+ * Parse a balance JSON string from the backend.
+ *
+ * The backend stores balances as JSON strings in the database. This function
+ * safely parses them into a typed object. Invalid JSON returns an empty object.
  *
  * @param balanceJson - JSON string like '{"lovelace":"1000000","unit":"amount"}'
- * @returns Parsed object with lovelace and assets separated
+ * @returns Parsed object mapping units to amounts (as strings)
+ *
+ * @example
+ * ```typescript
+ * const balance = parseBalance('{"lovelace":"1000000"}');
+ * console.log(balance.lovelace); // "1000000"
+ * ```
  */
 export function parseBalance(balanceJson: string): { [key: string]: string } {
   try {
@@ -37,11 +93,23 @@ export function parseBalance(balanceJson: string): { [key: string]: string } {
 }
 
 /**
- * Split a unit string into policy ID and asset name
- * Policy ID is always 56 characters (28 bytes hex)
+ * Split a Cardano token unit into policy ID and asset name.
  *
- * @param unit - Concatenated policyId+assetName (hex)
- * @returns Object with policyId and assetNameHex
+ * A token unit is the concatenation of:
+ * - Policy ID: 56 hex characters (28 bytes)
+ * - Asset name: 0-64 hex characters (0-32 bytes)
+ *
+ * For the special "lovelace" unit, returns empty strings.
+ *
+ * @param unit - Concatenated policyId+assetName (hex), or "lovelace"
+ * @returns Object with policyId and assetNameHex separated
+ *
+ * @example
+ * ```typescript
+ * const { policyId, assetNameHex } = splitUnit('abc123...def4564d79546f6b656e');
+ * console.log(policyId);      // 'abc123...def456' (56 chars)
+ * console.log(assetNameHex);  // '4d79546f6b656e' (remaining)
+ * ```
  */
 export function splitUnit(unit: string): { policyId: string; assetNameHex: string } {
   if (unit === 'lovelace') {
@@ -62,11 +130,21 @@ export function splitUnit(unit: string): { policyId: string; assetNameHex: strin
 }
 
 /**
- * Decode hex-encoded asset name to UTF-8 string
- * Falls back to hex string if decoding fails
+ * Decode a hex-encoded asset name to a UTF-8 string.
+ *
+ * Cardano asset names are raw bytes that can contain any data. When the bytes
+ * represent valid UTF-8 text (common for user-friendly token names), this
+ * function decodes them. Otherwise, it returns the original hex string.
  *
  * @param assetNameHex - Hex-encoded asset name
- * @returns Decoded string or original hex if decode fails
+ * @returns Decoded UTF-8 string, or original hex if decoding fails
+ *
+ * @example
+ * ```typescript
+ * decodeAssetName('4d79546f6b656e'); // Returns 'MyToken'
+ * decodeAssetName('');               // Returns ''
+ * decodeAssetName('00ff');           // Returns '00ff' (invalid UTF-8)
+ * ```
  */
 export function decodeAssetName(assetNameHex: string): string {
   if (!assetNameHex) {
@@ -90,16 +168,21 @@ export function decodeAssetName(assetNameHex: string): string {
 }
 
 /**
- * Check if a policy ID is registered as a programmable token
- * Currently makes API call to check registry (could be optimized with caching)
+ * Check if a policy ID is registered as a programmable token.
  *
- * @param policyId - Policy ID to check
- * @returns Promise<boolean> - true if registered
+ * **Note**: This is currently a placeholder implementation. The actual check
+ * should query the on-chain registry. For now, the backend handles filtering
+ * of programmable vs non-programmable tokens when returning balances.
+ *
+ * @param policyId - The 56-character hex policy ID to check
+ * @returns Promise resolving to true if registered (currently always false)
+ *
+ * @todo Implement actual registry lookup via backend API
  */
 export async function isProgrammableToken(policyId: string): Promise<boolean> {
   try {
-    // Use the /programmable-only endpoint as a proxy to check if token is registered
-    // TODO: Could be optimized with a dedicated /registry/check/{policyId} endpoint
+    // Placeholder: In production, this should query the registry endpoint
+    // and check if the policyId exists in the on-chain registry
     const response = await fetch(
       `${process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8080'}/api/v1/protocol/registry`
     );
@@ -108,12 +191,9 @@ export async function isProgrammableToken(policyId: string): Promise<boolean> {
       return false;
     }
 
-    const registry = await response.json();
-
-    // Check if policyId exists in registry
-    // Registry structure depends on backend implementation
-    // For now, return false and let backend handle filtering
-    return false; // TODO: Implement proper registry check
+    // Note: Registry check is currently handled by the backend
+    // This function returns false to indicate the feature needs full implementation
+    return false;
   } catch (error) {
     console.error('Failed to check if token is programmable:', error);
     return false;
@@ -121,11 +201,30 @@ export async function isProgrammableToken(policyId: string): Promise<boolean> {
 }
 
 /**
- * Parse wallet balance response into UI-friendly format
- * Aggregates balances across multiple programmable token addresses
+ * Parse wallet balance response into a UI-friendly format.
  *
- * @param response - WalletBalanceResponse from API
- * @returns ParsedBalance with aggregated lovelace and assets
+ * This function takes the raw API response and:
+ * 1. Aggregates lovelace across all balance entries
+ * 2. Aggregates tokens by unit (combining amounts across addresses)
+ * 3. Decodes asset names from hex to human-readable strings
+ * 4. Splits units into policy ID and asset name components
+ *
+ * All tokens returned from programmable addresses are marked as programmable
+ * since they can only exist there if they passed registry validation.
+ *
+ * @param response - WalletBalanceResponse from the API
+ * @returns ParsedBalance with aggregated lovelace and assets array
+ *
+ * @example
+ * ```typescript
+ * const response = await getWalletBalance(address);
+ * const parsed = await parseWalletBalance(response);
+ *
+ * console.log(`Total ADA: ${parsed.lovelace}`);
+ * parsed.assets.forEach(asset => {
+ *   console.log(`${asset.assetName}: ${asset.amount}`);
+ * });
+ * ```
  */
 export async function parseWalletBalance(
   response: WalletBalanceResponse
@@ -161,8 +260,8 @@ export async function parseWalletBalance(
       const { policyId, assetNameHex } = splitUnit(unit);
       const assetName = decodeAssetName(assetNameHex);
 
-      // For now, assume all tokens in programmable token addresses are programmable
-      // TODO: Call isProgrammableToken(policyId) for accurate check
+      // All tokens in programmable token addresses are programmable by definition
+      // They can only exist at these addresses if they passed the registry validation
       const isProgrammable = true;
 
       return {

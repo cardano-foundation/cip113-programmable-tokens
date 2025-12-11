@@ -1,3 +1,24 @@
+/**
+ * Transaction Preview Component
+ *
+ * This component displays an unsigned transaction for user review and handles
+ * the signing and submission flow using the Mesh SDK wallet interface.
+ *
+ * ## Transaction Flow
+ * 1. Display transaction details (asset name, quantity, CBOR preview)
+ * 2. User clicks "Sign & Submit"
+ * 3. Wallet prompts for signature
+ * 4. Signed transaction is submitted to network
+ * 5. Success callback with transaction hash
+ *
+ * ## Error Handling
+ * - Wallet signing errors show toast notification
+ * - Network submission errors are caught and displayed
+ * - User can cancel to return to form
+ *
+ * @module components/mint/transaction-preview
+ */
+
 "use client";
 
 import { useState } from 'react';
@@ -8,14 +29,42 @@ import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/components/ui/use-toast';
 import { hexToString } from '@/lib/api';
 
+/**
+ * Props for the TransactionPreview component.
+ */
 interface TransactionPreviewProps {
+  /** CBOR-encoded unsigned transaction hex string */
   unsignedTxCborHex: string;
+  /** Asset name being minted (hex-encoded) */
   assetName: string;
+  /** Quantity being minted (as string for BigInt compatibility) */
   quantity: string;
+  /** Callback when transaction is successfully submitted */
   onSuccess: (txHash: string) => void;
+  /** Callback when user cancels the preview */
   onCancel: () => void;
 }
 
+/**
+ * Component for reviewing and signing a minting transaction.
+ *
+ * Displays transaction details and coordinates with the connected
+ * wallet to sign and submit the transaction to the Cardano network.
+ *
+ * @param props - Component props
+ * @returns React component
+ *
+ * @example
+ * ```tsx
+ * <TransactionPreview
+ *   unsignedTxCborHex={txHex}
+ *   assetName="4d79546f6b656e"  // "MyToken" in hex
+ *   quantity="1000000"
+ *   onSuccess={(hash) => router.push(`/success/${hash}`)}
+ *   onCancel={() => setStep('form')}
+ * />
+ * ```
+ */
 export function TransactionPreview({
   unsignedTxCborHex,
   assetName,

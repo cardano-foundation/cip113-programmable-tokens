@@ -1,3 +1,31 @@
+/**
+ * Wallet Connect Button Component
+ *
+ * This component provides a button for connecting Cardano wallets using
+ * the Mesh SDK. It displays a modal with supported wallet options and
+ * shows connection status when connected.
+ *
+ * ## Supported Wallets
+ * - Nami
+ * - Eternl
+ * - Lace
+ * - Flint
+ *
+ * ## States
+ * - **Disconnected**: Shows "Connect Wallet" button
+ * - **Connecting**: Shows loading state during connection
+ * - **Connected**: Shows wallet name with success badge
+ *
+ * ## Connection Flow
+ * 1. User clicks "Connect Wallet"
+ * 2. Modal appears with wallet options
+ * 3. User selects wallet (must be installed)
+ * 4. Mesh SDK handles CIP-30 connection
+ * 5. Badge shows connected wallet name
+ *
+ * @module components/wallet/connect-button
+ */
+
 "use client";
 
 import { useState, useEffect } from "react";
@@ -16,6 +44,20 @@ interface InstalledWallet {
 
 const WALLET_STORAGE_KEY = 'connectedWallet';
 
+/**
+ * Wallet connection button with modal selector.
+ *
+ * Integrates with Mesh SDK to connect to CIP-30 compatible Cardano wallets.
+ * Displays connection status and provides modal for wallet selection.
+ *
+ * @returns React component
+ *
+ * @example
+ * ```tsx
+ * // In header component
+ * <ConnectButton />
+ * ```
+ */
 export function ConnectButton() {
   const { connect, connected, name, disconnect } = useWallet();
   const [showModal, setShowModal] = useState(false);
@@ -75,7 +117,9 @@ export function ConnectButton() {
 
         // Check if the saved wallet is still installed
         if (window.cardano?.[savedWalletId]) {
-          console.log(`Auto-reconnecting to ${savedWalletId}...`);
+          if (process.env.NODE_ENV === 'development') {
+            console.debug(`Auto-reconnecting to ${savedWalletId}...`);
+          }
           await connect(savedWalletId);
         } else {
           // Wallet no longer installed, clear storage

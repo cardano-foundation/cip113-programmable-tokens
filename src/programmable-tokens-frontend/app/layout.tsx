@@ -1,3 +1,22 @@
+/**
+ * Root Layout
+ *
+ * The root layout component that wraps all pages in the application.
+ * Sets up fonts, metadata, and the client-side layout wrapper.
+ *
+ * ## Metadata
+ * - Title and description for SEO
+ * - OpenGraph and Twitter cards for social sharing
+ * - Proper meta tags for search engines
+ *
+ * ## Structure
+ * - Inter font from Google Fonts
+ * - ClientLayout wraps children for Mesh SDK compatibility
+ * - Global CSS imports
+ *
+ * @module app/layout
+ */
+
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import { ClientLayout } from "@/components/layout/client-layout";

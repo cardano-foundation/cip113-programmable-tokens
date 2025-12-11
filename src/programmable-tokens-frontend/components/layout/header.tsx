@@ -1,3 +1,26 @@
+/**
+ * Header Component
+ *
+ * The main navigation header for the CIP-113 application. Provides:
+ * - Logo and branding
+ * - Navigation links to main pages
+ * - Network indicator badge
+ * - Wallet connection button (dynamically loaded)
+ *
+ * ## Navigation Items
+ * - Home - Landing page
+ * - Deploy - Protocol deployment (coming soon)
+ * - Mint - Token minting
+ * - Transfer - Token transfers
+ * - Dashboard - Portfolio view
+ *
+ * ## SSR Considerations
+ * The ConnectButton is dynamically imported with SSR disabled
+ * since wallet APIs require browser context.
+ *
+ * @module components/layout/header
+ */
+
 "use client";
 
 import { useState } from "react";
@@ -10,19 +33,31 @@ import { getNetworkDisplayName, getNetworkColor } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 import { ProPanelModal } from "@/components/pro-panel/pro-panel-modal";
 
+/**
+ * Dynamically import ConnectButton to avoid SSR issues with wallet APIs.
+ */
 const ConnectButton = dynamic(
   () => import("@/components/wallet").then((mod) => ({ default: mod.ConnectButton })),
   { ssr: false }
 );
 
+/**
+ * Navigation configuration for header links.
+ */
 const navigation = [
   { name: "Home", href: "/" },
   { name: "Register Token", href: "/register" },
   { name: "Mint Tokens", href: "/mint" },
   { name: "Transfer", href: "/transfer" },
+  { name: "Blacklist", href: "/blacklist" },
   { name: "Dashboard", href: "/dashboard" },
 ];
 
+/**
+ * Main application header with navigation and wallet connection.
+ *
+ * @returns React component
+ */
 export function Header() {
   const pathname = usePathname();
   const network = process.env.NEXT_PUBLIC_NETWORK || "preview";

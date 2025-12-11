@@ -1,3 +1,29 @@
+/**
+ * Token Minting Page
+ *
+ * Multi-step wizard for minting CIP-0113 programmable tokens.
+ * Guides users through form entry, transaction preview, and success.
+ *
+ * ## Step Flow
+ * 1. **Form**: Enter token details and select substandard
+ * 2. **Preview**: Review unsigned transaction and sign with wallet
+ * 3. **Success**: View confirmation and transaction hash
+ *
+ * ## Components Used
+ * - MintForm - Token parameter input
+ * - TransactionPreview - Signing and submission
+ * - MintSuccess - Confirmation display
+ *
+ * ## Data Flow
+ * 1. User fills form with token name, quantity, substandard
+ * 2. Backend builds unsigned transaction
+ * 3. Wallet signs transaction
+ * 4. Transaction submitted to network
+ * 5. Success page shows tx hash
+ *
+ * @module app/mint/page
+ */
+
 "use client";
 
 import { useState } from 'react';
@@ -8,7 +34,9 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { useSubstandards } from '@/hooks/use-substandards';
 
-// Dynamically import wallet-dependent components to prevent SSR
+/**
+ * Dynamically import wallet-dependent components to prevent SSR issues.
+ */
 const MintForm = dynamic(
   () => import('@/components/mint/mint-form').then(mod => ({ default: mod.MintForm })),
   { ssr: false }
@@ -24,14 +52,21 @@ const MintSuccess = dynamic(
   { ssr: false }
 );
 
+/** Wizard step states */
 type MintStep = 'form' | 'preview' | 'success';
 
+/** Transaction data passed between steps */
 interface TransactionData {
   unsignedTxCborHex: string;
   assetName: string;
   quantity: string;
 }
 
+/**
+ * Mint page component with multi-step wizard.
+ *
+ * @returns React component
+ */
 export default function MintPage() {
   const searchParams = useSearchParams();
   const preSelectedSubstandard = searchParams.get('substandard');

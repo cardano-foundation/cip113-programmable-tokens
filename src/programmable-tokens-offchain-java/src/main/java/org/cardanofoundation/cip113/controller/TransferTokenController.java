@@ -29,6 +29,7 @@ import org.cardanofoundation.cip113.model.TransferTokenRequest;
 import org.cardanofoundation.cip113.model.onchain.RegistryNodeParser;
 import org.cardanofoundation.cip113.service.ProtocolBootstrapService;
 import org.cardanofoundation.cip113.service.SubstandardService;
+import jakarta.validation.Valid;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -37,29 +38,133 @@ import java.math.BigInteger;
 import java.util.Collection;
 import java.util.List;
 
+/**
+ * REST controller for CIP-0113 programmable token transfer operations.
+ *
+ * <p>This controller provides the endpoint for transferring registered programmable tokens
+ * between addresses. Unlike standard Cardano token transfers, programmable transfers:</p>
+ *
+ * <ul>
+ *   <li>Must use programmable addresses (payment cred = programmable_logic_base)</li>
+ *   <li>Are validated by the token's registered transfer logic contract</li>
+ *   <li>Invoke the global programmable logic stake validator</li>
+ *   <li>Can be subject to additional constraints (blacklist, permissions, etc.)</li>
+ * </ul>
+ *
+ * <h2>API Base Path</h2>
+ * <p>Endpoint is prefixed with {@code ${apiPrefix}/transfer-token}, typically
+ * {@code /api/v1/transfer-token}.</p>
+ *
+ * <h2>Transfer Architecture</h2>
+ * <p>The CIP-0113 transfer mechanism uses a two-level validation pattern:</p>
+ *
+ * <ol>
+ *   <li><b>programmable_logic_base (spend)</b>: Guards all programmable token UTxOs.
+ *       Simply checks that the global stake validator is invoked.</li>
+ *   <li><b>programmable_logic_global (stake)</b>: Performs comprehensive validation:
+ *     <ul>
+ *       <li>Looks up the token in the registry</li>
+ *       <li>Invokes the registered transfer logic</li>
+ *       <li>Optionally invokes third-party logic (blacklist, KYC)</li>
+ *       <li>Validates value preservation across inputs/outputs</li>
+ *     </ul>
+ *   </li>
+ * </ol>
+ *
+ * <h2>Programmable Addresses</h2>
+ * <p>Programmable tokens must be held at addresses with:</p>
+ * <pre>
+ * payment_credential = Script(programmable_logic_base_hash)
+ * stake_credential   = Inline(user_key_hash)  // user's verification key
+ * </pre>
+ * <p>This allows the user to authorize spending while the protocol enforces transfer rules.</p>
+ *
+ * @see TransferTokenRequest
+ * @see org.cardanofoundation.cip113.service.ProtocolBootstrapService
+ */
 @RestController
 @RequestMapping("${apiPrefix}/transfer-token")
 @RequiredArgsConstructor
 @Slf4j
 public class TransferTokenController {
 
+    /** JSON serializer for constructing Plutus datums and redeemers */
     private final ObjectMapper objectMapper;
 
+    /** Network configuration (mainnet, preprod, preview) */
     private final AppConfig.Network network;
 
+    /** Repository for querying UTxOs from the chain indexer */
     private final UtxoRepository utxoRepository;
 
+    /** Parser for deserializing on-chain registry node datums */
     private final RegistryNodeParser registryNodeParser;
 
+    /** Service for loading protocol bootstrap parameters and contract blueprints */
     private final ProtocolBootstrapService protocolBootstrapService;
 
+    /** Service for loading substandard validator blueprints */
     private final SubstandardService substandardService;
 
+    /** Transaction builder from cardano-client-lib */
     private final QuickTxBuilder quickTxBuilder;
 
+    /**
+     * Transfer programmable tokens from sender to recipient.
+     *
+     * <p>This endpoint creates a transaction that transfers registered programmable tokens
+     * while enforcing the token's transfer logic. The transaction spends from the sender's
+     * programmable address and outputs to the recipient's programmable address.</p>
+     *
+     * <h3>Transfer Validation</h3>
+     * <p>The transaction is validated on-chain by:</p>
+     * <ol>
+     *   <li><b>programmable_logic_base</b>: Verifies global stake validator is invoked</li>
+     *   <li><b>programmable_logic_global</b>: Performs registry lookup and invokes
+     *       transfer logic</li>
+     *   <li><b>Transfer logic validator</b>: Token-specific rules (e.g., permissioned
+     *       transfers, blacklist checks)</li>
+     * </ol>
+     *
+     * <h3>Transaction Structure</h3>
+     * <pre>
+     * Inputs:
+     *   - Sender's programmable UTxO containing tokens to transfer
+     *   - Sender's regular UTxO for fees/collateral (if needed)
+     *
+     * Outputs:
+     *   - Recipient's programmable address with transferred tokens
+     *   - Sender's programmable address with remaining tokens (change)
+     *
+     * Reference Inputs:
+     *   - Protocol parameters UTxO
+     *   - Registry node for this token's policy
+     *
+     * Withdrawals:
+     *   - 0 ADA from programmable_logic_global (withdraw-zero pattern)
+     *   - 0 ADA from transfer logic validator (withdraw-zero pattern)
+     *
+     * Scripts:
+     *   - programmable_logic_base (spend validator)
+     *   - programmable_logic_global (stake validator)
+     *   - Transfer logic validator (stake validator, from registry)
+     * </pre>
+     *
+     * <h3>Error Cases</h3>
+     * <ul>
+     *   <li>Token not registered: Returns 404 with error message</li>
+     *   <li>Insufficient balance: Returns 400 with balance info</li>
+     *   <li>Transfer logic rejection: Returns 400 with validation error</li>
+     *   <li>Blacklisted address: Returns 403 if token uses blacklist</li>
+     * </ul>
+     *
+     * @param transferTokenRequest the transfer request with sender, recipient, and amount
+     * @param protocolTxHash optional protocol version; uses default if not specified
+     * @return ResponseEntity containing unsigned transaction CBOR (200 OK) or error
+     */
     @PostMapping("/transfer")
     public ResponseEntity<?> transfer(
-            @RequestBody TransferTokenRequest transferTokenRequest,
+            @Valid @RequestBody TransferTokenRequest transferTokenRequest,
             @RequestParam(required = false) String protocolTxHash) {
 
         log.info("transferTokenRequest: {}, protocolTxHash: {}", transferTokenRequest, protocolTxHash);
@@ -242,7 +347,8 @@ public class TransferTokenController {
                     ListPlutusData.of(ConstrPlutusData.of(0, BigIntPlutusData.of(1)))
             );
 
-            // FIXME:
+            // Note: Currently hardcoded to "dummy" substandard - in production, this should be
+            // determined from the token's registry entry to use the appropriate transfer logic
             var substandardTransferContractOpt = substandardService.getSubstandardValidator("dummy", "transfer.transfer.withdraw");
             if (substandardTransferContractOpt.isEmpty()) {
                 log.warn("could not resolve transfer contract");

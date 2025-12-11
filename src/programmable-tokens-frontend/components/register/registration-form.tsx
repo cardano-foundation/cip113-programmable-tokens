@@ -1,3 +1,44 @@
+/**
+ * Registration Form Component
+ *
+ * This component provides the form for registering new programmable token policies
+ * in the CIP-0113 protocol. Registration is the first step in the token lifecycle
+ * and creates an on-chain registry entry linking a policy ID to its validators.
+ *
+ * ## Registration vs Minting
+ *
+ * - **Registration**: One-time operation that creates a new token policy and
+ *   registers it with the protocol. Assigns the "validator triple" (issue,
+ *   transfer, third-party logic).
+ *
+ * - **Minting**: Creates tokens under an already-registered policy. Can be done
+ *   multiple times after registration.
+ *
+ * ## Validator Triple Selection
+ *
+ * Users select three validators from the chosen substandard:
+ * 1. **Issue Logic**: Controls minting authorization
+ * 2. **Transfer Logic**: Enforces transfer rules (required)
+ * 3. **Third-Party Logic**: Optional additional validation (e.g., blacklist)
+ *
+ * ## Form Fields
+ *
+ * - **Token Name**: 1-32 characters, converted to hex for the asset name
+ * - **Quantity**: Initial tokens to mint (can be > 0 for combined registration + mint)
+ * - **Recipient Address**: Optional bech32 address for initial tokens
+ * - **Validator Selection**: Required substandard and validator triple
+ *
+ * ## Transaction Flow
+ *
+ * 1. User fills form and selects validator triple via ValidatorTripleSelector
+ * 2. Form validation checks all required fields
+ * 3. Backend constructs unsigned transaction with registry insertion
+ * 4. Parent component receives tx hex for wallet signing
+ * 5. User signs and submits; policy is now registered
+ *
+ * @module components/register/registration-form
+ */
+
 "use client";
 
 import { useState } from 'react';
@@ -9,8 +50,23 @@ import { Substandard, RegisterTokenRequest } from '@/types/api';
 import { registerToken, stringToHex } from '@/lib/api';
 import { useToast } from '@/components/ui/use-toast';
 
+/**
+ * Props for the RegistrationForm component.
+ */
 interface RegistrationFormProps {
+  /** Available substandard validators loaded from the backend */
   substandards: Substandard[];
+  /**
+   * Callback invoked when the backend successfully builds an unsigned transaction.
+   *
+   * @param unsignedCborTx - The unsigned transaction in CBOR hex format
+   * @param policyId - The new token's policy ID (derived from validators)
+   * @param substandardId - The selected substandard ID
+   * @param issueContractName - The selected issue logic validator name
+   * @param tokenName - The human-readable token name
+   * @param quantity - The initial mint quantity
+   * @param recipientAddress - Optional recipient for initial tokens
+   */
   onTransactionBuilt: (
     unsignedCborTx: string,
     policyId: string,
@@ -22,6 +78,17 @@ interface RegistrationFormProps {
   ) => void;
 }
 
+/**
+ * Registration form for creating new programmable token policies.
+ *
+ * This form collects all information needed to register a new token:
+ * - Token metadata (name, initial quantity)
+ * - Validator configuration (substandard and triple selection)
+ * - Optional recipient for initial minting
+ *
+ * The form handles validation and communicates with the backend to build
+ * the unsigned registration transaction.
+ */
 export function RegistrationForm({
   substandards,
   onTransactionBuilt,
@@ -184,8 +251,8 @@ export function RegistrationForm({
         duration: 6000, // Show for 6 seconds
       });
 
-      // Log to console without showing Next.js error overlay
-      console.log('Registration error:', { errorTitle, errorMessage });
+      // Log error for debugging
+      console.error('Registration error:', { errorTitle, errorMessage });
     } finally {
       setIsBuilding(false);
     }

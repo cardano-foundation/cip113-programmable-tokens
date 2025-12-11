@@ -13,6 +13,33 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
+/**
+ * Base class for all CIP-0113 Plutus smart contracts.
+ *
+ * <p>This abstract class provides common functionality for working with Plutus V3 scripts:
+ * <ul>
+ *   <li>Script hash computation from compiled CBOR</li>
+ *   <li>Address generation for different networks</li>
+ *   <li>Script bytes caching</li>
+ * </ul>
+ *
+ * <p>Subclasses provide the compiled script code (CBOR hex) and inherit all
+ * address/hash computation capabilities.
+ *
+ * <h2>Usage Example</h2>
+ * <pre>{@code
+ * public class MyContract extends AbstractContract {
+ *     private static final String CONTRACT = "58ac010100..."; // CBOR hex
+ *     public MyContract() {
+ *         super(CONTRACT, PlutusVersion.v3);
+ *     }
+ * }
+ * }</pre>
+ *
+ * @see ProgrammableLogicBaseContract
+ * @see IssuanceContract
+ * @see DirectoryContract
+ */
 @Component
 @RequiredArgsConstructor
 @Slf4j

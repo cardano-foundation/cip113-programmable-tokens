@@ -5,6 +5,33 @@ import com.bloxbean.cardano.client.plutus.blueprint.model.PlutusVersion;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
+/**
+ * CIP-0113 Directory/Registry Contract.
+ *
+ * <p>This contract manages the on-chain registry of programmable tokens.
+ * It maintains a linked list of token registrations, where each node contains:
+ * <ul>
+ *   <li>Token policy ID (the "key")</li>
+ *   <li>Transfer logic script hash</li>
+ *   <li>Third-party transfer logic script hash</li>
+ *   <li>Global state policy ID (optional)</li>
+ *   <li>Pointer to next node</li>
+ * </ul>
+ *
+ * <h2>Registry Operations</h2>
+ * <ul>
+ *   <li><b>Register</b>: Insert new token into sorted linked list</li>
+ *   <li><b>Update</b>: Modify existing token's configuration</li>
+ *   <li><b>Query</b>: Look up token configuration by policy ID</li>
+ * </ul>
+ *
+ * <p>The linked list is sorted by policy ID to enable efficient insertion
+ * and lookup. Each node is an NFT minted by this policy, with the datum
+ * containing the registration data.
+ *
+ * @see org.cardanofoundation.cip113.service.RegistryService
+ * @see org.cardanofoundation.cip113.entity.RegistryNodeEntity
+ */
 @Component
 @Slf4j
 public class DirectoryContract extends AbstractContract {

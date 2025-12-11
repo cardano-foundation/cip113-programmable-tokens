@@ -1,8 +1,40 @@
+/**
+ * Button Component
+ *
+ * A versatile button component with multiple variants and sizes.
+ * Supports loading state and all standard HTML button attributes.
+ *
+ * ## Variants
+ * - **primary**: Gradient background, used for main actions
+ * - **secondary**: Accent color, used for secondary actions
+ * - **ghost**: Transparent with border, for tertiary actions
+ * - **outline**: Outline style for subtle actions
+ * - **danger**: Red background for destructive actions
+ *
+ * ## Sizes
+ * - **sm**: Small padding, text-sm
+ * - **md**: Medium padding (default)
+ * - **lg**: Large padding for prominent CTAs
+ *
+ * @module components/ui/button
+ *
+ * @example
+ * ```tsx
+ * <Button variant="primary" size="md" onClick={handleMint}>
+ *   Mint Token
+ * </Button>
+ *
+ * <Button variant="danger" isLoading={isDeleting}>
+ *   Delete
+ * </Button>
+ * ```
+ */
+
 import { ButtonHTMLAttributes, forwardRef } from "react";
 import { cn } from "@/lib/utils";
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
-  variant?: "primary" | "secondary" | "ghost" | "danger";
+  variant?: "primary" | "secondary" | "ghost" | "outline" | "danger";
   size?: "sm" | "md" | "lg";
   isLoading?: boolean;
 }
@@ -15,6 +47,7 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(
       primary: "bg-gradient-primary text-white hover:shadow-lg hover:scale-[1.02] active:scale-[0.98] focus:ring-primary-500",
       secondary: "bg-accent-500 text-white hover:bg-accent-600 hover:shadow-lg hover:scale-[1.02] active:scale-[0.98] focus:ring-accent-500",
       ghost: "bg-transparent text-primary-400 hover:bg-dark-800 hover:text-primary-300 border border-dark-700 hover:border-primary-500 focus:ring-primary-500",
+      outline: "bg-transparent text-white hover:bg-dark-800 border border-dark-600 hover:border-dark-500 focus:ring-dark-500",
       danger: "bg-red-600 text-white hover:bg-red-700 hover:shadow-lg hover:scale-[1.02] active:scale-[0.98] focus:ring-red-500",
     };
 

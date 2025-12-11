@@ -22,6 +22,8 @@ const nextConfig = {
 
     return config;
   },
+  // Disable strict mode to prevent double renders affecting WASM loading
+  reactStrictMode: false,
 };
 
 module.exports = nextConfig;

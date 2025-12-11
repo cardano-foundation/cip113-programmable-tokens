@@ -36,35 +36,131 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import jakarta.validation.Valid;
 
 import java.math.BigInteger;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
+/**
+ * REST controller for CIP-0113 programmable token issuance operations.
+ *
+ * <p>This controller provides endpoints for registering new programmable token policies
+ * and minting tokens under registered policies. It handles the complex transaction
+ * construction required by the CIP-0113 protocol, including:</p>
+ *
+ * <ul>
+ *   <li>Registry operations (inserting new token policies into the sorted linked list)</li>
+ *   <li>Script parameterization (applying protocol parameters to validator scripts)</li>
+ *   <li>UTxO selection and management</li>
+ *   <li>Witness construction (script references, redeemers, datums)</li>
+ * </ul>
+ *
+ * <h2>API Base Path</h2>
+ * <p>All endpoints are prefixed with {@code ${apiPrefix}/issue-token}, typically
+ * {@code /api/v1/issue-token}.</p>
+ *
+ * <h2>Multi-Protocol Version Support</h2>
+ * <p>All endpoints accept an optional {@code protocolTxHash} query parameter to specify
+ * which protocol version to use. If not provided, the default version is used.</p>
+ *
+ * <h2>Response Format</h2>
+ * <p>Successful responses return unsigned transaction CBOR as plain text. The client
+ * is responsible for signing with a wallet (e.g., Mesh SDK) and submitting to the network.</p>
+ *
+ * <h2>Error Handling</h2>
+ * <p>Errors are handled by {@link org.cardanofoundation.cip113.exception.GlobalExceptionHandler}
+ * and return structured JSON responses with status codes:</p>
+ * <ul>
+ *   <li>400 Bad Request - Invalid input (validation errors)</li>
+ *   <li>404 Not Found - Token or protocol version not found</li>
+ *   <li>500 Internal Server Error - Transaction construction failed</li>
+ * </ul>
+ *
+ * @see RegisterTokenRequest
+ * @see MintTokenRequest
+ * @see org.cardanofoundation.cip113.service.ProtocolBootstrapService
+ */
 @RestController
 @RequestMapping("${apiPrefix}/issue-token")
 @RequiredArgsConstructor
 @Slf4j
 public class IssueTokenController {
 
+    /** JSON serializer for constructing Plutus datums and redeemers */
     private final ObjectMapper objectMapper;
 
+    /** Network configuration (mainnet, preprod, preview) */
     private final AppConfig.Network network;
 
+    /** Repository for querying UTxOs from the chain indexer */
     private final UtxoRepository utxoRepository;
 
+    /** Parser for deserializing on-chain registry node datums */
     private final RegistryNodeParser registryNodeParser;
 
+    /** Service for loading protocol bootstrap parameters and contract blueprints */
     private final ProtocolBootstrapService protocolBootstrapService;
 
+    /** Service for loading substandard validator blueprints */
     private final SubstandardService substandardService;
 
+    /** Transaction builder from cardano-client-lib */
     private final QuickTxBuilder quickTxBuilder;
 
+    /**
+     * Register a new programmable token policy in the on-chain registry.
+     *
+     * <p>This endpoint creates a transaction that:</p>
+     * <ol>
+     *   <li>Mints a registry NFT with the new policy ID as the token name</li>
+     *   <li>Creates a registry node UTxO with the validator triple (issue/transfer/third-party)</li>
+     *   <li>Inserts the node into the sorted linked list between appropriate neighbors</li>
+     *   <li>Optionally mints initial tokens to the registrar's programmable address</li>
+     * </ol>
+     *
+     * <h3>Registry Insertion Algorithm</h3>
+     * <p>The registry is a sorted linked list. To insert a new node with key K:</p>
+     * <ol>
+     *   <li>Find node N where N.key &lt; K &lt; N.next</li>
+     *   <li>Update N.next to K</li>
+     *   <li>Set new node's next to N's old next value</li>
+     * </ol>
+     *
+     * <h3>Transaction Structure</h3>
+     * <pre>
+     * Inputs:
+     *   - Predecessor registry node (for linked list update)
+     *   - User's UTxO (for fees and collateral)
+     *
+     * Outputs:
+     *   - Updated predecessor node (with next pointing to new node)
+     *   - New registry node (with validator triple)
+     *   - Programmable UTxO with initial tokens (if quantity > 0)
+     *
+     * Mints:
+     *   - 1 registry NFT (token name = policy ID)
+     *   - Initial tokens (if quantity > 0)
+     *
+     * Reference Inputs:
+     *   - Protocol parameters UTxO
+     *
+     * Scripts:
+     *   - Registry mint validator
+     *   - Registry spend validator
+     *   - Programmable token minting policy
+     *   - Issue logic validator
+     * </pre>
+     *
+     * @param registerTokenRequest the registration request containing validator selection
+     *                             and initial minting parameters
+     * @param protocolTxHash optional protocol version; uses default if not specified
+     * @return ResponseEntity containing unsigned transaction CBOR (200 OK) or error
+     */
     @PostMapping("/register")
     public ResponseEntity<?> register(
-            @RequestBody RegisterTokenRequest registerTokenRequest,
+            @Valid @RequestBody RegisterTokenRequest registerTokenRequest,
             @RequestParam(required = false) String protocolTxHash) {
 
         log.info("registerTokenRequest: {}, protocolTxHash: {}", registerTokenRequest, protocolTxHash);
@@ -387,9 +483,57 @@ public class IssueTokenController {
     }
 
 
+    /**
+     * Mint additional tokens for an already-registered programmable token policy.
+     *
+     * <p>This endpoint creates a transaction that mints new tokens under an existing
+     * registered policy. Unlike registration, this does not modify the registry - it
+     * only mints tokens according to the policy's registered issuance logic.</p>
+     *
+     * <h3>Prerequisites</h3>
+     * <ul>
+     *   <li>The token policy must already be registered via {@link #register}</li>
+     *   <li>The issuer must satisfy the issuance logic requirements (e.g., be the
+     *       registered owner for permissioned tokens)</li>
+     * </ul>
+     *
+     * <h3>Transaction Structure</h3>
+     * <pre>
+     * Inputs:
+     *   - Issuer's UTxOs (for fees and collateral)
+     *
+     * Outputs:
+     *   - Programmable UTxO at recipient's programmable address with minted tokens
+     *   - Change output to issuer
+     *
+     * Mints:
+     *   - Requested quantity of tokens under the registered policy
+     *
+     * Reference Inputs:
+     *   - Protocol parameters UTxO
+     *   - Registry node for this policy (to verify registration and get issue logic)
+     *
+     * Scripts:
+     *   - Programmable token minting policy (parameterized)
+     *   - Issue logic validator (from substandard, invoked via stake credential)
+     * </pre>
+     *
+     * <h3>Issuance Logic</h3>
+     * <p>The transaction invokes the registered issuance logic validator via the
+     * withdraw-zero pattern. The validator receives:</p>
+     * <ul>
+     *   <li>The minting context (policy ID, asset name, quantity)</li>
+     *   <li>The issuer's credentials</li>
+     *   <li>The registry entry for verification</li>
+     * </ul>
+     *
+     * @param mintTokenRequest the mint request containing token and quantity details
+     * @param protocolTxHash optional protocol version; uses default if not specified
+     * @return ResponseEntity containing unsigned transaction CBOR (200 OK) or error
+     */
     @PostMapping("/mint")
     public ResponseEntity<?> mint(
-            @RequestBody MintTokenRequest mintTokenRequest,
+            @Valid @RequestBody MintTokenRequest mintTokenRequest,
             @RequestParam(required = false) String protocolTxHash) {
 
         try {
@@ -401,7 +545,8 @@ public class IssueTokenController {
 
             var bootstrapTxHash = protocolBootstrapParams.txHash();
 
-            // TODO: add these utxo to the protocol bootstrap json
+            // Protocol params UTxO is at output index 0 of the bootstrap transaction
+            // This contains the ProgrammableLogicGlobalParams datum
             var protocolParamsUtxoOpt = utxoRepository.findById(UtxoId.builder()
                     .txHash(bootstrapTxHash)
                     .outputIndex(0)

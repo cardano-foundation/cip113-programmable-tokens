@@ -26,12 +26,14 @@ import org.cardanofoundation.cip113.model.blueprint.Plutus;
 import org.cardanofoundation.cip113.model.bootstrap.*;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigInteger;
 import java.util.List;
 
 @Slf4j
+@Tag("manual-integration")
 public class ProtocolDeploymentMintTest extends AbstractPreviewTest {
 
 

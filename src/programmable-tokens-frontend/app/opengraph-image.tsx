@@ -1,7 +1,28 @@
+/**
+ * OpenGraph Image Generator
+ *
+ * Dynamically generates the OpenGraph preview image for social sharing.
+ * Uses Next.js ImageResponse for edge-rendered image generation.
+ *
+ * ## Specifications
+ * - Size: 1200x630 pixels (OpenGraph standard)
+ * - Format: PNG
+ * - Runtime: Edge for fast generation
+ *
+ * ## Design
+ * - Dark background (#0F172A)
+ * - Green gradient logo
+ * - "CIP-113 Programmable Tokens" title
+ * - Tagline and Cardano branding
+ *
+ * @see https://nextjs.org/docs/app/api-reference/file-conventions/metadata/opengraph-image
+ * @module app/opengraph-image
+ */
+
 import { ImageResponse } from 'next/og';
 
-// Route segment config
-export const runtime = 'edge';
+// Route segment config - use nodejs runtime to avoid WASM issues in some environments
+export const runtime = 'nodejs';
 
 // Image metadata
 export const alt = 'CIP-113 Programmable Tokens';

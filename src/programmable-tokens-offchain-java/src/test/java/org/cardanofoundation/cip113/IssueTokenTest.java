@@ -25,12 +25,14 @@ import org.cardanofoundation.cip113.model.blueprint.Plutus;
 import org.cardanofoundation.cip113.model.bootstrap.ProtocolBootstrapParams;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigInteger;
 import java.util.List;
 
 @Slf4j
+@Tag("manual-integration")
 public class IssueTokenTest extends AbstractPreviewTest {
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();

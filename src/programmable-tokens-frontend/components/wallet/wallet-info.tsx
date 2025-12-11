@@ -1,3 +1,26 @@
+/**
+ * Wallet Info Component
+ *
+ * Displays connected wallet information including address, balance,
+ * and network. Provides actions for copying address and disconnecting.
+ *
+ * ## Displayed Information
+ * - Truncated wallet address
+ * - ADA balance (formatted with symbol)
+ * - Connected network (Preview, Preprod, Mainnet)
+ *
+ * ## Actions
+ * - Copy full address to clipboard
+ * - Disconnect wallet
+ *
+ * ## State Management
+ * - Loads wallet info on mount and when wallet changes
+ * - Shows loading skeleton while fetching data
+ * - Handles errors with toast notifications
+ *
+ * @module components/wallet/wallet-info
+ */
+
 "use client";
 
 import { useEffect, useState } from "react";
@@ -14,6 +37,20 @@ import { useProtocolVersion } from "@/contexts/protocol-version-context";
 
 const WALLET_STORAGE_KEY = 'connectedWallet';
 
+/**
+ * Wallet information display with disconnect action.
+ *
+ * Shows connected wallet details and provides utility actions.
+ * Only renders meaningful content when wallet is connected.
+ *
+ * @returns React component
+ *
+ * @example
+ * ```tsx
+ * // In sidebar or header
+ * {connected && <WalletInfo />}
+ * ```
+ */
 export function WalletInfo() {
   const { connected, wallet, disconnect } = useWallet();
   const { toast } = useToast();

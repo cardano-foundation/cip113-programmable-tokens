@@ -1,3 +1,35 @@
+/**
+ * Select Component
+ *
+ * A styled dropdown select with label, error state, and helper text.
+ * Accepts an array of options with value/label pairs.
+ *
+ * ## Features
+ * - Optional label rendered above select
+ * - Error state with red border and message
+ * - Helper text for guidance
+ * - Dark theme styling matching other inputs
+ * - Cursor pointer on hover
+ *
+ * @module components/ui/select
+ *
+ * @example
+ * ```tsx
+ * const networkOptions = [
+ *   { value: 'preview', label: 'Preview' },
+ *   { value: 'preprod', label: 'Preprod' },
+ *   { value: 'mainnet', label: 'Mainnet' },
+ * ];
+ *
+ * <Select
+ *   label="Network"
+ *   options={networkOptions}
+ *   error={errors.network}
+ *   onChange={(e) => setNetwork(e.target.value)}
+ * />
+ * ```
+ */
+
 import { SelectHTMLAttributes, forwardRef } from "react";
 import { cn } from "@/lib/utils";
 

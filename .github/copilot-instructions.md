@@ -1,0 +1,31 @@
+# GitHub Copilot Instructions
+- **important!** always write down any changes done in `/workspaces/cip113-programmable-tokens/PR_CHANGES.md` and make sure that you test and verify that you don't break anything.
+- **Project Scope:** Three coordinated modules: on-chain validators in `src/programmable-tokens-onchain-aiken`, an off-chain Spring Boot service in `src/programmable-tokens-offchain-java`, and a Next.js 15 frontend in `src/programmable-tokens-frontend`.
+- **End-to-End Flow:** Aiken builds produce `plutus.json` (run `aiken build` or `./build.sh` to also copy it into the Java resources). The Java service loads `protocolBootstrap.json` and the blueprint at startup, exposes `/api/v1/**` endpoints, and the frontend calls those APIs to fetch substandards and request unsigned transactions that wallets sign with Mesh SDK.
+- **Smart Contracts:** Validators live under `src/programmable-tokens-onchain-aiken/validators`. `programmable_logic_base.ak` maintains the shared script address; the registry uses the sorted list helpers in `lib/linked_list.ak`. Test with `aiken check`; 89 tests must stay green before shipping blueprints.
+- **Blueprint Expectations:** `plutus.json` (Aiken blueprint) and `protocolBootstrap.json` must sit in `src/programmable-tokens-offchain-java/src/main/resources/`. `ProtocolBootstrapService` preloads them; missing or stale files break minting.
+- **Off-Chain Service:** Run with `./gradlew bootRun` (or `SPRING_PROFILES_ACTIVE=preview ./gradlew bootRun` to hit preview settings in `application.yaml`). Requires Postgres (see `docker/docker-compose.yaml`) and Yaci/Aquarium UTxO sync; Flyway migrations live in `src/main/resources/db/`.
+- **Key APIs:**
+  - `GET /api/v1/substandards` → cached list from `resources/substandards/*/plutus.json`.
+  - `GET /api/v1/protocol/blueprint` → exposes the currently loaded blueprint.
+  - `POST /api/v1/issue-token/mint` → expects `assetName` hex (handled by `lib/api/minting.ts::stringToHex`) and returns unsigned tx CBOR as plain text.
+  - `POST /api/v1/issue-token/register` → parametrizes and mints the registry NFT; it assumes the bootstrap transaction UTxOs described in `protocolBootstrap.json` exist on-chain.
+- **Java Conventions:** Service layer (`service/*.java`) keeps business rules; controllers stay thin. `SubstandardService` relies on folder names as IDs, so keep substandard directories lowercase and validator names consistent with frontend selectors.
+- **Frontend Runtime:** Mesh SDK cannot run server-side; wallet-aware components are dynamically imported (see `components/layout/client-layout.tsx`). New wallet features should follow the `use client` + `dynamic()` pattern to avoid Next.js hydration errors.
+- **Frontend Build Variants:** `build-docker.sh` bakes `NEXT_PUBLIC_NETWORK` and Blockfrost keys per network. Local dev uses `.env.preview` (`NEXT_PUBLIC_API_BASE_URL`, `NEXT_PUBLIC_BLOCKFROST_API_KEY`, `NEXT_PUBLIC_NETWORK`). Keep anything needed by the browser prefixed with `NEXT_PUBLIC_`.
+- **Mint Flow on Frontend:** `app/mint/page.tsx` stages form → preview → success. `MintForm` assembles a `MintTokenRequest` via `lib/api/minting.ts::prepareMintRequest`, `TransactionPreview` signs/submits through Mesh, and `MintSuccess` displays the resulting hash. Preserve this step machine when adding phases (transfer, blacklist).
+- **Error Handling:** Frontend toast system lives in `components/ui/use-toast.ts` + `components/ui/toast.tsx`; use it for user-facing errors. Backend throws `ApiException` for predictable HTTP responses—surface those messages directly to users.
+- **Testing Expectations:**
+  - On-chain: `cd src/programmable-tokens-onchain-aiken && aiken check`.
+  - Off-chain: `./gradlew test` requires a database; supply `DB_URL/DB_USERNAME/DB_PASSWORD` or run the docker compose stack.
+  - Frontend: currently manual; new features should at least build cleanly (`npm run lint`, `npm run build`).
+- **Deployment Notes:**
+  - Smart contracts: `build.sh` copies blueprints into Java resources—re-run after contract changes.
+  - Java: `build.sh` builds and pushes Docker images tagged with `git describe` under `easy1staking/programmable-tokens-indexer`.
+  - Frontend: `docker-compose.yml` defines preview/preprod/mainnet services with port separation; health checks expect 200 OK on `/`.
+- **Common Gotchas:**
+  - `IssueTokenController` looks up bootstrap UTxOs by fixed indices (0,1,2); updating `protocolBootstrap.json` without recreating those UTxOs causes 500s.
+  - Substandard validators use partial title matches (`contains`); avoid renaming titles without updating both backend and frontend.
+  - Mesh `wallet.getUsedAddresses()` returns bech32 strings; don’t hex-encode addresses before calling the mint API—only `assetName` is hex.
+- **Where to Look First:** For protocol logic see `src/programmable-tokens-onchain-aiken/README.md`. For API contracts check `types/api.ts` (frontend) and `model/*.java` (backend). For deployment recipes refer to `src/programmable-tokens-frontend/DOCKER.md` and top-level `README.md`.
+- **When Adding Features:** Ensure blueprint + bootstrap artifacts stay synchronized across modules, extend API types in both backend models and `types/api.ts`, and revisit the workflow docs (`FRONTEND-IMPLEMENTATION-PLAN.md`, `FRONTEND-STATUS.md`) to keep progress tracking accurate.

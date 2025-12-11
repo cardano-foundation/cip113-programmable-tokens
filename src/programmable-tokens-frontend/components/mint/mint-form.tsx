@@ -1,3 +1,25 @@
+/**
+ * Mint Form Component
+ *
+ * This component provides a form for minting new CIP-0113 programmable tokens.
+ * It handles input validation, substandard selection, and transaction building
+ * via the backend API.
+ *
+ * ## Form Fields
+ * - **Token Name**: 1-32 bytes, converted to hex for asset name
+ * - **Quantity**: Positive integer amount to mint
+ * - **Recipient Address**: Optional bech32 address (defaults to wallet address)
+ * - **Substandard**: Required programmable logic validator selection
+ *
+ * ## Transaction Flow
+ * 1. User fills form and selects substandard
+ * 2. Validation checks all fields
+ * 3. Backend builds unsigned transaction
+ * 4. Parent component receives tx hex for signing
+ *
+ * @module components/mint/mint-form
+ */
+
 "use client";
 
 import { useState } from 'react';
@@ -10,8 +32,13 @@ import { Substandard, MintFormData } from '@/types/api';
 import { prepareMintRequest, mintToken, stringToHex } from '@/lib/api';
 import { useToast } from '@/components/ui/use-toast';
 
+/**
+ * Props for the MintForm component.
+ */
 interface MintFormProps {
+  /** Available substandard validators to choose from */
   substandards: Substandard[];
+  /** Callback when transaction is successfully built */
   onTransactionBuilt: (txHex: string, assetName: string, quantity: string) => void;
   preSelectedSubstandard?: string;
   preSelectedIssueContract?: string;
@@ -57,8 +84,8 @@ export function MintForm({
 
     if (!tokenName.trim()) {
       newErrors.tokenName = 'Token name is required';
-    } else if (tokenName.length > 32) {
-      newErrors.tokenName = 'Token name must be 32 characters or less';
+    } else if (new TextEncoder().encode(tokenName).length > 32) {
+      newErrors.tokenName = 'Token name must be 32 bytes or less';
     }
 
     if (!quantity.trim()) {
