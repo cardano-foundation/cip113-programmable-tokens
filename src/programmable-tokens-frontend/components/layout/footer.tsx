@@ -31,7 +31,7 @@ export function Footer() {
               </li>
               <li>
                 <a
-                  href="https://github.com/cardano-foundation/CIPs/tree/master/CIP-0113"
+                  href="https://github.com/cardano-foundation/CIPs/blob/559aefe688593e77721d9e6e891e1d827eaecb02/CIP-0113/README.md"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-sm text-dark-300 hover:text-primary-400 transition-colors flex items-center gap-2"
