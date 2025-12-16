@@ -21,6 +21,7 @@ const navigation = [
   { name: "Mint Tokens", href: "/mint" },
   { name: "Transfer", href: "/transfer" },
   { name: "Dashboard", href: "/dashboard" },
+  { name: "Contributors", href: "/contributors" },
 ];
 
 export function Header() {

@@ -81,6 +81,47 @@ public class BalanceValueHelper {
     }
 
     /**
+     * Convert a Value object to a unit map with BigInteger amounts
+     * Format: {"lovelace": BigInteger("1000000"), "policyId+assetName": BigInteger("100")}
+     *
+     * @param value the Value object
+     * @return map of unit to amount (as BigInteger)
+     */
+    public static Map<String, BigInteger> toMap(Value value) {
+        Map<String, BigInteger> map = new HashMap<>();
+
+        ValueUtil.toAmountList(value).forEach(amount -> {
+            var assetType = AssetType.fromUnit(amount.getUnit());
+            if (assetType.isAda()){
+                map.put(AssetType.LOVELACE, amount.getQuantity());
+            } else {
+                map.put(assetType.toUnit(), amount.getQuantity());
+            }
+        });
+
+        return map;
+    }
+
+    /**
+     * Convert a unit map to Value object
+     *
+     * @param unitMap map of unit to amount (as string)
+     * @return Value object
+     */
+    public static Value fromUnitMap2(Map<String, BigInteger> unitMap) {
+        return unitMap.entrySet()
+                .stream()
+                .reduce(Value.builder().build(), (value, stringStringEntry) -> {
+                    var assetType = AssetType.fromUnit(stringStringEntry.getKey());
+                    var amount = stringStringEntry.getValue();
+                    if (assetType.isAda()) {
+                        return value.addCoin(amount);
+                    } else {
+                        return value.add(assetType.policyId(), "0x" + assetType.assetName(), amount);
+                    }
+                }, Value::add);
+    }
+    /**
      * Convert a unit map to Value object
      *
      * @param unitMap map of unit to amount (as string)

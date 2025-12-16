@@ -3,6 +3,7 @@
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { getExplorerTxUrl } from '@/lib/utils/format';
 
 interface MintSuccessProps {
   txHash: string;
@@ -17,7 +18,7 @@ export function MintSuccess({
   quantity,
   onMintAnother,
 }: MintSuccessProps) {
-  const explorerUrl = `https://cardanoscan.io/transaction/${txHash}`;
+  const explorerUrl = getExplorerTxUrl(txHash);
 
   const handleCopyTxHash = () => {
     navigator.clipboard.writeText(txHash);

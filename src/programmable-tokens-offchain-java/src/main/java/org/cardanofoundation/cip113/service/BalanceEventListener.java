@@ -1,24 +1,24 @@
 package org.cardanofoundation.cip113.service;
 
+import com.bloxbean.cardano.client.transaction.spec.MultiAsset;
 import com.bloxbean.cardano.client.transaction.spec.Value;
+import com.bloxbean.cardano.yaci.helper.model.Transaction;
 import com.bloxbean.cardano.yaci.store.common.domain.Amt;
-import com.bloxbean.cardano.yaci.store.utxo.domain.AddressUtxoEvent;
+import com.bloxbean.cardano.yaci.store.events.TransactionEvent;
 import com.bloxbean.cardano.yaci.store.utxo.storage.impl.model.UtxoId;
 import com.bloxbean.cardano.yaci.store.utxo.storage.impl.repository.UtxoRepository;
 import com.easy1staking.cardano.util.AmountUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.cardanofoundation.cip113.entity.BalanceLogEntity;
 import org.cardanofoundation.cip113.entity.ProtocolParamsEntity;
+import org.cardanofoundation.cip113.model.TransactionType;
 import org.cardanofoundation.cip113.util.AddressUtil;
 import org.cardanofoundation.cip113.util.BalanceValueHelper;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.math.BigInteger;
+import java.util.*;
 import java.util.stream.Collectors;
 
 @Service
@@ -31,7 +31,7 @@ public class BalanceEventListener {
     private final UtxoRepository utxoRepository;
 
     @EventListener
-    public void processEvent(AddressUtxoEvent addressUtxoEvent) {
+    public void processEvent(TransactionEvent transactionEvent) {
         log.debug("Processing AddressUtxoEvent for balance indexing");
 
         // Get all protocol params to know all programmableLogicBaseScriptHashes
@@ -49,86 +49,103 @@ public class BalanceEventListener {
         log.debug("Monitoring {} programmable logic script hashes: {}",
                 progLogicScriptHashes.size(), String.join(", ", progLogicScriptHashes));
 
-        var slot = addressUtxoEvent.getEventMetadata().getSlot();
-        var blockHeight = addressUtxoEvent.getEventMetadata().getBlock();
+        var slot = transactionEvent.getMetadata().getSlot();
+        var blockHeight = transactionEvent.getMetadata().getBlock();
 
         // Process each transaction
-        addressUtxoEvent.getTxInputOutputs()
-                .forEach(txInputOutputs -> {
-                    String txHash = txInputOutputs.getTxHash();
+        transactionEvent.getTransactions()
+                .forEach(transaction -> {
+                    String txHash = transaction.getTxHash();
 
                     // Track balance changes per address using Value objects
                     // Key: address, Value: net balance change
                     Map<String, BalanceAggregator> balanceChanges = new HashMap<>();
 
                     // Process inputs (subtractions) - need to look up UTxOs
-                    txInputOutputs.getInputs().forEach(input -> {
-                        String inputTxHash = input.getTxHash();
-                        int outputIndex = input.getOutputIndex();
+                    transaction.getBody()
+                            .getInputs()
+                            .forEach(input -> {
+                                String inputTxHash = input.getTransactionId();
+                                int outputIndex = input.getIndex();
 
-                        // Look up the UTxO
-                        var utxoOpt = utxoRepository.findById(new UtxoId(inputTxHash, outputIndex));
+                                // Look up the UTxO
+                                var utxoOpt = utxoRepository.findById(new UtxoId(inputTxHash, outputIndex));
 
-                        if (utxoOpt.isEmpty()) {
-                            log.debug("UTxO not found for input: {}:{}", inputTxHash, outputIndex);
-                            return;
-                        }
+                                if (utxoOpt.isEmpty()) {
+                                    log.debug("UTxO not found for input: {}:{}", inputTxHash, outputIndex);
+                                    return;
+                                }
 
-                        var utxo = utxoOpt.get();
-                        String address = utxo.getOwnerAddr();
+                                var utxo = utxoOpt.get();
+                                String address = utxo.getOwnerAddr();
 
-                        AddressUtil.AddressComponents components = AddressUtil.decompose(address);
-                        if (components != null && progLogicScriptHashes.contains(components.getPaymentScriptHash())) {
-                            // Convert UTxO amounts to Value and subtract
-                            Value inputValue = amountsToValue(utxo.getAmounts());
+                                AddressUtil.AddressComponents components = AddressUtil.decompose(address);
+                                if (components != null && progLogicScriptHashes.contains(components.getPaymentScriptHash())) {
+                                    // Convert UTxO amounts to Value and subtract
+                                    Value inputValue = amountsToValue(utxo.getAmounts());
 
-                            BalanceAggregator aggregator = balanceChanges.computeIfAbsent(address,
-                                    k -> new BalanceAggregator(address, components));
-                            aggregator.subtractInput(inputValue);
-                        }
-                    });
+                                    BalanceAggregator aggregator = balanceChanges.computeIfAbsent(address,
+                                            k -> new BalanceAggregator(address, components));
+                                    log.info("address: {}, input value: {}", address, inputValue);
+                                    aggregator.subtractInput(inputValue);
+                                }
+                            });
 
                     // Process outputs (additions)
-                    txInputOutputs.getOutputs().forEach(output -> {
-                        String address = output.getOwnerAddr();
+                    transaction.getBody()
+                            .getOutputs()
+                            .forEach(output -> {
+                                String address = output.getAddress();
 
-                        AddressUtil.AddressComponents components = AddressUtil.decompose(address);
-                        if (components != null && progLogicScriptHashes.contains(components.getPaymentScriptHash())) {
-                            // Convert output amounts to Value and add
-                            Value outputValue = amountsToValue(output.getAmounts());
+                                AddressUtil.AddressComponents components = AddressUtil.decompose(address);
+                                if (components != null && progLogicScriptHashes.contains(components.getPaymentScriptHash())) {
+                                    // Convert output amounts to Value and add
+                                    var outputValue = output.getAmounts()
+                                            .stream()
+                                            .map(AmountUtil::toValue)
+                                            .reduce(Value::add)
+                                            .orElse(Value.builder().build());
 
-                            BalanceAggregator aggregator = balanceChanges.computeIfAbsent(address,
-                                    k -> new BalanceAggregator(address, components));
-                            aggregator.addOutput(outputValue);
-                        }
-                    });
+                                    BalanceAggregator aggregator = balanceChanges.computeIfAbsent(address,
+                                            k -> new BalanceAggregator(address, components));
+                                    log.info("address: {}, output value: {}", address, outputValue);
+                                    aggregator.addOutput(outputValue);
+                                }
+                            });
 
                     // Save balance changes to database
                     balanceChanges.forEach((address, aggregator) -> {
+
+                        log.info("address: {}, aggregator: {}", address, aggregator.getNetChange());
+
+                        var netChange = aggregator.getNetChange();
                         // Get previous balance
                         Value previousBalance = balanceService.getCurrentBalanceAsValue(address);
 
                         // Calculate new balance: previous + outputs - inputs
-                        Value newBalance = previousBalance.plus(aggregator.getNetChange());
+                        Value newBalance = previousBalance.add(netChange);
 
-                        // Convert to JSON
-                        String balanceJson = BalanceValueHelper.toJson(newBalance);
+                        // Calculate signed balance difference
+                        Map<String, String> balanceDiff = calculateSignedDiff(aggregator.getNetChange());
 
-                        // Create balance log entry
-                        BalanceLogEntity entity = BalanceLogEntity.builder()
-                                .address(address)
-                                .paymentScriptHash(aggregator.getComponents().getPaymentScriptHash())
-                                .stakeKeyHash(aggregator.getComponents().getStakeKeyHash())
-                                .txHash(txHash)
-                                .slot(slot)
-                                .blockHeight(blockHeight)
-                                .balance(balanceJson)
-                                .build();
+                        TransactionType transactionType = detectTransactionType(netChange, transaction);
 
-                        balanceService.append(entity);
+                        // Convert new balance to map for service method
+                        Map<String, BigInteger> balanceMap = BalanceValueHelper.toMap(newBalance);
 
-                        log.info("Recorded balance change: address={}, tx={}, new_balance={}",
-                                address, txHash, balanceJson);
+                        // Save using new service method with transaction type and diff
+                        balanceService.append(
+                                address,
+                                txHash,
+                                slot,
+                                blockHeight,
+                                balanceMap,
+                                transactionType,
+                                balanceDiff
+                        );
+
+                        log.info("Recorded balance change: address={}, tx={}, type={}, new_balance={}",
+                                address, txHash, transactionType, BalanceValueHelper.toJson(newBalance));
                     });
                 });
     }
@@ -138,6 +155,80 @@ public class BalanceEventListener {
      */
     private Value amountsToValue(List<Amt> amounts) {
         return amounts.stream().map(AmountUtil::toValue).reduce(Value.builder().build(), Value::add);
+    }
+
+    /**
+     * Calculate signed balance difference from net change
+     * Converts Value to map with signed string amounts ("+1000", "-50")
+     *
+     * @param netChange the net balance change (outputs - inputs)
+     * @return map of unit to signed amount string
+     */
+    private Map<String, String> calculateSignedDiff(Value netChange) {
+        Map<String, String> signedDiff = new LinkedHashMap<>();
+
+        // Convert Value to unit map
+        Map<String, String> unitMap = BalanceValueHelper.toUnitMap(netChange);
+
+        // Add sign prefix to each amount
+        unitMap.forEach((unit, amountStr) -> {
+            BigInteger amount = new BigInteger(amountStr);
+            String signedAmount;
+
+            if (amount.compareTo(BigInteger.ZERO) > 0) {
+                signedAmount = "+" + amountStr;
+            } else if (amount.compareTo(BigInteger.ZERO) < 0) {
+                signedAmount = amountStr; // Already has minus sign
+            } else {
+                signedAmount = "0"; // No change
+            }
+
+            signedDiff.put(unit, signedAmount);
+        });
+
+        return signedDiff;
+    }
+
+    /**
+     * Detect transaction type based on balance changes and transaction data
+     * <p>
+     * TODO: Implement transaction type detection logic
+     * <p>
+     * Detection should be based on:
+     * 1. Balance changes (positive = mint/receive, negative = burn/send)
+     * 2. Input/output analysis
+     * - If outputs > inputs: MINT (new tokens created)
+     * - If outputs < inputs: BURN (tokens destroyed)
+     * - If outputs == inputs: TRANSFER (tokens moved)
+     * 3. Registry lookups for REGISTER operations
+     * - Check if transaction registers a new token policy in the registry
+     * 4. Mint field in transaction body
+     * - Presence of mint field indicates MINT or BURN operation
+     *
+     * @param netChange   the net change (outputs - inputs)
+     * @param transaction the transaction data
+     * @return the detected transaction type (currently returns null)
+     */
+    private TransactionType detectTransactionType(Value netChange, Transaction transaction) {
+
+        var netChangePolicies = netChange.getMultiAssets().stream().map(MultiAsset::getPolicyId).toList();
+
+        var mintDetails = transaction.getBody()
+                .getMint()
+                .stream()
+                .filter(amount -> netChangePolicies.contains(amount.getPolicyId()))
+                .toList();
+
+        if (mintDetails.isEmpty()) {
+            return TransactionType.TRANSFER;
+        } else {
+            var mintAmount = mintDetails.getFirst().getQuantity();
+            if (mintAmount.compareTo(BigInteger.ZERO) > 0) {
+                return TransactionType.MINT;
+            } else {
+                return TransactionType.BURN;
+            }
+        }
     }
 
     /**

@@ -4,7 +4,7 @@ import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { CheckCircle2, ExternalLink } from 'lucide-react';
-import { truncateAddress } from '@/lib/utils/format';
+import { truncateAddress, getExplorerTxUrl } from '@/lib/utils/format';
 
 interface TransferSuccessProps {
   txHash: string;
@@ -33,7 +33,7 @@ export function TransferSuccess({
   quantity,
   recipientAddress,
 }: TransferSuccessProps) {
-  const explorerUrl = `${process.env.NEXT_PUBLIC_EXPLORER_URL || 'https://preprod.cardanoscan.io'}/transaction/${txHash}`;
+  const explorerUrl = getExplorerTxUrl(txHash);
 
   return (
     <Card>

@@ -93,3 +93,63 @@ export function getNetworkColor(network: string): string {
   };
   return colors[network.toLowerCase()] || "bg-dark-500";
 }
+
+/**
+ * Format a date to a human-readable string
+ * @param date - Date object
+ * @returns Formatted date string
+ */
+export function formatDate(date: Date): string {
+  try {
+    return date.toLocaleString();
+  } catch {
+    return String(date);
+  }
+}
+
+/**
+ * Get explorer base URL for the current network
+ * @param network - Network identifier (preview, preprod, mainnet)
+ * @returns Base URL for the block explorer
+ */
+export function getExplorerBaseUrl(network?: string): string {
+  const currentNetwork = network || process.env.NEXT_PUBLIC_NETWORK || "preview";
+
+  const explorerUrls: Record<string, string> = {
+    preview: "https://preview.cexplorer.io",
+    preprod: "https://preprod.cexplorer.io",
+    mainnet: "https://cexplorer.io",
+  };
+
+  return explorerUrls[currentNetwork.toLowerCase()] || explorerUrls.preview;
+}
+
+/**
+ * Get explorer URL for a transaction
+ * @param txHash - Transaction hash
+ * @param network - Optional network identifier
+ * @returns Full URL to view transaction on explorer
+ */
+export function getExplorerTxUrl(txHash: string, network?: string): string {
+  return `${getExplorerBaseUrl(network)}/tx/${txHash}`;
+}
+
+/**
+ * Get explorer URL for an address
+ * @param address - Cardano address
+ * @param network - Optional network identifier
+ * @returns Full URL to view address on explorer
+ */
+export function getExplorerAddressUrl(address: string, network?: string): string {
+  return `${getExplorerBaseUrl(network)}/address/${address}`;
+}
+
+/**
+ * Get explorer URL for a policy
+ * @param policyId - Policy ID
+ * @param network - Optional network identifier
+ * @returns Full URL to view policy on explorer
+ */
+export function getExplorerPolicyUrl(policyId: string, network?: string): string {
+  return `${getExplorerBaseUrl(network)}/policy/${policyId}`;
+}

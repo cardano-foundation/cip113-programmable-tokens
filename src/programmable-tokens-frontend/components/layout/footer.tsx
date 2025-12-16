@@ -20,13 +20,35 @@ export function Footer() {
             <ul className="space-y-2">
               <li>
                 <a
-                  href="https://github.com/cardano-foundation/CIPs/tree/master/CIP-0113"
+                  href="https://cips.cardano.org/cps/CPS-0003"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-sm text-dark-300 hover:text-primary-400 transition-colors flex items-center gap-2"
+                >
+                  <FileText className="h-4 w-4" />
+                  CPS-0003 Problem Statement
+                </a>
+              </li>
+              <li>
+                <a
+                  href="https://github.com/cardano-foundation/CIPs/blob/559aefe688593e77721d9e6e891e1d827eaecb02/CIP-0113/README.md"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-sm text-dark-300 hover:text-primary-400 transition-colors flex items-center gap-2"
                 >
                   <FileText className="h-4 w-4" />
                   CIP-113 Specification
+                </a>
+              </li>
+              <li>
+                <a
+                  href="https://cips.cardano.org/cip/CIP-0143"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-sm text-dark-300 hover:text-primary-400 transition-colors flex items-center gap-2"
+                >
+                  <FileText className="h-4 w-4" />
+                  CIP-143 Specification
                 </a>
               </li>
               <li>
@@ -38,6 +60,17 @@ export function Footer() {
                 >
                   <Github className="h-4 w-4" />
                   GitHub Repository
+                </a>
+              </li>
+              <li>
+                <a
+                  href="https://github.com/input-output-hk/wsc-poc"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-sm text-dark-300 hover:text-primary-400 transition-colors flex items-center gap-2"
+                >
+                  <Github className="h-4 w-4" />
+                  CIP-143 WSC PoC
                 </a>
               </li>
               <li>

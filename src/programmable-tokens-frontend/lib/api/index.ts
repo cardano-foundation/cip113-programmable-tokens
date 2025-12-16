@@ -5,3 +5,5 @@ export * from './minting';
 export * from './transfer';
 export * from './balance';
 export * from './protocol-versions';
+export * from './protocol';
+export * from './history';
