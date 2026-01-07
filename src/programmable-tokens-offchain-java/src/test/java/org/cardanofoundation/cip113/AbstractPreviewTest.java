@@ -21,13 +21,19 @@ public abstract class AbstractPreviewTest {
 
     protected static final Network network = Networks.preview();
 
-    protected final Account adminAccount = Account.createFromMnemonic(network, PreviewConstants.ADMIN_MNEMONIC);
+    protected static final Account adminAccount = Account.createFromMnemonic(network, PreviewConstants.ADMIN_MNEMONIC);
 
-    protected final Account refInputAccount = Account.createFromMnemonic(network, PreviewConstants.ADMIN_MNEMONIC, 10, 0);
+    protected static final Account refInputAccount = Account.createFromMnemonic(network, PreviewConstants.ADMIN_MNEMONIC, 10, 0);
 
-    protected final Account aliceAccount = Account.createFromMnemonic(network, PreviewConstants.ADMIN_MNEMONIC, 1, 0);
+    protected static final Account aliceAccount = Account.createFromMnemonic(network, PreviewConstants.ADMIN_MNEMONIC, 1, 0);
 
-    protected final Account bobAccount = Account.createFromMnemonic(network, PreviewConstants.ADMIN_MNEMONIC, 2, 0);
+    protected static final Account bobAccount = Account.createFromMnemonic(network, PreviewConstants.ADMIN_MNEMONIC, 2, 0);
+
+    static {
+        log.info("Admin Address: {}", adminAccount.baseAddress());
+        log.info("Alice Address: {}", aliceAccount.baseAddress());
+        log.info("Bob Address: {}", bobAccount.baseAddress());
+    }
 
     protected final BFBackendService bfBackendService = new BFBackendService(BLOCKFROST_PREVIEW_URL, BLOCKFROST_KEY);
 
