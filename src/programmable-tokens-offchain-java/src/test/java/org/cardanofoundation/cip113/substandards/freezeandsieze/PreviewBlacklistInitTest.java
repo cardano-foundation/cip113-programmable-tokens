@@ -13,14 +13,12 @@ import com.bloxbean.cardano.client.plutus.blueprint.model.PlutusVersion;
 import com.bloxbean.cardano.client.plutus.spec.BytesPlutusData;
 import com.bloxbean.cardano.client.plutus.spec.ConstrPlutusData;
 import com.bloxbean.cardano.client.plutus.spec.ListPlutusData;
-import com.bloxbean.cardano.client.plutus.spec.PlutusData;
 import com.bloxbean.cardano.client.quicktx.ScriptTx;
 import com.bloxbean.cardano.client.transaction.spec.Asset;
 import com.bloxbean.cardano.client.transaction.spec.MultiAsset;
 import com.bloxbean.cardano.client.transaction.spec.TransactionInput;
 import com.bloxbean.cardano.client.transaction.spec.Value;
 import com.bloxbean.cardano.client.util.HexUtil;
-import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.cardanofoundation.cip113.AbstractPreviewTest;
 import org.cardanofoundation.cip113.model.bootstrap.TxInput;
@@ -38,7 +36,6 @@ import org.junit.jupiter.api.Test;
 
 import java.math.BigInteger;
 import java.util.List;
-import java.util.Map;
 
 import static java.math.BigInteger.ONE;
 import static java.math.BigInteger.ZERO;
@@ -157,42 +154,7 @@ public class PreviewBlacklistInitTest extends AbstractPreviewTest {
         var bootstrap = new BlacklistBootstrap(mintBootstrap, spendBootstrap);
 
         log.info("bootstrap: {}", OBJECT_MAPPER.writeValueAsString(bootstrap));
-//{"blacklistMintBootstrap":{"txInput":{"txHash":"7172a517d98d65dc9fdaf270cb52383de54840fbf44721d8ae82ae8d8175a1a5","outputIndex":1},"adminPubKeyHash":"32e7e00eae28502a2aa271cf4202b1b01b94ca8efe642e380c93d5e2","scriptHash":"30a8c9cc2fd9e9424dc4732f2ccdcf5bee863e5b77817090a1acefbb"},"blacklistSpendBootstrap":{"blacklistMintScriptHash":"30a8c9cc2fd9e9424dc4732f2ccdcf5bee863e5b77817090a1acefbb","scriptHash":"97c007326cf3839c4820da1d8fa3c097abeab42d1f5f18044c0188d8"}}
-    }
-
-    @Getter
-    enum ComplierType {
-        AIKEN(0), HELIOS(1), SCALUS(2), OPSHIN(3);
-        private final int compileId;
-
-        ComplierType(int compileId) {
-            this.compileId = compileId;
-        }
-    }
-
-    record PlutusScanRequest(ComplierType complierType,
-            String org,
-            String repo,
-            String commitHash,
-            String optionalPath,
-            String compilerVersion,
-            Map<String, List<String>> parameters) {
-
-        public PlutusData toPlutusData() {
-            return ConstrPlutusData.of(complierType.getCompileId(),
-                    BytesPlutusData.of(HexUtil.encodeHexString("cardano-foundation".getBytes())),
-                    BytesPlutusData.of(HexUtil.encodeHexString("cip113-programmable-tokens".getBytes())),
-                    BytesPlutusData.of(HexUtil.encodeHexString("".getBytes())),
-                    );
-        }
 
     }
-
-
-    public void testSubmitPlutusScanTx() {
-
-
-    }
-
 
 }

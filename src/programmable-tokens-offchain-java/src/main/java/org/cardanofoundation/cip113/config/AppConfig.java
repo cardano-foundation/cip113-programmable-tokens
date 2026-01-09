@@ -68,8 +68,11 @@ public class AppConfig {
     @Getter
     public static class Network {
 
-        @Value("${network}")
-        private String network;
+        private final String network;
+
+        public Network(@Value("${network}") String network) {
+            this.network = network;
+        }
 
         public com.bloxbean.cardano.client.common.model.Network getCardanoNetwork() {
             return switch (network) {
