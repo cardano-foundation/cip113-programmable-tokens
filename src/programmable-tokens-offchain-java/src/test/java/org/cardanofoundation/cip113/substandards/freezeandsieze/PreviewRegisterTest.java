@@ -16,7 +16,6 @@ import com.bloxbean.cardano.client.plutus.spec.BytesPlutusData;
 import com.bloxbean.cardano.client.plutus.spec.ConstrPlutusData;
 import com.bloxbean.cardano.client.plutus.spec.ListPlutusData;
 import com.bloxbean.cardano.client.quicktx.ScriptTx;
-import com.bloxbean.cardano.client.quicktx.Tx;
 import com.bloxbean.cardano.client.transaction.spec.Asset;
 import com.bloxbean.cardano.client.transaction.spec.MultiAsset;
 import com.bloxbean.cardano.client.transaction.spec.TransactionInput;
@@ -49,9 +48,9 @@ public class PreviewRegisterTest extends AbstractPreviewTest {
 
     private final Network network = Networks.preview();
 
-    private final UtxoService utxoService = new UtxoService(bfBackendService, null);
+    private final UtxoProvider utxoProvider = new UtxoProvider(bfBackendService, null);
 
-    private final AccountService accountService = new AccountService(utxoService);
+    private final AccountService accountService = new AccountService(utxoProvider);
 
     private final ProtocolBootstrapService protocolBootstrapService = new ProtocolBootstrapService(OBJECT_MAPPER, new AppConfig.Network("preview"));
 
@@ -88,7 +87,7 @@ public class PreviewRegisterTest extends AbstractPreviewTest {
 
         var directorySpendContract = protocolScriptBuilderService.getParameterizedDirectorySpendScript(protocolBootstrapParams);
 
-        var protocolParamsUtxoOpt = utxoService.findUtxo(bootstrapTxHash, 0);
+        var protocolParamsUtxoOpt = utxoProvider.findUtxo(bootstrapTxHash, 0);
         if (protocolParamsUtxoOpt.isEmpty()) {
             Assertions.fail("could not resolve protocol params");
         }
@@ -98,7 +97,7 @@ public class PreviewRegisterTest extends AbstractPreviewTest {
         var directorySpendContractAddress = AddressProvider.getEntAddress(directorySpendContract, network);
         log.info("directorySpendContractAddress: {}", directorySpendContractAddress.getAddress());
 
-        var issuanceUtxoOpt = utxoService.findUtxo(bootstrapTxHash, 2);
+        var issuanceUtxoOpt = utxoProvider.findUtxo(bootstrapTxHash, 2);
         if (issuanceUtxoOpt.isEmpty()) {
             Assertions.fail("could not resolve issuance params");
         }
@@ -137,7 +136,7 @@ public class PreviewRegisterTest extends AbstractPreviewTest {
 
         var registryAddress = AddressProvider.getEntAddress(directorySpendContract, network);
 
-        var registryEntries = utxoService.findUtxos(registryAddress.getAddress());
+        var registryEntries = utxoProvider.findUtxos(registryAddress.getAddress());
 
         var registryEntryOpt = registryEntries.stream()
                 .filter(addressUtxoEntity -> registryNodeParser.parse(addressUtxoEntity.getInlineDatum())

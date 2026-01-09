@@ -2,19 +2,13 @@ package org.cardanofoundation.cip113.service;
 
 import com.bloxbean.cardano.client.api.model.Amount;
 import com.bloxbean.cardano.client.api.model.Utxo;
-import com.bloxbean.cardano.yaci.store.common.domain.Amt;
-import com.bloxbean.cardano.yaci.store.utxo.storage.impl.model.AddressUtxoEntity;
-import com.bloxbean.cardano.yaci.store.utxo.storage.impl.repository.UtxoRepository;
-import com.easy1staking.cardano.util.UtxoUtil;
 import com.easy1staking.util.Pair;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 
 import java.math.BigInteger;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
 import java.util.function.Function;
@@ -25,10 +19,10 @@ import java.util.stream.Stream;
 @RequiredArgsConstructor
 public class AccountService {
 
-    private final UtxoService utxoService;
+    private final UtxoProvider utxoProvider;
 
     public List<Utxo> findAdaOnlyUtxo(String address, Long minAdaBalance) {
-        return this.findAdaOnlyUtxo(address, minAdaBalance, utxoService::findUtxos);
+        return this.findAdaOnlyUtxo(address, minAdaBalance, utxoProvider::findUtxos);
     }
 
     public List<Utxo> findAdaOnlyUtxo(String address, Long minAdaBalance, Function<String, List<Utxo>> utxoFinder) {

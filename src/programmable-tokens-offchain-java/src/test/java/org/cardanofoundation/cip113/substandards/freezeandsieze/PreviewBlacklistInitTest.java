@@ -28,7 +28,7 @@ import org.cardanofoundation.cip113.model.onchain.siezeandfreeze.blacklist.Black
 import org.cardanofoundation.cip113.model.onchain.siezeandfreeze.blacklist.BlacklistSpendBootstrap;
 import org.cardanofoundation.cip113.service.AccountService;
 import org.cardanofoundation.cip113.service.SubstandardService;
-import org.cardanofoundation.cip113.service.UtxoService;
+import org.cardanofoundation.cip113.service.UtxoProvider;
 import org.cardanofoundation.cip113.util.PlutusSerializationHelper;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -45,9 +45,9 @@ public class PreviewBlacklistInitTest extends AbstractPreviewTest {
 
     private final Network network = Networks.preview();
 
-    private final UtxoService utxoService = new UtxoService(bfBackendService, null);
+    private final UtxoProvider utxoProvider = new UtxoProvider(bfBackendService, null);
 
-    private final AccountService accountService = new AccountService(utxoService);
+    private final AccountService accountService = new AccountService(utxoProvider);
 
     private SubstandardService substandardService;
 
@@ -73,7 +73,7 @@ public class PreviewBlacklistInitTest extends AbstractPreviewTest {
         var bootstrapUtxo = adminUtxos.getFirst();
         log.info("bootstrapUtxo: {}", bootstrapUtxo);
 
-        var bootstrapUtxoOpt = utxoService.findUtxo(bootstrapUtxo.getTxHash(), bootstrapUtxo.getOutputIndex());
+        var bootstrapUtxoOpt = utxoProvider.findUtxo(bootstrapUtxo.getTxHash(), bootstrapUtxo.getOutputIndex());
 
         if (bootstrapUtxoOpt.isEmpty()) {
             Assertions.fail("no utxo found");

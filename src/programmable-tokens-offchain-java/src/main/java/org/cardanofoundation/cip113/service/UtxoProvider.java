@@ -19,7 +19,7 @@ import java.util.Optional;
 @Service
 @RequiredArgsConstructor
 @Slf4j
-public class UtxoService {
+public class UtxoProvider {
 
     private final BFBackendService bfBackendService;
 

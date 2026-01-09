@@ -14,6 +14,7 @@ import org.springframework.stereotype.Service;
 import java.math.BigInteger;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -31,6 +32,7 @@ public class RegistryEventListener {
         log.debug("Processing AddressUtxoEvent for registry nodes");
 
         // Get all protocol params to know all registryNodePolicyIds
+        // FIXME: this is super slow, list of protocol params should be updated on an event based and kept in memory
         List<ProtocolParamsEntity> allProtocolParams = protocolParamsService.getAll();
         if (allProtocolParams.isEmpty()) {
             log.debug("No protocol params loaded yet, skipping registry indexing");
@@ -39,13 +41,13 @@ public class RegistryEventListener {
 
         // Create map of registryNodePolicyId -> ProtocolParamsEntity for quick lookup
         Map<String, ProtocolParamsEntity> policyIdToProtocolParams = allProtocolParams.stream()
-                .collect(Collectors.toMap(
-                        ProtocolParamsEntity::getRegistryNodePolicyId,
-                        pp -> pp,
-                        (existing, replacement) -> existing // Keep first if duplicates
-                ));
+                .collect(Collectors.toMap(ProtocolParamsEntity::getRegistryNodePolicyId, Function.identity()));
 
-        var directoryNfts = policyIdToProtocolParams.keySet().stream().map(AssetType::fromUnit).map(AssetType::policyId).toList();
+        var directoryNftPolicyIds = policyIdToProtocolParams.keySet()
+                .stream()
+                .map(AssetType::fromUnit)
+                .map(AssetType::policyId)
+                .toList();
 
         log.debug("Monitoring {} registry policy IDs: {}",
                 policyIdToProtocolParams.size(),
@@ -62,10 +64,8 @@ public class RegistryEventListener {
                     if (output.getInlineDatum() != null) {
                         return output.getAmounts()
                                 .stream()
-                                .filter(amt -> amt.getQuantity().equals(BigInteger.ONE) && directoryNfts.contains(AssetType.fromUnit(amt.getUnit()).policyId()))
-                                .map(amt -> new Pair<>(output, amt))
-                                .findAny()
-                                .stream();
+                                .filter(amt -> amt.getQuantity().equals(BigInteger.ONE) && directoryNftPolicyIds.contains(AssetType.fromUnit(amt.getUnit()).policyId()))
+                                .map(amt -> new Pair<>(output, amt));
                     } else {
                         return Stream.empty();
                     }
@@ -86,12 +86,6 @@ public class RegistryEventListener {
 
                                         log.info("registryNode: {}", registryNode);
 
-                                        // Skip sentinel/head node (key = "")
-                                        if (registryNode.key().isEmpty()) {
-                                            log.info("Skipping sentinel node (key is empty)");
-                                            return;
-                                        }
-
                                         // Create entity
                                         RegistryNodeEntity entity = RegistryNodeEntity.builder()
                                                 .key(registryNode.key())
@@ -108,6 +102,11 @@ public class RegistryEventListener {
                                         // Upsert to database
                                         registryService.upsert(entity);
                                         log.info("Successfully upserted registry node: key={}, next={}, tx={}", registryNode.key(), registryNode.next(), txHash);
+
+                                        // for the specific node, we need to check if there is a deletion.
+//
+
+
                                     },
                                     () -> log.error("Failed to parse registry node from txHash={}", txHash)
                             );

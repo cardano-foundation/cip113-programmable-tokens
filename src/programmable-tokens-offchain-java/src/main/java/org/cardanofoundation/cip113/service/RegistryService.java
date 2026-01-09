@@ -3,7 +3,6 @@ package org.cardanofoundation.cip113.service;
 import com.easy1staking.cardano.model.AssetType;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.cardanofoundation.cip113.entity.ProtocolParamsEntity;
 import org.cardanofoundation.cip113.entity.RegistryNodeEntity;
 import org.cardanofoundation.cip113.repository.RegistryNodeRepository;
 import org.springframework.stereotype.Service;
@@ -36,7 +35,7 @@ public class RegistryService {
         if (existingOpt.isPresent()) {
             RegistryNodeEntity existing = existingOpt.get();
 
-            // Check if 'next' changed (the only mutable field)
+            // Check if 'next' changed (the only onchain mutable field)
             if (!existing.getNext().equals(entity.getNext())) {
                 log.info("Updating registry node: key={}, old_next={}, new_next={}, tx={}",
                         entity.getKey(), existing.getNext(), entity.getNext(), entity.getLastTxHash());
@@ -48,7 +47,7 @@ public class RegistryService {
 
                 return repository.save(existing);
             } else {
-                log.debug("Registry node already exists with same next pointer, skipping: key={}", entity.getKey());
+                log.warn("Registry node already exists with same next pointer. This should never happen. skipping: key={}", entity.getKey());
                 return existing;
             }
         } else {
@@ -132,7 +131,7 @@ public class RegistryService {
     /**
      * Get registry node by key and protocol params ID
      *
-     * @param key the token policy ID
+     * @param key              the token policy ID
      * @param protocolParamsId the protocol params ID
      * @return the registry node or empty if not found
      */
@@ -161,7 +160,7 @@ public class RegistryService {
      * Find registry node by policy ID for a specific protocol params version.
      * Uses AssetType utility to parse the unit into policyId and assetName.
      *
-     * @param unit the unit string (policyId + assetNameHex)
+     * @param unit             the unit string (policyId + assetNameHex)
      * @param protocolParamsId the protocol params ID
      * @return the registry node or empty if not found
      */
