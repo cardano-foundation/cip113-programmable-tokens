@@ -94,19 +94,27 @@ public class RegistryEventListener {
                                                 .thirdPartyTransferLogicScript(registryNode.thirdPartyTransferLogicScript())
                                                 .globalStatePolicyId(registryNode.globalStatePolicyId())
                                                 .protocolParams(protocolParams)
-                                                .lastTxHash(txHash)
-                                                .lastSlot(slot)
-                                                .lastBlockHeight(blockHeight)
+                                                .txHash(txHash)
+                                                .slot(slot)
+                                                .blockHeight(blockHeight)
+                                                .isDeleted(false)
                                                 .build();
 
-                                        // Upsert to database
-                                        registryService.upsert(entity);
-                                        log.info("Successfully upserted registry node: key={}, next={}, tx={}", registryNode.key(), registryNode.next(), txHash);
+                                        // Insert into append-only log
+                                        registryService.insert(entity);
+                                        log.info("Successfully inserted registry node state: key={}, next={}, slot={}, tx={}",
+                                                registryNode.key(), registryNode.next(), slot, txHash);
 
-                                        // for the specific node, we need to check if there is a deletion.
-//
-
-
+                                        // Check for deleted nodes between this node and its next pointer
+                                        // If the smart contract skipped nodes (current -> next), those nodes were deleted
+                                        registryService.deleteOrphanedNodes(
+                                                registryNode.key(),
+                                                registryNode.next(),
+                                                protocolParams.getId(),
+                                                slot,
+                                                blockHeight,
+                                                txHash
+                                        );
                                     },
                                     () -> log.error("Failed to parse registry node from txHash={}", txHash)
                             );

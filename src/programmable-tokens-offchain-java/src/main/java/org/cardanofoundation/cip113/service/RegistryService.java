@@ -19,42 +19,18 @@ public class RegistryService {
     private final RegistryNodeRepository repository;
 
     /**
-     * Upsert a registry node (create if doesn't exist, update if exists)
-     * Only the 'next' field can be updated for existing nodes
+     * Insert a new registry node state into the append-only log.
+     * No checking for existing entries - just insert.
+     * Duplicate entries are prevented by the unique constraint (key, slot, txHash).
      *
-     * @param entity the registry node entity to upsert
-     * @return the saved/updated entity
+     * @param entity the registry node entity to insert
+     * @return the saved entity
      */
     @Transactional
-    public RegistryNodeEntity upsert(RegistryNodeEntity entity) {
-        Optional<RegistryNodeEntity> existingOpt = repository.findByKeyAndProtocolParamsId(
-                entity.getKey(),
-                entity.getProtocolParams().getId()
-        );
-
-        if (existingOpt.isPresent()) {
-            RegistryNodeEntity existing = existingOpt.get();
-
-            // Check if 'next' changed (the only onchain mutable field)
-            if (!existing.getNext().equals(entity.getNext())) {
-                log.info("Updating registry node: key={}, old_next={}, new_next={}, tx={}",
-                        entity.getKey(), existing.getNext(), entity.getNext(), entity.getLastTxHash());
-
-                existing.setNext(entity.getNext());
-                existing.setLastTxHash(entity.getLastTxHash());
-                existing.setLastSlot(entity.getLastSlot());
-                existing.setLastBlockHeight(entity.getLastBlockHeight());
-
-                return repository.save(existing);
-            } else {
-                log.warn("Registry node already exists with same next pointer. This should never happen. skipping: key={}", entity.getKey());
-                return existing;
-            }
-        } else {
-            log.info("Creating new registry node: key={}, next={}, tx={}, protocolParamsId={}",
-                    entity.getKey(), entity.getNext(), entity.getLastTxHash(), entity.getProtocolParams().getId());
-            return repository.save(entity);
-        }
+    public RegistryNodeEntity insert(RegistryNodeEntity entity) {
+        log.info("Inserting registry node state: key={}, next={}, slot={}, tx={}, protocolParamsId={}",
+                entity.getKey(), entity.getNext(), entity.getSlot(), entity.getTxHash(), entity.getProtocolParams().getId());
+        return repository.save(entity);
     }
 
     /**
@@ -173,5 +149,50 @@ public class RegistryService {
                 policyId, protocolParamsId, unit);
 
         return repository.findByKeyAndProtocolParamsId(policyId, protocolParamsId);
+    }
+
+    /**
+     * Mark orphaned nodes as deleted (they were removed from the linked list).
+     * When a node is updated to point to a new 'next', any nodes between
+     * the current node and the new 'next' are considered deleted from the list.
+     *
+     * Creates new log entries with isDeleted=true for each orphaned node.
+     *
+     * @param key              the current node's key
+     * @param next             the current node's next pointer
+     * @param protocolParamsId the protocol params ID
+     * @param slot             the slot where this deletion is detected
+     * @param blockHeight      the block height where this deletion is detected
+     * @param txHash           the transaction hash that triggered the deletion detection
+     */
+    @Transactional
+    public void deleteOrphanedNodes(String key, String next, Long protocolParamsId, Long slot, Long blockHeight, String txHash) {
+        List<RegistryNodeEntity> orphanedNodes = repository.findNodesBetweenKeys(protocolParamsId, key, next);
+
+        if (!orphanedNodes.isEmpty()) {
+            log.info("Found {} orphaned node(s) between key='{}' and next='{}' for protocolParamsId={}",
+                    orphanedNodes.size(), key, next, protocolParamsId);
+
+            orphanedNodes.forEach(node -> {
+                log.info("Marking orphaned node as deleted: key={}, next={}, originalTxHash={}, deletionTxHash={}",
+                        node.getKey(), node.getNext(), node.getTxHash(), txHash);
+
+                // Create a new log entry marking this node as deleted
+                RegistryNodeEntity deletedEntry = RegistryNodeEntity.builder()
+                        .key(node.getKey())
+                        .next(node.getNext())
+                        .transferLogicScript(node.getTransferLogicScript())
+                        .thirdPartyTransferLogicScript(node.getThirdPartyTransferLogicScript())
+                        .globalStatePolicyId(node.getGlobalStatePolicyId())
+                        .protocolParams(node.getProtocolParams())
+                        .txHash(txHash)
+                        .slot(slot)
+                        .blockHeight(blockHeight)
+                        .isDeleted(true)
+                        .build();
+
+                repository.save(deletedEntry);
+            });
+        }
     }
 }

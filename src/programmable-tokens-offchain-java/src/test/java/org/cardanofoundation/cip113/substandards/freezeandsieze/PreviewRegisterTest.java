@@ -26,6 +26,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import lombok.extern.slf4j.Slf4j;
 import org.cardanofoundation.cip113.AbstractPreviewTest;
 import org.cardanofoundation.cip113.config.AppConfig;
+import org.cardanofoundation.cip113.model.LinkedListNode;
 import org.cardanofoundation.cip113.model.onchain.RegistryNode;
 import org.cardanofoundation.cip113.model.onchain.RegistryNodeParser;
 import org.cardanofoundation.cip113.model.onchain.siezeandfreeze.blacklist.BlacklistBootstrap;
@@ -44,13 +45,16 @@ import static org.cardanofoundation.cip113.util.PlutusSerializationHelper.serial
 @Slf4j
 public class PreviewRegisterTest extends AbstractPreviewTest {
 
-    private static final String DEFAULT_PROTOCOL = "0c8e4c5da192e0c814495f685aebf31d27e2eec55a302c08ae56d3f8dd564489";
+//    private static final String DEFAULT_PROTOCOL = "0c8e4c5da192e0c814495f685aebf31d27e2eec55a302c08ae56d3f8dd564489";
+    private static final String DEFAULT_PROTOCOL = "114adc8ee212b5ded1f895ab53c7741e5521feff735d05aeef2a92dcf05c9ae2";
 
     private final Network network = Networks.preview();
 
     private final UtxoProvider utxoProvider = new UtxoProvider(bfBackendService, null);
 
     private final AccountService accountService = new AccountService(utxoProvider);
+
+    private final LinkedListService linkedListService = new LinkedListService(utxoProvider);
 
     private final ProtocolBootstrapService protocolBootstrapService = new ProtocolBootstrapService(OBJECT_MAPPER, new AppConfig.Network("preview"));
 
@@ -82,6 +86,7 @@ public class PreviewRegisterTest extends AbstractPreviewTest {
 
         var protocolBootstrapParamsOpt = protocolBootstrapService.getProtocolBootstrapParamsByTxHash(DEFAULT_PROTOCOL);
         var protocolBootstrapParams = protocolBootstrapParamsOpt.get();
+        log.info("protocolBootstrapParams: {}", protocolBootstrapParams);
 
         var bootstrapTxHash = protocolBootstrapParams.txHash();
 
@@ -137,36 +142,17 @@ public class PreviewRegisterTest extends AbstractPreviewTest {
         var registryAddress = AddressProvider.getEntAddress(directorySpendContract, network);
 
         var registryEntries = utxoProvider.findUtxos(registryAddress.getAddress());
+        log.info("found {}, registry entries", registryEntries.size());
 
-        var registryEntryOpt = registryEntries.stream()
-                .filter(addressUtxoEntity -> registryNodeParser.parse(addressUtxoEntity.getInlineDatum())
-                        .map(registryNode -> registryNode.key().equals(progTokenPolicyId))
-                        .orElse(false)
-                )
-                .findAny();
+        var nodeAlreadyPresent = linkedListService.nodeAlreadyPresent(progTokenPolicyId, registryEntries, utxo -> registryNodeParser.parse(utxo.getInlineDatum())
+                        .map(RegistryNode::key));
 
-        if (registryEntryOpt.isPresent()) {
+        if (nodeAlreadyPresent) {
             Assertions.fail("registry node already present");
         }
 
-        var nodeToReplaceOpt = registryEntries.stream()
-                .filter(utxo -> {
-                    var registryDatumOpt = registryNodeParser.parse(utxo.getInlineDatum());
-
-                    if (registryDatumOpt.isEmpty()) {
-                        log.warn("could not parse registry datum for: {}", utxo.getInlineDatum());
-                        return false;
-                    }
-
-                    var registryDatum = registryDatumOpt.get();
-
-                    var after = registryDatum.key().compareTo(progTokenPolicyId) < 0;
-                    var before = progTokenPolicyId.compareTo(registryDatum.next()) < 0;
-                    log.info("after:{}, before: {}", after, before);
-                    return after && before;
-
-                })
-                .findAny();
+        var nodeToReplaceOpt = linkedListService.findNodeToReplace(progTokenPolicyId, registryEntries, utxo -> registryNodeParser.parse(utxo.getInlineDatum())
+                .map(node -> new LinkedListNode(node.key(), node.next())));
 
         if (nodeToReplaceOpt.isEmpty()) {
             Assertions.fail("could not find node to replace");
