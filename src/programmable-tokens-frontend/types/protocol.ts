@@ -1,7 +1,3 @@
-/**
- * Types for protocol bootstrap parameters and blueprints
- */
-
 export interface TxInput {
   txHash: string;
   outputIndex: number;
@@ -43,6 +39,14 @@ export interface ProtocolBootstrapParams {
   programmableGlobalRefInput: TxInput;
   txHash: string;
 }
+
+export type RegistryDatum = {
+  key: string;
+  next: any;
+  transferScriptHash: string;
+  thirdPartyScriptHash: string;
+  metadata: any;
+};
 
 export interface BlueprintValidator {
   title: string;

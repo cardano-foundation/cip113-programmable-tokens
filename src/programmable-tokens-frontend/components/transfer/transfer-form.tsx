@@ -1,16 +1,30 @@
 "use client";
 
-import { useState, useEffect, useRef } from 'react';
-import { useWallet } from '@meshsdk/react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Badge } from '@/components/ui/badge';
-import { transferToken, getWalletBalance, parseWalletBalance } from '@/lib/api';
-import { useToast } from '@/components/ui/use-toast';
-import { TransferTokenRequest, ParsedAsset } from '@/types/api';
-import { useProtocolVersion } from '@/contexts/protocol-version-context';
-import { ChevronDown, RefreshCw, Coins } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { useState, useEffect, useRef } from "react";
+import { useWallet } from "@meshsdk/react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import {
+  TransactionBuilderToggle,
+  TransactionBuilder,
+} from "@/components/mint/transaction-builder-toggle";
+import {
+  transferToken,
+  getWalletBalance,
+  parseWalletBalance,
+  getProtocolBlueprint,
+  getProtocolBootstrap,
+  getSubstandardBlueprint,
+} from "@/lib/api";
+import { useToast } from "@/components/ui/use-toast";
+import { TransferTokenRequest, ParsedAsset } from "@/types/api";
+import { useProtocolVersion } from "@/contexts/protocol-version-context";
+import { getSubstandardHandler } from "@/lib/mesh-sdk/standard/factory";
+import type { TransferTransactionParams } from "@/lib/mesh-sdk/standard/factory";
+import type { IWallet } from "@meshsdk/core";
+import { ChevronDown, RefreshCw, Coins } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 interface TransferFormProps {
   onTransactionBuilt: (
@@ -30,15 +44,17 @@ export function TransferForm({ onTransactionBuilt }: TransferFormProps) {
   const [assets, setAssets] = useState<ParsedAsset[]>([]);
   const [selectedAsset, setSelectedAsset] = useState<ParsedAsset | null>(null);
   const [isLoadingBalances, setIsLoadingBalances] = useState(false);
-  const [quantity, setQuantity] = useState('');
-  const [recipientAddress, setRecipientAddress] = useState('');
+  const [quantity, setQuantity] = useState("");
+  const [recipientAddress, setRecipientAddress] = useState("");
+  const [transactionBuilder, setTransactionBuilder] =
+    useState<TransactionBuilder>("backend");
   const [isBuilding, setIsBuilding] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
 
   const [errors, setErrors] = useState({
-    token: '',
-    quantity: '',
-    recipientAddress: '',
+    token: "",
+    quantity: "",
+    recipientAddress: "",
   });
 
   // Load programmable token balances
@@ -55,7 +71,9 @@ export function TransferForm({ onTransactionBuilt }: TransferFormProps) {
       const parsed = await parseWalletBalance(response);
 
       // Filter to only show programmable tokens
-      const programmableAssets = parsed.assets.filter(asset => asset.isProgrammable);
+      const programmableAssets = parsed.assets.filter(
+        (asset) => asset.isProgrammable
+      );
       setAssets(programmableAssets);
 
       // Auto-select first asset if only one available
@@ -63,7 +81,7 @@ export function TransferForm({ onTransactionBuilt }: TransferFormProps) {
         setSelectedAsset(programmableAssets[0]);
       }
     } catch (error) {
-      console.error('Failed to load balances:', error);
+      console.error("Failed to load balances:", error);
       setAssets([]);
     } finally {
       setIsLoadingBalances(false);
@@ -81,57 +99,63 @@ export function TransferForm({ onTransactionBuilt }: TransferFormProps) {
   // Close dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+      if (
+        dropdownRef.current &&
+        !dropdownRef.current.contains(event.target as Node)
+      ) {
         setShowDropdown(false);
       }
     };
 
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
   const handleAssetSelect = (asset: ParsedAsset) => {
     setSelectedAsset(asset);
     setShowDropdown(false);
-    setErrors(prev => ({ ...prev, token: '' }));
+    setErrors((prev) => ({ ...prev, token: "" }));
   };
 
   const handleSetMax = () => {
     if (selectedAsset) {
       setQuantity(selectedAsset.amount);
-      setErrors(prev => ({ ...prev, quantity: '' }));
+      setErrors((prev) => ({ ...prev, quantity: "" }));
     }
   };
 
   const validateForm = (): boolean => {
     const newErrors = {
-      token: '',
-      quantity: '',
-      recipientAddress: '',
+      token: "",
+      quantity: "",
+      recipientAddress: "",
     };
 
     if (!selectedAsset) {
-      newErrors.token = 'Please select a token to transfer';
+      newErrors.token = "Please select a token to transfer";
     }
 
     if (!quantity.trim()) {
-      newErrors.quantity = 'Quantity is required';
+      newErrors.quantity = "Quantity is required";
     } else if (!/^\d+$/.test(quantity)) {
-      newErrors.quantity = 'Quantity must be a positive number';
+      newErrors.quantity = "Quantity must be a positive number";
     } else if (BigInt(quantity) <= 0) {
-      newErrors.quantity = 'Quantity must be greater than 0';
-    } else if (selectedAsset && BigInt(quantity) > BigInt(selectedAsset.amount)) {
+      newErrors.quantity = "Quantity must be greater than 0";
+    } else if (
+      selectedAsset &&
+      BigInt(quantity) > BigInt(selectedAsset.amount)
+    ) {
       newErrors.quantity = `Quantity exceeds balance (max: ${selectedAsset.amount})`;
     }
 
     if (!recipientAddress.trim()) {
-      newErrors.recipientAddress = 'Recipient address is required';
-    } else if (!recipientAddress.startsWith('addr')) {
-      newErrors.recipientAddress = 'Invalid Cardano address format';
+      newErrors.recipientAddress = "Recipient address is required";
+    } else if (!recipientAddress.startsWith("addr")) {
+      newErrors.recipientAddress = "Invalid Cardano address format";
     }
 
     setErrors(newErrors);
-    return !Object.values(newErrors).some(error => error !== '');
+    return !Object.values(newErrors).some((error) => error !== "");
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -139,9 +163,9 @@ export function TransferForm({ onTransactionBuilt }: TransferFormProps) {
 
     if (!connected) {
       showToast({
-        title: 'Wallet Not Connected',
-        description: 'Please connect your wallet to transfer tokens',
-        variant: 'error',
+        title: "Wallet Not Connected",
+        description: "Please connect your wallet to transfer tokens",
+        variant: "error",
       });
       return;
     }
@@ -156,25 +180,73 @@ export function TransferForm({ onTransactionBuilt }: TransferFormProps) {
       // Get sender address from wallet
       const addresses = await wallet.getUsedAddresses();
       if (!addresses || addresses.length === 0) {
-        throw new Error('No addresses found in wallet');
+        throw new Error("No addresses found in wallet");
       }
       const senderAddress = addresses[0];
 
-      // Prepare transfer request
-      const request: TransferTokenRequest = {
-        senderAddress,
-        unit: selectedAsset!.unit,
-        quantity,
-        recipientAddress: recipientAddress.trim(),
-      };
+      let unsignedCborTx: string;
 
-      // Call backend to build transfer transaction
-      const unsignedCborTx = await transferToken(request, selectedVersion?.txHash);
+      if (transactionBuilder === "frontend") {
+        // Client-side transaction building
+        showToast({
+          title: "Building Transaction",
+          description: "Building transaction on client side...",
+          variant: "default",
+        });
+
+        // Extract policy ID and substandard from the asset
+        // We need to determine the substandard from the asset metadata
+        // For now, we'll try to get it from the balance response or use 'dummy' as default
+        const substandardId = "dummy"; // Default - you may want to store this with the asset
+
+        // Fetch protocol data
+        const protocolTxHash = selectedVersion?.txHash;
+        const [protocolBlueprint, protocolBootstrap, substandardBlueprint] =
+          await Promise.all([
+            getProtocolBlueprint(),
+            getProtocolBootstrap(protocolTxHash),
+            getSubstandardBlueprint(substandardId),
+          ]);
+
+        // Get substandard handler
+        const handler = getSubstandardHandler(
+          substandardId as "dummy" | "bafin"
+        );
+
+        // Prepare transfer parameters
+        const transferParams: TransferTransactionParams = {
+          unit: selectedAsset!.unit,
+          quantity,
+          senderAddress,
+          recipientAddress: recipientAddress.trim(),
+          networkId: 0, // Preview/testnet
+        };
+
+        // Build transaction client-side
+        unsignedCborTx = await handler.buildTransferTransaction(
+          transferParams,
+          protocolBootstrap,
+          protocolBlueprint,
+          substandardBlueprint,
+          wallet as IWallet
+        );
+      } else {
+        // Server-side transaction building (existing logic)
+        const request: TransferTokenRequest = {
+          senderAddress,
+          unit: selectedAsset!.unit,
+          quantity,
+          recipientAddress: recipientAddress.trim(),
+        };
+
+        // Call backend to build transfer transaction
+        unsignedCborTx = await transferToken(request, selectedVersion?.txHash);
+      }
 
       showToast({
-        title: 'Transaction Built',
-        description: 'Review and sign the transaction to transfer your tokens',
-        variant: 'success',
+        title: "Transaction Built",
+        description: "Review and sign the transaction to transfer your tokens",
+        variant: "success",
       });
 
       // Pass transaction to parent for preview and signing
@@ -186,19 +258,23 @@ export function TransferForm({ onTransactionBuilt }: TransferFormProps) {
       );
     } catch (error) {
       // Extract error message from backend response
-      let errorMessage = 'Failed to build transfer transaction';
-      let errorTitle = 'Transfer Failed';
+      let errorMessage = "Failed to build transfer transaction";
+      let errorTitle = "Transfer Failed";
 
       if (error instanceof Error) {
         errorMessage = error.message;
 
         // Check for specific error cases
-        if (errorMessage.toLowerCase().includes('not enough funds')) {
-          errorTitle = 'Insufficient Balance';
-          errorMessage = 'You do not have enough tokens to complete this transfer.';
-        } else if (errorMessage.toLowerCase().includes('could not find registry entry')) {
-          errorTitle = 'Token Not Registered';
-          errorMessage = 'This token policy has not been registered as a programmable token.';
+        if (errorMessage.toLowerCase().includes("not enough funds")) {
+          errorTitle = "Insufficient Balance";
+          errorMessage =
+            "You do not have enough tokens to complete this transfer.";
+        } else if (
+          errorMessage.toLowerCase().includes("could not find registry entry")
+        ) {
+          errorTitle = "Token Not Registered";
+          errorMessage =
+            "This token policy has not been registered as a programmable token.";
         }
       }
 
@@ -206,12 +282,12 @@ export function TransferForm({ onTransactionBuilt }: TransferFormProps) {
       showToast({
         title: errorTitle,
         description: errorMessage,
-        variant: 'error',
+        variant: "error",
         duration: 6000,
       });
 
       // Log to console without showing Next.js error overlay
-      console.log('Transfer error:', { errorTitle, errorMessage });
+      console.log("Transfer error:", { errorTitle, errorMessage });
     } finally {
       setIsBuilding(false);
     }
@@ -242,24 +318,32 @@ export function TransferForm({ onTransactionBuilt }: TransferFormProps) {
                 <>
                   <Coins className="h-5 w-5 text-primary-500 flex-shrink-0" />
                   <div className="text-left flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate">{selectedAsset.assetName}</p>
-                    <p className="text-xs text-dark-400">Balance: {selectedAsset.amount}</p>
+                    <p className="text-sm font-medium truncate">
+                      {selectedAsset.assetName}
+                    </p>
+                    <p className="text-xs text-dark-400">
+                      Balance: {selectedAsset.amount}
+                    </p>
                   </div>
-                  <Badge variant="success" size="sm">Programmable</Badge>
+                  <Badge variant="success" size="sm">
+                    Programmable
+                  </Badge>
                 </>
               ) : (
                 <>
                   <Coins className="h-5 w-5 text-dark-500 flex-shrink-0" />
                   <span className="text-dark-400">
-                    {isLoadingBalances ? 'Loading tokens...' : 'Select a token'}
+                    {isLoadingBalances ? "Loading tokens..." : "Select a token"}
                   </span>
                 </>
               )}
             </div>
-            <ChevronDown className={cn(
-              "h-4 w-4 text-dark-400 transition-transform flex-shrink-0",
-              showDropdown && "transform rotate-180"
-            )} />
+            <ChevronDown
+              className={cn(
+                "h-4 w-4 text-dark-400 transition-transform flex-shrink-0",
+                showDropdown && "transform rotate-180"
+              )}
+            />
           </button>
 
           {showDropdown && (
@@ -267,7 +351,9 @@ export function TransferForm({ onTransactionBuilt }: TransferFormProps) {
               {assets.length === 0 ? (
                 <div className="p-6 text-center">
                   <Coins className="h-12 w-12 text-dark-600 mx-auto mb-3" />
-                  <p className="text-sm text-dark-300 mb-2">No programmable tokens found</p>
+                  <p className="text-sm text-dark-300 mb-2">
+                    No programmable tokens found
+                  </p>
                   <p className="text-xs text-dark-400">
                     Register and mint tokens first
                   </p>
@@ -275,17 +361,23 @@ export function TransferForm({ onTransactionBuilt }: TransferFormProps) {
               ) : (
                 <>
                   <div className="p-2 border-b border-dark-700 flex items-center justify-between">
-                    <p className="text-xs text-dark-400 px-2">Select token to transfer</p>
+                    <p className="text-xs text-dark-400 px-2">
+                      Select token to transfer
+                    </p>
                     <button
                       type="button"
-                      onClick={() => { loadBalances(); }}
+                      onClick={() => {
+                        loadBalances();
+                      }}
                       className="p-1 hover:bg-dark-700 rounded transition-colors"
                       title="Refresh balances"
                     >
-                      <RefreshCw className={cn(
-                        "h-3 w-3 text-dark-400",
-                        isLoadingBalances && "animate-spin"
-                      )} />
+                      <RefreshCw
+                        className={cn(
+                          "h-3 w-3 text-dark-400",
+                          isLoadingBalances && "animate-spin"
+                        )}
+                      />
                     </button>
                   </div>
                   {assets.map((asset, index) => (
@@ -304,13 +396,20 @@ export function TransferForm({ onTransactionBuilt }: TransferFormProps) {
                           <p className="text-sm font-medium text-white truncate">
                             {asset.assetName}
                           </p>
-                          <p className="text-xs text-dark-400 truncate" title={asset.policyId}>
+                          <p
+                            className="text-xs text-dark-400 truncate"
+                            title={asset.policyId}
+                          >
                             Policy: {asset.policyId.substring(0, 16)}...
                           </p>
                         </div>
                         <div className="text-right">
-                          <p className="text-sm font-bold text-accent-400">{asset.amount}</p>
-                          <Badge variant="success" size="sm">Programmable</Badge>
+                          <p className="text-sm font-bold text-accent-400">
+                            {asset.amount}
+                          </p>
+                          <Badge variant="success" size="sm">
+                            Programmable
+                          </Badge>
                         </div>
                       </div>
                     </button>
@@ -367,6 +466,13 @@ export function TransferForm({ onTransactionBuilt }: TransferFormProps) {
         />
       </div>
 
+      {/* Transaction Builder Toggle */}
+      <TransactionBuilderToggle
+        value={transactionBuilder}
+        onChange={setTransactionBuilder}
+        disabled={isBuilding}
+      />
+
       {/* Submit Button */}
       <Button
         type="submit"
@@ -375,7 +481,7 @@ export function TransferForm({ onTransactionBuilt }: TransferFormProps) {
         isLoading={isBuilding}
         disabled={!connected || isBuilding || !selectedAsset}
       >
-        {isBuilding ? 'Building Transaction...' : 'Transfer Tokens'}
+        {isBuilding ? "Building Transaction..." : "Transfer Tokens"}
       </Button>
 
       {!connected && (

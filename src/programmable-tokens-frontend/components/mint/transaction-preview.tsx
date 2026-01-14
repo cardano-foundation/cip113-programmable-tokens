@@ -1,12 +1,19 @@
 "use client";
 
-import { useState } from 'react';
-import { useWallet } from '@meshsdk/react';
-import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { useToast } from '@/components/ui/use-toast';
-import { hexToString } from '@/lib/api';
+import { useState } from "react";
+import { useWallet } from "@meshsdk/react";
+import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+  CardContent,
+  CardFooter,
+} from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { useToast } from "@/components/ui/use-toast";
+import { hexToString } from "@/lib/api";
 
 interface TransactionPreviewProps {
   unsignedTxCborHex: string;
@@ -33,7 +40,7 @@ export function TransactionPreview({
       setIsSigning(true);
 
       // Sign the transaction using Mesh SDK
-      const signedTx = await wallet.signTx(unsignedTxCborHex, false);
+      const signedTx = await wallet.signTx(unsignedTxCborHex);
 
       setIsSigning(false);
       setIsSubmitting(true);
@@ -42,18 +49,21 @@ export function TransactionPreview({
       const txHash = await wallet.submitTx(signedTx);
 
       showToast({
-        title: 'Transaction Submitted',
+        title: "Transaction Submitted",
         description: `Transaction hash: ${txHash.substring(0, 16)}...`,
-        variant: 'success',
+        variant: "success",
       });
 
       onSuccess(txHash);
     } catch (error) {
-      console.error('Error signing/submitting transaction:', error);
+      console.error("Error signing/submitting transaction:", error);
       showToast({
-        title: 'Transaction Failed',
-        description: error instanceof Error ? error.message : 'Failed to sign or submit transaction',
-        variant: 'error',
+        title: "Transaction Failed",
+        description:
+          error instanceof Error
+            ? error.message
+            : "Failed to sign or submit transaction",
+        variant: "error",
       });
     } finally {
       setIsSigning(false);
@@ -119,8 +129,9 @@ export function TransactionPreview({
         {/* Warning */}
         <div className="mt-4 p-3 bg-orange-500/10 border border-orange-500/20 rounded-lg">
           <p className="text-xs text-orange-300">
-            <strong>Note:</strong> Please review the transaction carefully before signing.
-            Once submitted to the blockchain, this action cannot be reversed.
+            <strong>Note:</strong> Please review the transaction carefully
+            before signing. Once submitted to the blockchain, this action cannot
+            be reversed.
           </p>
         </div>
       </CardContent>
@@ -141,9 +152,9 @@ export function TransactionPreview({
           disabled={isSigning || isSubmitting}
           className="w-full"
         >
-          {isSigning && 'Signing...'}
-          {isSubmitting && 'Submitting...'}
-          {!isSigning && !isSubmitting && 'Sign & Submit'}
+          {isSigning && "Signing..."}
+          {isSubmitting && "Submitting..."}
+          {!isSigning && !isSubmitting && "Sign & Submit"}
         </Button>
       </CardFooter>
     </Card>
