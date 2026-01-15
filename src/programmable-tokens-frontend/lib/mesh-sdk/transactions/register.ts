@@ -9,7 +9,7 @@ import {
   stringToHex,
   UTxO,
 } from "@meshsdk/core";
-import { provider } from "../config";
+import { provider, getNetworkName } from "../config";
 import { Cip113_scripts_standard } from "../standard/deploy";
 import { cip113_scripts_subStandard } from "../substandard/dummy/deploy";
 import {
@@ -97,7 +97,7 @@ const register_programmable_tokens = async (
   }
   const logic_base = await standardScript.programmable_logic_base(params);
   const logic_address = buildBaseAddress(
-    0,
+    Network_id,
     logic_base.policyId as Hash28ByteBase16,
     sender_cred.getStakeCredential().hash,
     CredentialType.ScriptHash,
@@ -118,7 +118,7 @@ const register_programmable_tokens = async (
     .find((d: any) => d.key === prog_token_policyId);
 
   if (existingEntry) {
-    throw new Error(`Token policy ${prog_token_policyId} already registered`); //check after if this is correct
+    throw new Error(`Token policy ${prog_token_policyId} already registered`);
   }
 
   // Find node to replace in the linked list
@@ -236,6 +236,7 @@ const register_programmable_tokens = async (
     )
     .txInCollateral(collateral.input.txHash, collateral.input.outputIndex)
     .selectUtxosFrom(walletUtxos)
+    .setNetwork(getNetworkName())
     .changeAddress(changeAddress)
     .complete();
 

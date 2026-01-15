@@ -7,6 +7,7 @@ import type {
 import { register_programmable_tokens } from "../transactions/register";
 import { transfer_programmable_token } from "../transactions/transfer";
 import { mint_programmable_tokens } from "../transactions/mint";
+import { getNetworkId } from "../config";
 
 export type SubstandardId = "dummy" | "bafin";
 
@@ -76,7 +77,7 @@ const dummyHandler: SubstandardHandler = {
     _substandardBlueprint: SubstandardBlueprint,
     wallet: IWallet
   ): Promise<string> {
-    const networkId = 0;
+    const networkId = getNetworkId();
 
     return mint_programmable_tokens(
       protocolParams,
@@ -101,7 +102,7 @@ const dummyHandler: SubstandardHandler = {
       ? ("issuance" as const)
       : ("transfer" as const);
 
-    const networkId = params.networkId ?? 0;
+    const networkId = params.networkId ?? getNetworkId();
 
     const { unsignedTx, policy_Id } = await register_programmable_tokens(
       params.assetName,
@@ -125,7 +126,7 @@ const dummyHandler: SubstandardHandler = {
     _substandardBlueprint: SubstandardBlueprint,
     wallet: IWallet
   ): Promise<string> {
-    const networkId = params.networkId ?? 0;
+    const networkId = params.networkId ?? getNetworkId();
 
     return transfer_programmable_token(
       params.unit,
