@@ -35,8 +35,9 @@ dependencies {
 	implementation('com.bloxbean.cardano:cardano-client-backend-ogmios:0.7.1')
 
     implementation('com.bloxbean.cardano:aiken-java-binding:0.1.0')
+	implementation('org.scalus:scalus-bloxbean-cardano-client-lib_3:0.10.4')
 
-    implementation('com.easy1staking:cardano-client-lib-extensions:0.0.2')
+    implementation('com.easy1staking:cardano-client-lib-extensions:0.0.4')
 
 	implementation 'io.micrometer:micrometer-registry-prometheus:latest.release'
 
