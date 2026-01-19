@@ -21,15 +21,18 @@ use utils.{bytearray_lt, expect_inline_datum}
 validator blacklist_mint(utxo_ref: OutputReference, manager_pkh: ByteArray) {
   mint(redeemer: BlacklistRedeemer, policy_id: PolicyId, self: Transaction) {
     // Ensure this is a one-shot minting policy by checking that utxo_ref is spent
-    expect
-      list.any(self.inputs, fn(input) { input.output_reference == utxo_ref })
-
     let (node_inputs, node_outputs) = collect_node_ios(self, policy_id)
 
     when redeemer is {
-      BlacklistInit ->
+      BlacklistInit -> {
+        expect
+          list.any(
+            self.inputs,
+            fn(input) { input.output_reference == utxo_ref },
+          )
         // Initialize the blacklist with an empty origin node
-        validate_blacklist_init(node_inputs, node_outputs, self.mint, policy_id)
+        validate_blacklist_init(node_inputs, node_outputs, self.mint, policy_id)?
+      }
 
       BlacklistInsert { key } -> {
         // Authorization check: manager must sign the transaction
@@ -71,16 +74,16 @@ validator blacklist_mint(utxo_ref: OutputReference, manager_pkh: ByteArray) {
           )
         and {
           // Validate key is a valid public key hash (28 bytes)
-          builtin.length_of_bytearray(key) == 28,
-          manager_signed,
-          just_single_mint,
+          (builtin.length_of_bytearray(key) == 28)?,
+          manager_signed?,
+          just_single_mint?,
           // The covering node must cover the key to insert
-          bytearray_lt(covering_node.key, key),
-          bytearray_lt(key, covering_node.next),
+          bytearray_lt(covering_node.key, key)?,
+          bytearray_lt(key, covering_node.next)?,
           // Must have exactly 2 outputs: the updated covering node and the new inserted node
-          list.length(output_nodes) == 2,
-          blacklist_node_updated,
-          blacklist_node_inserted,
+          (list.length(output_nodes) == 2)?,
+          blacklist_node_updated?,
+          blacklist_node_inserted?,
         }
       }
 
@@ -127,11 +130,11 @@ validator blacklist_mint(utxo_ref: OutputReference, manager_pkh: ByteArray) {
           }
 
         and {
-          manager_signed,
-          just_single_burn,
+          manager_signed?,
+          just_single_burn?,
           // Must have exactly two node inputs: the node to remove and the covering node
           list.length(node_inputs) == 2,
-          checks,
+          checks?,
         }
       }
     }

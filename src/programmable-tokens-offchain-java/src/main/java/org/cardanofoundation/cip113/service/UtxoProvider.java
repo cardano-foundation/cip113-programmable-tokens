@@ -57,6 +57,7 @@ public class UtxoProvider {
                 if (utxoResult.isSuccessful()) {
                     return utxoResult.getValue();
                 } else {
+                    log.warn("error: {}", utxoResult.getResponse());
                     return List.of();
                 }
             } catch (ApiException e) {

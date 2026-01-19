@@ -18,18 +18,12 @@ import com.bloxbean.cardano.client.plutus.spec.ListPlutusData;
 import com.bloxbean.cardano.client.quicktx.ScriptTx;
 import com.bloxbean.cardano.client.transaction.spec.Asset;
 import com.bloxbean.cardano.client.transaction.spec.MultiAsset;
-import com.bloxbean.cardano.client.transaction.spec.TransactionInput;
 import com.bloxbean.cardano.client.transaction.spec.Value;
 import com.bloxbean.cardano.client.util.HexUtil;
-import com.easy1staking.cardano.model.AssetType;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import lombok.extern.slf4j.Slf4j;
 import org.cardanofoundation.cip113.AbstractPreviewTest;
 import org.cardanofoundation.cip113.config.AppConfig;
-import org.cardanofoundation.cip113.model.LinkedListNode;
-import org.cardanofoundation.cip113.model.onchain.RegistryNode;
-import org.cardanofoundation.cip113.model.onchain.RegistryNodeParser;
-import org.cardanofoundation.cip113.model.onchain.siezeandfreeze.blacklist.BlacklistBootstrap;
 import org.cardanofoundation.cip113.service.*;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -37,15 +31,13 @@ import org.junit.jupiter.api.Test;
 
 import java.math.BigInteger;
 import java.util.List;
-import java.util.Optional;
 
-import static java.math.BigInteger.ONE;
 import static org.cardanofoundation.cip113.util.PlutusSerializationHelper.serialize;
 
 @Slf4j
 public class PreviewMintTest extends AbstractPreviewTest {
 
-//    private static final String DEFAULT_PROTOCOL = "0c8e4c5da192e0c814495f685aebf31d27e2eec55a302c08ae56d3f8dd564489";
+    //    private static final String DEFAULT_PROTOCOL = "0c8e4c5da192e0c814495f685aebf31d27e2eec55a302c08ae56d3f8dd564489";
     private static final String DEFAULT_PROTOCOL = "114adc8ee212b5ded1f895ab53c7741e5521feff735d05aeef2a92dcf05c9ae2";
 
     private final Network network = Networks.preview();
@@ -75,6 +67,8 @@ public class PreviewMintTest extends AbstractPreviewTest {
 
         var substandardName = "freeze-and-seize";
 
+        var issuerAdminAccount = bobAccount;
+
         var adminUtxos = accountService.findAdaOnlyUtxo(adminAccount.baseAddress(), 10_000_000L);
 
         var protocolBootstrapParamsOpt = protocolBootstrapService.getProtocolBootstrapParamsByTxHash(DEFAULT_PROTOCOL);
@@ -95,18 +89,20 @@ public class PreviewMintTest extends AbstractPreviewTest {
         var issuerContractOpt = substandardService.getSubstandardValidator(substandardName, "example_transfer_logic.issuer_admin_contract.withdraw");
         var issuerContract = issuerContractOpt.get();
 
-        var issuerAdminContractInitParams = ListPlutusData.of(serialize(adminAccount.getBaseAddress().getPaymentCredential().get()));
+        var issuerAdminContractInitParams = ListPlutusData.of(serialize(issuerAdminAccount.getBaseAddress().getPaymentCredential().get()));
 
         var substandardIssueContract = PlutusBlueprintUtil.getPlutusScriptFromCompiledCode(
                 AikenScriptUtil.applyParamToScript(issuerAdminContractInitParams, issuerContract.scriptBytes()),
                 PlutusVersion.v3
         );
+        log.info("substandardIssueContract: {}", substandardIssueContract.getPolicyId());
 
         var substandardIssueAddress = AddressProvider.getRewardAddress(substandardIssueContract, network);
         log.info("substandardIssueAddress: {}", substandardIssueAddress.getAddress());
 
 
         var issuanceContract = protocolScriptBuilderService.getParameterizedIssuanceMintScript(protocolBootstrapParams, substandardIssueContract);
+        log.info("issuanceContract: {}", issuanceContract.getPolicyId());
 
         var issuanceRedeemer = ConstrPlutusData.of(0, ConstrPlutusData.of(1, BytesPlutusData.of(substandardIssueContract.getScriptHash())));
 
@@ -126,10 +122,7 @@ public class PreviewMintTest extends AbstractPreviewTest {
                 ))
                 .build();
 
-        var payee = adminAccount.getBaseAddress().getAddress();
-        log.info("payee: {}", payee);
-
-        var payeeAddress = new Address(payee);
+        var payeeAddress = aliceAccount.getBaseAddress();
 
         var targetAddress = AddressProvider.getBaseAddress(Credential.fromScript(protocolBootstrapParams.programmableLogicBaseParams().scriptHash()),
                 payeeAddress.getDelegationCredential().get(),
@@ -145,8 +138,9 @@ public class PreviewMintTest extends AbstractPreviewTest {
                 .withChangeAddress(adminAccount.baseAddress());
 
         var transaction = quickTxBuilder.compose(tx)
-                .withRequiredSigners(adminAccount.getBaseAddress())
+                .withRequiredSigners(bobAccount.getBaseAddress())
                 .withSigner(SignerProviders.signerFrom(adminAccount))
+                .withSigner(SignerProviders.signerFrom(bobAccount))
 //                    .withTxEvaluator(new AikenTransactionEvaluator(bfBackendService))
                 .feePayer(adminAccount.baseAddress())
                 .withTxEvaluator(new AikenTransactionEvaluator(bfBackendService))

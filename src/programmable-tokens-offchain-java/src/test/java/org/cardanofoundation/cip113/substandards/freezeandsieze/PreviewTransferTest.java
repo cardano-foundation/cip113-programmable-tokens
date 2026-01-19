@@ -1,6 +1,7 @@
 package org.cardanofoundation.cip113.substandards.freezeandsieze;
 
 import com.bloxbean.cardano.aiken.AikenScriptUtil;
+import com.bloxbean.cardano.aiken.AikenTransactionEvaluator;
 import com.bloxbean.cardano.client.address.Address;
 import com.bloxbean.cardano.client.address.AddressProvider;
 import com.bloxbean.cardano.client.address.Credential;
@@ -48,7 +49,7 @@ import java.util.stream.Stream;
 import static org.cardanofoundation.cip113.util.PlutusSerializationHelper.serialize;
 
 @Slf4j
-public class PreviewTransferTest extends AbstractPreviewTest {
+public class PreviewTransferTest extends AbstractPreviewTest implements PreviewFreezeAndSieze {
 
     private static final String DEFAULT_PROTOCOL = "114adc8ee212b5ded1f895ab53c7741e5521feff735d05aeef2a92dcf05c9ae2";
 
@@ -82,14 +83,13 @@ public class PreviewTransferTest extends AbstractPreviewTest {
     public void test() throws Exception {
 
         var dryRun = false;
-
-        var blacklistBoostrapJson = "{\"blacklistMintBootstrap\":{\"txInput\":{\"txHash\":\"7172a517d98d65dc9fdaf270cb52383de54840fbf44721d8ae82ae8d8175a1a5\",\"outputIndex\":1},\"adminPubKeyHash\":\"32e7e00eae28502a2aa271cf4202b1b01b94ca8efe642e380c93d5e2\",\"scriptHash\":\"30a8c9cc2fd9e9424dc4732f2ccdcf5bee863e5b77817090a1acefbb\"},\"blacklistSpendBootstrap\":{\"blacklistMintScriptHash\":\"30a8c9cc2fd9e9424dc4732f2ccdcf5bee863e5b77817090a1acefbb\",\"scriptHash\":\"97c007326cf3839c4820da1d8fa3c097abeab42d1f5f18044c0188d8\"}}";
-        var blacklistBoostrap = OBJECT_MAPPER.readValue(blacklistBoostrapJson, BlacklistBootstrap.class);
+        
+        var blacklistBoostrap = OBJECT_MAPPER.readValue(BL_BOOTSTRAP_V3, BlacklistBootstrap.class);
         log.info("blacklistBoostrap: {}", blacklistBoostrap);
 
         var substandardName = "freeze-and-seize";
 
-        var adminUtxos = accountService.findAdaOnlyUtxo(adminAccount.baseAddress(), 10_000_000L);
+        var adminUtxos = accountService.findAdaOnlyUtxo(aliceAccount.baseAddress(), 10_000_000L);
 
         var protocolBootstrapParamsOpt = protocolBootstrapService.getProtocolBootstrapParamsByTxHash(DEFAULT_PROTOCOL);
         var protocolBootstrapParams = protocolBootstrapParamsOpt.get();
@@ -97,7 +97,7 @@ public class PreviewTransferTest extends AbstractPreviewTest {
 
         var bootstrapTxHash = protocolBootstrapParams.txHash();
 
-        var progToken = AssetType.fromUnit("034457562a217be56f2e4e8dd22d798f1d81a524196fab0e11cbc8327455534454");
+        var progToken = AssetType.fromUnit("76658c4afd597ba7524f85bf32ac59d9e58856593a2e8399326f853a7455534454");
         log.info("policy id: {}, asset name: {}", progToken.policyId(), progToken.unsafeHumanAssetName());
 
         var amountToTransfer = BigInteger.valueOf(10_000_000L);
@@ -134,12 +134,12 @@ public class PreviewTransferTest extends AbstractPreviewTest {
         var protocolParamsUtxo = protocolParamsUtxoOpt.get();
         log.info("protocolParamsUtxo: {}", protocolParamsUtxo);
 
-        var senderAddress = adminAccount.getBaseAddress();
+        var senderAddress = aliceAccount.getBaseAddress();
         var senderProgrammableTokenAddress = AddressProvider.getBaseAddress(Credential.fromScript(protocolBootstrapParams.programmableLogicBaseParams().scriptHash()),
                 senderAddress.getDelegationCredential().get(),
                 network);
 
-        var recipientAddress = new Address(aliceAccount.baseAddress());
+        var recipientAddress = new Address(bobAccount.baseAddress());
         var recipientProgrammableTokenAddress = AddressProvider.getBaseAddress(Credential.fromScript(protocolBootstrapParams.programmableLogicBaseParams().scriptHash()),
                 recipientAddress.getDelegationCredential().get(),
                 network);
@@ -176,18 +176,6 @@ public class PreviewTransferTest extends AbstractPreviewTest {
         );
 
         var substandardTransferAddress = AddressProvider.getRewardAddress(parameterisedSubstandardTransferContract, network);
-
-        var registerAddressTx = new Tx()
-                .from(adminAccount.baseAddress())
-                .registerStakeAddress(substandardTransferAddress.getAddress())
-                .withChangeAddress(adminAccount.baseAddress());
-
-        quickTxBuilder.compose(registerAddressTx)
-                .feePayer(adminAccount.baseAddress())
-                .withSigner(SignerProviders.signerFrom(adminAccount))
-                .completeAndWait();
-
-        Thread.sleep(20000L);
 
         var valueToSend = Value.from(progToken.policyId(), "0x" + progToken.assetName(), amountToTransfer);
 
@@ -324,10 +312,10 @@ public class PreviewTransferTest extends AbstractPreviewTest {
                 .withRequiredSigners(senderAddress.getDelegationCredentialHash().get())
                 .feePayer(senderAddress.getAddress())
                 .mergeOutputs(false)
-                .withTxEvaluator(ogmiosTxEvaluator())
-//                .withTxEvaluator(new AikenTransactionEvaluator(bfBackendService))
-                .withSigner(SignerProviders.signerFrom(adminAccount))
-                .withSigner(SignerProviders.stakeKeySignerFrom(adminAccount))
+//                .withTxEvaluator(ogmiosTxEvaluator())
+                .withTxEvaluator(new AikenTransactionEvaluator(bfBackendService))
+                .withSigner(SignerProviders.signerFrom(aliceAccount))
+                .withSigner(SignerProviders.stakeKeySignerFrom(aliceAccount))
                 .buildAndSign();
 
 

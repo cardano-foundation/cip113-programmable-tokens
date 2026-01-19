@@ -16,6 +16,7 @@ import com.bloxbean.cardano.client.plutus.spec.BytesPlutusData;
 import com.bloxbean.cardano.client.plutus.spec.ConstrPlutusData;
 import com.bloxbean.cardano.client.plutus.spec.ListPlutusData;
 import com.bloxbean.cardano.client.quicktx.ScriptTx;
+import com.bloxbean.cardano.client.quicktx.Tx;
 import com.bloxbean.cardano.client.transaction.spec.Asset;
 import com.bloxbean.cardano.client.transaction.spec.MultiAsset;
 import com.bloxbean.cardano.client.transaction.spec.TransactionInput;
@@ -43,7 +44,7 @@ import static java.math.BigInteger.ONE;
 import static org.cardanofoundation.cip113.util.PlutusSerializationHelper.serialize;
 
 @Slf4j
-public class PreviewRegisterTest extends AbstractPreviewTest {
+public class PreviewRegisterTest extends AbstractPreviewTest implements PreviewFreezeAndSieze {
 
 //    private static final String DEFAULT_PROTOCOL = "0c8e4c5da192e0c814495f685aebf31d27e2eec55a302c08ae56d3f8dd564489";
     private static final String DEFAULT_PROTOCOL = "114adc8ee212b5ded1f895ab53c7741e5521feff735d05aeef2a92dcf05c9ae2";
@@ -77,12 +78,17 @@ public class PreviewRegisterTest extends AbstractPreviewTest {
 
         var dryRun = false;
 
-        var blacklistBoostrapJson = "{\"blacklistMintBootstrap\":{\"txInput\":{\"txHash\":\"7172a517d98d65dc9fdaf270cb52383de54840fbf44721d8ae82ae8d8175a1a5\",\"outputIndex\":1},\"adminPubKeyHash\":\"32e7e00eae28502a2aa271cf4202b1b01b94ca8efe642e380c93d5e2\",\"scriptHash\":\"30a8c9cc2fd9e9424dc4732f2ccdcf5bee863e5b77817090a1acefbb\"},\"blacklistSpendBootstrap\":{\"blacklistMintScriptHash\":\"30a8c9cc2fd9e9424dc4732f2ccdcf5bee863e5b77817090a1acefbb\",\"scriptHash\":\"97c007326cf3839c4820da1d8fa3c097abeab42d1f5f18044c0188d8\"}}";
-        var blacklistBoostrap = OBJECT_MAPPER.readValue(blacklistBoostrapJson, BlacklistBootstrap.class);
+        var registerWithdrawScriptsAddresses = false;
+
+        // Replace adminAccount w/ alice to create new stable, as issuer/admin contract parameter is pkh and there is already another prog token with that in preview
+
+        var issuerAccount = bobAccount;
+
+        var blacklistBoostrap = OBJECT_MAPPER.readValue(BL_BOOTSTRAP_V3, BlacklistBootstrap.class);
 
         var substandardName = "freeze-and-seize";
 
-        var adminUtxos = accountService.findAdaOnlyUtxo(adminAccount.baseAddress(), 10_000_000L);
+        var adminUtxos = accountService.findAdaOnlyUtxo(issuerAccount.baseAddress(), 10_000_000L);
 
         var protocolBootstrapParamsOpt = protocolBootstrapService.getProtocolBootstrapParamsByTxHash(DEFAULT_PROTOCOL);
         var protocolBootstrapParams = protocolBootstrapParamsOpt.get();
@@ -114,7 +120,7 @@ public class PreviewRegisterTest extends AbstractPreviewTest {
         var issuerContractOpt = substandardService.getSubstandardValidator(substandardName, "example_transfer_logic.issuer_admin_contract.withdraw");
         var issuerContract = issuerContractOpt.get();
 
-        var issuerAdminContractInitParams = ListPlutusData.of(serialize(adminAccount.getBaseAddress().getPaymentCredential().get()));
+        var issuerAdminContractInitParams = ListPlutusData.of(serialize(issuerAccount.getBaseAddress().getPaymentCredential().get()));
 
         var substandardIssueContract = PlutusBlueprintUtil.getPlutusScriptFromCompiledCode(
                 AikenScriptUtil.applyParamToScript(issuerAdminContractInitParams, issuerContract.scriptBytes()),
@@ -135,6 +141,9 @@ public class PreviewRegisterTest extends AbstractPreviewTest {
                 AikenScriptUtil.applyParamToScript(transferContractInitParams, transferContract.scriptBytes()),
                 PlutusVersion.v3
         );
+        var substandardTransferAddress = AddressProvider.getRewardAddress(substandardTransferContract, network);
+        log.info("substandardTransferAddress: {}", substandardTransferAddress.getAddress());
+
 
         var issuanceContract = protocolScriptBuilderService.getParameterizedIssuanceMintScript(protocolBootstrapParams, substandardIssueContract);
         final var progTokenPolicyId = issuanceContract.getPolicyId();
@@ -203,12 +212,10 @@ public class PreviewRegisterTest extends AbstractPreviewTest {
                 .build();
         log.info("directorySpendDatum: {}", directorySpendDatum);
 
-        var thirdPartyScriptHash = "";
-
         var directoryMintDatum = new RegistryNode(HexUtil.encodeHexString(issuanceContract.getScriptHash()),
                 existingRegistryNodeDatum.next(),
                 HexUtil.encodeHexString(substandardTransferContract.getScriptHash()),
-                thirdPartyScriptHash,
+                HexUtil.encodeHexString(substandardIssueContract.getScriptHash()),
                 "");
         log.info("directoryMintDatum: {}", directoryMintDatum);
 
@@ -253,7 +260,7 @@ public class PreviewRegisterTest extends AbstractPreviewTest {
                 ))
                 .build();
 
-        var payee = adminAccount.getBaseAddress().getAddress();
+        var payee = issuerAccount.getBaseAddress().getAddress();
         log.info("payee: {}", payee);
 
         var payeeAddress = new Address(payee);
@@ -262,18 +269,20 @@ public class PreviewRegisterTest extends AbstractPreviewTest {
                 payeeAddress.getDelegationCredential().get(),
                 network);
 
-//        var registerAddressTx = new Tx()
-//                .from(adminAccount.baseAddress())
-//                .registerStakeAddress(substandardIssueAddress.getAddress())
-//                .withChangeAddress(adminAccount.baseAddress());
-//
-//        quickTxBuilder.compose(registerAddressTx)
-//                .feePayer(adminAccount.baseAddress())
-//                .withSigner(SignerProviders.signerFrom(adminAccount))
-//                .completeAndWait();
-//
-//        Thread.sleep(20000L);
+        if (registerWithdrawScriptsAddresses) {
 
+            var registerAddressTx = new Tx()
+                    .from(issuerAccount.baseAddress())
+                    .registerStakeAddress(substandardIssueAddress.getAddress())
+                    .registerStakeAddress(substandardTransferAddress.getAddress())
+                    .withChangeAddress(issuerAccount.baseAddress());
+
+            quickTxBuilder.compose(registerAddressTx)
+                    .feePayer(issuerAccount.baseAddress())
+                    .withSigner(SignerProviders.signerFrom(issuerAccount))
+                    .completeAndWait();
+
+        }
 
         var tx = new ScriptTx()
                 .collectFrom(adminUtxos)
@@ -299,18 +308,18 @@ public class PreviewRegisterTest extends AbstractPreviewTest {
                                 .build())
                 .attachSpendingValidator(directorySpendContract)
                 .attachRewardValidator(substandardIssueContract)
-                .withChangeAddress(adminAccount.baseAddress());
+                .withChangeAddress(issuerAccount.baseAddress());
 
         var transaction = quickTxBuilder.compose(tx)
-                .withRequiredSigners(adminAccount.getBaseAddress())
-                .withSigner(SignerProviders.signerFrom(adminAccount))
+                .withRequiredSigners(issuerAccount.getBaseAddress())
+                .withSigner(SignerProviders.signerFrom(issuerAccount))
 //                    .withTxEvaluator(new AikenTransactionEvaluator(bfBackendService))
-                .feePayer(adminAccount.baseAddress())
+                .feePayer(issuerAccount.baseAddress())
                 .withTxEvaluator(new AikenTransactionEvaluator(bfBackendService))
                 .mergeOutputs(false) //<-- this is important! or directory tokens will go to same address
                 .preBalanceTx((txBuilderContext, transaction1) -> {
                     var outputs = transaction1.getBody().getOutputs();
-                    if (outputs.getFirst().getAddress().equals(adminAccount.baseAddress())) {
+                    if (outputs.getFirst().getAddress().equals(issuerAccount.baseAddress())) {
                         log.info("found dummy input, moving it...");
                         var first = outputs.removeFirst();
                         outputs.addLast(first);
