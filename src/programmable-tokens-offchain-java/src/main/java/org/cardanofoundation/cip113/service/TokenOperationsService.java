@@ -5,8 +5,10 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.cardanofoundation.cip113.entity.RegistryNodeEntity;
 import org.cardanofoundation.cip113.model.*;
+import org.cardanofoundation.cip113.model.TransactionContext.RegistrationResult;
 import org.cardanofoundation.cip113.model.bootstrap.ProtocolBootstrapParams;
 import org.cardanofoundation.cip113.service.substandard.SubstandardHandlerFactory;
+import org.cardanofoundation.cip113.service.substandard.capabilities.BasicOperations;
 import org.springframework.stereotype.Service;
 
 import java.util.Optional;
@@ -30,20 +32,23 @@ public class TokenOperationsService {
      *
      * @param request        The registration request
      * @param protocolTxHash Optional protocol version tx hash (uses default if null)
-     * @return Transaction context with unsigned CBOR tx
+     * @return Transaction context with unsigned CBOR tx and registration metadata
      */
-    public RegisterTransactionContext registerToken(RegisterTokenRequest request, String protocolTxHash) {
+    public TransactionContext<RegistrationResult> registerToken(RegisterTokenRequest request, String protocolTxHash) {
         log.info("Registering token with substandard: {}, protocol: {}",
                 request.substandardName(), protocolTxHash);
 
         // Get protocol bootstrap params
         var protocolParams = resolveProtocolParams(protocolTxHash);
 
-        // Get substandard handler
+        // Get substandard handler with BasicOperations capability
         var handler = handlerFactory.getHandler(request.substandardName());
+        var basicOps = handler.asBasicOperations()
+                .orElseThrow(() -> new UnsupportedOperationException(
+                        "Substandard " + request.substandardName() + " does not support basic operations"));
 
         // Build registration transaction
-        var txContext = handler.buildRegistrationTransaction(request, protocolParams);
+        var txContext = basicOps.buildRegistrationTransaction(request, protocolParams);
 
         log.info("Registration transaction built successfully for substandard: {}",
                 request.substandardName());
@@ -58,7 +63,7 @@ public class TokenOperationsService {
      * @param protocolTxHash Optional protocol version tx hash (uses default if null)
      * @return Transaction context with unsigned CBOR tx
      */
-    public TransactionContext mintToken(MintTokenRequest request, String protocolTxHash) {
+    public TransactionContext<Void> mintToken(MintTokenRequest request, String protocolTxHash) {
         log.info("Minting token: {}, protocol: {}", request, protocolTxHash);
 
         // Get protocol bootstrap params
@@ -68,12 +73,14 @@ public class TokenOperationsService {
 //        String substandardId = resolveSubstandardFromRegistry("request.unit()");
         String substandardId = request.substandardName();
 
-        // Get substandard handler
+        // Get substandard handler with BasicOperations capability
         var handler = handlerFactory.getHandler(substandardId);
+        var basicOps = handler.asBasicOperations()
+                .orElseThrow(() -> new UnsupportedOperationException(
+                        "Substandard " + substandardId + " does not support basic operations"));
 
         // Build mint transaction
-        var txContext = handler.buildMintTransaction(request,
-                protocolParams);
+        var txContext = basicOps.buildMintTransaction(request, protocolParams);
 
         log.info("Mint transaction built successfully for substandard: {}", substandardId);
 
@@ -87,7 +94,7 @@ public class TokenOperationsService {
      * @param protocolTxHash Optional protocol version tx hash (uses default if null)
      * @return Transaction context with unsigned CBOR tx
      */
-    public TransactionContext transferToken(
+    public TransactionContext<Void> transferToken(
             TransferTokenRequest request,
             String protocolTxHash) {
         log.info("Transferring token: {}, protocol: {}", request.unit(), protocolTxHash);
@@ -98,12 +105,14 @@ public class TokenOperationsService {
         // Resolve substandard from registry
         String substandardId = resolveSubstandardFromRegistry(request.unit());
 
-        // Get substandard handler
+        // Get substandard handler with BasicOperations capability
         var handler = handlerFactory.getHandler(substandardId);
+        var basicOps = handler.asBasicOperations()
+                .orElseThrow(() -> new UnsupportedOperationException(
+                        "Substandard " + substandardId + " does not support basic operations"));
 
         // Build transfer transaction
-        var txContext = handler.buildTransferTransaction(request,
-                protocolParams);
+        var txContext = basicOps.buildTransferTransaction(request, protocolParams);
 
         log.info("Transfer transaction built successfully for substandard: {}", substandardId);
 

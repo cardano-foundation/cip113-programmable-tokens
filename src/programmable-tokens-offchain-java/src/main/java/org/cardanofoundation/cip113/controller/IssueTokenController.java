@@ -29,7 +29,7 @@ public class IssueTokenController {
             var result = tokenOperationsService.registerToken(registerTokenRequest, protocolTxHash);
 
             if (result.isSuccessful()) {
-                return ResponseEntity.ok(new RegisterTokenResponse(result.policyId(), result.unsignedCborTx()));
+                return ResponseEntity.ok(new RegisterTokenResponse(result.metadata().policyId(), result.unsignedCborTx()));
             } else {
                 return ResponseEntity.badRequest().body(result.error());
             }

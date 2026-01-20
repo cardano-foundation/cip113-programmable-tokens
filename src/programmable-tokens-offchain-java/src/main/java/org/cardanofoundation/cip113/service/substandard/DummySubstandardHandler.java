@@ -8,7 +8,10 @@ import com.bloxbean.cardano.client.api.model.Utxo;
 import com.bloxbean.cardano.client.api.util.ValueUtil;
 import com.bloxbean.cardano.client.plutus.blueprint.PlutusBlueprintUtil;
 import com.bloxbean.cardano.client.plutus.blueprint.model.PlutusVersion;
-import com.bloxbean.cardano.client.plutus.spec.*;
+import com.bloxbean.cardano.client.plutus.spec.BigIntPlutusData;
+import com.bloxbean.cardano.client.plutus.spec.BytesPlutusData;
+import com.bloxbean.cardano.client.plutus.spec.ConstrPlutusData;
+import com.bloxbean.cardano.client.plutus.spec.ListPlutusData;
 import com.bloxbean.cardano.client.quicktx.QuickTxBuilder;
 import com.bloxbean.cardano.client.quicktx.ScriptTx;
 import com.bloxbean.cardano.client.transaction.spec.Asset;
@@ -27,11 +30,13 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.cardanofoundation.cip113.config.AppConfig;
 import org.cardanofoundation.cip113.model.*;
+import org.cardanofoundation.cip113.model.TransactionContext.RegistrationResult;
 import org.cardanofoundation.cip113.model.bootstrap.ProtocolBootstrapParams;
 import org.cardanofoundation.cip113.model.onchain.RegistryNode;
 import org.cardanofoundation.cip113.model.onchain.RegistryNodeParser;
 import org.cardanofoundation.cip113.service.ProtocolScriptBuilderService;
 import org.cardanofoundation.cip113.service.SubstandardService;
+import org.cardanofoundation.cip113.service.substandard.capabilities.BasicOperations;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 
@@ -39,7 +44,6 @@ import java.math.BigInteger;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 import java.util.stream.Stream;
 
 import static java.math.BigInteger.ONE;
@@ -47,11 +51,13 @@ import static java.math.BigInteger.ONE;
 /**
  * Handler for the "dummy" programmable token substandard.
  * This is a simple reference implementation with basic issue and transfer validators.
+ *
+ * <p>Capabilities: {@link BasicOperations} only (register, mint, burn, transfer)</p>
  */
 @Service
 @RequiredArgsConstructor
 @Slf4j
-public class DummySubstandardHandler implements SubstandardHandler {
+public class DummySubstandardHandler implements SubstandardHandler, BasicOperations {
 
     private final ObjectMapper objectMapper;
 
@@ -73,8 +79,8 @@ public class DummySubstandardHandler implements SubstandardHandler {
     }
 
     @Override
-    public RegisterTransactionContext buildRegistrationTransaction(RegisterTokenRequest registerTokenRequest,
-                                                                   ProtocolBootstrapParams protocolBootstrapParams) {
+    public TransactionContext<RegistrationResult> buildRegistrationTransaction(RegisterTokenRequest registerTokenRequest,
+                                                                               ProtocolBootstrapParams protocolBootstrapParams) {
 
         try {
 
@@ -88,7 +94,7 @@ public class DummySubstandardHandler implements SubstandardHandler {
                     .build());
 
             if (protocolParamsUtxoOpt.isEmpty()) {
-                return RegisterTransactionContext.error("could not resolve protocol params");
+                return TransactionContext.typedError("could not resolve protocol params");
             }
 
             var protocolParamsUtxo = protocolParamsUtxoOpt.get();
@@ -101,14 +107,14 @@ public class DummySubstandardHandler implements SubstandardHandler {
 
             var issuanceUtxoOpt = utxoRepository.findById(UtxoId.builder().txHash(bootstrapTxHash).outputIndex(2).build());
             if (issuanceUtxoOpt.isEmpty()) {
-                return RegisterTransactionContext.error("could not resolve issuance params");
+                return TransactionContext.typedError("could not resolve issuance params");
             }
             var issuanceUtxo = issuanceUtxoOpt.get();
             log.info("issuanceUtxo: {}", issuanceUtxo);
 
             var rigistrarUtxosOpt = utxoRepository.findUnspentByOwnerAddr(registerTokenRequest.registrarAddress(), Pageable.unpaged());
             if (rigistrarUtxosOpt.isEmpty()) {
-                return RegisterTransactionContext.error("issuer wallet is empty");
+                return TransactionContext.typedError("issuer wallet is empty");
             }
             var registrarUtxos = rigistrarUtxosOpt.get().stream().map(UtxoUtil::toUtxo).toList();
 
@@ -122,7 +128,7 @@ public class DummySubstandardHandler implements SubstandardHandler {
 
             if (substandardIssuanceContractOpt.isEmpty() || substandardTransferContractOpt.isEmpty()) {
                 log.warn("substandard issuance or transfer contract are empty");
-                return RegisterTransactionContext.error("substandard issuance or transfer contract are empty");
+                return TransactionContext.typedError("substandard issuance or transfer contract are empty");
             }
 
             var substandardIssueContract = PlutusBlueprintUtil.getPlutusScriptFromCompiledCode(substandardIssuanceContractOpt.get().scriptBytes(), PlutusVersion.v3);
@@ -170,7 +176,7 @@ public class DummySubstandardHandler implements SubstandardHandler {
                         .findAny();
 
                 if (nodeToReplaceOpt.isEmpty()) {
-                    return RegisterTransactionContext.error("could not find node to replace");
+                    return TransactionContext.typedError("could not find node to replace");
                 }
 
                 var directoryUtxo = UtxoUtil.toUtxo(nodeToReplaceOpt.get());
@@ -178,7 +184,7 @@ public class DummySubstandardHandler implements SubstandardHandler {
                 var existingRegistryNodeDatumOpt = registryNodeParser.parse(directoryUtxo.getInlineDatum());
 
                 if (existingRegistryNodeDatumOpt.isEmpty()) {
-                    return RegisterTransactionContext.error("could not parse current registry node");
+                    return TransactionContext.typedError("could not parse current registry node");
                 }
 
                 var existingRegistryNodeDatum = existingRegistryNodeDatumOpt.get();
@@ -200,7 +206,7 @@ public class DummySubstandardHandler implements SubstandardHandler {
                         .findAny();
 
                 if (registrySpentNftOpt.isEmpty()) {
-                    return RegisterTransactionContext.error("could not find amount for directory mint");
+                    return TransactionContext.typedError("could not find amount for directory mint");
                 }
 
                 var registrySpentNft = AssetType.fromUnit(registrySpentNftOpt.get().getUnit());
@@ -329,22 +335,22 @@ public class DummySubstandardHandler implements SubstandardHandler {
                 log.info("tx: {}", objectMapper.writeValueAsString(transaction));
 
 
-                return RegisterTransactionContext.ok(transaction.serializeToHex(), progTokenPolicyId);
+                return TransactionContext.ok(transaction.serializeToHex(), new RegistrationResult(progTokenPolicyId));
             } else {
 
-                return RegisterTransactionContext.error(String.format("Token policy %s already registered", progTokenPolicyId));
+                return TransactionContext.typedError(String.format("Token policy %s already registered", progTokenPolicyId));
             }
 
 
         } catch (Exception e) {
-            return RegisterTransactionContext.error(e.getMessage());
+            return TransactionContext.typedError(e.getMessage());
         }
 
     }
 
     @Override
-    public TransactionContext buildMintTransaction(MintTokenRequest mintTokenRequest,
-                                                   ProtocolBootstrapParams protocolBootstrapParams) {
+    public TransactionContext<Void> buildMintTransaction(MintTokenRequest mintTokenRequest,
+                                                         ProtocolBootstrapParams protocolBootstrapParams) {
 
 
         try {
@@ -440,8 +446,8 @@ public class DummySubstandardHandler implements SubstandardHandler {
     }
 
     @Override
-    public TransactionContext buildTransferTransaction(TransferTokenRequest transferTokenRequest,
-                                                       ProtocolBootstrapParams protocolBootstrapParams) {
+    public TransactionContext<Void> buildTransferTransaction(TransferTokenRequest transferTokenRequest,
+                                                             ProtocolBootstrapParams protocolBootstrapParams) {
 
         try {
 
@@ -585,7 +591,7 @@ public class DummySubstandardHandler implements SubstandardHandler {
                     .collectFrom(senderUtxos);
 
             inputUtxos.forEach(utxo -> {
-                 tx.collectFrom(utxo, ConstrPlutusData.of(0));
+                tx.collectFrom(utxo, ConstrPlutusData.of(0));
             });
 
             // must be first Provide proofs
@@ -641,61 +647,4 @@ public class DummySubstandardHandler implements SubstandardHandler {
 
     }
 
-    @Override
-    public Set<String> getRequiredValidators() {
-        // Dummy substandard has 2 validators: issue and transfer
-        return Set.of("issue_validator", "transfer_validator");
-    }
-
-    @Override
-    public PlutusScript getParameterizedIssueValidator(String contractName, Object... params) {
-        // Dummy validators are NOT parameterized - they are simple reference implementations
-        var validatorOpt = substandardService.getSubstandardValidator(getSubstandardId(), contractName);
-
-        if (validatorOpt.isEmpty()) {
-            throw new IllegalArgumentException("Validator not found: " + contractName);
-        }
-
-        var validator = validatorOpt.get();
-        var script = PlutusBlueprintUtil.getPlutusScriptFromCompiledCode(
-                validator.scriptBytes(),
-                PlutusVersion.v3
-        );
-
-        try {
-            log.debug("Retrieved dummy issue validator '{}' with script hash: {}", contractName, script.getPolicyId());
-        } catch (Exception e) {
-            log.debug("Retrieved dummy issue validator '{}' (could not compute policy ID)", contractName);
-        }
-        return script;
-    }
-
-    @Override
-    public PlutusScript getParameterizedTransferValidator(String contractName, Object... params) {
-        // Dummy validators are NOT parameterized - they are simple reference implementations
-        var validatorOpt = substandardService.getSubstandardValidator(getSubstandardId(), contractName);
-
-        if (validatorOpt.isEmpty()) {
-            throw new IllegalArgumentException("Validator not found: " + contractName);
-        }
-
-        var validator = validatorOpt.get();
-        var script = PlutusBlueprintUtil.getPlutusScriptFromCompiledCode(
-                validator.scriptBytes(),
-                PlutusVersion.v3
-        );
-
-        try {
-            log.debug("Retrieved dummy transfer validator '{}' with script hash: {}", contractName, script.getPolicyId());
-        } catch (Exception e) {
-            log.debug("Retrieved dummy transfer validator '{}' (could not compute policy ID)", contractName);
-        }
-        return script;
-    }
-
-    @Override
-    public PlutusScript getParameterizedThirdPartyValidator(String contractName, Object... params) {
-        // Dummy substandard doesn't have third-party validators
-        throw new UnsupportedOperationException("Dummy substandard does not have third-party validators");
-    }
 }
