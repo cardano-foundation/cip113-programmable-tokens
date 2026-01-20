@@ -49,12 +49,12 @@ class RegistryServiceTest {
     }
 
     @Test
-    void testUpsertNewNode() {
+    void testInsertNewNode() {
         // Given
-        RegistryNodeEntity entity = createNode("token123", "token456");
+        RegistryNodeEntity entity = createNode("token123", "token456", 100L);
 
         // When
-        RegistryNodeEntity saved = registryService.upsert(entity);
+        RegistryNodeEntity saved = registryService.insert(entity);
 
         // Then
         assertNotNull(saved.getId());
@@ -64,52 +64,54 @@ class RegistryServiceTest {
     }
 
     @Test
-    void testUpsertUpdateNextField() {
-        // Given - create initial node
-        RegistryNodeEntity entity1 = createNode("token123", "token456");
-        registryService.upsert(entity1);
+    void testInsertMultipleStatesForSameKey() {
+        // Given - insert two states for same key (append-only log)
+        RegistryNodeEntity state1 = createNode("token123", "token456", 100L);
+        RegistryNodeEntity state2 = createNode("token123", "token789", 200L);
+        state2.setTxHash("newTxHash");
 
-        // When - update 'next' field
-        RegistryNodeEntity entity2 = createNode("token123", "token789");
-        entity2.setLastTxHash("newTxHash");
-        entity2.setLastSlot(200000L);
-        RegistryNodeEntity updated = registryService.upsert(entity2);
+        // When
+        registryService.insert(state1);
+        registryService.insert(state2);
 
-        // Then
-        assertEquals("token789", updated.getNext());
-        assertEquals("newTxHash", updated.getLastTxHash());
-        assertEquals(200000L, updated.getLastSlot());
+        // Then - should have 2 entries in the log
+        assertEquals(2, registryNodeRepository.count());
 
-        // Should only have one node
-        assertEquals(1, registryNodeRepository.count());
+        // But queries should return the latest state (slot 200)
+        RegistryNodeEntity latest = registryService.getByKey("token123").orElseThrow();
+        assertEquals("token789", latest.getNext());
+        assertEquals("newTxHash", latest.getTxHash());
+        assertEquals(200L, latest.getSlot());
     }
 
     @Test
-    void testUpsertNoChangeSkipsUpdate() {
-        // Given
-        RegistryNodeEntity entity1 = createNode("token123", "token456");
-        RegistryNodeEntity saved1 = registryService.upsert(entity1);
+    void testDeletedNodesNotReturned() {
+        // Given - insert a node then mark it as deleted
+        RegistryNodeEntity state1 = createNode("token123", "token456", 100L);
+        registryService.insert(state1);
 
-        // When - upsert same node with same 'next'
-        RegistryNodeEntity entity2 = createNode("token123", "token456");
-        entity2.setLastTxHash("differentTxHash");
-        RegistryNodeEntity saved2 = registryService.upsert(entity2);
+        RegistryNodeEntity deletedState = createNode("token123", "token456", 200L);
+        deletedState.setIsDeleted(true);
+        registryService.insert(deletedState);
 
-        // Then - should return existing without update
-        assertEquals(saved1.getId(), saved2.getId());
-        assertEquals(saved1.getLastTxHash(), saved2.getLastTxHash()); // Not updated
+        // When
+        List<RegistryNodeEntity> allTokens = registryService.getAllTokens(protocolParams.getId());
+
+        // Then - should not include deleted token
+        assertEquals(0, allTokens.size());
+        assertFalse(registryService.isTokenRegistered("token123"));
     }
 
     @Test
     void testGetAllTokensExcludesSentinel() {
         // Given
-        RegistryNodeEntity sentinel = createNode("", "token123"); // Sentinel has empty key
-        RegistryNodeEntity token1 = createNode("token123", "token456");
-        RegistryNodeEntity token2 = createNode("token456", "ffffff");
+        RegistryNodeEntity sentinel = createNode("", "token123", 100L); // Sentinel has empty key
+        RegistryNodeEntity token1 = createNode("token123", "token456", 100L);
+        RegistryNodeEntity token2 = createNode("token456", "ffffff", 100L);
 
-        registryService.upsert(sentinel);
-        registryService.upsert(token1);
-        registryService.upsert(token2);
+        registryService.insert(sentinel);
+        registryService.insert(token1);
+        registryService.insert(token2);
 
         // When
         List<RegistryNodeEntity> tokens = registryService.getAllTokens(protocolParams.getId());
@@ -122,13 +124,13 @@ class RegistryServiceTest {
     @Test
     void testGetTokensSortedByKey() {
         // Given - insert in random order
-        RegistryNodeEntity token3 = createNode("ccc", "fff");
-        RegistryNodeEntity token1 = createNode("aaa", "bbb");
-        RegistryNodeEntity token2 = createNode("bbb", "ccc");
+        RegistryNodeEntity token3 = createNode("ccc", "fff", 100L);
+        RegistryNodeEntity token1 = createNode("aaa", "bbb", 100L);
+        RegistryNodeEntity token2 = createNode("bbb", "ccc", 100L);
 
-        registryService.upsert(token3);
-        registryService.upsert(token1);
-        registryService.upsert(token2);
+        registryService.insert(token3);
+        registryService.insert(token1);
+        registryService.insert(token2);
 
         // When
         List<RegistryNodeEntity> sorted = registryService.getTokensSorted(protocolParams.getId());
@@ -141,24 +143,30 @@ class RegistryServiceTest {
     }
 
     @Test
-    void testGetByKey() {
-        // Given
-        RegistryNodeEntity entity = createNode("token123", "token456");
-        registryService.upsert(entity);
+    void testGetByKeyReturnsLatestState() {
+        // Given - insert multiple states for same key
+        RegistryNodeEntity state1 = createNode("token123", "token456", 100L);
+        RegistryNodeEntity state2 = createNode("token123", "token789", 200L);
+        RegistryNodeEntity state3 = createNode("token123", "tokenXYZ", 300L);
+
+        registryService.insert(state1);
+        registryService.insert(state2);
+        registryService.insert(state3);
 
         // When
         RegistryNodeEntity found = registryService.getByKey("token123").orElseThrow();
 
-        // Then
+        // Then - should return latest state (slot 300)
         assertEquals("token123", found.getKey());
-        assertEquals("token456", found.getNext());
+        assertEquals("tokenXYZ", found.getNext());
+        assertEquals(300L, found.getSlot());
     }
 
     @Test
     void testIsTokenRegistered() {
         // Given
-        RegistryNodeEntity entity = createNode("token123", "token456");
-        registryService.upsert(entity);
+        RegistryNodeEntity entity = createNode("token123", "token456", 100L);
+        registryService.insert(entity);
 
         // Then
         assertTrue(registryService.isTokenRegistered("token123"));
@@ -168,13 +176,13 @@ class RegistryServiceTest {
     @Test
     void testCountTokens() {
         // Given
-        RegistryNodeEntity sentinel = createNode("", "token1");
-        RegistryNodeEntity token1 = createNode("token1", "token2");
-        RegistryNodeEntity token2 = createNode("token2", "fff");
+        RegistryNodeEntity sentinel = createNode("", "token1", 100L);
+        RegistryNodeEntity token1 = createNode("token1", "token2", 100L);
+        RegistryNodeEntity token2 = createNode("token2", "fff", 100L);
 
-        registryService.upsert(sentinel);
-        registryService.upsert(token1);
-        registryService.upsert(token2);
+        registryService.insert(sentinel);
+        registryService.insert(token1);
+        registryService.insert(token2);
 
         // When
         long count = registryService.countTokens(protocolParams.getId());
@@ -196,11 +204,11 @@ class RegistryServiceTest {
         protocolParams2 = protocolParamsRepository.save(protocolParams2);
 
         // Create nodes for different registries
-        RegistryNodeEntity node1 = createNode("token1", "fff");
-        RegistryNodeEntity node2 = createNodeForProtocolParams("token2", "fff", protocolParams2);
+        RegistryNodeEntity node1 = createNode("token1", "fff", 100L);
+        RegistryNodeEntity node2 = createNodeForProtocolParams("token2", "fff", 100L, protocolParams2);
 
-        registryService.upsert(node1);
-        registryService.upsert(node2);
+        registryService.insert(node1);
+        registryService.insert(node2);
 
         // When
         List<RegistryNodeEntity> tokens1 = registryService.getAllTokens(protocolParams.getId());
@@ -213,11 +221,11 @@ class RegistryServiceTest {
         assertEquals(2, allTokens.size());
     }
 
-    private RegistryNodeEntity createNode(String key, String next) {
-        return createNodeForProtocolParams(key, next, protocolParams);
+    private RegistryNodeEntity createNode(String key, String next, long slot) {
+        return createNodeForProtocolParams(key, next, slot, protocolParams);
     }
 
-    private RegistryNodeEntity createNodeForProtocolParams(String key, String next, ProtocolParamsEntity pp) {
+    private RegistryNodeEntity createNodeForProtocolParams(String key, String next, long slot, ProtocolParamsEntity pp) {
         return RegistryNodeEntity.builder()
                 .key(key)
                 .next(next)
@@ -225,9 +233,10 @@ class RegistryServiceTest {
                 .thirdPartyTransferLogicScript("thirdPartyScript456")
                 .globalStatePolicyId("globalState789")
                 .protocolParams(pp)
-                .lastTxHash("txHash" + key)
-                .lastSlot(100000L)
-                .lastBlockHeight(1000L)
+                .txHash("txHash" + key + slot)
+                .slot(slot)
+                .blockHeight(1000L)
+                .isDeleted(false)
                 .build();
     }
 }
