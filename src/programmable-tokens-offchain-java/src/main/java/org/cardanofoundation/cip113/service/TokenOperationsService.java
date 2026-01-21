@@ -9,6 +9,7 @@ import org.cardanofoundation.cip113.model.TransactionContext.RegistrationResult;
 import org.cardanofoundation.cip113.model.bootstrap.ProtocolBootstrapParams;
 import org.cardanofoundation.cip113.service.substandard.SubstandardHandlerFactory;
 import org.cardanofoundation.cip113.service.substandard.capabilities.BasicOperations;
+import org.cardanofoundation.cip113.service.substandard.context.FreezeAndSeizeContext;
 import org.springframework.stereotype.Service;
 
 import java.util.Optional;
@@ -28,30 +29,41 @@ public class TokenOperationsService {
     private final RegistryService registryService;
 
     /**
-     * Register a new programmable token
+     * Register a new programmable token.
+     * Uses pattern matching to dispatch to the correct handler based on request type.
      *
-     * @param request        The registration request
+     * @param request        The registration request (polymorphic - dispatched by type)
      * @param protocolTxHash Optional protocol version tx hash (uses default if null)
      * @return Transaction context with unsigned CBOR tx and registration metadata
      */
+    @SuppressWarnings("unchecked")
     public TransactionContext<RegistrationResult> registerToken(RegisterTokenRequest request, String protocolTxHash) {
         log.info("Registering token with substandard: {}, protocol: {}",
-                request.substandardName(), protocolTxHash);
+                request.getSubstandardId(), protocolTxHash);
 
         // Get protocol bootstrap params
         var protocolParams = resolveProtocolParams(protocolTxHash);
 
-        // Get substandard handler with BasicOperations capability
-        var handler = handlerFactory.getHandler(request.substandardName());
-        var basicOps = handler.asBasicOperations()
-                .orElseThrow(() -> new UnsupportedOperationException(
-                        "Substandard " + request.substandardName() + " does not support basic operations"));
-
-        // Build registration transaction
-        var txContext = basicOps.buildRegistrationTransaction(request, protocolParams);
+        // Pattern matching dispatch based on request type
+        var txContext = switch (request) {
+            case DummyRegisterRequest dummyRequest -> {
+                var handler = handlerFactory.getHandler("dummy");
+                var basicOps = (BasicOperations<DummyRegisterRequest>) handler.asBasicOperations()
+                        .orElseThrow(() -> new UnsupportedOperationException("dummy does not support basic operations"));
+                yield basicOps.buildRegistrationTransaction(dummyRequest, protocolParams);
+            }
+            case FreezeAndSeizeRegisterRequest fasRequest -> {
+                var handler = handlerFactory.getHandler("freeze-and-seize", FreezeAndSeizeContext.emptyContext());
+                var basicOps = (BasicOperations<FreezeAndSeizeRegisterRequest>) handler.asBasicOperations()
+                        .orElseThrow(() -> new UnsupportedOperationException("freeze-and-seize does not support basic operations"));
+                yield basicOps.buildRegistrationTransaction(fasRequest, protocolParams);
+            }
+            default -> throw new UnsupportedOperationException(
+                    "Unknown request type: " + request.getClass().getSimpleName());
+        };
 
         log.info("Registration transaction built successfully for substandard: {}",
-                request.substandardName());
+                request.getSubstandardId());
 
         return txContext;
     }

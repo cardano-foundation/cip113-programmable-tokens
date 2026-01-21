@@ -48,7 +48,6 @@ import org.cardanofoundation.cip113.service.substandard.context.FreezeAndSeizeCo
 import org.cardanofoundation.cip113.util.PlutusSerializationHelper;
 import org.springframework.context.annotation.Scope;
 import org.springframework.stereotype.Component;
-import org.cardanofoundation.cip113.model.RegisterTokenRequest.FreezeAndSeizeData;
 
 import java.math.BigInteger;
 import java.util.List;
@@ -79,7 +78,7 @@ import static org.cardanofoundation.cip113.util.PlutusSerializationHelper.serial
 @Scope("prototype") // New instance each time for context isolation
 @RequiredArgsConstructor
 @Slf4j
-public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperations<FreezeAndSeizeData>, BlacklistManageable, Seizeable {
+public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperations<FreezeAndSeizeRegisterRequest>, BlacklistManageable, Seizeable {
 
     private static final String SUBSTANDARD_ID = "freeze-and-seize";
 
@@ -118,15 +117,14 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
 
     @Override
     public TransactionContext<RegistrationResult> buildRegistrationTransaction(
-            RegisterTokenRequest<FreezeAndSeizeData> request,
+            FreezeAndSeizeRegisterRequest request,
             ProtocolBootstrapParams protocolParams) {
 
         try {
-            var additionalData = request.additionalData();
-            var adminPkh = Credential.fromKey(additionalData.adminPubKeyHash());
-            var blacklistNodePolicyId =additionalData.blacklistNodePolicyId();
+            var adminPkh = Credential.fromKey(request.getAdminPubKeyHash());
+            var blacklistNodePolicyId = request.getBlacklistNodePolicyId();
 
-            var feePayerUtxos = accountService.findAdaOnlyUtxo(request.feePayerAddress(), 10_000_000L);
+            var feePayerUtxos = accountService.findAdaOnlyUtxo(request.getFeePayerAddress(), 10_000_000L);
 
             var bootstrapTxHash = protocolParams.txHash();
 
@@ -169,7 +167,10 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
             if (!accountInfo.isSuccessful()) {
                 return TransactionContext.typedError("could no check status script account");
             }
-            log.info("is {} registered: {}", substandardIssueAddress.getAddress(), accountInfo.getValue().getActive());
+//            else if (!accountInfo.getValue().getActive()) {
+//                return TransactionContext.typedError("script not registered");
+//            }
+//            log.info("is {} registered: {}", substandardIssueAddress.getAddress(), accountInfo.getValue().getActive());
 
 
             var transferContractOpt = substandardService.getSubstandardValidator(SUBSTANDARD_ID, "example_transfer_logic.transfer.withdraw");
@@ -199,6 +200,7 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
                     .map(RegistryNode::key));
 
             if (nodeAlreadyPresent) {
+                log.warn("registry node already present");
                 TransactionContext.error("registry node already present");
             }
 
@@ -206,6 +208,7 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
                     .map(node -> new LinkedListNode(node.key(), node.next())));
 
             if (nodeToReplaceOpt.isEmpty()) {
+                log.warn("could not find node to replace");
                 TransactionContext.error("could not find node to replace");
             }
 
@@ -288,7 +291,7 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
 
             // Programmable Token Mint
             var programmableToken = Asset.builder()
-                    .name("0x" + HexUtil.encodeHexString("tUSDT".getBytes()))
+                    .name("0x" + request.getAssetName())
                     .value(ONE)
                     .build();
 
@@ -302,7 +305,8 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
                     ))
                     .build();
 
-            var payeeAddress = new Address(request.recipientAddress());
+            log.info("request.getRecipientAddress(): {}", request.getRecipientAddress());
+            var payeeAddress = new Address(request.getRecipientAddress());
 
             var targetAddress = AddressProvider.getBaseAddress(Credential.fromScript(protocolParams.programmableLogicBaseParams().scriptHash()),
                     payeeAddress.getDelegationCredential().get(),
@@ -347,16 +351,16 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
                                     .build())
                     .attachSpendingValidator(directorySpendContract)
                     .attachRewardValidator(substandardIssueContract)
-                    .withChangeAddress(request.feePayerAddress());
+                    .withChangeAddress(request.getFeePayerAddress());
 
             var transaction = quickTxBuilder.compose(tx)
                     .withRequiredSigners(adminPkh.getBytes())
-                    .feePayer(request.feePayerAddress())
+                    .feePayer(request.getFeePayerAddress())
 //                .withTxEvaluator(new AikenTransactionEvaluator(bfBackendService))
                     .mergeOutputs(false) //<-- this is important! or directory tokens will go to same address
                     .preBalanceTx((txBuilderContext, transaction1) -> {
                         var outputs = transaction1.getBody().getOutputs();
-                        if (outputs.getFirst().getAddress().equals(request.feePayerAddress())) {
+                        if (outputs.getFirst().getAddress().equals(request.getFeePayerAddress())) {
                             log.info("found dummy input, moving it...");
                             var first = outputs.removeFirst();
                             outputs.addLast(first);
@@ -374,7 +378,7 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
                             throw new RuntimeException(e);
                         }
                     })
-                    .buildAndSign();
+                    .build();
 
             log.info("tx: {}", transaction.serializeToHex());
             log.info("tx: {}", objectMapper.writeValueAsString(transaction));
@@ -394,6 +398,7 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
             return TransactionContext.ok(transaction.serializeToHex(), new RegistrationResult(progTokenPolicyId));
 
         } catch (Exception e) {
+            log.error("error", e);
             return TransactionContext.typedError("error: " + e.getMessage());
         }
     }

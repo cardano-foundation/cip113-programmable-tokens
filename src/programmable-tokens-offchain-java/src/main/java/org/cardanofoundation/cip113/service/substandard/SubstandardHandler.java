@@ -70,7 +70,9 @@ public interface SubstandardHandler {
 
     /**
      * Get this handler as BasicOperations if supported.
+     * Returns raw type to allow pattern matching dispatch in callers.
      */
+    @SuppressWarnings("rawtypes")
     default Optional<BasicOperations> asBasicOperations() {
         return this instanceof BasicOperations ops ? Optional.of(ops) : Optional.empty();
     }

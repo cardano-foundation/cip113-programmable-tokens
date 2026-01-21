@@ -184,6 +184,7 @@ public class SubstandardHandlerFactory {
     /**
      * Get a handler's BasicOperations capability if supported.
      */
+    @SuppressWarnings("rawtypes")
     public Optional<BasicOperations> getBasicOperations(String substandardId) {
         var handler = getHandler(substandardId);
         return handler != null ? handler.asBasicOperations() : Optional.empty();
@@ -192,6 +193,7 @@ public class SubstandardHandlerFactory {
     /**
      * Get a handler's BasicOperations capability with context if supported.
      */
+    @SuppressWarnings("rawtypes")
     public Optional<BasicOperations> getBasicOperations(String substandardId, SubstandardContext context) {
         var handler = getHandler(substandardId, context);
         return handler != null ? handler.asBasicOperations() : Optional.empty();

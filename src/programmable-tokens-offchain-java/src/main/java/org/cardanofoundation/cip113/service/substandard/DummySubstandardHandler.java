@@ -57,7 +57,9 @@ import static java.math.BigInteger.ONE;
 @Service
 @RequiredArgsConstructor
 @Slf4j
-public class DummySubstandardHandler implements SubstandardHandler, BasicOperations<Void> {
+public class DummySubstandardHandler implements SubstandardHandler, BasicOperations<DummyRegisterRequest> {
+
+    private static final String SUBSTANDARD_ID = "dummy";
 
     private final ObjectMapper objectMapper;
 
@@ -75,11 +77,11 @@ public class DummySubstandardHandler implements SubstandardHandler, BasicOperati
 
     @Override
     public String getSubstandardId() {
-        return "dummy";
+        return SUBSTANDARD_ID;
     }
 
     @Override
-    public TransactionContext<RegistrationResult> buildRegistrationTransaction(RegisterTokenRequest<Void> registerTokenRequest,
+    public TransactionContext<RegistrationResult> buildRegistrationTransaction(DummyRegisterRequest registerTokenRequest,
                                                                                ProtocolBootstrapParams protocolBootstrapParams) {
 
         try {
@@ -112,17 +114,17 @@ public class DummySubstandardHandler implements SubstandardHandler, BasicOperati
             var issuanceUtxo = issuanceUtxoOpt.get();
             log.info("issuanceUtxo: {}", issuanceUtxo);
 
-            var rigistrarUtxosOpt = utxoRepository.findUnspentByOwnerAddr(registerTokenRequest.feePayerAddress(), Pageable.unpaged());
+            var rigistrarUtxosOpt = utxoRepository.findUnspentByOwnerAddr(registerTokenRequest.getFeePayerAddress(), Pageable.unpaged());
             if (rigistrarUtxosOpt.isEmpty()) {
                 return TransactionContext.typedError("issuer wallet is empty");
             }
             var registrarUtxos = rigistrarUtxosOpt.get().stream().map(UtxoUtil::toUtxo).toList();
 
-            var substandardIssuanceContractOpt = substandardService.getSubstandardValidator(registerTokenRequest.substandardName(), registerTokenRequest.substandardIssueContractName());
-            var substandardTransferContractOpt = substandardService.getSubstandardValidator(registerTokenRequest.substandardName(), registerTokenRequest.substandardTransferContractName());
+            // Handler knows its own contract names internally
+            var substandardIssuanceContractOpt = substandardService.getSubstandardValidator(SUBSTANDARD_ID, "issue.issue.withdraw");
+            var substandardTransferContractOpt = substandardService.getSubstandardValidator(SUBSTANDARD_ID, "transfer.transfer.withdraw");
 
-            var thirdPartyScriptHash = Optional.ofNullable(registerTokenRequest.substandardName())
-                    .flatMap(substandardName -> substandardService.getSubstandardValidator(registerTokenRequest.substandardName(), substandardName))
+            var thirdPartyScriptHash = substandardService.getSubstandardValidator(SUBSTANDARD_ID, "third_party.third_party.withdraw")
                     .map(SubstandardValidator::scriptHash)
                     .orElse("");
 
@@ -255,8 +257,8 @@ public class DummySubstandardHandler implements SubstandardHandler, BasicOperati
 
                 // Programmable Token Mint
                 var programmableToken = Asset.builder()
-                        .name("0x" + registerTokenRequest.assetName())
-                        .value(new BigInteger(registerTokenRequest.quantity()))
+                        .name("0x" + registerTokenRequest.getAssetName())
+                        .value(new BigInteger(registerTokenRequest.getQuantity()))
                         .build();
 
                 Value programmableTokenValue = Value.builder()
@@ -269,7 +271,7 @@ public class DummySubstandardHandler implements SubstandardHandler, BasicOperati
                         ))
                         .build();
 
-                var payee = registerTokenRequest.recipientAddress() == null || registerTokenRequest.recipientAddress().isBlank() ? registerTokenRequest.feePayerAddress() : registerTokenRequest.recipientAddress();
+                var payee = registerTokenRequest.getRecipientAddress() == null || registerTokenRequest.getRecipientAddress().isBlank() ? registerTokenRequest.getFeePayerAddress() : registerTokenRequest.getRecipientAddress();
                 log.info("payee: {}", payee);
 
                 var payeeAddress = new Address(payee);
@@ -302,16 +304,16 @@ public class DummySubstandardHandler implements SubstandardHandler, BasicOperati
                                         .build())
                         .attachSpendingValidator(directorySpendContract)
                         .attachRewardValidator(substandardIssueContract)
-                        .withChangeAddress(registerTokenRequest.feePayerAddress());
+                        .withChangeAddress(registerTokenRequest.getFeePayerAddress());
 
                 var transaction = quickTxBuilder.compose(tx)
 //                    .withSigner(SignerProviders.signerFrom(adminAccount))
 //                    .withTxEvaluator(new AikenTransactionEvaluator(bfBackendService))
-                        .feePayer(registerTokenRequest.feePayerAddress())
+                        .feePayer(registerTokenRequest.getFeePayerAddress())
                         .mergeOutputs(false) //<-- this is important! or directory tokens will go to same address
                         .preBalanceTx((txBuilderContext, transaction1) -> {
                             var outputs = transaction1.getBody().getOutputs();
-                            if (outputs.getFirst().getAddress().equals(registerTokenRequest.feePayerAddress())) {
+                            if (outputs.getFirst().getAddress().equals(registerTokenRequest.getFeePayerAddress())) {
                                 log.info("found dummy input, moving it...");
                                 var first = outputs.removeFirst();
                                 outputs.addLast(first);
