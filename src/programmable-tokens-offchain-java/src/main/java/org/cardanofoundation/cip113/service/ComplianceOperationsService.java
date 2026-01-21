@@ -3,7 +3,6 @@ package org.cardanofoundation.cip113.service;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.cardanofoundation.cip113.model.TransactionContext;
-import org.cardanofoundation.cip113.model.TransactionContext.BlacklistInitResult;
 import org.cardanofoundation.cip113.model.TransactionContext.MintingResult;
 import org.cardanofoundation.cip113.model.bootstrap.ProtocolBootstrapParams;
 import org.cardanofoundation.cip113.service.substandard.SubstandardHandlerFactory;
@@ -81,7 +80,7 @@ public class ComplianceOperationsService {
             SubstandardContext context) {
 
         log.info("Adding to blacklist for substandard: {}, target: {}",
-                substandardId, request.targetCredential());
+                substandardId, request.targetAddress());
 
         var protocolParams = resolveProtocolParams(protocolTxHash);
         var blacklistMgr = getBlacklistManageable(substandardId, context);

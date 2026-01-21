@@ -100,9 +100,18 @@ public class ComplianceController {
             @RequestParam(required = false) String protocolTxHash) {
 
         log.info("POST /compliance/blacklist/add - substandardId: {}, target: {}",
-                substandardId, request.targetCredential());
+                substandardId, request.targetAddress());
 
         try {
+
+            var context = switch (substandardId) {
+                case "freeze-and-seize" -> FreezeAndSeizeContext.builder()
+                        .blacklistManagerPkh(request.adminAddress())
+                        .
+                        .build();
+                default -> null;
+            };
+
             var txContext = complianceOperationsService.addToBlacklist(
                     substandardId, request, protocolTxHash, null);
 

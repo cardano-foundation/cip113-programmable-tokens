@@ -73,4 +73,18 @@ public class UtxoProvider {
 
     }
 
+    public List<Utxo> findUtxosByPaymentPkh(String paymentPkh) {
+
+        if (utxoRepository == null) {
+            throw new RuntimeException("Unsupported");
+        } else {
+            return utxoRepository.findUnspentByOwnerPaymentCredential(paymentPkh, Pageable.unpaged())
+                    .stream()
+                    .flatMap(Collection::stream)
+                    .map(UtxoUtil::toUtxo)
+                    .toList();
+        }
+
+    }
+
 }

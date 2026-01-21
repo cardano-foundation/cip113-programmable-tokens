@@ -1,7 +1,6 @@
 package org.cardanofoundation.cip113.service.substandard.capabilities;
 
 import org.cardanofoundation.cip113.model.TransactionContext;
-import org.cardanofoundation.cip113.model.TransactionContext.BlacklistInitResult;
 import org.cardanofoundation.cip113.model.TransactionContext.MintingResult;
 import org.cardanofoundation.cip113.model.bootstrap.ProtocolBootstrapParams;
 
@@ -30,8 +29,8 @@ public interface BlacklistManageable {
             /** The admin address performing the action */
             String adminAddress,
             /** The address/credential to add to blacklist */
-            String targetCredential,
-            /** Policy ID of the programmable token */
+            String targetAddress,
+            /** Policy ID of the blacklist linked list */
             String policyId
     ) {
     }
