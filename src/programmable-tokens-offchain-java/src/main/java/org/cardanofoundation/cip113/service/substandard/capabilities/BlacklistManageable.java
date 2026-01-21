@@ -26,12 +26,10 @@ public interface BlacklistManageable {
      * Request to add an address to the blacklist (freeze).
      */
     record AddToBlacklistRequest(
-            /** The admin address performing the action */
-            String adminAddress,
             /** The address/credential to add to blacklist */
             String targetAddress,
-            /** Policy ID of the blacklist linked list */
-            String policyId
+            /** The address that pays for hte tx */
+            String feePayerAddress
     ) {
     }
 

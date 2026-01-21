@@ -138,7 +138,7 @@ public class TokenOperationsService {
      * 2. Finds registry entry to validate token exists
      * 3. Hardcodes "dummy" as the substandard (TODO: extract from registry metadata)
      *
-     * @param unit The token unit (policyId + assetNameHex)
+     * @param unit The token unit (blacklistNodePolicyId + assetNameHex)
      * @return The substandard ID
      */
     private String resolveSubstandardFromRegistry(String unit) {

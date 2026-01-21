@@ -57,7 +57,7 @@ import static java.math.BigInteger.ONE;
 @Service
 @RequiredArgsConstructor
 @Slf4j
-public class DummySubstandardHandler implements SubstandardHandler, BasicOperations {
+public class DummySubstandardHandler implements SubstandardHandler, BasicOperations<Void> {
 
     private final ObjectMapper objectMapper;
 
@@ -79,7 +79,7 @@ public class DummySubstandardHandler implements SubstandardHandler, BasicOperati
     }
 
     @Override
-    public TransactionContext<RegistrationResult> buildRegistrationTransaction(RegisterTokenRequest registerTokenRequest,
+    public TransactionContext<RegistrationResult> buildRegistrationTransaction(RegisterTokenRequest<Void> registerTokenRequest,
                                                                                ProtocolBootstrapParams protocolBootstrapParams) {
 
         try {
@@ -112,7 +112,7 @@ public class DummySubstandardHandler implements SubstandardHandler, BasicOperati
             var issuanceUtxo = issuanceUtxoOpt.get();
             log.info("issuanceUtxo: {}", issuanceUtxo);
 
-            var rigistrarUtxosOpt = utxoRepository.findUnspentByOwnerAddr(registerTokenRequest.registrarAddress(), Pageable.unpaged());
+            var rigistrarUtxosOpt = utxoRepository.findUnspentByOwnerAddr(registerTokenRequest.feePayerAddress(), Pageable.unpaged());
             if (rigistrarUtxosOpt.isEmpty()) {
                 return TransactionContext.typedError("issuer wallet is empty");
             }
@@ -269,7 +269,7 @@ public class DummySubstandardHandler implements SubstandardHandler, BasicOperati
                         ))
                         .build();
 
-                var payee = registerTokenRequest.recipientAddress() == null || registerTokenRequest.recipientAddress().isBlank() ? registerTokenRequest.registrarAddress() : registerTokenRequest.recipientAddress();
+                var payee = registerTokenRequest.recipientAddress() == null || registerTokenRequest.recipientAddress().isBlank() ? registerTokenRequest.feePayerAddress() : registerTokenRequest.recipientAddress();
                 log.info("payee: {}", payee);
 
                 var payeeAddress = new Address(payee);
@@ -302,16 +302,16 @@ public class DummySubstandardHandler implements SubstandardHandler, BasicOperati
                                         .build())
                         .attachSpendingValidator(directorySpendContract)
                         .attachRewardValidator(substandardIssueContract)
-                        .withChangeAddress(registerTokenRequest.registrarAddress());
+                        .withChangeAddress(registerTokenRequest.feePayerAddress());
 
                 var transaction = quickTxBuilder.compose(tx)
 //                    .withSigner(SignerProviders.signerFrom(adminAccount))
 //                    .withTxEvaluator(new AikenTransactionEvaluator(bfBackendService))
-                        .feePayer(registerTokenRequest.registrarAddress())
+                        .feePayer(registerTokenRequest.feePayerAddress())
                         .mergeOutputs(false) //<-- this is important! or directory tokens will go to same address
                         .preBalanceTx((txBuilderContext, transaction1) -> {
                             var outputs = transaction1.getBody().getOutputs();
-                            if (outputs.getFirst().getAddress().equals(registerTokenRequest.registrarAddress())) {
+                            if (outputs.getFirst().getAddress().equals(registerTokenRequest.feePayerAddress())) {
                                 log.info("found dummy input, moving it...");
                                 var first = outputs.removeFirst();
                                 outputs.addLast(first);

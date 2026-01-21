@@ -25,7 +25,7 @@ public class BalanceValueHelper {
 
     /**
      * Convert a Value object to JSON string
-     * Format: {"lovelace": "1000000", "policyId+assetName": "100"}
+     * Format: {"lovelace": "1000000", "blacklistNodePolicyId+assetName": "100"}
      *
      * @param value the Value object
      * @return JSON string representation
@@ -59,7 +59,7 @@ public class BalanceValueHelper {
 
     /**
      * Convert a Value object to a unit map
-     * Format: {"lovelace": "1000000", "policyId+assetName": "100"}
+     * Format: {"lovelace": "1000000", "blacklistNodePolicyId+assetName": "100"}
      *
      * @param value the Value object
      * @return map of unit to amount (as string)
@@ -82,7 +82,7 @@ public class BalanceValueHelper {
 
     /**
      * Convert a Value object to a unit map with BigInteger amounts
-     * Format: {"lovelace": BigInteger("1000000"), "policyId+assetName": BigInteger("100")}
+     * Format: {"lovelace": BigInteger("1000000"), "blacklistNodePolicyId+assetName": BigInteger("100")}
      *
      * @param value the Value object
      * @return map of unit to amount (as BigInteger)

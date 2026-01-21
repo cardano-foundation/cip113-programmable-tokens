@@ -8,7 +8,7 @@ import org.cardanofoundation.cip113.model.bootstrap.ProtocolBootstrapParams;
  * Basic operations capability that all substandard handlers must implement.
  * Includes: register, mint (and burn), transfer
  */
-public interface BasicOperations {
+public interface BasicOperations<T> {
 
     /**
      * Build registration transaction for this substandard.
@@ -16,10 +16,10 @@ public interface BasicOperations {
      *
      * @param request        The registration request
      * @param protocolParams The protocol bootstrap parameters (from bootstrap tx)
-     * @return Transaction context with unsigned CBOR tx and registration metadata (policyId)
+     * @return Transaction context with unsigned CBOR tx and registration metadata (blacklistNodePolicyId)
      */
     TransactionContext<RegistrationResult> buildRegistrationTransaction(
-            RegisterTokenRequest request,
+            RegisterTokenRequest<T> request,
             ProtocolBootstrapParams protocolParams);
 
     /**

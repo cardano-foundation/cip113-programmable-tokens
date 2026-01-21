@@ -3,6 +3,7 @@ package org.cardanofoundation.cip113.controller;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.cardanofoundation.cip113.model.BlacklistInitResponse;
+import org.cardanofoundation.cip113.repository.BlacklistInitRepository;
 import org.cardanofoundation.cip113.service.ComplianceOperationsService;
 import org.cardanofoundation.cip113.service.substandard.capabilities.BlacklistManageable.AddToBlacklistRequest;
 import org.cardanofoundation.cip113.service.substandard.capabilities.BlacklistManageable.BlacklistInitRequest;
@@ -37,6 +38,8 @@ import org.springframework.web.bind.annotation.*;
 public class ComplianceController {
 
     private final ComplianceOperationsService complianceOperationsService;
+
+    private final BlacklistInitRepository blacklistInitRepository;
 
     // ========== Blacklist Endpoints ==========
 
@@ -105,15 +108,19 @@ public class ComplianceController {
         try {
 
             var context = switch (substandardId) {
-                case "freeze-and-seize" -> FreezeAndSeizeContext.builder()
-                        .blacklistManagerPkh(request.adminAddress())
-                        .
-                        .build();
+                case "freeze-and-seize" -> {
+                    // TODO: Load blacklist init from DB to get the admin PKH
+                    // For now, use feePayerAddress as the blacklist manager
+                    yield FreezeAndSeizeContext.builder()
+                            .blacklistManagerPkh(request.feePayerAddress())
+                            .build();
+                }
+
                 default -> null;
             };
 
             var txContext = complianceOperationsService.addToBlacklist(
-                    substandardId, request, protocolTxHash, null);
+                    substandardId, request, protocolTxHash, context);
 
             if (txContext.isSuccessful()) {
                 return ResponseEntity.ok(txContext);

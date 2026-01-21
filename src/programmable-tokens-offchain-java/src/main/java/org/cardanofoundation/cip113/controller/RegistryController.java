@@ -59,7 +59,7 @@ public class RegistryController {
      * @param policyId the token policy ID
      * @return the token configuration or 404 if not found
      */
-    @GetMapping("/token/{policyId}")
+    @GetMapping("/token/{blacklistNodePolicyId}")
     public ResponseEntity<RegistryNode> getTokenByPolicyId(@PathVariable String policyId) {
         log.debug("GET /token/{} - fetching token configuration", policyId);
         return registryService.getByKey(policyId)
@@ -74,7 +74,7 @@ public class RegistryController {
      * @param policyId the token policy ID
      * @return map with "registered" boolean
      */
-    @GetMapping("/is-registered/{policyId}")
+    @GetMapping("/is-registered/{blacklistNodePolicyId}")
     public ResponseEntity<Map<String, Boolean>> isTokenRegistered(@PathVariable String policyId) {
         log.debug("GET /is-registered/{} - checking if token is registered", policyId);
         boolean isRegistered = registryService.isTokenRegistered(policyId);

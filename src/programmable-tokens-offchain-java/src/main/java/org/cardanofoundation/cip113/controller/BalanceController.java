@@ -32,7 +32,7 @@ public class BalanceController {
 
     /**
      * Get current balance for all assets at an address
-     * Returns the balance as a unit map: {"lovelace": "1000000", "policyId+assetName": "amount"}
+     * Returns the balance as a unit map: {"lovelace": "1000000", "blacklistNodePolicyId+assetName": "amount"}
      *
      * @param address the bech32 address
      * @return map of unit to amount
@@ -48,7 +48,7 @@ public class BalanceController {
      * Get current balance for a specific asset
      *
      * @param address the bech32 address
-     * @param unit the asset unit ("lovelace" for ADA, or "policyId+assetName" for native assets)
+     * @param unit the asset unit ("lovelace" for ADA, or "blacklistNodePolicyId+assetName" for native assets)
      * @return map with the asset amount
      */
     @GetMapping("/current/{address}/{unit}")

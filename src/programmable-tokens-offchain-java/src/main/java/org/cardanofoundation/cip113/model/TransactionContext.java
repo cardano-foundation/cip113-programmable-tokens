@@ -7,7 +7,7 @@ package org.cardanofoundation.cip113.model;
  * <p>Usage examples:</p>
  * <ul>
  *   <li>{@code TransactionContext<Void>} - simple transactions with no extra data</li>
- *   <li>{@code TransactionContext<RegistrationResult>} - registration with policyId</li>
+ *   <li>{@code TransactionContext<RegistrationResult>} - registration with blacklistNodePolicyId</li>
  *   <li>{@code TransactionContext<BlacklistInitResult>} - blacklist init with bootstrap params</li>
  * </ul>
  *
