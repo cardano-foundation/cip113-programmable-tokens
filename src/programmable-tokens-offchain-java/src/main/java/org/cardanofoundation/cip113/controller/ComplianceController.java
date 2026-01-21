@@ -1,9 +1,13 @@
 package org.cardanofoundation.cip113.controller;
 
+import com.bloxbean.cardano.client.transaction.spec.TransactionInput;
+import com.easy1staking.util.Pair;
+import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.cardanofoundation.cip113.model.BlacklistInitResponse;
 import org.cardanofoundation.cip113.repository.BlacklistInitRepository;
+import org.cardanofoundation.cip113.repository.FreezeAndSeizeTokenRegistrationRepository;
 import org.cardanofoundation.cip113.service.ComplianceOperationsService;
 import org.cardanofoundation.cip113.service.substandard.capabilities.BlacklistManageable.AddToBlacklistRequest;
 import org.cardanofoundation.cip113.service.substandard.capabilities.BlacklistManageable.BlacklistInitRequest;
@@ -40,6 +44,8 @@ public class ComplianceController {
     private final ComplianceOperationsService complianceOperationsService;
 
     private final BlacklistInitRepository blacklistInitRepository;
+
+    private final FreezeAndSeizeTokenRegistrationRepository freezeAndSeizeTokenRegistrationRepository;
 
     // ========== Blacklist Endpoints ==========
 
@@ -97,6 +103,7 @@ public class ComplianceController {
      * @return Unsigned CBOR transaction hex
      */
     @PostMapping("/blacklist/add")
+    @Transactional
     public ResponseEntity<?> addToBlacklist(
             @RequestParam String substandardId,
             @RequestBody AddToBlacklistRequest request,
@@ -109,10 +116,24 @@ public class ComplianceController {
 
             var context = switch (substandardId) {
                 case "freeze-and-seize" -> {
-                    // TODO: Load blacklist init from DB to get the admin PKH
-                    // For now, use feePayerAddress as the blacklist manager
+                    var dataOpt = freezeAndSeizeTokenRegistrationRepository.findByProgrammableTokenPolicyId(request.tokenPolicyId())
+                            .flatMap(token -> blacklistInitRepository.findByBlacklistNodePolicyId(token.getBlacklistInit().getBlacklistNodePolicyId())
+                                    .map(blacklistInitEntity -> new Pair<>(token, blacklistInitEntity)));
+
+                    if (dataOpt.isEmpty()) {
+                        throw new RuntimeException("could not find programmable token or blacklist init data");
+                    }
+
+                    var data = dataOpt.get();
+                    var tokenRegistration = data.first();
+                    var blacklistInitEntity = data.second();
                     yield FreezeAndSeizeContext.builder()
-                            .blacklistManagerPkh(request.feePayerAddress())
+                            .issuerAdminPkh(tokenRegistration.getIssuerAdminPkh())
+                            .blacklistManagerPkh(blacklistInitEntity.getAdminPkh())
+                            .blacklistInitTxInput(TransactionInput.builder()
+                                    .transactionId(blacklistInitEntity.getTxHash())
+                                    .index(blacklistInitEntity.getOutputIndex())
+                                    .build())
                             .build();
                 }
 
@@ -156,11 +177,38 @@ public class ComplianceController {
             @RequestParam(required = false) String protocolTxHash) {
 
         log.info("POST /compliance/blacklist/remove - substandardId: {}, target: {}",
-                substandardId, request.targetCredential());
+                substandardId, request.targetAddress());
 
         try {
+
+            var context = switch (substandardId) {
+                case "freeze-and-seize" -> {
+                    var dataOpt = freezeAndSeizeTokenRegistrationRepository.findByProgrammableTokenPolicyId(request.tokenPolicyId())
+                            .flatMap(token -> blacklistInitRepository.findByBlacklistNodePolicyId(token.getBlacklistInit().getBlacklistNodePolicyId())
+                                    .map(blacklistInitEntity -> new Pair<>(token, blacklistInitEntity)));
+
+                    if (dataOpt.isEmpty()) {
+                        throw new RuntimeException("could not find programmable token or blacklist init data");
+                    }
+
+                    var data = dataOpt.get();
+                    var tokenRegistration = data.first();
+                    var blacklistInitEntity = data.second();
+                    yield FreezeAndSeizeContext.builder()
+                            .issuerAdminPkh(tokenRegistration.getIssuerAdminPkh())
+                            .blacklistManagerPkh(blacklistInitEntity.getAdminPkh())
+                            .blacklistInitTxInput(TransactionInput.builder()
+                                    .transactionId(blacklistInitEntity.getTxHash())
+                                    .index(blacklistInitEntity.getOutputIndex())
+                                    .build())
+                            .build();
+                }
+
+                default -> null;
+            };
+
             var txContext = complianceOperationsService.removeFromBlacklist(
-                    substandardId, request, protocolTxHash, null);
+                    substandardId, request, protocolTxHash, context);
 
             if (txContext.isSuccessful()) {
                 return ResponseEntity.ok(txContext);

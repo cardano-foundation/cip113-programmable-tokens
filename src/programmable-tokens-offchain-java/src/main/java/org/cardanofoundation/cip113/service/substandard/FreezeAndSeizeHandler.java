@@ -1,12 +1,14 @@
 package org.cardanofoundation.cip113.service.substandard;
 
 import com.bloxbean.cardano.aiken.AikenScriptUtil;
+import com.bloxbean.cardano.aiken.AikenTransactionEvaluator;
 import com.bloxbean.cardano.client.address.Address;
 import com.bloxbean.cardano.client.address.AddressProvider;
 import com.bloxbean.cardano.client.address.Credential;
 import com.bloxbean.cardano.client.api.model.Amount;
 import com.bloxbean.cardano.client.api.util.ValueUtil;
 import com.bloxbean.cardano.client.backend.blockfrost.service.BFBackendService;
+import com.bloxbean.cardano.client.function.helper.SignerProviders;
 import com.bloxbean.cardano.client.plutus.blueprint.PlutusBlueprintUtil;
 import com.bloxbean.cardano.client.plutus.blueprint.model.PlutusVersion;
 import com.bloxbean.cardano.client.plutus.spec.BytesPlutusData;
@@ -390,9 +392,9 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
             }
 
             freezeAndSeizeTokenRegistrationRepository.save(FreezeAndSeizeTokenRegistrationEntity.builder()
-                            .programmableTokenPolicyId(progTokenPolicyId)
-                            .issuerAdminPkh(HexUtil.encodeHexString(adminPkh.getBytes()))
-                            .blacklistInit(blacklistInitOpt.get())
+                    .programmableTokenPolicyId(progTokenPolicyId)
+                    .issuerAdminPkh(HexUtil.encodeHexString(adminPkh.getBytes()))
+                    .blacklistInit(blacklistInitOpt.get())
                     .build());
 
             return TransactionContext.ok(transaction.serializeToHex(), new RegistrationResult(progTokenPolicyId));
@@ -567,7 +569,7 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
                     .build());
 
             var blacklistMintInitParams = ListPlutusData.of(serialisedTxInput,
-                    BytesPlutusData.of(HexUtil.decodeHexString(context.getAdminPkh()))
+                    BytesPlutusData.of(HexUtil.decodeHexString(context.getIssuerAdminPkh()))
             );
 
             var parameterisedBlacklistMintingScript = PlutusBlueprintUtil.getPlutusScriptFromCompiledCode(
@@ -655,13 +657,121 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
     public TransactionContext<Void> buildRemoveFromBlacklistTransaction(
             RemoveFromBlacklistRequest request,
             ProtocolBootstrapParams protocolParams) {
-        // TODO: Implement remove from blacklist (unfreeze)
-        // 1. Find the node to remove
-        // 2. Find the previous node
-        // 3. Update previous node's 'next' to skip removed node
-        // 4. Burn the removed node's NFT
-        log.warn("buildRemoveFromBlacklistTransaction not yet implemented");
-        return TransactionContext.typedError("Not yet implemented");
+
+        try {
+
+            var targetAddress = new Address(request.targetAddress());
+
+            var adminUtxos = accountService.findAdaOnlyUtxoByPaymentPubKeyHash(context.getBlacklistManagerPkh(), 10_000_000L);
+            log.info("admin utxos size: {}", adminUtxos.size());
+            var adminAdaBalance = adminUtxos.stream()
+                    .flatMap(utxo -> utxo.getAmount().stream())
+                    .map(Amount::getQuantity)
+                    .reduce(BigInteger::add)
+                    .orElse(ZERO);
+            log.info("admin ada balance: {}", adminAdaBalance);
+
+            var blackListMintValidatorOpt = substandardService.getSubstandardValidator(SUBSTANDARD_ID, "blacklist_mint.blacklist_mint.mint");
+            var blackListMintValidator = blackListMintValidatorOpt.get();
+
+            var serialisedTxInput = PlutusSerializationHelper.serialize(TransactionInput.builder()
+                    .transactionId(context.getBlacklistInitTxInput().getTransactionId())
+                    .index(context.getBlacklistInitTxInput().getIndex())
+                    .build());
+
+            var blacklistMintInitParams = ListPlutusData.of(serialisedTxInput,
+                    BytesPlutusData.of(HexUtil.decodeHexString(context.getIssuerAdminPkh()))
+            );
+
+            var parameterisedBlacklistMintingScript = PlutusBlueprintUtil.getPlutusScriptFromCompiledCode(
+                    AikenScriptUtil.applyParamToScript(blacklistMintInitParams, blackListMintValidator.scriptBytes()),
+                    PlutusVersion.v3
+            );
+
+            var blacklistSpendValidatorOpt = substandardService.getSubstandardValidator(SUBSTANDARD_ID, "blacklist_spend.blacklist_spend.spend");
+            var blacklistSpendValidator = blacklistSpendValidatorOpt.get();
+
+            var blacklistSpendInitParams = ListPlutusData.of(BytesPlutusData.of(HexUtil.decodeHexString(parameterisedBlacklistMintingScript.getPolicyId())));
+            var parameterisedBlacklistSpendingScript = PlutusBlueprintUtil.getPlutusScriptFromCompiledCode(
+                    AikenScriptUtil.applyParamToScript(blacklistSpendInitParams, blacklistSpendValidator.scriptBytes()),
+                    PlutusVersion.v3
+            );
+            log.info("parameterisedBlacklistSpendingScript: {}", parameterisedBlacklistSpendingScript.getPolicyId());
+
+            var blacklistSpendAddress = AddressProvider.getEntAddress(parameterisedBlacklistSpendingScript, network.getCardanoNetwork());
+            log.info("blacklistSpend: {}", blacklistSpendAddress.getAddress());
+
+            var blacklistUtxos = utxoProvider.findUtxos(blacklistSpendAddress.getAddress());
+            log.info("blacklistUtxos: {}", blacklistUtxos.size());
+            blacklistUtxos.forEach(utxo -> log.info("bl utxo: {}", utxo));
+
+            var credentialsToRemove = targetAddress.getDelegationCredentialHash().map(HexUtil::encodeHexString).get();
+
+            var blocklistNodeToRemoveOpt = blacklistUtxos.stream()
+                    .flatMap(utxo -> blacklistNodeParser.parse(utxo.getInlineDatum())
+                            .stream()
+                            .flatMap(blacklistNode -> Stream.of(new Pair<>(utxo, blacklistNode))))
+                    .filter(utxoBlacklistNodePair -> {
+                        var datum = utxoBlacklistNodePair.second();
+                        return datum.key().equals(credentialsToRemove);
+                    })
+                    .findAny();
+
+            var blocklistNodeToUpdateOpt = blacklistUtxos.stream()
+                    .flatMap(utxo -> blacklistNodeParser.parse(utxo.getInlineDatum())
+                            .stream()
+                            .flatMap(blacklistNode -> Stream.of(new Pair<>(utxo, blacklistNode))))
+                    .filter(utxoBlacklistNodePair -> {
+                        var datum = utxoBlacklistNodePair.second();
+                        return datum.next().equals(credentialsToRemove);
+                    })
+                    .findAny();
+
+            if (blocklistNodeToRemoveOpt.isEmpty() || blocklistNodeToUpdateOpt.isEmpty()) {
+                return TransactionContext.typedError("could not resolve relevant blacklist nodes");
+            }
+
+            var blocklistNodeToRemove = blocklistNodeToRemoveOpt.get();
+            log.info("blocklistNodeToRemove: {}", blocklistNodeToRemove);
+
+            var blocklistNodeToUpdate = blocklistNodeToUpdateOpt.get();
+            log.info("blocklistNodeToUpdate: {}", blocklistNodeToUpdate);
+
+            var newNext = blocklistNodeToRemove.second().next();
+            var updatedNode = blocklistNodeToUpdate.second().toBuilder().next(newNext).build();
+
+            var mintRedeemer = ConstrPlutusData.of(2, BytesPlutusData.of(HexUtil.decodeHexString(credentialsToRemove)));
+
+            // Before/Updated
+            var preExistingAmount = blocklistNodeToUpdate.first().getAmount();
+
+            var tx = new ScriptTx()
+                    .collectFrom(adminUtxos)
+                    .collectFrom(blocklistNodeToRemove.first(), ConstrPlutusData.of(0))
+                    .collectFrom(blocklistNodeToUpdate.first(), ConstrPlutusData.of(0))
+                    .mintAsset(parameterisedBlacklistMintingScript, Asset.builder().name("0x" + credentialsToRemove).value(ONE.negate()).build(), mintRedeemer)
+                    // Replaced
+                    .payToContract(blacklistSpendAddress.getAddress(), preExistingAmount, updatedNode.toPlutusData())
+                    .attachSpendingValidator(parameterisedBlacklistSpendingScript)
+                    .withChangeAddress(request.feePayerAddress());
+
+            var transaction = quickTxBuilder.compose(tx)
+                    .withRequiredSigners(HexUtil.decodeHexString(context.getBlacklistManagerPkh()))
+                    .feePayer(request.feePayerAddress())
+//                    .withTxEvaluator(new AikenTransactionEvaluator(bfBackendService))
+                    .mergeOutputs(false)
+                    .build();
+
+            log.info("transaction: {}", transaction.serializeToHex());
+            log.info("transaction: {}", objectMapper.writeValueAsString(transaction));
+
+            return TransactionContext.ok(transaction.serializeToHex());
+            
+        } catch (Exception e) {
+            return TransactionContext.error(String.format("error: %s", e.getMessage()));
+
+        }
+
     }
 
     // ========== Seizeable Implementation ==========

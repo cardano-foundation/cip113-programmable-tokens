@@ -26,12 +26,7 @@ public class FreezeAndSeizeContext implements SubstandardContext {
     /**
      * Issuer PKH (payment or staking), can be script
      */
-    private final String issuerPkh;
-
-    /**
-     * Admin PKH (payment or staking), can be script
-     */
-    private final String adminPkh;
+    private final String issuerAdminPkh;
 
     /**
      * Blacklist Manager Payment PKH

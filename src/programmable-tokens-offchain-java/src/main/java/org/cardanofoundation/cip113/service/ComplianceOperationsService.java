@@ -107,7 +107,7 @@ public class ComplianceOperationsService {
             SubstandardContext context) {
 
         log.info("Removing from blacklist for substandard: {}, target: {}",
-                substandardId, request.targetCredential());
+                substandardId, request.targetAddress());
 
         var protocolParams = resolveProtocolParams(protocolTxHash);
         var blacklistMgr = getBlacklistManageable(substandardId, context);

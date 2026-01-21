@@ -26,6 +26,10 @@ public interface BlacklistManageable {
      * Request to add an address to the blacklist (freeze).
      */
     record AddToBlacklistRequest(
+            /**
+             * The policy id of the programmable token
+             */
+            String tokenPolicyId,
             /** The address/credential to add to blacklist */
             String targetAddress,
             /** The address that pays for hte tx */
@@ -37,12 +41,14 @@ public interface BlacklistManageable {
      * Request to remove an address from the blacklist (unfreeze).
      */
     record RemoveFromBlacklistRequest(
-            /** The admin address performing the action */
-            String adminAddress,
+            /**
+             * The policy id of the programmable token
+             */
+            String tokenPolicyId,
             /** The address/credential to remove from blacklist */
-            String targetCredential,
-            /** Policy ID of the programmable token */
-            String policyId
+            String targetAddress,
+            /** The address that pays for hte tx */
+            String feePayerAddress
     ) {
     }
 
