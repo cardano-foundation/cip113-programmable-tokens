@@ -21,12 +21,9 @@ public interface Seizeable {
      * Request to seize assets from a single UTxO.
      */
     record SeizeRequest(
-            /** The admin address performing the seizure */
-            String adminAddress,
-            /** The address from which to seize assets */
-            String targetAddress,
-            /** Policy ID of the programmable token to seize */
-            String policyId,
+            String feePayerAddress,
+            /** Policy ID of + Asset Name of the programmable token to seize */
+            String unit,
             /** Transaction hash containing the UTxO to seize */
             String utxoTxHash,
             /** Output index of the UTxO to seize */
@@ -79,22 +76,6 @@ public interface Seizeable {
             return TransactionContext.typedError("No UTxOs specified for seizure");
         }
 
-        var firstUtxo = request.utxoReferences().get(0);
-        var parts = firstUtxo.split("#");
-        if (parts.length != 2) {
-            return TransactionContext.typedError("Invalid UTxO reference format: " + firstUtxo);
-        }
-
-        return buildSeizeTransaction(
-                new SeizeRequest(
-                        request.adminAddress(),
-                        null, // Target address derived from UTxO
-                        request.policyId(),
-                        parts[0],
-                        Integer.parseInt(parts[1]),
-                        request.destinationAddress()
-                ),
-                protocolParams
-        );
+       return TransactionContext.typedError("not implemented");
     }
 }

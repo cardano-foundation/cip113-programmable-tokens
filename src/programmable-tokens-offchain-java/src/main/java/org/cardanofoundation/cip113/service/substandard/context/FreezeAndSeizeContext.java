@@ -38,6 +38,11 @@ public class FreezeAndSeizeContext implements SubstandardContext {
      */
     private final TransactionInput blacklistInitTxInput;
 
+    /**
+     * The policy id of the blacklist node nft
+     */
+    private final String blacklistNodePolicyId;
+
     @Override
     public String getSubstandardId() {
         return SUBSTANDARD_ID;

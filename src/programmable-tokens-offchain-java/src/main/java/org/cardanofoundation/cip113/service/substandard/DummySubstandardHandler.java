@@ -357,13 +357,14 @@ public class DummySubstandardHandler implements SubstandardHandler, BasicOperati
 
         try {
 
-            var issuerUtxosOpt = utxoRepository.findUnspentByOwnerAddr(mintTokenRequest.issuerBaseAddress(), Pageable.unpaged());
-            if (issuerUtxosOpt.isEmpty()) {
-                return TransactionContext.error("issuer wallet is empty");
+            var feePayerUtxosOpt = utxoRepository.findUnspentByOwnerAddr(mintTokenRequest.feePayerAddress(), Pageable.unpaged());
+            if (feePayerUtxosOpt.isEmpty()) {
+                return TransactionContext.error("fee payer wallet is empty");
             }
-            var issuerUtxos = issuerUtxosOpt.get().stream().map(UtxoUtil::toUtxo).toList();
+            var feePayerUtxos = feePayerUtxosOpt.get().stream().map(UtxoUtil::toUtxo).toList();
 
-            var substandardIssuanceContractOpt = substandardService.getSubstandardValidator(mintTokenRequest.substandardName(), mintTokenRequest.substandardIssueContractName());
+            // Handler knows its own contract names internally
+            var substandardIssuanceContractOpt = substandardService.getSubstandardValidator(SUBSTANDARD_ID, "issue.issue.withdraw");
 
             var substandardIssueContract = PlutusBlueprintUtil.getPlutusScriptFromCompiledCode(substandardIssuanceContractOpt.get().scriptBytes(), PlutusVersion.v3);
             log.info("substandardIssueContract: {}", substandardIssueContract.getPolicyId());
@@ -393,7 +394,7 @@ public class DummySubstandardHandler implements SubstandardHandler, BasicOperati
                     .build();
 
             var recipient = Optional.ofNullable(mintTokenRequest.recipientAddress())
-                    .orElse(mintTokenRequest.issuerBaseAddress());
+                    .orElse(mintTokenRequest.feePayerAddress());
 
             var recipientAddress = new Address(recipient);
 
@@ -402,20 +403,20 @@ public class DummySubstandardHandler implements SubstandardHandler, BasicOperati
                     network.getCardanoNetwork());
 
             var tx = new ScriptTx()
-                    .collectFrom(issuerUtxos)
+                    .collectFrom(feePayerUtxos)
                     .withdraw(substandardIssueAddress.getAddress(), BigInteger.ZERO, BigIntPlutusData.of(100))
                     // Redeemer is DirectoryInit (constr(0))
                     .mintAsset(issuanceContract, programmableToken, issuanceRedeemer)
                     .payToContract(targetAddress.getAddress(), ValueUtil.toAmountList(progammableTokenValue), ConstrPlutusData.of(0))
                     .attachRewardValidator(substandardIssueContract)
-                    .withChangeAddress(mintTokenRequest.issuerBaseAddress());
+                    .withChangeAddress(mintTokenRequest.feePayerAddress());
 
             var transaction = quickTxBuilder.compose(tx)
-                    .feePayer(mintTokenRequest.issuerBaseAddress())
+                    .feePayer(mintTokenRequest.feePayerAddress())
                     .mergeOutputs(false) //<-- this is important! or directory tokens will go to same address
                     .preBalanceTx((txBuilderContext, transaction1) -> {
                         var outputs = transaction1.getBody().getOutputs();
-                        if (outputs.getFirst().getAddress().equals(mintTokenRequest.issuerBaseAddress())) {
+                        if (outputs.getFirst().getAddress().equals(mintTokenRequest.feePayerAddress())) {
                             log.info("found dummy input, moving it...");
                             var first = outputs.removeFirst();
                             outputs.addLast(first);

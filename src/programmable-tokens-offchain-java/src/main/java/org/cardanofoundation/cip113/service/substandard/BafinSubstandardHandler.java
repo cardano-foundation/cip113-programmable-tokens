@@ -21,7 +21,7 @@ import org.springframework.stereotype.Service;
 @Service
 @RequiredArgsConstructor
 @Slf4j
-public class BafinSubstandardHandler implements SubstandardHandler, BasicOperations {
+public class BafinSubstandardHandler implements SubstandardHandler, BasicOperations<RegisterTokenRequest> {
 
     private final SubstandardService substandardService;
 

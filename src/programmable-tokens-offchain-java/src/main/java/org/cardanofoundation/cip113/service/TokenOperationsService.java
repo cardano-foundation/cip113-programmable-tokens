@@ -1,12 +1,19 @@
 package org.cardanofoundation.cip113.service;
 
+import com.bloxbean.cardano.client.transaction.spec.TransactionInput;
 import com.easy1staking.cardano.model.AssetType;
+import com.easy1staking.util.Pair;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.cardanofoundation.cip113.entity.RegistryNodeEntity;
 import org.cardanofoundation.cip113.model.*;
 import org.cardanofoundation.cip113.model.TransactionContext.RegistrationResult;
 import org.cardanofoundation.cip113.model.bootstrap.ProtocolBootstrapParams;
+import org.cardanofoundation.cip113.repository.BlacklistInitRepository;
+import org.cardanofoundation.cip113.repository.FreezeAndSeizeTokenRegistrationRepository;
+import org.cardanofoundation.cip113.service.substandard.BafinSubstandardHandler;
+import org.cardanofoundation.cip113.service.substandard.DummySubstandardHandler;
+import org.cardanofoundation.cip113.service.substandard.FreezeAndSeizeHandler;
 import org.cardanofoundation.cip113.service.substandard.SubstandardHandlerFactory;
 import org.cardanofoundation.cip113.service.substandard.capabilities.BasicOperations;
 import org.cardanofoundation.cip113.service.substandard.context.FreezeAndSeizeContext;
@@ -25,8 +32,14 @@ import java.util.Optional;
 public class TokenOperationsService {
 
     private final SubstandardHandlerFactory handlerFactory;
+
     private final ProtocolBootstrapService protocolBootstrapService;
+
     private final RegistryService registryService;
+
+    private final BlacklistInitRepository blacklistInitRepository;
+
+    private final FreezeAndSeizeTokenRegistrationRepository freezeAndSeizeTokenRegistrationRepository;
 
     /**
      * Register a new programmable token.
@@ -81,18 +94,43 @@ public class TokenOperationsService {
         // Get protocol bootstrap params
         var protocolParams = resolveProtocolParams(protocolTxHash);
 
-        // Resolve substandard from registry
-//        String substandardId = resolveSubstandardFromRegistry("request.unit()");
         String substandardId = request.substandardName();
 
-        // Get substandard handler with BasicOperations capability
-        var handler = handlerFactory.getHandler(substandardId);
-        var basicOps = handler.asBasicOperations()
-                .orElseThrow(() -> new UnsupportedOperationException(
-                        "Substandard " + substandardId + " does not support basic operations"));
+        var context = switch (substandardId) {
+            case "freeze-and-seize" -> {
+                var dataOpt = freezeAndSeizeTokenRegistrationRepository.findByProgrammableTokenPolicyId(request.tokenPolicyId())
+                        .flatMap(token -> blacklistInitRepository.findByBlacklistNodePolicyId(token.getBlacklistInit().getBlacklistNodePolicyId())
+                                .map(blacklistInitEntity -> new Pair<>(token, blacklistInitEntity)));
 
-        // Build mint transaction
-        var txContext = basicOps.buildMintTransaction(request, protocolParams);
+                if (dataOpt.isEmpty()) {
+                    throw new RuntimeException("could not find programmable token or blacklist init data");
+                }
+
+                var data = dataOpt.get();
+                var tokenRegistration = data.first();
+                var blacklistInitEntity = data.second();
+                yield FreezeAndSeizeContext.builder()
+                        .issuerAdminPkh(tokenRegistration.getIssuerAdminPkh())
+                        .blacklistManagerPkh(blacklistInitEntity.getAdminPkh())
+                        .blacklistInitTxInput(TransactionInput.builder()
+                                .transactionId(blacklistInitEntity.getTxHash())
+                                .index(blacklistInitEntity.getOutputIndex())
+                                .build())
+                        .blacklistNodePolicyId(blacklistInitEntity.getBlacklistNodePolicyId())
+                        .build();
+            }
+
+            default -> null;
+        };
+
+        // Get substandard handler with BasicOperations capability
+        var handler = context != null ? handlerFactory.getHandler(substandardId, context) : handlerFactory.getHandler(substandardId);
+        var txContext = switch (handler) {
+            case  DummySubstandardHandler dummySubstandardHandler -> dummySubstandardHandler.buildMintTransaction(request,protocolParams);
+            case FreezeAndSeizeHandler freezeAndSeizeHandler -> freezeAndSeizeHandler.buildMintTransaction(request,protocolParams);
+            case BafinSubstandardHandler bafinSubstandardHandler -> bafinSubstandardHandler.buildMintTransaction(request,protocolParams);
+            default -> throw new UnsupportedOperationException();
+        };
 
         log.info("Mint transaction built successfully for substandard: {}", substandardId);
 
@@ -111,20 +149,49 @@ public class TokenOperationsService {
             String protocolTxHash) {
         log.info("Transferring token: {}, protocol: {}", request.unit(), protocolTxHash);
 
+        var programmableToken = AssetType.fromUnit(request.unit());
+
         // Get protocol bootstrap params
         var protocolParams = resolveProtocolParams(protocolTxHash);
 
-        // Resolve substandard from registry
-        String substandardId = resolveSubstandardFromRegistry(request.unit());
+        String substandardId = request.substandardId();
+
+        var context = switch (substandardId) {
+            case "freeze-and-seize" -> {
+                var dataOpt = freezeAndSeizeTokenRegistrationRepository.findByProgrammableTokenPolicyId(programmableToken.policyId())
+                        .flatMap(token -> blacklistInitRepository.findByBlacklistNodePolicyId(token.getBlacklistInit().getBlacklistNodePolicyId())
+                                .map(blacklistInitEntity -> new Pair<>(token, blacklistInitEntity)));
+
+                if (dataOpt.isEmpty()) {
+                    throw new RuntimeException("could not find programmable token or blacklist init data");
+                }
+
+                var data = dataOpt.get();
+                var tokenRegistration = data.first();
+                var blacklistInitEntity = data.second();
+                yield FreezeAndSeizeContext.builder()
+                        .issuerAdminPkh(tokenRegistration.getIssuerAdminPkh())
+                        .blacklistManagerPkh(blacklistInitEntity.getAdminPkh())
+                        .blacklistInitTxInput(TransactionInput.builder()
+                                .transactionId(blacklistInitEntity.getTxHash())
+                                .index(blacklistInitEntity.getOutputIndex())
+                                .build())
+                        .blacklistNodePolicyId(blacklistInitEntity.getBlacklistNodePolicyId())
+                        .build();
+            }
+
+            default -> null;
+        };
 
         // Get substandard handler with BasicOperations capability
-        var handler = handlerFactory.getHandler(substandardId);
-        var basicOps = handler.asBasicOperations()
-                .orElseThrow(() -> new UnsupportedOperationException(
-                        "Substandard " + substandardId + " does not support basic operations"));
+        var handler = context != null ? handlerFactory.getHandler(substandardId, context) : handlerFactory.getHandler(substandardId);
+        var txContext = switch (handler) {
+            case  DummySubstandardHandler dummySubstandardHandler -> dummySubstandardHandler.buildTransferTransaction(request,protocolParams);
+            case FreezeAndSeizeHandler freezeAndSeizeHandler -> freezeAndSeizeHandler.buildTransferTransaction(request,protocolParams);
+            case BafinSubstandardHandler bafinSubstandardHandler -> bafinSubstandardHandler.buildTransferTransaction(request,protocolParams);
+            default -> throw new UnsupportedOperationException();
+        };
 
-        // Build transfer transaction
-        var txContext = basicOps.buildTransferTransaction(request, protocolParams);
 
         log.info("Transfer transaction built successfully for substandard: {}", substandardId);
 

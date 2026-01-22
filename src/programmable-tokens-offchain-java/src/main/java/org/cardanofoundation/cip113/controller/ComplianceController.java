@@ -1,6 +1,7 @@
 package org.cardanofoundation.cip113.controller;
 
 import com.bloxbean.cardano.client.transaction.spec.TransactionInput;
+import com.easy1staking.cardano.model.AssetType;
 import com.easy1staking.util.Pair;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
@@ -368,11 +369,41 @@ public class ComplianceController {
             @RequestParam(required = false) String protocolTxHash) {
 
         log.info("POST /compliance/seize - substandardId: {}, target: {}, destination: {}",
-                substandardId, request.targetAddress(), request.destinationAddress());
+                substandardId, request.destinationAddress(), request.destinationAddress());
 
         try {
+
+            var progToken = AssetType.fromUnit(request.unit());
+
+            var context = switch (substandardId) {
+                case "freeze-and-seize" -> {
+                    var dataOpt = freezeAndSeizeTokenRegistrationRepository.findByProgrammableTokenPolicyId(progToken.policyId())
+                            .flatMap(token -> blacklistInitRepository.findByBlacklistNodePolicyId(token.getBlacklistInit().getBlacklistNodePolicyId())
+                                    .map(blacklistInitEntity -> new Pair<>(token, blacklistInitEntity)));
+
+                    if (dataOpt.isEmpty()) {
+                        throw new RuntimeException("could not find programmable token or blacklist init data");
+                    }
+
+                    var data = dataOpt.get();
+                    var tokenRegistration = data.first();
+                    var blacklistInitEntity = data.second();
+                    yield FreezeAndSeizeContext.builder()
+                            .issuerAdminPkh(tokenRegistration.getIssuerAdminPkh())
+                            .blacklistManagerPkh(blacklistInitEntity.getAdminPkh())
+                            .blacklistInitTxInput(TransactionInput.builder()
+                                    .transactionId(blacklistInitEntity.getTxHash())
+                                    .index(blacklistInitEntity.getOutputIndex())
+                                    .build())
+                            .build();
+                }
+
+                default -> null;
+            };
+
+
             var txContext = complianceOperationsService.seize(
-                    substandardId, request, protocolTxHash, null);
+                    substandardId, request, protocolTxHash, context);
 
             if (txContext.isSuccessful()) {
                 return ResponseEntity.ok(txContext);

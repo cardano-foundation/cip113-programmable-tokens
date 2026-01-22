@@ -354,7 +354,7 @@ public class PreviewRegisterTest extends AbstractPreviewTest implements PreviewF
     @Test
     public void registerAddress() throws ApiException {
 
-        var result = bfBackendService.getAccountService().getAccountInformation("stake_test17pum292ymc6a2ucwtnwnrtufr0fzs9ut33e4dl94acnxscgnfxudd");
+        var result = bfBackendService.getAccountService().getAccountInformation("stake_test17z8ycmu8vs3dvx6gmszkj7wtv69uwjwk6x73rgsk4hqs3ks9cpfqr");
 
         log.info("success?: {}", result.isSuccessful());
 
@@ -363,7 +363,7 @@ public class PreviewRegisterTest extends AbstractPreviewTest implements PreviewF
 
             var registerAddressTx = new Tx()
                     .from(aliceAccount.baseAddress())
-                    .registerStakeAddress("stake_test17pum292ymc6a2ucwtnwnrtufr0fzs9ut33e4dl94acnxscgnfxudd")
+                    .registerStakeAddress("stake_test17z8ycmu8vs3dvx6gmszkj7wtv69uwjwk6x73rgsk4hqs3ks9cpfqr")
                     .withChangeAddress(aliceAccount.baseAddress());
 
             quickTxBuilder.compose(registerAddressTx)

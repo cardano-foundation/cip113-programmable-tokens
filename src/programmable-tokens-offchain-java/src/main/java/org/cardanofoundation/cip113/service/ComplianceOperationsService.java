@@ -219,7 +219,7 @@ public class ComplianceOperationsService {
             SubstandardContext context) {
 
         log.info("Seizing assets for substandard: {}, from: {}, destination: {}",
-                substandardId, request.targetAddress(), request.destinationAddress());
+                substandardId, request.destinationAddress(), request.destinationAddress());
 
         var protocolParams = resolveProtocolParams(protocolTxHash);
         var seizeable = getSeizeable(substandardId, context);
