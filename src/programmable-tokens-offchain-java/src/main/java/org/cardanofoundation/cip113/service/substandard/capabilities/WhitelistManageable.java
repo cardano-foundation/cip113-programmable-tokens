@@ -20,8 +20,11 @@ public interface WhitelistManageable {
 
     /**
      * Request to initialize a whitelist for a programmable token.
+     * Requires the token to be already registered in the programmable token registry.
      */
     record WhitelistInitRequest(
+            /** The policy ID of the programmable token (used to resolve substandard) */
+            String tokenPolicyId,
             /** The admin address that will manage this whitelist */
             String adminAddress,
             /** Bootstrap UTxO transaction hash */

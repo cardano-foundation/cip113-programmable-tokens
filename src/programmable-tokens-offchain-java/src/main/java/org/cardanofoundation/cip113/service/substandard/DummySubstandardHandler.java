@@ -29,11 +29,13 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.cardanofoundation.cip113.config.AppConfig;
+import org.cardanofoundation.cip113.entity.ProgrammableTokenRegistryEntity;
 import org.cardanofoundation.cip113.model.*;
 import org.cardanofoundation.cip113.model.TransactionContext.RegistrationResult;
 import org.cardanofoundation.cip113.model.bootstrap.ProtocolBootstrapParams;
 import org.cardanofoundation.cip113.model.onchain.RegistryNode;
 import org.cardanofoundation.cip113.model.onchain.RegistryNodeParser;
+import org.cardanofoundation.cip113.repository.ProgrammableTokenRegistryRepository;
 import org.cardanofoundation.cip113.service.ProtocolScriptBuilderService;
 import org.cardanofoundation.cip113.service.SubstandardService;
 import org.cardanofoundation.cip113.service.substandard.capabilities.BasicOperations;
@@ -74,6 +76,8 @@ public class DummySubstandardHandler implements SubstandardHandler, BasicOperati
     private final ProtocolScriptBuilderService protocolScriptBuilderService;
 
     private final QuickTxBuilder quickTxBuilder;
+
+    private final ProgrammableTokenRegistryRepository programmableTokenRegistryRepository;
 
     @Override
     public String getSubstandardId() {
@@ -336,6 +340,11 @@ public class DummySubstandardHandler implements SubstandardHandler, BasicOperati
                 log.info("tx: {}", transaction.serializeToHex());
                 log.info("tx: {}", objectMapper.writeValueAsString(transaction));
 
+                // Save to unified programmable token registry (policyId -> substandardId binding)
+                programmableTokenRegistryRepository.save(ProgrammableTokenRegistryEntity.builder()
+                        .policyId(progTokenPolicyId)
+                        .substandardId(SUBSTANDARD_ID)
+                        .build());
 
                 return TransactionContext.ok(transaction.serializeToHex(), new RegistrationResult(progTokenPolicyId));
             } else {

@@ -13,11 +13,14 @@ public interface BlacklistManageable {
 
     /**
      * Request to initialize a blacklist for a programmable token.
+     * Requires the token to be already registered in the programmable token registry.
      */
     record BlacklistInitRequest(
+            /** The policy ID of the programmable token (used to resolve substandard) */
+            String tokenPolicyId,
             /** The admin address that will manage this blacklist */
             String adminAddress,
-            /** The address that pays for hte tx */
+            /** The address that pays for the tx */
             String feePayerAddress
     ) {
     }

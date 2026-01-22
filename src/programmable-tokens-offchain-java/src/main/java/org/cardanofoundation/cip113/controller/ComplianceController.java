@@ -6,9 +6,11 @@ import com.easy1staking.util.Pair;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.cardanofoundation.cip113.entity.ProgrammableTokenRegistryEntity;
 import org.cardanofoundation.cip113.model.BlacklistInitResponse;
 import org.cardanofoundation.cip113.repository.BlacklistInitRepository;
 import org.cardanofoundation.cip113.repository.FreezeAndSeizeTokenRegistrationRepository;
+import org.cardanofoundation.cip113.repository.ProgrammableTokenRegistryRepository;
 import org.cardanofoundation.cip113.service.ComplianceOperationsService;
 import org.cardanofoundation.cip113.service.substandard.capabilities.BlacklistManageable.AddToBlacklistRequest;
 import org.cardanofoundation.cip113.service.substandard.capabilities.BlacklistManageable.BlacklistInitRequest;
@@ -48,26 +50,29 @@ public class ComplianceController {
 
     private final FreezeAndSeizeTokenRegistrationRepository freezeAndSeizeTokenRegistrationRepository;
 
+    private final ProgrammableTokenRegistryRepository programmableTokenRegistryRepository;
+
     // ========== Blacklist Endpoints ==========
 
     /**
      * Initialize a blacklist for a programmable token.
      * Creates the on-chain linked list structure for tracking blacklisted addresses.
+     * Requires the token to be already registered in the programmable token registry.
      *
-     * @param substandardId  The substandard identifier (e.g., "freeze-and-seize")
-     * @param request        The blacklist initialization request
+     * @param request        The blacklist initialization request (contains tokenPolicyId)
      * @param protocolTxHash Optional protocol version tx hash
      * @return Unsigned CBOR transaction hex
      */
     @PostMapping("/blacklist/init")
-    public ResponseEntity<?> initBlacklist(@RequestParam String substandardId,
-                                           @RequestBody BlacklistInitRequest request,
+    public ResponseEntity<?> initBlacklist(@RequestBody BlacklistInitRequest request,
                                            @RequestParam(required = false) String protocolTxHash) {
 
-        log.info("POST /compliance/blacklist/init - substandardId: {}, admin: {}",
-                substandardId, request.adminAddress());
+        log.info("POST /compliance/blacklist/init - tokenPolicyId: {}, admin: {}",
+                request.tokenPolicyId(), request.adminAddress());
 
         try {
+            // Resolve substandard from policyId via unified registry
+            var substandardId = resolveSubstandardId(request.tokenPolicyId());
 
             var context = switch (substandardId) {
                 case "freeze-and-seize" -> FreezeAndSeizeContext.emptyContext();
@@ -98,22 +103,22 @@ public class ComplianceController {
      * Add an address to the blacklist (freeze).
      * Once blacklisted, the address cannot transfer programmable tokens.
      *
-     * @param substandardId  The substandard identifier
-     * @param request        The add to blacklist request
+     * @param request        The add to blacklist request (contains tokenPolicyId)
      * @param protocolTxHash Optional protocol version tx hash
      * @return Unsigned CBOR transaction hex
      */
     @PostMapping("/blacklist/add")
     @Transactional
     public ResponseEntity<?> addToBlacklist(
-            @RequestParam String substandardId,
             @RequestBody AddToBlacklistRequest request,
             @RequestParam(required = false) String protocolTxHash) {
 
-        log.info("POST /compliance/blacklist/add - substandardId: {}, target: {}",
-                substandardId, request.targetAddress());
+        log.info("POST /compliance/blacklist/add - tokenPolicyId: {}, target: {}",
+                request.tokenPolicyId(), request.targetAddress());
 
         try {
+            // Resolve substandard from policyId via unified registry
+            var substandardId = resolveSubstandardId(request.tokenPolicyId());
 
             var context = switch (substandardId) {
                 case "freeze-and-seize" -> {
@@ -166,21 +171,21 @@ public class ComplianceController {
      * Remove an address from the blacklist (unfreeze).
      * Once removed, the address can transfer programmable tokens again.
      *
-     * @param substandardId  The substandard identifier
-     * @param request        The remove from blacklist request
+     * @param request        The remove from blacklist request (contains tokenPolicyId)
      * @param protocolTxHash Optional protocol version tx hash
      * @return Unsigned CBOR transaction hex
      */
     @PostMapping("/blacklist/remove")
     public ResponseEntity<?> removeFromBlacklist(
-            @RequestParam String substandardId,
             @RequestBody RemoveFromBlacklistRequest request,
             @RequestParam(required = false) String protocolTxHash) {
 
-        log.info("POST /compliance/blacklist/remove - substandardId: {}, target: {}",
-                substandardId, request.targetAddress());
+        log.info("POST /compliance/blacklist/remove - tokenPolicyId: {}, target: {}",
+                request.tokenPolicyId(), request.targetAddress());
 
         try {
+            // Resolve substandard from policyId via unified registry
+            var substandardId = resolveSubstandardId(request.tokenPolicyId());
 
             var context = switch (substandardId) {
                 case "freeze-and-seize" -> {
@@ -234,22 +239,24 @@ public class ComplianceController {
     /**
      * Initialize a whitelist for a programmable token (security token).
      * Creates the on-chain linked list structure for tracking KYC-approved addresses.
+     * Requires the token to be already registered in the programmable token registry.
      *
-     * @param substandardId  The substandard identifier
-     * @param request        The whitelist initialization request
+     * @param request        The whitelist initialization request (contains tokenPolicyId)
      * @param protocolTxHash Optional protocol version tx hash
      * @return Unsigned CBOR transaction hex
      */
     @PostMapping("/whitelist/init")
     public ResponseEntity<?> initWhitelist(
-            @RequestParam String substandardId,
             @RequestBody WhitelistInitRequest request,
             @RequestParam(required = false) String protocolTxHash) {
 
-        log.info("POST /compliance/whitelist/init - substandardId: {}, admin: {}",
-                substandardId, request.adminAddress());
+        log.info("POST /compliance/whitelist/init - tokenPolicyId: {}, admin: {}",
+                request.tokenPolicyId(), request.adminAddress());
 
         try {
+            // Resolve substandard from policyId via unified registry
+            var substandardId = resolveSubstandardId(request.tokenPolicyId());
+
             var txContext = complianceOperationsService.initWhitelist(
                     substandardId, request, protocolTxHash, null);
 
@@ -275,21 +282,22 @@ public class ComplianceController {
      * Add an address to the whitelist (grant KYC approval).
      * Once whitelisted, the address can receive and transfer the security token.
      *
-     * @param substandardId  The substandard identifier
-     * @param request        The add to whitelist request
+     * @param request        The add to whitelist request (contains policyId)
      * @param protocolTxHash Optional protocol version tx hash
      * @return Unsigned CBOR transaction hex
      */
     @PostMapping("/whitelist/add")
     public ResponseEntity<?> addToWhitelist(
-            @RequestParam String substandardId,
             @RequestBody AddToWhitelistRequest request,
             @RequestParam(required = false) String protocolTxHash) {
 
-        log.info("POST /compliance/whitelist/add - substandardId: {}, target: {}",
-                substandardId, request.targetCredential());
+        log.info("POST /compliance/whitelist/add - policyId: {}, target: {}",
+                request.policyId(), request.targetCredential());
 
         try {
+            // Resolve substandard from policyId via unified registry
+            var substandardId = resolveSubstandardId(request.policyId());
+
             var txContext = complianceOperationsService.addToWhitelist(
                     substandardId, request, protocolTxHash, null);
 
@@ -315,21 +323,22 @@ public class ComplianceController {
      * Remove an address from the whitelist (revoke KYC approval).
      * Once removed, the address can no longer receive the security token.
      *
-     * @param substandardId  The substandard identifier
-     * @param request        The remove from whitelist request
+     * @param request        The remove from whitelist request (contains policyId)
      * @param protocolTxHash Optional protocol version tx hash
      * @return Unsigned CBOR transaction hex
      */
     @PostMapping("/whitelist/remove")
     public ResponseEntity<?> removeFromWhitelist(
-            @RequestParam String substandardId,
             @RequestBody RemoveFromWhitelistRequest request,
             @RequestParam(required = false) String protocolTxHash) {
 
-        log.info("POST /compliance/whitelist/remove - substandardId: {}, target: {}",
-                substandardId, request.targetCredential());
+        log.info("POST /compliance/whitelist/remove - policyId: {}, target: {}",
+                request.policyId(), request.targetCredential());
 
         try {
+            // Resolve substandard from policyId via unified registry
+            var substandardId = resolveSubstandardId(request.policyId());
+
             var txContext = complianceOperationsService.removeFromWhitelist(
                     substandardId, request, protocolTxHash, null);
 
@@ -357,23 +366,24 @@ public class ComplianceController {
      * Seize assets from a blacklisted address.
      * The target address must be on the blacklist for this operation to succeed.
      *
-     * @param substandardId  The substandard identifier
-     * @param request        The seize request
+     * @param request        The seize request (contains unit with policyId)
      * @param protocolTxHash Optional protocol version tx hash
      * @return Unsigned CBOR transaction hex
      */
     @PostMapping("/seize")
     public ResponseEntity<?> seize(
-            @RequestParam String substandardId,
             @RequestBody SeizeRequest request,
             @RequestParam(required = false) String protocolTxHash) {
 
-        log.info("POST /compliance/seize - substandardId: {}, target: {}, destination: {}",
-                substandardId, request.destinationAddress(), request.destinationAddress());
+        log.info("POST /compliance/seize - unit: {}, destination: {}",
+                request.unit(), request.destinationAddress());
 
         try {
 
             var progToken = AssetType.fromUnit(request.unit());
+
+            // Resolve substandard from policyId via unified registry
+            var substandardId = resolveSubstandardId(progToken.policyId());
 
             var context = switch (substandardId) {
                 case "freeze-and-seize" -> {
@@ -427,21 +437,22 @@ public class ComplianceController {
      * Seize assets from multiple UTxOs in a single transaction.
      * More efficient for seizing from addresses with multiple token UTxOs.
      *
-     * @param substandardId  The substandard identifier
-     * @param request        The multi-seize request
+     * @param request        The multi-seize request (contains policyId)
      * @param protocolTxHash Optional protocol version tx hash
      * @return Unsigned CBOR transaction hex
      */
     @PostMapping("/seize/multi")
     public ResponseEntity<?> multiSeize(
-            @RequestParam String substandardId,
             @RequestBody MultiSeizeRequest request,
             @RequestParam(required = false) String protocolTxHash) {
 
-        log.info("POST /compliance/seize/multi - substandardId: {}, utxo count: {}, destination: {}",
-                substandardId, request.utxoReferences().size(), request.destinationAddress());
+        log.info("POST /compliance/seize/multi - policyId: {}, utxo count: {}, destination: {}",
+                request.policyId(), request.utxoReferences().size(), request.destinationAddress());
 
         try {
+            // Resolve substandard from policyId via unified registry
+            var substandardId = resolveSubstandardId(request.policyId());
+
             var txContext = complianceOperationsService.multiSeize(
                     substandardId, request, protocolTxHash, null);
 
@@ -461,5 +472,21 @@ public class ComplianceController {
             log.error("Error multi-seizing assets", e);
             return ResponseEntity.internalServerError().body(e.getMessage());
         }
+    }
+
+    // ========== Helper Methods ==========
+
+    /**
+     * Resolve substandard ID from the unified programmable token registry.
+     *
+     * @param policyId The programmable token policy ID
+     * @return The substandard ID
+     * @throws IllegalArgumentException if the token is not registered
+     */
+    private String resolveSubstandardId(String policyId) {
+        return programmableTokenRegistryRepository.findByPolicyId(policyId)
+                .map(ProgrammableTokenRegistryEntity::getSubstandardId)
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "Token not registered in programmable token registry: " + policyId));
     }
 }

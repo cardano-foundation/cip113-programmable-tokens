@@ -36,6 +36,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.cardanofoundation.cip113.config.AppConfig;
 import org.cardanofoundation.cip113.entity.BlacklistInitEntity;
 import org.cardanofoundation.cip113.entity.FreezeAndSeizeTokenRegistrationEntity;
+import org.cardanofoundation.cip113.entity.ProgrammableTokenRegistryEntity;
 import org.cardanofoundation.cip113.model.*;
 import org.cardanofoundation.cip113.model.TransactionContext.MintingResult;
 import org.cardanofoundation.cip113.model.TransactionContext.RegistrationResult;
@@ -46,6 +47,7 @@ import org.cardanofoundation.cip113.model.onchain.RegistryNodeParser;
 import org.cardanofoundation.cip113.model.onchain.siezeandfreeze.blacklist.*;
 import org.cardanofoundation.cip113.repository.BlacklistInitRepository;
 import org.cardanofoundation.cip113.repository.FreezeAndSeizeTokenRegistrationRepository;
+import org.cardanofoundation.cip113.repository.ProgrammableTokenRegistryRepository;
 import org.cardanofoundation.cip113.service.*;
 import org.cardanofoundation.cip113.service.substandard.capabilities.BasicOperations;
 import org.cardanofoundation.cip113.service.substandard.capabilities.BlacklistManageable;
@@ -103,6 +105,8 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
     private final FreezeAndSeizeTokenRegistrationRepository freezeAndSeizeTokenRegistrationRepository;
 
     private final BlacklistInitRepository blacklistInitRepository;
+
+    private final ProgrammableTokenRegistryRepository programmableTokenRegistryRepository;
 
     private final UtxoProvider utxoProvider;
 
@@ -385,6 +389,12 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
                     .programmableTokenPolicyId(progTokenPolicyId)
                     .issuerAdminPkh(HexUtil.encodeHexString(adminPkh.getBytes()))
                     .blacklistInit(blacklistInitOpt.get())
+                    .build());
+
+            // Save to unified programmable token registry (policyId -> substandardId binding)
+            programmableTokenRegistryRepository.save(ProgrammableTokenRegistryEntity.builder()
+                    .policyId(progTokenPolicyId)
+                    .substandardId(SUBSTANDARD_ID)
                     .build());
 
             return TransactionContext.ok(transaction.serializeToHex(), new RegistrationResult(progTokenPolicyId));

@@ -5,12 +5,14 @@ import com.easy1staking.cardano.model.AssetType;
 import com.easy1staking.util.Pair;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.cardanofoundation.cip113.entity.ProgrammableTokenRegistryEntity;
 import org.cardanofoundation.cip113.entity.RegistryNodeEntity;
 import org.cardanofoundation.cip113.model.*;
 import org.cardanofoundation.cip113.model.TransactionContext.RegistrationResult;
 import org.cardanofoundation.cip113.model.bootstrap.ProtocolBootstrapParams;
 import org.cardanofoundation.cip113.repository.BlacklistInitRepository;
 import org.cardanofoundation.cip113.repository.FreezeAndSeizeTokenRegistrationRepository;
+import org.cardanofoundation.cip113.repository.ProgrammableTokenRegistryRepository;
 import org.cardanofoundation.cip113.service.substandard.BafinSubstandardHandler;
 import org.cardanofoundation.cip113.service.substandard.DummySubstandardHandler;
 import org.cardanofoundation.cip113.service.substandard.FreezeAndSeizeHandler;
@@ -40,6 +42,8 @@ public class TokenOperationsService {
     private final BlacklistInitRepository blacklistInitRepository;
 
     private final FreezeAndSeizeTokenRegistrationRepository freezeAndSeizeTokenRegistrationRepository;
+
+    private final ProgrammableTokenRegistryRepository programmableTokenRegistryRepository;
 
     /**
      * Register a new programmable token.
@@ -94,7 +98,8 @@ public class TokenOperationsService {
         // Get protocol bootstrap params
         var protocolParams = resolveProtocolParams(protocolTxHash);
 
-        String substandardId = request.substandardName();
+        // Resolve substandard from policyId via unified registry
+        String substandardId = resolveSubstandardId(request.tokenPolicyId());
 
         var context = switch (substandardId) {
             case "freeze-and-seize" -> {
@@ -154,7 +159,8 @@ public class TokenOperationsService {
         // Get protocol bootstrap params
         var protocolParams = resolveProtocolParams(protocolTxHash);
 
-        String substandardId = request.substandardId();
+        // Resolve substandard from policyId via unified registry
+        String substandardId = resolveSubstandardId(programmableToken.policyId());
 
         var context = switch (substandardId) {
             case "freeze-and-seize" -> {
@@ -211,37 +217,19 @@ public class TokenOperationsService {
     }
 
     /**
-     * Resolve substandard from registry by looking up the token's policy ID.
-     * For now, this is a partial implementation that:
-     * 1. Uses AssetType to extract policy ID from unit
-     * 2. Finds registry entry to validate token exists
-     * 3. Hardcodes "dummy" as the substandard (TODO: extract from registry metadata)
+     * Resolve substandard ID from the unified programmable token registry.
      *
-     * @param unit The token unit (blacklistNodePolicyId + assetNameHex)
+     * @param policyId The programmable token policy ID
      * @return The substandard ID
+     * @throws IllegalArgumentException if the token is not registered
      */
-    private String resolveSubstandardFromRegistry(String unit) {
-        // Use AssetType utility to extract policy ID
-        AssetType assetType = AssetType.fromUnit(unit);
-        String policyId = assetType.policyId();
+    private String resolveSubstandardId(String policyId) {
+        log.debug("Resolving substandard for policy ID: {}", policyId);
 
-        log.debug("Resolving substandard for policy ID: {} (from unit: {})", policyId, unit);
-
-        // Find registry entry
-        Optional<RegistryNodeEntity> registryEntry = registryService.findByPolicyId(unit);
-
-        if (registryEntry.isEmpty()) {
-            throw new IllegalArgumentException(
-                    "Token not registered in registry: " + policyId);
-        }
-
-        // TODO: Extract substandard from registry metadata when resolution logic is implemented
-        // For now, we hardcode "dummy" until the metadata resolution is complete
-        String substandardId = "dummy";
-
-        log.debug("Resolved substandard '{}' for policy ID: {}", substandardId, policyId);
-
-        return substandardId;
+        return programmableTokenRegistryRepository.findByPolicyId(policyId)
+                .map(ProgrammableTokenRegistryEntity::getSubstandardId)
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "Token not registered in programmable token registry: " + policyId));
     }
 
     /**
