@@ -1,14 +1,12 @@
 package org.cardanofoundation.cip113.service.substandard;
 
 import com.bloxbean.cardano.aiken.AikenScriptUtil;
-import com.bloxbean.cardano.aiken.AikenTransactionEvaluator;
 import com.bloxbean.cardano.client.address.Address;
 import com.bloxbean.cardano.client.address.AddressProvider;
 import com.bloxbean.cardano.client.address.Credential;
 import com.bloxbean.cardano.client.api.model.Amount;
 import com.bloxbean.cardano.client.api.util.ValueUtil;
 import com.bloxbean.cardano.client.backend.blockfrost.service.BFBackendService;
-import com.bloxbean.cardano.client.function.helper.SignerProviders;
 import com.bloxbean.cardano.client.plutus.blueprint.PlutusBlueprintUtil;
 import com.bloxbean.cardano.client.plutus.blueprint.model.PlutusVersion;
 import com.bloxbean.cardano.client.plutus.spec.BytesPlutusData;
@@ -314,21 +312,6 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
                     payeeAddress.getDelegationCredential().get(),
                     network.getCardanoNetwork());
 
-//        if (registerWithdrawScriptsAddresses) {
-//
-//            var registerAddressTx = new Tx()
-//                    .from(issuerAccount.baseAddress())
-//                    .registerStakeAddress(substandardIssueAddress.getAddress())
-//                    .registerStakeAddress(substandardTransferAddress.getAddress())
-//                    .withChangeAddress(issuerAccount.baseAddress());
-//
-//            quickTxBuilder.compose(registerAddressTx)
-//                    .feePayer(issuerAccount.baseAddress())
-//                    .withSigner(SignerProviders.signerFrom(issuerAccount))
-//                    .completeAndWait();
-//
-//        }
-
             var tx = new ScriptTx()
                     .collectFrom(feePayerUtxos)
                     .collectFrom(directoryUtxo, ConstrPlutusData.of(0))
@@ -409,9 +392,113 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
     public TransactionContext<Void> buildMintTransaction(
             MintTokenRequest request,
             ProtocolBootstrapParams protocolParams) {
-        // TODO: Implement minting for freeze-and-seize
-        log.warn("buildMintTransaction not yet implemented for freeze-and-seize");
-        return TransactionContext.typedError("Not yet implemented");
+
+        try {
+
+            var adminUtxos = accountService.findAdaOnlyUtxo(request.issuerBaseAddress(), 10_000_000L);
+
+            var bootstrapTxHash = protocolParams.txHash();
+
+            var issuanceUtxoOpt = utxoProvider.findUtxo(bootstrapTxHash, 2);
+            if (issuanceUtxoOpt.isEmpty()) {
+                return TransactionContext.typedError("could not resolve issuance params");
+            }
+            var issuanceUtxo = issuanceUtxoOpt.get();
+            log.info("issuanceUtxo: {}", issuanceUtxo);
+
+            /// Getting Substandard Contracts and parameterize
+            // Issuer to be used for minting/burning/sieze
+            var issuerContractOpt = substandardService.getSubstandardValidator(SUBSTANDARD_ID, "example_transfer_logic.issuer_admin_contract.withdraw");
+            var issuerContract = issuerContractOpt.get();
+
+            var adminPkh = Credential.fromKey(context.getIssuerAdminPkh());
+            var issuerAdminContractInitParams = ListPlutusData.of(serialize(adminPkh));
+
+            var substandardIssueContract = PlutusBlueprintUtil.getPlutusScriptFromCompiledCode(
+                    AikenScriptUtil.applyParamToScript(issuerAdminContractInitParams, issuerContract.scriptBytes()),
+                    PlutusVersion.v3
+            );
+            log.info("substandardIssueContract: {}", substandardIssueContract.getPolicyId());
+
+            var substandardIssueAddress = AddressProvider.getRewardAddress(substandardIssueContract, network.getCardanoNetwork());
+            log.info("substandardIssueAddress: {}", substandardIssueAddress.getAddress());
+
+
+            var issuanceContract = protocolScriptBuilderService.getParameterizedIssuanceMintScript(protocolParams, substandardIssueContract);
+            log.info("issuanceContract: {}", issuanceContract.getPolicyId());
+
+            var issuanceRedeemer = ConstrPlutusData.of(0, ConstrPlutusData.of(1, BytesPlutusData.of(substandardIssueContract.getScriptHash())));
+
+            // Programmable Token Mint
+            var programmableToken = Asset.builder()
+                    .name("0x" + HexUtil.encodeHexString("tUSDT".getBytes()))
+                    .value(BigInteger.valueOf(1_000_000_000_000L))
+                    .build();
+
+            Value programmableTokenValue = Value.builder()
+                    .coin(Amount.ada(1).getQuantity())
+                    .multiAssets(List.of(
+                            MultiAsset.builder()
+                                    .policyId(issuanceContract.getPolicyId())
+                                    .assets(List.of(programmableToken))
+                                    .build()
+                    ))
+                    .build();
+
+            log.info("request.getRecipientAddress(): {}", request.recipientAddress());
+            var payeeAddress = new Address(request.recipientAddress());
+
+            var targetAddress = AddressProvider.getBaseAddress(Credential.fromScript(protocolParams.programmableLogicBaseParams().scriptHash()),
+                    payeeAddress.getDelegationCredential().get(),
+                    network.getCardanoNetwork());
+
+
+            var tx = new ScriptTx()
+                    .collectFrom(adminUtxos)
+                    .withdraw(substandardIssueAddress.getAddress(), BigInteger.ZERO, ConstrPlutusData.of(0))
+                    .mintAsset(issuanceContract, programmableToken, issuanceRedeemer)
+                    .payToContract(targetAddress.getAddress(), ValueUtil.toAmountList(programmableTokenValue), ConstrPlutusData.of(0))
+                    .attachRewardValidator(substandardIssueContract)
+                    .withChangeAddress(request.issuerBaseAddress());
+
+            var transaction = quickTxBuilder.compose(tx)
+                    .withRequiredSigners(adminPkh.getBytes())
+                    .feePayer(request.issuerBaseAddress())
+//                .withTxEvaluator(new AikenTransactionEvaluator(bfBackendService))
+                    .mergeOutputs(false) //<-- this is important! or directory tokens will go to same address
+                    .preBalanceTx((txBuilderContext, transaction1) -> {
+                        var outputs = transaction1.getBody().getOutputs();
+                        if (outputs.getFirst().getAddress().equals(request.issuerBaseAddress())) {
+                            log.info("found dummy input, moving it...");
+                            var first = outputs.removeFirst();
+                            outputs.addLast(first);
+                        }
+                        try {
+                            log.info("pre tx: {}", objectMapper.writeValueAsString(transaction1));
+                        } catch (JsonProcessingException e) {
+                            throw new RuntimeException(e);
+                        }
+                    })
+                    .postBalanceTx((txBuilderContext, transaction1) -> {
+                        try {
+                            log.info("post tx: {}", objectMapper.writeValueAsString(transaction1));
+                        } catch (JsonProcessingException e) {
+                            throw new RuntimeException(e);
+                        }
+                    })
+                    .buildAndSign();
+
+            log.info("tx: {}", transaction.serializeToHex());
+            log.info("tx: {}", objectMapper.writeValueAsString(transaction));
+
+            return TransactionContext.ok(transaction.serializeToHex());
+
+        } catch (Exception e) {
+            log.error("error", e);
+            return TransactionContext.typedError("error: " + e.getMessage());
+        }
+
+
     }
 
     @Override
@@ -766,7 +853,7 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
             log.info("transaction: {}", objectMapper.writeValueAsString(transaction));
 
             return TransactionContext.ok(transaction.serializeToHex());
-            
+
         } catch (Exception e) {
             return TransactionContext.error(String.format("error: %s", e.getMessage()));
 
