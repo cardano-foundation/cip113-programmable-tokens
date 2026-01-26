@@ -213,15 +213,16 @@ fn validate_third_party(
       tx.inputs,
       fn(input) { input.output.address.payment_credential == prog_logic_cred },
     )
-  and {
-    // Validate registry node is authentic
-    has_currency_symbol(registry_ref_input.output.value, registry_node_cs),
-    // The third party transfer logic script must be invoked
-    list.has(invoked_scripts, registry_node.third_party_transfer_logic_script),
-    // matching_outputs,
-    // Must match the number of inputs we're processing
-    prog_input_count == length_input_idxs,
-  }
+
+  // All conditions must pass or transaction fails
+  // Validate registry node is authentic
+  expect has_currency_symbol(registry_ref_input.output.value, registry_node_cs)
+  // The third party transfer logic script must be invoked
+  expect list.has(invoked_scripts, registry_node.third_party_transfer_logic_script)
+  // Must match the number of inputs we're processing
+  expect prog_input_count == length_input_idxs
+
+  True
 }
 
 fn get_signed_prog_value(tx: Transaction, prog_logic_cred: Credential) -> Value {
