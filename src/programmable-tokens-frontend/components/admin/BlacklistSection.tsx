@@ -80,16 +80,18 @@ export function BlacklistSection({ tokens, adminAddress }: BlacklistSectionProps
       );
 
       const request = {
-        adminAddress,
         tokenPolicyId: selectedToken.policyId,
         targetAddress: targetAddress.trim(),
+        feePayerAddress: adminAddress,
       };
 
       let unsignedCborTx: string;
       if (action === "add") {
-        unsignedCborTx = await addToBlacklist(request, selectedVersion?.txHash);
+        const response = await addToBlacklist(request, selectedVersion?.txHash);
+        unsignedCborTx = response.unsignedCborTx;
       } else {
-        unsignedCborTx = await removeFromBlacklist(request, selectedVersion?.txHash);
+        const response = await removeFromBlacklist(request, selectedVersion?.txHash);
+        unsignedCborTx = response.unsignedCborTx;
       }
 
       setIsBuilding(false);

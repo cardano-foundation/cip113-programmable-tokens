@@ -393,6 +393,7 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
             programmableTokenRegistryRepository.save(ProgrammableTokenRegistryEntity.builder()
                     .policyId(progTokenPolicyId)
                     .substandardId(SUBSTANDARD_ID)
+                    .assetName(request.getAssetName())
                     .build());
 
             return TransactionContext.ok(transaction.serializeToHex(), new RegistrationResult(progTokenPolicyId));
@@ -446,8 +447,8 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
 
             // Programmable Token Mint
             var programmableToken = Asset.builder()
-                    .name("0x" + HexUtil.encodeHexString("tUSDT".getBytes()))
-                    .value(BigInteger.valueOf(1_000_000_000_000L))
+                    .name("0x" + request.assetName())
+                    .value(new BigInteger(request.quantity()))
                     .build();
 
             Value programmableTokenValue = Value.builder()

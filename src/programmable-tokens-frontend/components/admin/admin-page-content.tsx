@@ -49,7 +49,7 @@ export default function AdminPageContent() {
           setAddress(addr);
 
           // Extract PKH and fetch admin tokens
-          const pkh = extractPkhFromAddress(addr);
+          const pkh = await extractPkhFromAddress(addr);
           if (pkh) {
             const response = await getAdminTokens(pkh);
             setAdminTokens(response.tokens);

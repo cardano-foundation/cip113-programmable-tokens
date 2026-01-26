@@ -30,4 +30,10 @@ public class ProgrammableTokenRegistryEntity {
      */
     @Column(name = "substandard_id", nullable = false, length = 50)
     private String substandardId;
+
+    /**
+     * Asset name in hex encoding.
+     */
+    @Column(name = "asset_name", nullable = false, length = 64)
+    private String assetName;
 }

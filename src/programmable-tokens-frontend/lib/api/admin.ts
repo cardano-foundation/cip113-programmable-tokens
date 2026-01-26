@@ -1,21 +1,39 @@
 /**
  * Admin Tokens API
  *
- * Currently uses mock data. Will be replaced with real API when backend is ready:
+ * Fetches tokens where the connected wallet has admin roles:
  * GET /api/v1/admin/tokens/{pkh}
  */
 
-import {
-  AdminTokensResponse,
-  AdminTokenInfo,
-  AdminRole,
-  getMockAdminTokens,
-  getTokensByRole,
-  hasAdminRoles,
-} from "@/lib/mocks/admin-tokens";
+import { apiGet } from './client';
 
-// Re-export types
-export type { AdminTokensResponse, AdminTokenInfo, AdminRole };
+// ============================================================================
+// Types
+// ============================================================================
+
+export type AdminRole = "ISSUER_ADMIN" | "BLACKLIST_MANAGER";
+
+export interface AdminTokenInfo {
+  policyId: string;
+  assetName: string;          // Hex encoded
+  assetNameDisplay: string;   // Human readable
+  substandardId: string;
+  roles: AdminRole[];
+  details: {
+    blacklistNodePolicyId?: string;
+    issuerAdminPkh?: string;
+    blacklistAdminPkh?: string;
+  };
+}
+
+export interface AdminTokensResponse {
+  adminPkh: string;
+  tokens: AdminTokenInfo[];
+}
+
+// ============================================================================
+// API Functions
+// ============================================================================
 
 /**
  * Get all tokens where the given PKH has admin roles
@@ -24,12 +42,8 @@ export type { AdminTokensResponse, AdminTokenInfo, AdminRole };
  * @returns Promise<AdminTokensResponse>
  */
 export async function getAdminTokens(pkh: string): Promise<AdminTokensResponse> {
-  // TODO: Replace with real API call when backend is ready
-  // const endpoint = `/admin/tokens/${pkh}`;
-  // return apiGet<AdminTokensResponse>(endpoint);
-
-  // For now, use mock data
-  return Promise.resolve(getMockAdminTokens(pkh));
+  const endpoint = `/admin/tokens/${pkh}`;
+  return apiGet<AdminTokensResponse>(endpoint);
 }
 
 /**
@@ -39,8 +53,12 @@ export async function getAdminTokens(pkh: string): Promise<AdminTokensResponse> 
  * @returns Promise<boolean>
  */
 export async function checkHasAdminRoles(pkh: string): Promise<boolean> {
-  // TODO: Could be a separate lightweight endpoint
-  return Promise.resolve(hasAdminRoles(pkh));
+  try {
+    const response = await getAdminTokens(pkh);
+    return response.tokens.length > 0;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -54,28 +72,27 @@ export async function getTokensWithRole(
   pkh: string,
   role: AdminRole
 ): Promise<AdminTokenInfo[]> {
-  return Promise.resolve(getTokensByRole(pkh, role));
+  const response = await getAdminTokens(pkh);
+  return response.tokens.filter((token) => token.roles.includes(role));
 }
 
 /**
  * Extract payment key hash from a Cardano address
- * This is a simplified version - in production use proper address parsing
+ * Uses MeshSDK's deserializeAddress for proper parsing
  */
-export function extractPkhFromAddress(address: string): string | null {
-  // For bech32 addresses, the PKH is embedded in the address
-  // This is a placeholder - the real implementation would use
-  // @meshsdk/core or cardano-serialization-lib to properly parse
-
+export async function extractPkhFromAddress(address: string): Promise<string | null> {
   // Simple validation
   if (!address.startsWith("addr")) {
     return null;
   }
 
-  // In production, use proper address deserialization
-  // For now, we'll use a mock extraction
-  // The real PKH would be 28 bytes (56 hex chars)
-
-  // Return a mock PKH for development
-  // In reality, this would deserialize the address and extract the payment credential
-  return "mockedpkh" + address.substring(5, 20);
+  try {
+    // Dynamic import to avoid WASM issues during SSR
+    const { deserializeAddress } = await import('@meshsdk/core');
+    const deserialized = deserializeAddress(address);
+    return deserialized.pubKeyHash || null;
+  } catch (error) {
+    console.error("Failed to deserialize address:", error);
+    return null;
+  }
 }

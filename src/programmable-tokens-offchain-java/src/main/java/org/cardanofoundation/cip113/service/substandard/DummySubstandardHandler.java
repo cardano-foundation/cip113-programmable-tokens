@@ -344,6 +344,7 @@ public class DummySubstandardHandler implements SubstandardHandler, BasicOperati
                 programmableTokenRegistryRepository.save(ProgrammableTokenRegistryEntity.builder()
                         .policyId(progTokenPolicyId)
                         .substandardId(SUBSTANDARD_ID)
+                        .assetName(registerTokenRequest.getAssetName())
                         .build());
 
                 return TransactionContext.ok(transaction.serializeToHex(), new RegistrationResult(progTokenPolicyId));

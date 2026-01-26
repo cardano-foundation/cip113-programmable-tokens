@@ -4,6 +4,7 @@ import org.cardanofoundation.cip113.entity.BlacklistInitEntity;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -28,7 +29,8 @@ public interface BlacklistInitRepository extends JpaRepository<BlacklistInitEnti
     boolean existsByBlacklistNodePolicyId(String blacklistNodePolicyId);
 
     /**
-     * Find blacklist init by admin public key hash.
+     * Find all blacklist inits by admin public key hash.
+     * Returns a list since one admin could manage multiple blacklists.
      */
-    Optional<BlacklistInitEntity> findByAdminPkh(String adminPkh);
+    List<BlacklistInitEntity> findByAdminPkh(String adminPkh);
 }

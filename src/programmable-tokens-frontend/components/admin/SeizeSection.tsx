@@ -29,7 +29,7 @@ export function SeizeSection({ tokens, adminAddress }: SeizeSectionProps) {
 
   const [selectedToken, setSelectedToken] = useState<AdminTokenInfo | null>(null);
   const [targetUtxo, setTargetUtxo] = useState("");
-  const [recipientAddress, setRecipientAddress] = useState("");
+  const [recipientAddress, setRecipientAddress] = useState(adminAddress);
   const [step, setStep] = useState<SeizeStep>("form");
   const [isBuilding, setIsBuilding] = useState(false);
   const [isSigning, setIsSigning] = useState(false);
@@ -90,14 +90,15 @@ export function SeizeSection({ tokens, adminAddress }: SeizeSectionProps) {
       const { seizeTokens } = await import("@/lib/api/compliance");
 
       const request = {
-        adminAddress,
-        tokenPolicyId: selectedToken.policyId,
-        targetTxHash: txHashPart,
-        targetOutputIndex: outputIndex,
-        recipientAddress: recipientAddress.trim(),
+        feePayerAddress: adminAddress,
+        unit: `${selectedToken.policyId}.${selectedToken.assetName}`,
+        utxoTxHash: txHashPart,
+        utxoOutputIndex: outputIndex,
+        destinationAddress: recipientAddress.trim(),
       };
 
-      const unsignedCborTx = await seizeTokens(request, selectedVersion?.txHash);
+      const response = await seizeTokens(request, selectedVersion?.txHash);
+      const unsignedCborTx = response.unsignedCborTx;
 
       setIsBuilding(false);
       setStep("signing");
@@ -143,7 +144,7 @@ export function SeizeSection({ tokens, adminAddress }: SeizeSectionProps) {
   const handleReset = () => {
     setStep("form");
     setTargetUtxo("");
-    setRecipientAddress("");
+    setRecipientAddress(adminAddress);
     setTxHash(null);
     setErrors({ token: "", targetUtxo: "", recipientAddress: "" });
   };

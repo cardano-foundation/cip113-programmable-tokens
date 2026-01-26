@@ -23,34 +23,40 @@ export interface BlacklistInitResponse {
 // ============================================================================
 
 export interface AddToBlacklistRequest {
-  adminAddress: string;          // Blacklist admin's wallet address
   tokenPolicyId: string;         // Policy ID of the token
   targetAddress: string;         // Address to blacklist
+  feePayerAddress: string;       // Address that pays for the transaction
 }
 
 export interface RemoveFromBlacklistRequest {
-  adminAddress: string;          // Blacklist admin's wallet address
   tokenPolicyId: string;         // Policy ID of the token
   targetAddress: string;         // Address to un-blacklist
+  feePayerAddress: string;       // Address that pays for the transaction
 }
 
-// Backend returns plain text CBOR hex string
-export type BlacklistOperationResponse = string;
+// Backend returns TransactionContext as JSON
+export interface TransactionContextResponse<T = unknown> {
+  unsignedCborTx: string;
+  metadata: T | null;
+  isSuccessful: boolean;
+  error: string | null;
+}
+
+export type BlacklistOperationResponse = TransactionContextResponse<void>;
 
 // ============================================================================
 // Token Seizure
 // ============================================================================
 
 export interface SeizeTokensRequest {
-  adminAddress: string;          // Issuer admin's wallet address
-  tokenPolicyId: string;         // Policy ID of the token
-  targetTxHash: string;          // Transaction hash containing the UTxO
-  targetOutputIndex: number;     // Output index within the transaction
-  recipientAddress: string;      // Address to receive seized tokens
+  feePayerAddress: string;       // Address that pays for the transaction
+  unit: string;                  // Policy ID + asset name (format: policyId.assetName)
+  utxoTxHash: string;            // Transaction hash containing the UTxO
+  utxoOutputIndex: number;       // Output index within the transaction
+  destinationAddress: string;    // Address to receive seized tokens
 }
 
-// Backend returns plain text CBOR hex string
-export type SeizeTokensResponse = string;
+export type SeizeTokensResponse = TransactionContextResponse<void>;
 
 // ============================================================================
 // Shared Types

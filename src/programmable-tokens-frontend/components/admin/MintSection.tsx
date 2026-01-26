@@ -26,12 +26,14 @@ export function MintSection({ tokens, feePayerAddress }: MintSectionProps) {
   const { selectedVersion } = useProtocolVersion();
   const network = process.env.NEXT_PUBLIC_NETWORK || "preview";
 
-  // Filter tokens where user has ISSUER_ADMIN role
-  const mintableTokens = tokens.filter((t) => t.roles.includes("ISSUER_ADMIN"));
+  // Filter tokens where user has ISSUER_ADMIN role or is a dummy token (anyone can mint)
+  const mintableTokens = tokens.filter(
+    (t) => t.roles.includes("ISSUER_ADMIN") || t.substandardId === "dummy"
+  );
 
   const [selectedToken, setSelectedToken] = useState<AdminTokenInfo | null>(null);
   const [quantity, setQuantity] = useState("");
-  const [recipientAddress, setRecipientAddress] = useState("");
+  const [recipientAddress, setRecipientAddress] = useState(feePayerAddress);
   const [step, setStep] = useState<MintStep>("form");
   const [isBuilding, setIsBuilding] = useState(false);
   const [isSigning, setIsSigning] = useState(false);
@@ -136,7 +138,7 @@ export function MintSection({ tokens, feePayerAddress }: MintSectionProps) {
   const handleReset = () => {
     setStep("form");
     setQuantity("");
-    setRecipientAddress("");
+    setRecipientAddress(feePayerAddress);
     setTxHash(null);
     setErrors({ token: "", quantity: "", recipientAddress: "" });
   };
