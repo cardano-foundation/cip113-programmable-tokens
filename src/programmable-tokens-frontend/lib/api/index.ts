@@ -7,3 +7,5 @@ export * from './balance';
 export * from './protocol-versions';
 export * from './protocol';
 export * from './history';
+export * from './admin';
+export * from './compliance';

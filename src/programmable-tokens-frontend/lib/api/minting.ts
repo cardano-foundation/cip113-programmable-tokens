@@ -2,7 +2,13 @@
  * Token Minting API
  */
 
-import { MintTokenRequest, MintTokenResponse, MintFormData } from '@/types/api';
+import {
+  MintTokenRequest,
+  MintTokenResponse,
+  MintFormData,
+  LegacyMintTokenRequest,
+  LegacyMintFormData
+} from '@/types/api';
 import { apiPost } from './client';
 
 /**
@@ -21,7 +27,7 @@ export function hexToString(hex: string): string {
 }
 
 /**
- * Mint tokens via backend API
+ * Admin mint tokens via backend API (mint to existing registered token)
  * Returns unsigned transaction CBOR hex
  */
 export async function mintToken(
@@ -48,12 +54,57 @@ export async function mintToken(
 }
 
 /**
- * Prepare mint request from form data
+ * Prepare admin mint request from form data
  */
 export function prepareMintRequest(
   formData: MintFormData,
-  issuerAddress: string
+  feePayerAddress: string
 ): MintTokenRequest {
+  return {
+    feePayerAddress,
+    tokenPolicyId: formData.policyId,
+    recipientAddress: formData.recipientAddress,
+    assetName: stringToHex(formData.tokenName),
+    quantity: formData.quantity,
+  };
+}
+
+// ============================================================================
+// Legacy Minting (for /mint page - deprecated, use /register instead)
+// ============================================================================
+
+/**
+ * @deprecated Use registration flow instead
+ */
+export async function legacyMintToken(
+  request: LegacyMintTokenRequest,
+  protocolTxHash?: string
+): Promise<MintTokenResponse> {
+  const hexEncodedRequest = {
+    ...request,
+    assetName: request.assetName.startsWith('0x')
+      ? request.assetName.slice(2)
+      : request.assetName,
+  };
+
+  const endpoint = protocolTxHash
+    ? `/issue-token/mint?protocolTxHash=${protocolTxHash}`
+    : '/issue-token/mint';
+
+  return apiPost<LegacyMintTokenRequest, MintTokenResponse>(
+    endpoint,
+    hexEncodedRequest,
+    { timeout: 60000 }
+  );
+}
+
+/**
+ * @deprecated Use registration flow instead
+ */
+export function prepareLegacyMintRequest(
+  formData: LegacyMintFormData,
+  issuerAddress: string
+): LegacyMintTokenRequest {
   return {
     issuerBaseAddress: issuerAddress,
     substandardName: formData.substandardId,

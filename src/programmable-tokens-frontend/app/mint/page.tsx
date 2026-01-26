@@ -1,155 +1,73 @@
 "use client";
 
-import { useState } from 'react';
-import { useSearchParams } from 'next/navigation';
-import dynamic from 'next/dynamic';
-import { PageContainer } from '@/components/layout/page-container';
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { useSubstandards } from '@/hooks/use-substandards';
-
-// Dynamically import wallet-dependent components to prevent SSR
-const MintForm = dynamic(
-  () => import('@/components/mint/mint-form').then(mod => ({ default: mod.MintForm })),
-  { ssr: false }
-);
-
-const TransactionPreview = dynamic(
-  () => import('@/components/mint/transaction-preview').then(mod => ({ default: mod.TransactionPreview })),
-  { ssr: false }
-);
-
-const MintSuccess = dynamic(
-  () => import('@/components/mint/mint-success').then(mod => ({ default: mod.MintSuccess })),
-  { ssr: false }
-);
-
-type MintStep = 'form' | 'preview' | 'success';
-
-interface TransactionData {
-  unsignedTxCborHex: string;
-  assetName: string;
-  quantity: string;
-}
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { PageContainer } from "@/components/layout/page-container";
+import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { ArrowRight, Info } from "lucide-react";
+import Link from "next/link";
 
 export default function MintPage() {
-  const searchParams = useSearchParams();
-  const preSelectedSubstandard = searchParams.get('substandard');
-  const preSelectedIssueContract = searchParams.get('issueContract');
+  const router = useRouter();
 
-  const { substandards, isLoading, error } = useSubstandards();
-  const [currentStep, setCurrentStep] = useState<MintStep>('form');
-  const [transactionData, setTransactionData] = useState<TransactionData | null>(null);
-  const [txHash, setTxHash] = useState<string>('');
-
-  const handleTransactionBuilt = (unsignedTxCborHex: string, assetName: string, quantity: string) => {
-    setTransactionData({ unsignedTxCborHex, assetName, quantity });
-    setCurrentStep('preview');
-  };
-
-  const handleTransactionSuccess = (hash: string) => {
-    setTxHash(hash);
-    setCurrentStep('success');
-  };
-
-  const handleCancelPreview = () => {
-    setTransactionData(null);
-    setCurrentStep('form');
-  };
-
-  const handleMintAnother = () => {
-    setTransactionData(null);
-    setTxHash('');
-    setCurrentStep('form');
-  };
+  // Auto-redirect after 5 seconds
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      router.push("/admin");
+    }, 5000);
+    return () => clearTimeout(timer);
+  }, [router]);
 
   return (
     <PageContainer>
-      <div className="max-w-2xl mx-auto">
-        {/* Page Header */}
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-white mb-2">
-            Mint Programmable Token
-          </h1>
-          <p className="text-dark-300">
-            Create new CIP-113 tokens with embedded validation logic
-          </p>
-          {preSelectedSubstandard && preSelectedIssueContract && (
-            <div className="mt-4 p-3 bg-primary-500/10 border border-primary-500/20 rounded-lg">
-              <p className="text-sm text-primary-300">
-                <strong>Using registered policy:</strong> {preSelectedSubstandard} / {preSelectedIssueContract}
+      <div className="max-w-lg mx-auto">
+        <Card>
+          <CardContent className="py-12">
+            <div className="text-center space-y-6">
+              <div className="w-16 h-16 rounded-full bg-blue-500/10 flex items-center justify-center mx-auto">
+                <Info className="h-8 w-8 text-blue-500" />
+              </div>
+
+              <div className="space-y-2">
+                <h1 className="text-2xl font-bold text-white">Page Moved</h1>
+                <p className="text-dark-400">
+                  Token minting has moved to the Admin Panel. You will be
+                  redirected automatically.
+                </p>
+              </div>
+
+              <div className="space-y-3">
+                <p className="text-sm text-dark-500">
+                  For initial token creation, use the{" "}
+                  <Link href="/register" className="text-primary-400 hover:underline">
+                    Register Token
+                  </Link>{" "}
+                  page.
+                </p>
+                <p className="text-sm text-dark-500">
+                  For additional minting to existing tokens, use the Admin Panel.
+                </p>
+              </div>
+
+              <div className="flex gap-3 justify-center pt-4">
+                <Link href="/register">
+                  <Button variant="ghost">Register Token</Button>
+                </Link>
+                <Link href="/admin">
+                  <Button variant="primary">
+                    Go to Admin Panel
+                    <ArrowRight className="h-4 w-4 ml-2" />
+                  </Button>
+                </Link>
+              </div>
+
+              <p className="text-xs text-dark-600">
+                Redirecting in 5 seconds...
               </p>
             </div>
-          )}
-        </div>
-
-        {/* Loading State */}
-        {isLoading && (
-          <Card>
-            <CardContent className="py-12 text-center">
-              <div className="flex justify-center mb-4">
-                <div className="w-8 h-8 border-4 border-primary-500 border-t-transparent rounded-full animate-spin" />
-              </div>
-              <p className="text-dark-400">Loading substandards...</p>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Error State */}
-        {error && (
-          <Card>
-            <CardHeader>
-              <CardTitle>Error</CardTitle>
-              <CardDescription>Failed to load substandards</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-lg">
-                <p className="text-sm text-red-300">{error}</p>
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Form Step */}
-        {!isLoading && !error && currentStep === 'form' && (
-          <Card>
-            <CardHeader>
-              <CardTitle>Token Details</CardTitle>
-              <CardDescription>
-                Enter the details for your new token
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <MintForm
-                substandards={substandards}
-                onTransactionBuilt={handleTransactionBuilt}
-                preSelectedSubstandard={preSelectedSubstandard || undefined}
-                preSelectedIssueContract={preSelectedIssueContract || undefined}
-              />
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Preview Step */}
-        {currentStep === 'preview' && transactionData && (
-          <TransactionPreview
-            unsignedTxCborHex={transactionData.unsignedTxCborHex}
-            assetName={transactionData.assetName}
-            quantity={transactionData.quantity}
-            onSuccess={handleTransactionSuccess}
-            onCancel={handleCancelPreview}
-          />
-        )}
-
-        {/* Success Step */}
-        {currentStep === 'success' && transactionData && (
-          <MintSuccess
-            txHash={txHash}
-            assetName={transactionData.assetName}
-            quantity={transactionData.quantity}
-            onMintAnother={handleMintAnother}
-          />
-        )}
+          </CardContent>
+        </Card>
       </div>
     </PageContainer>
   );

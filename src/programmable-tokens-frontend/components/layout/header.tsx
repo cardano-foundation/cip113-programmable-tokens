@@ -18,8 +18,7 @@ const ConnectButton = dynamic(
 const navigation = [
   { name: "Home", href: "/" },
   { name: "Register Token", href: "/register" },
-  { name: "Mint Tokens", href: "/mint" },
-  { name: "Transfer", href: "/transfer" },
+  { name: "Admin", href: "/admin" },
   { name: "Dashboard", href: "/dashboard" },
   { name: "Contributors", href: "/contributors" },
 ];

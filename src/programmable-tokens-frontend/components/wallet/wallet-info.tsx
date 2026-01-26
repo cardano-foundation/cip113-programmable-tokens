@@ -5,12 +5,13 @@ import { useWallet } from "@meshsdk/react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Copy, LogOut, Wallet, Coins, RefreshCw } from "lucide-react";
+import { Copy, LogOut, Wallet, Coins, RefreshCw, Send } from "lucide-react";
 import { truncateAddress, formatADAWithSymbol, getNetworkDisplayName } from "@/lib/utils";
 import { useToast } from "@/components/ui/toast";
 import { getWalletBalance, parseWalletBalance } from "@/lib/api";
-import { ParsedBalance } from "@/types/api";
+import { ParsedBalance, ParsedAsset } from "@/types/api";
 import { useProtocolVersion } from "@/contexts/protocol-version-context";
+import { TransferModal } from "@/components/transfer/TransferModal";
 
 const WALLET_STORAGE_KEY = 'connectedWallet';
 
@@ -24,7 +25,25 @@ export function WalletInfo() {
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingProgrammable, setIsLoadingProgrammable] = useState(false);
 
+  // Transfer modal state
+  const [transferModalOpen, setTransferModalOpen] = useState(false);
+  const [selectedAsset, setSelectedAsset] = useState<ParsedAsset | null>(null);
+
   const network = process.env.NEXT_PUBLIC_NETWORK || "preview";
+
+  const handleOpenTransferModal = (asset: ParsedAsset) => {
+    setSelectedAsset(asset);
+    setTransferModalOpen(true);
+  };
+
+  const handleCloseTransferModal = () => {
+    setTransferModalOpen(false);
+    setSelectedAsset(null);
+    // Refresh balances after transfer
+    if (address) {
+      loadProgrammableBalances(address);
+    }
+  };
 
   // Load programmable token balances
   const loadProgrammableBalances = async (walletAddress: string) => {
@@ -121,6 +140,36 @@ export function WalletInfo() {
     }
   };
 
+  const [isRefreshingAll, setIsRefreshingAll] = useState(false);
+
+  const handleRefreshAll = async () => {
+    if (!wallet || !address) return;
+
+    try {
+      setIsRefreshingAll(true);
+      // Refresh ADA balance
+      const lovelace = await wallet.getLovelace();
+      setBalance(lovelace);
+      // Refresh programmable tokens
+      await loadProgrammableBalances(address);
+      toast({
+        variant: "success",
+        title: "Refreshed",
+        description: "Balances updated",
+        duration: 2000,
+      });
+    } catch (error) {
+      console.error("Failed to refresh balances:", error);
+      toast({
+        variant: "error",
+        title: "Error",
+        description: "Failed to refresh balances",
+      });
+    } finally {
+      setIsRefreshingAll(false);
+    }
+  };
+
   if (!connected || !wallet) {
     return null;
   }
@@ -161,7 +210,17 @@ export function WalletInfo() {
             </div>
 
             <div className="space-y-2">
-              <label className="text-sm text-dark-300">Wallet Balance</label>
+              <div className="flex items-center justify-between">
+                <label className="text-sm text-dark-300">Wallet Balance</label>
+                <button
+                  onClick={handleRefreshAll}
+                  disabled={isRefreshingAll || isLoadingProgrammable}
+                  className="p-1 hover:bg-dark-700 rounded transition-colors disabled:opacity-50"
+                  title="Refresh all balances"
+                >
+                  <RefreshCw className={`h-3 w-3 text-dark-400 hover:text-white ${isRefreshingAll ? 'animate-spin' : ''}`} />
+                </button>
+              </div>
               <div className="px-3 py-2 bg-dark-900 rounded">
                 <span className="text-2xl font-bold text-white">
                   {formatADAWithSymbol(balance)}
@@ -226,10 +285,19 @@ export function WalletInfo() {
                                 Policy: {asset.policyId.substring(0, 16)}...
                               </p>
                             </div>
-                            <div className="text-right">
-                              <p className="text-sm font-bold text-accent-400">
-                                {asset.amount}
-                              </p>
+                            <div className="flex items-center gap-2">
+                              <div className="text-right">
+                                <p className="text-sm font-bold text-accent-400">
+                                  {asset.amount}
+                                </p>
+                              </div>
+                              <button
+                                onClick={() => handleOpenTransferModal(asset)}
+                                className="p-1.5 hover:bg-dark-700 rounded transition-colors"
+                                title={`Transfer ${asset.assetName}`}
+                              >
+                                <Send className="h-4 w-4 text-primary-400 hover:text-primary-300" />
+                              </button>
                             </div>
                           </div>
                         </div>
@@ -260,6 +328,16 @@ export function WalletInfo() {
           </>
         )}
       </CardContent>
+
+      {/* Transfer Modal */}
+      {selectedAsset && (
+        <TransferModal
+          isOpen={transferModalOpen}
+          onClose={handleCloseTransferModal}
+          asset={selectedAsset}
+          senderAddress={address}
+        />
+      )}
     </Card>
   );
 }
