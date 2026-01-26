@@ -455,6 +455,9 @@ fn validate_currency_symbols(
 }
 
 /// Validate a single currency symbol against its proof
+/// Returns True if the token IS a programmable token (TokenExists with valid proof)
+/// Returns False if the token is NOT a programmable token (TokenDoesNotExist with valid proof)
+/// FAILS the transaction if any proof is invalid
 fn validate_single_cs(
   cs: PolicyId,
   proof: RegistryProof,
@@ -469,14 +472,16 @@ fn validate_single_cs(
       let node_datum = expect_inline_datum(node_input.output)
       expect node: RegistryNode = node_datum
 
-      and {
-        // Validate this is a legitimate registry node
-        has_currency_symbol(node_input.output.value, registry_node_cs),
-        // Validate the node's key matches the currency symbol
-        node.key == cs,
-        // Validate the transfer logic script is invoked
-        list.has(invoked_scripts, node.transfer_logic_script),
-      }
+      // All checks must pass or transaction fails
+      // Validate this is a legitimate registry node
+      expect has_currency_symbol(node_input.output.value, registry_node_cs)
+      // Validate the node's key matches the currency symbol
+      expect node.key == cs
+      // Validate the transfer logic script is invoked
+      expect list.has(invoked_scripts, node.transfer_logic_script)
+
+      // This IS a programmable token
+      True
     }
 
     TokenDoesNotExist { node_idx } -> {
@@ -485,14 +490,15 @@ fn validate_single_cs(
       let node_datum = expect_inline_datum(node_input.output)
       expect node: RegistryNode = node_datum
 
-      // This is not a programmable token
-      !and {
-        // Validate this is a legitimate registry node
-        has_currency_symbol(node_input.output.value, registry_node_cs),
-        // Validate the node covers the currency symbol
-        bytearray_lt(node.key, cs),
-        bytearray_lt(cs, node.next),
-      }
+      // All checks must pass to prove non-membership, or transaction fails
+      // Validate this is a legitimate registry node
+      expect has_currency_symbol(node_input.output.value, registry_node_cs)
+      // Validate the node covers the currency symbol (nodeKey < cs < nodeNext)
+      expect bytearray_lt(node.key, cs)
+      expect bytearray_lt(cs, node.next)
+
+      // This is NOT a programmable token (proof is valid)
+      False
     }
   }
 }
