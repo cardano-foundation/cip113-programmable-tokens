@@ -1,6 +1,5 @@
-package org.cardanofoundation.cip113.substandards.freezeandsieze;
+package org.cardanofoundation.cip113.substandards.dummy;
 
-import com.bloxbean.cardano.aiken.AikenScriptUtil;
 import com.bloxbean.cardano.aiken.AikenTransactionEvaluator;
 import com.bloxbean.cardano.client.address.Address;
 import com.bloxbean.cardano.client.address.AddressProvider;
@@ -15,11 +14,9 @@ import com.bloxbean.cardano.client.function.helper.SignerProviders;
 import com.bloxbean.cardano.client.plutus.blueprint.PlutusBlueprintUtil;
 import com.bloxbean.cardano.client.plutus.blueprint.model.PlutusVersion;
 import com.bloxbean.cardano.client.plutus.spec.BigIntPlutusData;
-import com.bloxbean.cardano.client.plutus.spec.BytesPlutusData;
 import com.bloxbean.cardano.client.plutus.spec.ConstrPlutusData;
 import com.bloxbean.cardano.client.plutus.spec.ListPlutusData;
 import com.bloxbean.cardano.client.quicktx.ScriptTx;
-import com.bloxbean.cardano.client.quicktx.Tx;
 import com.bloxbean.cardano.client.supplier.ogmios.OgmiosTransactionEvaluator;
 import com.bloxbean.cardano.client.transaction.spec.Asset;
 import com.bloxbean.cardano.client.transaction.spec.MultiAsset;
@@ -27,26 +24,22 @@ import com.bloxbean.cardano.client.transaction.spec.TransactionInput;
 import com.bloxbean.cardano.client.transaction.spec.Value;
 import com.bloxbean.cardano.client.util.HexUtil;
 import com.easy1staking.cardano.comparator.TransactionInputComparator;
-import com.easy1staking.cardano.comparator.UtxoComparator;
 import com.easy1staking.cardano.model.AssetType;
 import com.easy1staking.util.Pair;
 import lombok.extern.slf4j.Slf4j;
 import org.cardanofoundation.cip113.AbstractPreviewTest;
 import org.cardanofoundation.cip113.config.AppConfig;
 import org.cardanofoundation.cip113.model.onchain.RegistryNodeParser;
-import org.cardanofoundation.cip113.model.onchain.siezeandfreeze.blacklist.BlacklistBootstrap;
 import org.cardanofoundation.cip113.model.onchain.siezeandfreeze.blacklist.BlacklistNodeParser;
 import org.cardanofoundation.cip113.service.*;
+import org.cardanofoundation.cip113.substandards.freezeandsieze.PreviewFreezeAndSieze;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigInteger;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Stream;
-
-import static org.cardanofoundation.cip113.util.PlutusSerializationHelper.serialize;
 
 @Slf4j
 public class PreviewTransferTest extends AbstractPreviewTest implements PreviewFreezeAndSieze {
@@ -58,8 +51,6 @@ public class PreviewTransferTest extends AbstractPreviewTest implements PreviewF
     private final UtxoProvider utxoProvider = new UtxoProvider(bfBackendService, null);
 
     private final AccountService accountService = new AccountService(utxoProvider);
-
-    private final LinkedListService linkedListService = new LinkedListService(utxoProvider);
 
     private final ProtocolBootstrapService protocolBootstrapService = new ProtocolBootstrapService(OBJECT_MAPPER, new AppConfig.Network("preview"));
 
@@ -75,7 +66,6 @@ public class PreviewTransferTest extends AbstractPreviewTest implements PreviewF
     public void init() {
         substandardService = new SubstandardService(OBJECT_MAPPER);
         substandardService.init();
-
         protocolBootstrapService.init();
     }
 
@@ -83,13 +73,13 @@ public class PreviewTransferTest extends AbstractPreviewTest implements PreviewF
     public void test() throws Exception {
 
         var dryRun = false;
-        
-        var blacklistBoostrap = OBJECT_MAPPER.readValue(BL_BOOTSTRAP_V3, BlacklistBootstrap.class);
-        log.info("blacklistBoostrap: {}", blacklistBoostrap);
 
-        var substandardName = "freeze-and-seize";
+        var substandardName = "dummy";
 
-        var adminUtxos = accountService.findAdaOnlyUtxo(aliceAccount.baseAddress(), 10_000_000L);
+        var senderAccount = bobAccount;
+        var receiverAccount = aliceAccount;
+
+        var adminUtxos = accountService.findAdaOnlyUtxo(senderAccount.baseAddress(), 10_000_000L);
 
         var protocolBootstrapParamsOpt = protocolBootstrapService.getProtocolBootstrapParamsByTxHash(DEFAULT_PROTOCOL);
         var protocolBootstrapParams = protocolBootstrapParamsOpt.get();
@@ -97,10 +87,13 @@ public class PreviewTransferTest extends AbstractPreviewTest implements PreviewF
 
         var bootstrapTxHash = protocolBootstrapParams.txHash();
 
-        var progToken = AssetType.fromUnit("76658c4afd597ba7524f85bf32ac59d9e58856593a2e8399326f853a7455534454");
+        var whateverDummy = AssetType.fromUnit("8428ae12aba2b64dc79b1c09d49b753852fe5bb544d1f4104eeb0c6c5768617465766572");
+        var freezeAndSeizeToken = AssetType.fromUnit("76658c4afd597ba7524f85bf32ac59d9e58856593a2e8399326f853a7455534454");
+
+        var progToken = freezeAndSeizeToken;
         log.info("policy id: {}, asset name: {}", progToken.policyId(), progToken.unsafeHumanAssetName());
 
-        var amountToTransfer = BigInteger.valueOf(10_000_000L);
+        var amountToTransfer = BigInteger.valueOf(10_000L);
 
         // Directory SPEND parameterization
         var registrySpendContract = protocolScriptBuilderService.getParameterizedDirectorySpendScript(protocolBootstrapParams);
@@ -134,12 +127,12 @@ public class PreviewTransferTest extends AbstractPreviewTest implements PreviewF
         var protocolParamsUtxo = protocolParamsUtxoOpt.get();
         log.info("protocolParamsUtxo: {}", protocolParamsUtxo);
 
-        var senderAddress = aliceAccount.getBaseAddress();
+        var senderAddress = senderAccount.getBaseAddress();
         var senderProgrammableTokenAddress = AddressProvider.getBaseAddress(Credential.fromScript(protocolBootstrapParams.programmableLogicBaseParams().scriptHash()),
                 senderAddress.getDelegationCredential().get(),
                 network);
 
-        var recipientAddress = new Address(bobAccount.baseAddress());
+        var recipientAddress = new Address(receiverAccount.baseAddress());
         var recipientProgrammableTokenAddress = AddressProvider.getBaseAddress(Credential.fromScript(protocolBootstrapParams.programmableLogicBaseParams().scriptHash()),
                 recipientAddress.getDelegationCredential().get(),
                 network);
@@ -158,7 +151,7 @@ public class PreviewTransferTest extends AbstractPreviewTest implements PreviewF
         log.info("programmableLogicBase policy: {}", programmableLogicBase.getPolicyId());
 
         // FIXME:
-        var substandardTransferContractOpt = substandardService.getSubstandardValidator(substandardName, "example_transfer_logic.transfer.withdraw");
+        var substandardTransferContractOpt = substandardService.getSubstandardValidator(substandardName, "transfer.transfer.withdraw");
         if (substandardTransferContractOpt.isEmpty()) {
             log.warn("could not resolve transfer contract");
             Assertions.fail("could not resolve transfer contract");
@@ -166,14 +159,7 @@ public class PreviewTransferTest extends AbstractPreviewTest implements PreviewF
 
         var substandardTransferContract1 = substandardTransferContractOpt.get();
 
-        var transferContractInitParams = ListPlutusData.of(serialize(Credential.fromScript(protocolBootstrapParams.programmableLogicBaseParams().scriptHash())),
-                BytesPlutusData.of(HexUtil.decodeHexString(blacklistBoostrap.blacklistMintBootstrap().scriptHash()))
-        );
-
-        var parameterisedSubstandardTransferContract = PlutusBlueprintUtil.getPlutusScriptFromCompiledCode(
-                AikenScriptUtil.applyParamToScript(transferContractInitParams, substandardTransferContract1.scriptBytes()),
-                PlutusVersion.v3
-        );
+        var parameterisedSubstandardTransferContract = PlutusBlueprintUtil.getPlutusScriptFromCompiledCode(substandardTransferContract1.scriptBytes(), PlutusVersion.v3);
 
         var substandardTransferAddress = AddressProvider.getRewardAddress(parameterisedSubstandardTransferContract, network);
 
@@ -228,57 +214,16 @@ public class PreviewTransferTest extends AbstractPreviewTest implements PreviewF
             Assertions.fail("Not enough funds");
         }
 
-        var blacklistSpendScriptHash = blacklistBoostrap.blacklistSpendBootstrap().scriptHash();
-        var blacklistAddress = AddressProvider.getEntAddress(Credential.fromScript(blacklistSpendScriptHash), network);
-        var blacklistUtxos = utxoProvider.findUtxos(blacklistAddress.getAddress());
 
-        var sortedInputUtxos = Stream.concat(adminUtxos.stream(), inputUtxos.stream())
-                .sorted(new UtxoComparator())
-                .toList();
-
-        var proofs = new ArrayList<Pair<Utxo, Utxo>>();
-        var progTokenBaseScriptHash = protocolBootstrapParams.programmableLogicBaseParams().scriptHash();
-        for (Utxo utxo : sortedInputUtxos) {
-            var address = new Address(utxo.getAddress());
-            var addressPkh = address.getPaymentCredentialHash().map(HexUtil::encodeHexString).get();
-            if (progTokenBaseScriptHash.equals(addressPkh)) {
-                var stakingPkh = address.getDelegationCredentialHash().map(HexUtil::encodeHexString).get();
-                var relevantBlacklistNodeOpt = blacklistUtxos.stream()
-                        .filter(blackListUtxo -> blacklistNodeParser
-                                .parse(blackListUtxo.getInlineDatum())
-                                .map(blacklistNode -> blacklistNode.key().compareTo(stakingPkh) < 0 && blacklistNode.next().compareTo(stakingPkh) > 0)
-                                .orElse(false))
-                        .findAny();
-                if (relevantBlacklistNodeOpt.isEmpty()) {
-                    Assertions.fail("could not resolve blacklist exemption");
-                }
-                proofs.add(new Pair<>(utxo, relevantBlacklistNodeOpt.get()));
-            }
-        }
-
-        var sortedReferenceInputs = Stream.concat(proofs.stream().map(Pair::second).map(utxo -> TransactionInput.builder()
-                                .transactionId(utxo.getTxHash())
-                                .index(utxo.getOutputIndex())
-                                .build()),
-                        Stream.of(TransactionInput.builder()
-                                .transactionId(protocolParamsUtxo.getTxHash())
-                                .index(protocolParamsUtxo.getOutputIndex())
-                                .build(), TransactionInput.builder()
-                                .transactionId(progTokenRegistry.getTxHash())
-                                .index(progTokenRegistry.getOutputIndex())
-                                .build())
-                )
+        var sortedReferenceInputs = Stream.of(TransactionInput.builder()
+                        .transactionId(protocolParamsUtxo.getTxHash())
+                        .index(protocolParamsUtxo.getOutputIndex())
+                        .build(), TransactionInput.builder()
+                        .transactionId(progTokenRegistry.getTxHash())
+                        .index(progTokenRegistry.getOutputIndex())
+                        .build())
                 .sorted(new TransactionInputComparator())
                 .toList();
-
-        var proofList = proofs.stream().map(pair -> {
-            log.info("first: {}, second: {}", pair.first(), pair.second());
-            var index = sortedReferenceInputs.indexOf(TransactionInput.builder().transactionId(pair.second().getTxHash()).index(pair.second().getOutputIndex()).build());
-            log.info("adding index: {} as a blacklist non-belonging proof", index);
-            return ConstrPlutusData.of(0, BigIntPlutusData.of(index));
-        }).toList();
-        var freezeAndSeizeRedeemer = ListPlutusData.of();
-        proofList.forEach(freezeAndSeizeRedeemer::add);
 
         var registryIndex = sortedReferenceInputs.indexOf(TransactionInput.builder().transactionId(progTokenRegistry.getTxHash()).index(progTokenRegistry.getOutputIndex()).build());
 
@@ -287,6 +232,7 @@ public class PreviewTransferTest extends AbstractPreviewTest implements PreviewF
                 ListPlutusData.of(ConstrPlutusData.of(0, BigIntPlutusData.of(registryIndex)))
         );
 
+
         var tx = new ScriptTx()
                 .collectFrom(adminUtxos);
 
@@ -294,8 +240,8 @@ public class PreviewTransferTest extends AbstractPreviewTest implements PreviewF
             tx.collectFrom(utxo, ConstrPlutusData.of(0));
         });
 
-//        // must be first Provide proofs
-        tx.withdraw(substandardTransferAddress.getAddress(), BigInteger.ZERO, freezeAndSeizeRedeemer)
+        // must be first Provide proofs
+        tx.withdraw(substandardTransferAddress.getAddress(), BigInteger.ZERO, BigIntPlutusData.of(200))
                 .withdraw(programmableLogicGlobalAddress.getAddress(), BigInteger.ZERO, programmableGlobalRedeemer)
                 .payToContract(senderProgrammableTokenAddress.getAddress(), ValueUtil.toAmountList(returningValue), ConstrPlutusData.of(0))
                 .payToContract(recipientProgrammableTokenAddress.getAddress(), ValueUtil.toAmountList(tokenValue2), ConstrPlutusData.of(0));
@@ -307,15 +253,14 @@ public class PreviewTransferTest extends AbstractPreviewTest implements PreviewF
                 .attachSpendingValidator(programmableLogicBase) // base
                 .withChangeAddress(senderAddress.getAddress());
 
-
         var transaction = quickTxBuilder.compose(tx)
                 .withRequiredSigners(senderAddress.getDelegationCredentialHash().get())
                 .feePayer(senderAddress.getAddress())
                 .mergeOutputs(false)
 //                .withTxEvaluator(ogmiosTxEvaluator())
                 .withTxEvaluator(new AikenTransactionEvaluator(bfBackendService))
-                .withSigner(SignerProviders.signerFrom(aliceAccount))
-                .withSigner(SignerProviders.stakeKeySignerFrom(aliceAccount))
+                .withSigner(SignerProviders.signerFrom(senderAccount))
+                .withSigner(SignerProviders.stakeKeySignerFrom(senderAccount))
                 .buildAndSign();
 
 

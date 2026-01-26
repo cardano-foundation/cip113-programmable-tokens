@@ -67,12 +67,12 @@ public class ComplianceController {
     public ResponseEntity<?> initBlacklist(@RequestBody BlacklistInitRequest request,
                                            @RequestParam(required = false) String protocolTxHash) {
 
-        log.info("POST /compliance/blacklist/init - tokenPolicyId: {}, admin: {}",
-                request.tokenPolicyId(), request.adminAddress());
+        log.info("POST /compliance/blacklist/init - substandardId: {}, admin: {}",
+                request.substandardId(), request.adminAddress());
 
         try {
             // Resolve substandard from policyId via unified registry
-            var substandardId = resolveSubstandardId(request.tokenPolicyId());
+            var substandardId = request.substandardId();
 
             var context = switch (substandardId) {
                 case "freeze-and-seize" -> FreezeAndSeizeContext.emptyContext();

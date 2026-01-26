@@ -1,7 +1,6 @@
 package org.cardanofoundation.cip113.service.substandard;
 
 import com.bloxbean.cardano.aiken.AikenScriptUtil;
-import com.bloxbean.cardano.aiken.AikenTransactionEvaluator;
 import com.bloxbean.cardano.client.address.Address;
 import com.bloxbean.cardano.client.address.AddressProvider;
 import com.bloxbean.cardano.client.address.Credential;
@@ -9,7 +8,6 @@ import com.bloxbean.cardano.client.api.model.Amount;
 import com.bloxbean.cardano.client.api.model.Utxo;
 import com.bloxbean.cardano.client.api.util.ValueUtil;
 import com.bloxbean.cardano.client.backend.blockfrost.service.BFBackendService;
-import com.bloxbean.cardano.client.function.helper.SignerProviders;
 import com.bloxbean.cardano.client.plutus.blueprint.PlutusBlueprintUtil;
 import com.bloxbean.cardano.client.plutus.blueprint.model.PlutusVersion;
 import com.bloxbean.cardano.client.plutus.spec.BigIntPlutusData;
@@ -303,7 +301,7 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
             // Programmable Token Mint
             var programmableToken = Asset.builder()
                     .name("0x" + request.getAssetName())
-                    .value(ONE)
+                    .value(new BigInteger(request.getQuantity()))
                     .build();
 
             Value programmableTokenValue = Value.builder()
@@ -1191,7 +1189,7 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
             var utxoOpt = utxoProvider.findUtxo(request.utxoTxHash(), request.utxoOutputIndex());
 
             if (utxoOpt.isEmpty()) {
-                 return TransactionContext.typedError("could not find utxo to seize");
+                return TransactionContext.typedError("could not find utxo to seize");
             }
 
             var utxoToSeize = utxoOpt.get();

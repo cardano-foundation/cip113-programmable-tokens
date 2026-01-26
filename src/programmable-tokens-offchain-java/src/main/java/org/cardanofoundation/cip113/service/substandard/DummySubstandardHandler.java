@@ -125,7 +125,7 @@ public class DummySubstandardHandler implements SubstandardHandler, BasicOperati
             var registrarUtxos = rigistrarUtxosOpt.get().stream().map(UtxoUtil::toUtxo).toList();
 
             // Handler knows its own contract names internally
-            var substandardIssuanceContractOpt = substandardService.getSubstandardValidator(SUBSTANDARD_ID, "issue.issue.withdraw");
+            var substandardIssuanceContractOpt = substandardService.getSubstandardValidator(SUBSTANDARD_ID, "transfer.issue.withdraw");
             var substandardTransferContractOpt = substandardService.getSubstandardValidator(SUBSTANDARD_ID, "transfer.transfer.withdraw");
 
             var thirdPartyScriptHash = substandardService.getSubstandardValidator(SUBSTANDARD_ID, "third_party.third_party.withdraw")
