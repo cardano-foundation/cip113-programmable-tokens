@@ -11,6 +11,7 @@ import org.cardanofoundation.cip113.model.BlacklistInitResponse;
 import org.cardanofoundation.cip113.repository.BlacklistInitRepository;
 import org.cardanofoundation.cip113.repository.FreezeAndSeizeTokenRegistrationRepository;
 import org.cardanofoundation.cip113.repository.ProgrammableTokenRegistryRepository;
+import org.cardanofoundation.cip113.service.BlacklistQueryService;
 import org.cardanofoundation.cip113.service.ComplianceOperationsService;
 import org.cardanofoundation.cip113.service.substandard.capabilities.BlacklistManageable.AddToBlacklistRequest;
 import org.cardanofoundation.cip113.service.substandard.capabilities.BlacklistManageable.BlacklistInitRequest;
@@ -45,6 +46,7 @@ import org.springframework.web.bind.annotation.*;
 public class ComplianceController {
 
     private final ComplianceOperationsService complianceOperationsService;
+    private final BlacklistQueryService blacklistQueryService;
 
     private final BlacklistInitRepository blacklistInitRepository;
 
@@ -231,6 +233,55 @@ public class ComplianceController {
         } catch (Exception e) {
             log.error("Error removing from blacklist", e);
             return ResponseEntity.internalServerError().body(e.getMessage());
+        }
+    }
+
+    /**
+     * Check if an address is blacklisted for a specific token.
+     * Returns the blacklist status without requiring transaction building.
+     * This is a read-only query operation that checks the on-chain blacklist linked-list.
+     *
+     * @param tokenPolicyId  The programmable token policy ID
+     * @param address        The bech32 address to check
+     * @param protocolTxHash Optional protocol version tx hash (currently unused for queries)
+     * @return JSON response with blacklist status
+     */
+    @GetMapping("/blacklist/check")
+    public ResponseEntity<?> checkBlacklistStatus(
+            @RequestParam String tokenPolicyId,
+            @RequestParam String address,
+            @RequestParam(required = false) String protocolTxHash) {
+
+        log.info("GET /compliance/blacklist/check - tokenPolicyId: {}, address: {}",
+                tokenPolicyId, address);
+
+        try {
+            boolean isBlacklisted = blacklistQueryService.isAddressBlacklisted(
+                    tokenPolicyId,
+                    address
+            );
+
+            return ResponseEntity.ok(java.util.Map.of(
+                    "tokenPolicyId", tokenPolicyId,
+                    "address", address,
+                    "blacklisted", isBlacklisted,
+                    "frozen", isBlacklisted
+            ));
+
+        } catch (UnsupportedOperationException e) {
+            log.warn("Blacklist check not implemented: {}", e.getMessage());
+            // Return false for not-yet-implemented check (fail-safe)
+            return ResponseEntity.ok(java.util.Map.of(
+                    "tokenPolicyId", tokenPolicyId,
+                    "address", address,
+                    "blacklisted", false,
+                    "frozen", false,
+                    "error", "Blockchain query implementation pending"
+            ));
+        } catch (Exception e) {
+            log.error("Error checking blacklist status", e);
+            return ResponseEntity.internalServerError()
+                    .body(java.util.Map.of("error", e.getMessage()));
         }
     }
 

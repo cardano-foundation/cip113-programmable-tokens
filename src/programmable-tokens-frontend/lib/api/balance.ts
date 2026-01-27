@@ -165,6 +165,9 @@ export async function parseWalletBalance(
       // TODO: Call isProgrammableToken(policyId) for accurate check
       const isProgrammable = true;
 
+      // Get blacklist status from backend response
+      const isBlacklisted = response.blacklistStatuses?.[unit] ?? false;
+
       return {
         unit,
         policyId,
@@ -172,6 +175,7 @@ export async function parseWalletBalance(
         assetName,
         amount: amount.toString(),
         isProgrammable,
+        isBlacklisted,
       };
     })
   );

@@ -5,7 +5,7 @@ import { useWallet } from "@meshsdk/react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Copy, LogOut, Wallet, Coins, RefreshCw, Send } from "lucide-react";
+import { Copy, LogOut, Wallet, Coins, RefreshCw, Send, Snowflake } from "lucide-react";
 import { truncateAddress, formatADAWithSymbol, getNetworkDisplayName } from "@/lib/utils";
 import { useToast } from "@/components/ui/toast";
 import { getWalletBalance, parseWalletBalance } from "@/lib/api";
@@ -280,6 +280,9 @@ export function WalletInfo() {
                                 {asset.isProgrammable && (
                                   <Badge variant="success" size="sm">Programmable</Badge>
                                 )}
+                                {asset.isBlacklisted && (
+                                  <Badge variant="error" size="sm">Frozen</Badge>
+                                )}
                               </div>
                               <p className="text-xs text-dark-400 truncate" title={asset.policyId}>
                                 Policy: {asset.policyId.substring(0, 16)}...
@@ -291,13 +294,22 @@ export function WalletInfo() {
                                   {asset.amount}
                                 </p>
                               </div>
-                              <button
-                                onClick={() => handleOpenTransferModal(asset)}
-                                className="p-1.5 hover:bg-dark-700 rounded transition-colors"
-                                title={`Transfer ${asset.assetName}`}
-                              >
-                                <Send className="h-4 w-4 text-primary-400 hover:text-primary-300" />
-                              </button>
+                              {asset.isBlacklisted ? (
+                                <div
+                                  className="p-1.5 rounded cursor-not-allowed opacity-50"
+                                  title="The funds have been frozen"
+                                >
+                                  <Snowflake className="h-4 w-4 text-blue-400" />
+                                </div>
+                              ) : (
+                                <button
+                                  onClick={() => handleOpenTransferModal(asset)}
+                                  className="p-1.5 hover:bg-dark-700 rounded transition-colors"
+                                  title={`Transfer ${asset.assetName}`}
+                                >
+                                  <Send className="h-4 w-4 text-primary-400 hover:text-primary-300" />
+                                </button>
+                              )}
                             </div>
                           </div>
                         </div>

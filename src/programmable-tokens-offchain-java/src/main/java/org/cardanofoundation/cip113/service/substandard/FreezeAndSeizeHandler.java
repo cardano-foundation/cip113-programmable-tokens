@@ -1201,6 +1201,108 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
 
     }
 
+    /**
+     * Check if an address is currently blacklisted.
+     * This is a read-only query operation that checks the on-chain blacklist linked-list.
+     *
+     * @param address The bech32 address to check
+     * @return true if the address is blacklisted (frozen), false otherwise
+     */
+    public boolean isAddressBlacklisted(String address) {
+        try {
+            log.debug("Checking blacklist status for address: {}", address);
+
+            // 1. Extract stake credential from address (same as add/remove operations)
+            var targetAddress = new Address(address);
+            var credentialHashOpt = targetAddress.getDelegationCredentialHash()
+                    .map(HexUtil::encodeHexString);
+
+            if (credentialHashOpt.isEmpty()) {
+                log.debug("Address {} has no stake credential", address);
+                return false; // No stake credential = cannot be blacklisted
+            }
+
+            var credentialHash = credentialHashOpt.get();
+            log.debug("Extracted stake credential: {}", credentialHash);
+
+            // 2. Derive blacklist mint script (parameterized with init tx + admin pkh)
+            var blackListMintValidatorOpt = substandardService.getSubstandardValidator(
+                    SUBSTANDARD_ID,
+                    "blacklist_mint.blacklist_mint.mint"
+            );
+            if (blackListMintValidatorOpt.isEmpty()) {
+                log.warn("Blacklist mint validator not found for substandard: {}", SUBSTANDARD_ID);
+                return false;
+            }
+            var blackListMintValidator = blackListMintValidatorOpt.get();
+
+            // Serialize the blacklist init transaction input
+            var serialisedTxInput = PlutusSerializationHelper.serialize(TransactionInput.builder()
+                    .transactionId(context.getBlacklistInitTxInput().getTransactionId())
+                    .index(context.getBlacklistInitTxInput().getIndex())
+                    .build());
+
+            // Parameters: [txInput, adminPkh]
+            var blacklistMintInitParams = ListPlutusData.of(
+                    serialisedTxInput,
+                    BytesPlutusData.of(HexUtil.decodeHexString(context.getIssuerAdminPkh()))
+            );
+
+            // Apply parameters to get the policy ID
+            var parameterisedBlacklistMintingScript = PlutusBlueprintUtil.getPlutusScriptFromCompiledCode(
+                    AikenScriptUtil.applyParamToScript(blacklistMintInitParams, blackListMintValidator.scriptBytes()),
+                    PlutusVersion.v3
+            );
+            var blacklistPolicyId = parameterisedBlacklistMintingScript.getPolicyId();
+            log.debug("Derived blacklist policy ID: {}", blacklistPolicyId);
+
+            // 3. Derive blacklist spend script (parameterized with policy ID)
+            var blacklistSpendValidatorOpt = substandardService.getSubstandardValidator(
+                    SUBSTANDARD_ID,
+                    "blacklist_spend.blacklist_spend.spend"
+            );
+            if (blacklistSpendValidatorOpt.isEmpty()) {
+                log.warn("Blacklist spend validator not found for substandard: {}", SUBSTANDARD_ID);
+                return false;
+            }
+            var blacklistSpendValidator = blacklistSpendValidatorOpt.get();
+
+            // Parameter: [blacklistPolicyId]
+            var blacklistSpendInitParams = ListPlutusData.of(
+                    BytesPlutusData.of(HexUtil.decodeHexString(blacklistPolicyId))
+            );
+
+            var parameterisedBlacklistSpendingScript = PlutusBlueprintUtil.getPlutusScriptFromCompiledCode(
+                    AikenScriptUtil.applyParamToScript(blacklistSpendInitParams, blacklistSpendValidator.scriptBytes()),
+                    PlutusVersion.v3
+            );
+
+            // 4. Compute blacklist spend address
+            var blacklistSpendAddress = AddressProvider.getEntAddress(
+                    parameterisedBlacklistSpendingScript,
+                    network.getCardanoNetwork()
+            );
+            log.debug("Derived blacklist spend address: {}", blacklistSpendAddress.getAddress());
+
+            // 5. Query UTxOs at blacklist address
+            var blacklistUtxos = utxoProvider.findUtxos(blacklistSpendAddress.getAddress());
+            log.debug("Found {} blacklist UTxOs", blacklistUtxos.size());
+
+            // 6. Parse datums and check if credential is in the list
+            boolean isBlacklisted = blacklistUtxos.stream()
+                    .flatMap(utxo -> blacklistNodeParser.parse(utxo.getInlineDatum()).stream())
+                    .anyMatch(blacklistNode -> blacklistNode.key().equals(credentialHash));
+
+            log.debug("Address {} is blacklisted: {}", address, isBlacklisted);
+            return isBlacklisted;
+
+        } catch (Exception e) {
+            log.error("Error checking blacklist status for address: {}", address, e);
+            // Fail-safe: return false to avoid blocking legitimate users
+            return false;
+        }
+    }
+
     // ========== Seizeable Implementation ==========
 
     @Override

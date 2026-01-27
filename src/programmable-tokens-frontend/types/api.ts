@@ -162,6 +162,7 @@ export interface WalletBalanceResponse {
   paymentHash: string;
   stakeHash: string | null;
   balances: BalanceLogEntity[];
+  blacklistStatuses?: Record<string, boolean>; // Map of unit -> isBlacklisted
 }
 
 // Parsed balance entry for UI
@@ -177,6 +178,7 @@ export interface ParsedAsset {
   assetName: string;      // Decoded asset name (UTF-8, or hex if decode fails)
   amount: string;         // Amount as string
   isProgrammable: boolean; // Whether this is a registered programmable token
+  isBlacklisted?: boolean; // Whether this token is frozen/blacklisted for the user
 }
 
 // ============================================================================

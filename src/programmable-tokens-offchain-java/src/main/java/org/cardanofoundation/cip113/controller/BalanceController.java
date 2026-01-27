@@ -8,6 +8,7 @@ import org.cardanofoundation.cip113.entity.BalanceLogEntity;
 import org.cardanofoundation.cip113.entity.ProtocolParamsEntity;
 import org.cardanofoundation.cip113.model.WalletBalanceResponse;
 import org.cardanofoundation.cip113.service.BalanceService;
+import org.cardanofoundation.cip113.service.BlacklistQueryService;
 import org.cardanofoundation.cip113.service.ProtocolParamsService;
 import org.cardanofoundation.cip113.service.RegistryService;
 import org.cardanofoundation.cip113.util.AddressUtil;
@@ -29,6 +30,7 @@ public class BalanceController {
     private final BalanceService balanceService;
     private final ProtocolParamsService protocolParamsService;
     private final RegistryService registryService;
+    private final BlacklistQueryService blacklistQueryService;
 
     /**
      * Get current balance for all assets at an address
@@ -318,12 +320,53 @@ public class BalanceController {
                 filteredBalances = mergedBalances;
             }
 
-            // Build response
+            // Check blacklist status for all programmable tokens
+            Map<String, Boolean> blacklistStatuses = new HashMap<>();
+
+            for (BalanceLogEntity balanceEntry : filteredBalances) {
+                try {
+                    // Convert JSON to Value, then to unit map
+                    Value valueObj = BalanceValueHelper.fromJson(balanceEntry.getBalance());
+                    Map<String, String> balance = BalanceValueHelper.toUnitMap(valueObj);
+
+                    for (String unit : balance.keySet()) {
+                        // Skip lovelace (ADA)
+                        if ("lovelace".equals(unit)) {
+                            continue;
+                        }
+
+                        // Skip if already checked
+                        if (blacklistStatuses.containsKey(unit)) {
+                            continue;
+                        }
+
+                        // Extract policy ID from unit using AssetType
+                        AssetType assetType = AssetType.fromUnit(unit);
+                        String policyId = assetType.policyId();
+
+                        // Check blacklist status for this token
+                        boolean isBlacklisted = blacklistQueryService.isAddressBlacklisted(policyId, address);
+                        blacklistStatuses.put(unit, isBlacklisted);
+
+                        if (isBlacklisted) {
+                            log.debug("Token {} is blacklisted for address {}", unit, address);
+                        }
+                    }
+                } catch (Exception e) {
+                    log.error("Error checking blacklist status for balance entry", e);
+                    // Continue with other entries
+                }
+            }
+
+            log.debug("Checked blacklist status for {} assets", blacklistStatuses.size());
+
+            // Build response with blacklist statuses
             WalletBalanceResponse response = WalletBalanceResponse.builder()
                     .walletAddress(address)
                     .paymentHash(paymentHash)
                     .stakeHash(stakeHash)
                     .balances(filteredBalances)
+                    .blacklistStatuses(blacklistStatuses)
                     .build();
 
             return ResponseEntity.ok(response);
