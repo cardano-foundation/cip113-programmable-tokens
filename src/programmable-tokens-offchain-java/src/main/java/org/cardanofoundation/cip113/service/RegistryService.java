@@ -117,9 +117,9 @@ public class RegistryService {
 
     /**
      * Find registry node by policy ID extracted from a unit string.
-     * Uses AssetType utility to parse the unit into policyId and assetName.
+     * Uses AssetType utility to parse the unit into blacklistNodePolicyId and assetName.
      *
-     * @param unit the unit string (policyId + assetNameHex)
+     * @param unit the unit string (blacklistNodePolicyId + assetNameHex)
      * @return the registry node or empty if not found
      */
     public Optional<RegistryNodeEntity> findByPolicyId(String unit) {
@@ -134,9 +134,9 @@ public class RegistryService {
 
     /**
      * Find registry node by policy ID for a specific protocol params version.
-     * Uses AssetType utility to parse the unit into policyId and assetName.
+     * Uses AssetType utility to parse the unit into blacklistNodePolicyId and assetName.
      *
-     * @param unit             the unit string (policyId + assetNameHex)
+     * @param unit             the unit string (blacklistNodePolicyId + assetNameHex)
      * @param protocolParamsId the protocol params ID
      * @return the registry node or empty if not found
      */

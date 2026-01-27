@@ -45,6 +45,6 @@ COMMENT ON COLUMN balance_log.payment_script_hash IS 'Payment credential hash (m
 COMMENT ON COLUMN balance_log.stake_key_hash IS 'Optional stake credential hash';
 COMMENT ON COLUMN balance_log.tx_hash IS 'Transaction hash that caused this balance change';
 COMMENT ON COLUMN balance_log.slot IS 'Cardano slot number';
-COMMENT ON COLUMN balance_log.balance IS 'Complete balance as JSON map: {"lovelace": "1000000", "policyId+assetName": "amount"}';
+COMMENT ON COLUMN balance_log.balance IS 'Complete balance as JSON map: {"lovelace": "1000000", "blacklistNodePolicyId+assetName": "amount"}';
 COMMENT ON COLUMN balance_log.transaction_type IS 'Type of transaction: MINT, BURN, TRANSFER, or REGISTER';
 COMMENT ON COLUMN balance_log.balance_diff IS 'Balance difference as JSON map with signed amounts: {"lovelace": "+2000000", "unit": "-100"}';

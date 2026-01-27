@@ -6,7 +6,7 @@ import { PageContainer } from "@/components/layout";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Coins, Send, Shield, BarChart3, Rocket, FileCheck } from "lucide-react";
+import { Shield, BarChart3, FileCheck, Settings } from "lucide-react";
 
 const WalletInfoDynamic = dynamic(
   () => import("@/components/wallet").then((mod) => ({ default: mod.WalletInfo })),
@@ -35,25 +35,11 @@ export default function Home() {
       available: true,
     },
     {
-      icon: <Coins className="h-8 w-8 text-accent-500" />,
-      title: "Mint Tokens",
-      description: "Create programmable tokens with embedded validation rules and metadata",
-      href: "/mint",
+      icon: <Settings className="h-8 w-8 text-accent-500" />,
+      title: "Admin Panel",
+      description: "Mint tokens, manage blacklists, and seize tokens for compliance",
+      href: "/admin",
       available: true,
-    },
-    {
-      icon: <Send className="h-8 w-8 text-highlight-500" />,
-      title: "Transfer Tokens",
-      description: "Transfer tokens with automatic validation against protocol rules",
-      href: "/transfer",
-      available: true,
-    },
-    {
-      icon: <Shield className="h-8 w-8 text-blue-500" />,
-      title: "Manage Blacklist",
-      description: "Configure and manage blacklisted addresses for regulated tokens",
-      href: "/blacklist",
-      available: false,
     },
     {
       icon: <BarChart3 className="h-8 w-8 text-purple-500" />,
@@ -146,7 +132,7 @@ export default function Home() {
                 <div>
                   <h3 className="font-semibold text-white">Register Your Token</h3>
                   <p className="text-sm text-dark-300 mt-1">
-                    Register a new programmable token policy with your chosen validation logic
+                    Register a new programmable token policy and mint your initial tokens
                   </p>
                 </div>
               </li>
@@ -155,9 +141,9 @@ export default function Home() {
                   3
                 </div>
                 <div>
-                  <h3 className="font-semibold text-white">Mint Tokens</h3>
+                  <h3 className="font-semibold text-white">Transfer Tokens</h3>
                   <p className="text-sm text-dark-300 mt-1">
-                    Create tokens using your registered policy with embedded validation rules
+                    Click the send button next to any token in your wallet to transfer
                   </p>
                 </div>
               </li>
@@ -166,9 +152,9 @@ export default function Home() {
                   4
                 </div>
                 <div>
-                  <h3 className="font-semibold text-white">Transfer and Manage</h3>
+                  <h3 className="font-semibold text-white">Admin Panel</h3>
                   <p className="text-sm text-dark-300 mt-1">
-                    Transfer tokens with automatic validation and manage your portfolio
+                    Use the Admin Panel to mint more tokens, manage blacklists, and seize tokens
                   </p>
                 </div>
               </li>

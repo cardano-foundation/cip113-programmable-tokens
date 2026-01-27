@@ -25,6 +25,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.cardanofoundation.cip113.model.blueprint.Plutus;
 import org.cardanofoundation.cip113.model.bootstrap.ProtocolBootstrapParams;
+import org.cardanofoundation.cip113.model.onchain.RegistryNodeParser;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -43,11 +44,14 @@ public class TransferTokenTest extends AbstractPreviewTest {
 
     private String DIRECTORY_SPEND_CONTRACT, PROGRAMMABLE_LOGIC_BASE_CONTRACT, PROGRAMMABLE_LOGIC_GLOBAL_CONTRACT;
 
+    private final RegistryNodeParser registryNodeParser = new RegistryNodeParser(OBJECT_MAPPER);
+
     private ProtocolBootstrapParams protocolBootstrapParams;
 
     @BeforeEach
     public void loadContracts() throws Exception {
         protocolBootstrapParams = OBJECT_MAPPER.readValue(this.getClass().getClassLoader().getResourceAsStream("protocol-bootstraps-preview.json"), ProtocolBootstrapParams[].class)[0];
+        log.info("protocolBootstrapParams: {}", protocolBootstrapParams);
         var plutus = OBJECT_MAPPER.readValue(this.getClass().getClassLoader().getResourceAsStream("plutus.json"), Plutus.class);
         var validators = plutus.validators();
         DIRECTORY_SPEND_CONTRACT = getCompiledCodeFor("registry_spend.registry_spend.spend", validators);
@@ -68,7 +72,6 @@ public class TransferTokenTest extends AbstractPreviewTest {
         // Protocol Params 2592ff5b2810679c30996c309080a3635071f923b43edb494a87597c1e6a5be5:0
         // Directory 2592ff5b2810679c30996c309080a3635071f923b43edb494a87597c1e6a5be5:1
         // Issuance 2592ff5b2810679c30996c309080a3635071f923b43edb494a87597c1e6a5be5:2
-
 
         var protocolParamsUtxoOpt = bfBackendService.getUtxoService().getTxOutput(bootstrapTxHash, 0);
         if (!protocolParamsUtxoOpt.isSuccessful()) {
@@ -132,7 +135,13 @@ public class TransferTokenTest extends AbstractPreviewTest {
         var directoryUtxos = directoryUtxosOpt.getValue();
         directoryUtxos.forEach(utxo -> log.info("directory utxo: {}", utxo));
 
-        var directoryUtxoOpt = directoryUtxos.stream().filter(utxo -> utxo.getAmount().stream().anyMatch(amount -> directoryNftUnit.equals(amount.getUnit()))).findAny();
+        var directoryUtxoOpt = directoryUtxos.stream()
+                .filter(utxo -> utxo.getInlineDatum() != null)
+                .flatMap(utxo -> registryNodeParser.parse(utxo.getInlineDatum())
+                        .stream()
+                        .filter(node-> progToken.policyId().equals(node.key())).map(node -> utxo))
+//                .filter(utxo -> utxo.getAmount().stream().anyMatch(amount -> directoryNftUnit.equals(amount.getUnit())))
+                .findAny();
         if (directoryUtxoOpt.isEmpty()) {
             Assertions.fail("no directory utxo for unit: " + directoryNftUnit);
         }

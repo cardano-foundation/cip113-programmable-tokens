@@ -1,4 +1,5 @@
-use cardano/assets.{PolicyId, has_key, to_dict}
+use aiken/collection/dict.{has_key}
+use cardano/assets.{PolicyId, to_dict}
 use cardano/transaction.{Transaction}
 
 // Blacklist spending validator - guards the blacklist node UTxOs

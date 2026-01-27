@@ -1,0 +1,336 @@
+package org.cardanofoundation.cip113.substandards.dummy;
+
+import com.bloxbean.cardano.aiken.AikenTransactionEvaluator;
+import com.bloxbean.cardano.client.address.Address;
+import com.bloxbean.cardano.client.address.AddressProvider;
+import com.bloxbean.cardano.client.address.Credential;
+import com.bloxbean.cardano.client.api.model.Amount;
+import com.bloxbean.cardano.client.api.util.ValueUtil;
+import com.bloxbean.cardano.client.function.helper.SignerProviders;
+import com.bloxbean.cardano.client.plutus.blueprint.PlutusBlueprintUtil;
+import com.bloxbean.cardano.client.plutus.blueprint.model.PlutusVersion;
+import com.bloxbean.cardano.client.plutus.spec.BytesPlutusData;
+import com.bloxbean.cardano.client.plutus.spec.ConstrPlutusData;
+import com.bloxbean.cardano.client.quicktx.ScriptTx;
+import com.bloxbean.cardano.client.quicktx.Tx;
+import com.bloxbean.cardano.client.transaction.spec.Asset;
+import com.bloxbean.cardano.client.transaction.spec.MultiAsset;
+import com.bloxbean.cardano.client.transaction.spec.TransactionInput;
+import com.bloxbean.cardano.client.transaction.spec.Value;
+import com.bloxbean.cardano.client.util.HexUtil;
+import com.easy1staking.cardano.model.AssetType;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.extern.slf4j.Slf4j;
+import org.cardanofoundation.cip113.AbstractPreviewTest;
+import org.cardanofoundation.cip113.config.AppConfig;
+import org.cardanofoundation.cip113.model.LinkedListNode;
+import org.cardanofoundation.cip113.model.onchain.RegistryNode;
+import org.cardanofoundation.cip113.model.onchain.RegistryNodeParser;
+import org.cardanofoundation.cip113.service.*;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+
+import java.math.BigInteger;
+import java.util.List;
+import java.util.Optional;
+
+import static java.math.BigInteger.ONE;
+
+@Slf4j
+public class PreviewRegisterTest extends AbstractPreviewTest {
+
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+
+    private static final String DEFAULT_PROTOCOL = "114adc8ee212b5ded1f895ab53c7741e5521feff735d05aeef2a92dcf05c9ae2";
+
+    private final ProtocolBootstrapService protocolBootstrapService = new ProtocolBootstrapService(OBJECT_MAPPER, new AppConfig.Network("preview"));
+
+    private final ProtocolScriptBuilderService protocolScriptBuilderService = new ProtocolScriptBuilderService(protocolBootstrapService);
+
+    private final UtxoProvider utxoProvider = new UtxoProvider(bfBackendService, null);
+
+    private final AccountService accountService = new AccountService(utxoProvider);
+
+    private final LinkedListService linkedListService = new LinkedListService(utxoProvider);
+
+    private SubstandardService substandardService;
+
+    private final RegistryNodeParser registryNodeParser = new RegistryNodeParser(OBJECT_MAPPER);
+
+    @BeforeEach
+    public void init() {
+        substandardService = new SubstandardService(OBJECT_MAPPER);
+        substandardService.init();
+
+        protocolBootstrapService.init();
+    }
+
+    @Test
+    public void test() throws Exception {
+
+        var tokenName = "dummy-1";
+        var tokenAmount = 10_000_000L;
+
+        var dryRun = false;
+
+        var registerWithdrawScriptsAddresses = false;
+
+        // Replace adminAccount w/ alice to create new stable, as issuer/admin contract parameter is pkh and there is already another prog token with that in preview
+
+        var issuerAccount = adminAccount;
+
+        var substandardName = "dummy";
+
+        var adminUtxos = accountService.findAdaOnlyUtxo(issuerAccount.baseAddress(), 10_000_000L);
+
+        var protocolBootstrapParamsOpt = protocolBootstrapService.getProtocolBootstrapParamsByTxHash(DEFAULT_PROTOCOL);
+        var protocolBootstrapParams = protocolBootstrapParamsOpt.get();
+        log.info("protocolBootstrapParams: {}", protocolBootstrapParams);
+
+        var bootstrapTxHash = protocolBootstrapParams.txHash();
+
+        var directorySpendContract = protocolScriptBuilderService.getParameterizedDirectorySpendScript(protocolBootstrapParams);
+
+        var protocolParamsUtxoOpt = utxoProvider.findUtxo(bootstrapTxHash, 0);
+        if (protocolParamsUtxoOpt.isEmpty()) {
+            Assertions.fail("could not resolve protocol params");
+        }
+
+        var protocolParamsUtxo = protocolParamsUtxoOpt.get();
+
+        var directorySpendContractAddress = AddressProvider.getEntAddress(directorySpendContract, network);
+        log.info("directorySpendContractAddress: {}", directorySpendContractAddress.getAddress());
+
+        var issuanceUtxoOpt = utxoProvider.findUtxo(bootstrapTxHash, 2);
+        if (issuanceUtxoOpt.isEmpty()) {
+            Assertions.fail("could not resolve issuance params");
+        }
+        var issuanceUtxo = issuanceUtxoOpt.get();
+        log.info("issuanceUtxo: {}", issuanceUtxo);
+
+        /// Getting Substandard Contracts and parameterize
+        // Issuer to be used for minting/burning/sieze
+        var issuerContractOpt = substandardService.getSubstandardValidator(substandardName, "transfer.issue.withdraw");
+        var issuerContract = issuerContractOpt.get();
+
+        var substandardIssueContract = PlutusBlueprintUtil.getPlutusScriptFromCompiledCode(issuerContract.scriptBytes(), PlutusVersion.v3);
+
+        var substandardIssueAddress = AddressProvider.getRewardAddress(substandardIssueContract, network);
+        log.info("substandardIssueAddress: {}", substandardIssueAddress.getAddress());
+
+        var transferContractOpt = substandardService.getSubstandardValidator(substandardName, "transfer.transfer.withdraw");
+        var transferContract = transferContractOpt.get();
+
+        var substandardTransferContract = PlutusBlueprintUtil.getPlutusScriptFromCompiledCode(transferContract.scriptBytes(), PlutusVersion.v3);
+        var substandardTransferAddress = AddressProvider.getRewardAddress(substandardTransferContract, network);
+        log.info("substandardTransferAddress: {}", substandardTransferAddress.getAddress());
+
+        var issuanceContract = protocolScriptBuilderService.getParameterizedIssuanceMintScript(protocolBootstrapParams, substandardIssueContract);
+        final var progTokenPolicyId = issuanceContract.getPolicyId();
+        log.info("progTokenPolicyId: {}", progTokenPolicyId);
+
+        var registryAddress = AddressProvider.getEntAddress(directorySpendContract, network);
+
+        var registryEntries = utxoProvider.findUtxos(registryAddress.getAddress());
+        log.info("found {}, registry entries", registryEntries.size());
+
+        var nodeAlreadyPresent = linkedListService.nodeAlreadyPresent(progTokenPolicyId, registryEntries, utxo -> registryNodeParser.parse(utxo.getInlineDatum())
+                .map(RegistryNode::key));
+
+        if (nodeAlreadyPresent) {
+            Assertions.fail("registry node already present");
+        }
+
+        var nodeToReplaceOpt = linkedListService.findNodeToReplace(progTokenPolicyId, registryEntries, utxo -> registryNodeParser.parse(utxo.getInlineDatum())
+                .map(node -> new LinkedListNode(node.key(), node.next())));
+
+        if (nodeToReplaceOpt.isEmpty()) {
+            Assertions.fail("could not find node to replace");
+        }
+
+        var directoryUtxo = nodeToReplaceOpt.get();
+        log.info("directoryUtxo: {}", directoryUtxo);
+        var existingRegistryNodeDatumOpt = registryNodeParser.parse(directoryUtxo.getInlineDatum());
+
+        if (existingRegistryNodeDatumOpt.isEmpty()) {
+            Assertions.fail("could not parse current registry node");
+        }
+
+        var existingRegistryNodeDatum = existingRegistryNodeDatumOpt.get();
+
+        // Directory MINT - NFT, address, datum and value
+        var directoryMintContract = protocolScriptBuilderService.getParameterizedDirectoryMintScript(protocolBootstrapParams);
+        var directoryMintPolicyId = directoryMintContract.getPolicyId();
+
+        var directoryMintRedeemer = ConstrPlutusData.of(1,
+                BytesPlutusData.of(issuanceContract.getScriptHash()),
+                BytesPlutusData.of(substandardIssueContract.getScriptHash())
+        );
+
+        var directoryMintNft = Asset.builder()
+                .name("0x" + issuanceContract.getPolicyId())
+                .value(ONE)
+                .build();
+
+        Optional<Amount> registrySpentNftOpt = directoryUtxo.getAmount()
+                .stream()
+                .filter(amount -> amount.getQuantity().equals(ONE) && directoryMintPolicyId.equals(AssetType.fromUnit(amount.getUnit()).policyId()))
+                .findAny();
+
+        if (registrySpentNftOpt.isEmpty()) {
+            Assertions.fail("could not find amount for directory mint");
+        }
+
+        var registrySpentNft = AssetType.fromUnit(registrySpentNftOpt.get().getUnit());
+
+        var directorySpendNft = Asset.builder()
+                .name("0x" + registrySpentNft.assetName())
+                .value(ONE)
+                .build();
+
+        var directorySpendDatum = existingRegistryNodeDatum.toBuilder()
+                .next(HexUtil.encodeHexString(issuanceContract.getScriptHash()))
+                .build();
+        log.info("directorySpendDatum: {}", directorySpendDatum);
+
+        var directoryMintDatum = new RegistryNode(HexUtil.encodeHexString(issuanceContract.getScriptHash()),
+                existingRegistryNodeDatum.next(),
+                HexUtil.encodeHexString(substandardTransferContract.getScriptHash()),
+                HexUtil.encodeHexString(substandardIssueContract.getScriptHash()),
+                "");
+        log.info("directoryMintDatum: {}", directoryMintDatum);
+
+        Value directoryMintValue = Value.builder()
+                .coin(Amount.ada(1).getQuantity())
+                .multiAssets(List.of(
+                        MultiAsset.builder()
+                                .policyId(directoryMintPolicyId)
+                                .assets(List.of(directoryMintNft))
+                                .build()
+                ))
+                .build();
+        log.info("directoryMintValue: {}", directoryMintValue);
+
+        Value directorySpendValue = Value.builder()
+                .coin(Amount.ada(1).getQuantity())
+                .multiAssets(List.of(
+                        MultiAsset.builder()
+                                .policyId(directoryMintPolicyId)
+                                .assets(List.of(directorySpendNft))
+                                .build()
+                ))
+                .build();
+        log.info("directorySpendValue: {}", directorySpendValue);
+
+
+        var issuanceRedeemer = ConstrPlutusData.of(0, ConstrPlutusData.of(1, BytesPlutusData.of(substandardIssueContract.getScriptHash())));
+
+        // Programmable Token Mint
+        var programmableToken = Asset.builder()
+                .name("0x" + HexUtil.encodeHexString(tokenName.getBytes()))
+                .value(BigInteger.valueOf(tokenAmount))
+                .build();
+
+        Value programmableTokenValue = Value.builder()
+                .coin(Amount.ada(1).getQuantity())
+                .multiAssets(List.of(
+                        MultiAsset.builder()
+                                .policyId(issuanceContract.getPolicyId())
+                                .assets(List.of(programmableToken))
+                                .build()
+                ))
+                .build();
+
+        var payee = issuerAccount.getBaseAddress().getAddress();
+        log.info("payee: {}", payee);
+
+        var payeeAddress = new Address(payee);
+
+        var targetAddress = AddressProvider.getBaseAddress(Credential.fromScript(protocolBootstrapParams.programmableLogicBaseParams().scriptHash()),
+                payeeAddress.getDelegationCredential().get(),
+                network);
+
+        if (registerWithdrawScriptsAddresses) {
+
+            var registerAddressTx = new Tx()
+                    .from(issuerAccount.baseAddress())
+                    .registerStakeAddress(substandardIssueAddress.getAddress())
+                    .registerStakeAddress(substandardTransferAddress.getAddress())
+                    .withChangeAddress(issuerAccount.baseAddress());
+
+            quickTxBuilder.compose(registerAddressTx)
+                    .feePayer(issuerAccount.baseAddress())
+                    .withSigner(SignerProviders.signerFrom(issuerAccount))
+                    .completeAndWait();
+
+        }
+
+        var tx = new ScriptTx()
+                .collectFrom(adminUtxos)
+                .collectFrom(directoryUtxo, ConstrPlutusData.of(0))
+                // No redeemer for substandard
+                .withdraw(substandardIssueAddress.getAddress(), BigInteger.ZERO, ConstrPlutusData.of(0))
+                // Mint Token
+                .mintAsset(issuanceContract, programmableToken, issuanceRedeemer)
+                // Redeemer is DirectoryInit (constr(0))
+                .mintAsset(directoryMintContract, directoryMintNft, directoryMintRedeemer)
+                .payToContract(targetAddress.getAddress(), ValueUtil.toAmountList(programmableTokenValue), ConstrPlutusData.of(0))
+                // Directory Params
+                .payToContract(directorySpendContractAddress.getAddress(), ValueUtil.toAmountList(directorySpendValue), directorySpendDatum.toPlutusData())
+                // Directory Params
+                .payToContract(directorySpendContractAddress.getAddress(), ValueUtil.toAmountList(directoryMintValue), directoryMintDatum.toPlutusData())
+                .readFrom(TransactionInput.builder()
+                                .transactionId(protocolParamsUtxo.getTxHash())
+                                .index(protocolParamsUtxo.getOutputIndex())
+                                .build(),
+                        TransactionInput.builder()
+                                .transactionId(issuanceUtxo.getTxHash())
+                                .index(issuanceUtxo.getOutputIndex())
+                                .build())
+                .attachSpendingValidator(directorySpendContract)
+                .attachRewardValidator(substandardIssueContract)
+                .withChangeAddress(issuerAccount.baseAddress());
+
+        var transaction = quickTxBuilder.compose(tx)
+                .withRequiredSigners(issuerAccount.getBaseAddress())
+                .withSigner(SignerProviders.signerFrom(issuerAccount))
+//                    .withTxEvaluator(new AikenTransactionEvaluator(bfBackendService))
+                .feePayer(issuerAccount.baseAddress())
+                .withTxEvaluator(new AikenTransactionEvaluator(bfBackendService))
+                .mergeOutputs(false) //<-- this is important! or directory tokens will go to same address
+                .preBalanceTx((txBuilderContext, transaction1) -> {
+                    var outputs = transaction1.getBody().getOutputs();
+                    if (outputs.getFirst().getAddress().equals(issuerAccount.baseAddress())) {
+                        log.info("found dummy input, moving it...");
+                        var first = outputs.removeFirst();
+                        outputs.addLast(first);
+                    }
+                    try {
+                        log.info("pre tx: {}", OBJECT_MAPPER.writeValueAsString(transaction1));
+                    } catch (JsonProcessingException e) {
+                        throw new RuntimeException(e);
+                    }
+                })
+                .postBalanceTx((txBuilderContext, transaction1) -> {
+                    try {
+                        log.info("post tx: {}", OBJECT_MAPPER.writeValueAsString(transaction1));
+                    } catch (JsonProcessingException e) {
+                        throw new RuntimeException(e);
+                    }
+                })
+                .buildAndSign();
+
+        log.info("tx: {}", transaction.serializeToHex());
+        log.info("tx: {}", OBJECT_MAPPER.writeValueAsString(transaction));
+
+        if (!dryRun) {
+            var txHash = bfBackendService.getTransactionService().submitTransaction(transaction.serialize());
+            log.info("txHash: {}", txHash);
+        }
+
+
+    }
+
+}

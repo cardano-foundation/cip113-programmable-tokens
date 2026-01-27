@@ -5,6 +5,7 @@ import com.bloxbean.cardano.aiken.AikenTransactionEvaluator;
 import com.bloxbean.cardano.client.address.Address;
 import com.bloxbean.cardano.client.address.AddressProvider;
 import com.bloxbean.cardano.client.address.Credential;
+import com.bloxbean.cardano.client.api.exception.ApiException;
 import com.bloxbean.cardano.client.api.model.Amount;
 import com.bloxbean.cardano.client.api.util.ValueUtil;
 import com.bloxbean.cardano.client.common.model.Network;
@@ -46,7 +47,7 @@ import static org.cardanofoundation.cip113.util.PlutusSerializationHelper.serial
 @Slf4j
 public class PreviewRegisterTest extends AbstractPreviewTest implements PreviewFreezeAndSieze {
 
-//    private static final String DEFAULT_PROTOCOL = "0c8e4c5da192e0c814495f685aebf31d27e2eec55a302c08ae56d3f8dd564489";
+    //    private static final String DEFAULT_PROTOCOL = "0c8e4c5da192e0c814495f685aebf31d27e2eec55a302c08ae56d3f8dd564489";
     private static final String DEFAULT_PROTOCOL = "114adc8ee212b5ded1f895ab53c7741e5521feff735d05aeef2a92dcf05c9ae2";
 
     private final Network network = Networks.preview();
@@ -154,7 +155,7 @@ public class PreviewRegisterTest extends AbstractPreviewTest implements PreviewF
         log.info("found {}, registry entries", registryEntries.size());
 
         var nodeAlreadyPresent = linkedListService.nodeAlreadyPresent(progTokenPolicyId, registryEntries, utxo -> registryNodeParser.parse(utxo.getInlineDatum())
-                        .map(RegistryNode::key));
+                .map(RegistryNode::key));
 
         if (nodeAlreadyPresent) {
             Assertions.fail("registry node already present");
@@ -346,6 +347,46 @@ public class PreviewRegisterTest extends AbstractPreviewTest implements PreviewF
             var txHash = bfBackendService.getTransactionService().submitTransaction(transaction.serialize());
             log.info("txHash: {}", txHash);
         }
+
+
+    }
+
+    @Test
+    public void registerAddress() throws ApiException {
+
+        var result = bfBackendService.getAccountService().getAccountInformation("stake_test17r8mqag8vjlqkpmnyeu4uujq6hp0lsmzytlpu3xf54al5kcv5ksz7");
+
+        log.info("success?: {}", result.isSuccessful());
+
+        if (!result.isSuccessful()) {
+
+            var registerAddressTx = new Tx()
+                    .from(aliceAccount.baseAddress())
+                    .registerStakeAddress("stake_test17r8mqag8vjlqkpmnyeu4uujq6hp0lsmzytlpu3xf54al5kcv5ksz7")
+                    .withChangeAddress(aliceAccount.baseAddress());
+
+            quickTxBuilder.compose(registerAddressTx)
+                    .feePayer(aliceAccount.baseAddress())
+                    .withSigner(SignerProviders.signerFrom(aliceAccount))
+                    .completeAndWait();
+
+        }
+
+        var accountInfo = result.getValue();
+
+
+        log.info("accountInfo: {}", accountInfo);
+        log.info("aliceAccount.stakeAddress(): {}", aliceAccount.stakeAddress());
+
+        var registerAddressTx = new Tx()
+                .from(aliceAccount.baseAddress())
+                .registerStakeAddress(aliceAccount.stakeAddress())
+                .withChangeAddress(aliceAccount.baseAddress());
+
+        quickTxBuilder.compose(registerAddressTx)
+                .feePayer(aliceAccount.baseAddress())
+                .withSigner(SignerProviders.signerFrom(aliceAccount))
+                .completeAndWait();
 
 
     }

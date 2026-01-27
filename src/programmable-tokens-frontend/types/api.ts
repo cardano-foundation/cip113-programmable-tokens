@@ -23,16 +23,29 @@ export type SubstandardsResponse = Substandard[];
 // Token Registration
 // ============================================================================
 
-export interface RegisterTokenRequest {
-  registrarAddress: string;                    // User's wallet address
-  substandardName: string;                     // e.g., "dummy"
-  substandardIssueContractName: string;        // Required - validator title
-  substandardTransferContractName: string;     // Required - validator title
-  substandardThirdPartyContractName: string;   // Third-party validator (can be empty string)
-  assetName: string;                           // HEX ENCODED token name
-  quantity: string;                            // Amount to register/mint
-  recipientAddress: string;                    // Recipient address (can be empty string)
+/** Base type for all registration requests */
+export interface BaseRegisterTokenRequest {
+  substandardId: string;       // Discriminator - backend knows which contracts to use
+  feePayerAddress: string;     // User's wallet address (renamed from registrarAddress)
+  assetName: string;           // HEX ENCODED token name
+  quantity: string;            // Amount to register/mint
+  recipientAddress: string;    // Recipient address (can be empty string)
 }
+
+/** Dummy substandard - no extra fields needed */
+export interface DummyRegisterRequest extends BaseRegisterTokenRequest {
+  substandardId: 'dummy';
+}
+
+/** Freeze-and-seize substandard - requires blacklist info */
+export interface FreezeAndSeizeRegisterRequest extends BaseRegisterTokenRequest {
+  substandardId: 'freeze-and-seize';
+  adminPubKeyHash: string;         // Payment key hash derived from feePayerAddress
+  blacklistNodePolicyId: string;   // From blacklist initialization step
+}
+
+/** Discriminated union of all registration request types */
+export type RegisterTokenRequest = DummyRegisterRequest | FreezeAndSeizeRegisterRequest;
 
 export interface RegisterTokenResponse {
   policyId: string;              // Generated policy ID
@@ -40,10 +53,32 @@ export interface RegisterTokenResponse {
 }
 
 // ============================================================================
-// Minting
+// Minting (Admin - mint to existing registered token)
 // ============================================================================
 
 export interface MintTokenRequest {
+  feePayerAddress: string;      // Issuer admin's wallet address
+  tokenPolicyId: string;        // Policy ID of registered token
+  assetName: string;            // HEX ENCODED token name
+  quantity: string;             // Amount as string to handle large numbers
+  recipientAddress: string;     // Recipient address
+}
+
+// Backend returns plain text CBOR hex string (not JSON)
+export type MintTokenResponse = string;
+
+export interface MintFormData {
+  tokenName: string;           // Human-readable name (will be hex encoded)
+  quantity: string;            // Amount to mint
+  policyId: string;            // Policy ID of registered token
+  recipientAddress: string;    // Recipient address
+}
+
+// ============================================================================
+// Legacy Minting (for registration flow - deprecated)
+// ============================================================================
+
+export interface LegacyMintTokenRequest {
   issuerBaseAddress: string;
   substandardName: string;
   substandardIssueContractName: string;
@@ -52,10 +87,7 @@ export interface MintTokenRequest {
   quantity: string;       // Amount as string to handle large numbers
 }
 
-// Backend returns plain text CBOR hex string (not JSON)
-export type MintTokenResponse = string;
-
-export interface MintFormData {
+export interface LegacyMintFormData {
   tokenName: string;           // Human-readable name (will be hex encoded)
   quantity: string;            // Amount to mint
   substandardId: string;       // Substandard ID (e.g., "dummy")
@@ -130,6 +162,7 @@ export interface WalletBalanceResponse {
   paymentHash: string;
   stakeHash: string | null;
   balances: BalanceLogEntity[];
+  blacklistStatuses?: Record<string, boolean>; // Map of unit -> isBlacklisted
 }
 
 // Parsed balance entry for UI
@@ -145,6 +178,7 @@ export interface ParsedAsset {
   assetName: string;      // Decoded asset name (UTF-8, or hex if decode fails)
   amount: string;         // Amount as string
   isProgrammable: boolean; // Whether this is a registered programmable token
+  isBlacklisted?: boolean; // Whether this token is frozen/blacklisted for the user
 }
 
 // ============================================================================

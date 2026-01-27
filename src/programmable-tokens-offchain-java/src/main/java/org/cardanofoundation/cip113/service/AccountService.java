@@ -25,6 +25,10 @@ public class AccountService {
         return this.findAdaOnlyUtxo(address, minAdaBalance, utxoProvider::findUtxos);
     }
 
+    public List<Utxo> findAdaOnlyUtxoByPaymentPubKeyHash(String paymentPkh, Long minAdaBalance) {
+        return this.findAdaOnlyUtxo(paymentPkh, minAdaBalance, utxoProvider::findUtxosByPaymentPkh);
+    }
+
     public List<Utxo> findAdaOnlyUtxo(String address, Long minAdaBalance, Function<String, List<Utxo>> utxoFinder) {
         return utxoFinder.apply(address)
                 .stream()

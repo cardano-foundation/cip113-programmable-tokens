@@ -269,7 +269,7 @@ public class BalanceService {
      * Extract a specific asset amount from a balance
      *
      * @param balance the balance JSON string
-     * @param unit    the asset unit (e.g., "lovelace" or "policyId+assetName")
+     * @param unit    the asset unit (e.g., "lovelace" or "blacklistNodePolicyId+assetName")
      * @return the amount or zero if not found
      */
     public BigInteger getAssetAmount(String balance, String unit) {
