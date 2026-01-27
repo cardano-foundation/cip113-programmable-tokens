@@ -1,0 +1,9 @@
+store:
+  cardano:
+    protocol-magic: 42
+    byron-genesis-file: classpath:/devkit/byron-genesis.json
+    shelley-genesis-file: classpath:/devkit/shelley-genesis.json
+    alonzo-genesis-file: classpath:/devkit/alonzo-genesis.json
+    conway-genesis-file: classpath:/devkit/conway-genesis.json
+    sync-start-blockhash:
+    sync-start-slot: 0

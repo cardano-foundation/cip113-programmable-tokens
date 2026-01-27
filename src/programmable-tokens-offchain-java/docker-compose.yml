@@ -1,0 +1,71 @@
+services:
+  backend:
+    restart: unless-stopped
+    build:
+      context: .
+    ports:
+      - "${API_PORT:-9000}:8080"
+    environment:
+      - SPRING_PROFILES_ACTIVE=devkit
+      - DB_URL=jdbc:postgresql://postgres:5432/postgres
+      - DB_USERNAME=postgres
+      - DB_PASSWORD=postgres
+      - STORE_CARDANO_HOST=yaci-cli
+      - STORE_CARDANO_PORT=3001
+      - NETWORK=preview
+      - BLUEPRINT_PATH=/app/plutus.json
+      - WALLET_MNEMONIC="test test test test test test test test test test test test test test test test test test test test test test test sauce"
+      - BLOCKFROST_URL=http://yaci-cli:8080/api/v1/
+      - BLOCKFROST_KEY=Dummy Key
+  postgres:
+    restart: unless-stopped
+    image: postgres:16.3
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=postgres
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./init-scripts:/docker-entrypoint-initdb.d
+    ports:
+      - "5432:5432"
+
+  yaci-cli:
+    restart: unless-stopped
+    image: bloxbean/yaci-cli:0.11.0-beta1
+    env_file:
+      - ./yaci-config/env
+      - ./yaci-config/node.properties
+    volumes:
+      - ./yaci-config/node.properties:/app/config/node.properties
+      - yaci-data:/clusters
+    ports:
+      - "3001:3001"
+      - "8080:8080"
+    entrypoint: [ "/app/yaci-cli", "create-node", "-o", "--start" ]
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "200k"
+        max-file: "100"
+
+  yaci-viewer:
+    restart: unless-stopped
+    image: bloxbean/yaci-viewer:0.11.0-beta1
+    ports:
+      - "5173:5173"
+    env_file:
+      - ./yaci-config/env
+    environment:
+      PUBLIC_INDEXER_BASE_URL: ${PUBLIC_INDEXER_BASE_URL:-http://yaci-cli:8080/api/v1}
+      PUBLIC_INDEXER_WS_URL: ${PUBLIC_INDEXER_WS_URL:-ws://localhost:8081/ws/liveblocks}
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "200k"
+        max-file: "100"
+
+
+volumes:
+  postgres-data:
+  yaci-data:
