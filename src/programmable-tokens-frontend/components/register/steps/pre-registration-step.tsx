@@ -29,6 +29,7 @@ interface PreRegistrationStepProps extends StepComponentProps<Record<string, unk
 type StepPhase =
   | 'checking-prereqs'    // Initial check (for F&S: wait for blacklist init)
   | 'backend-cooldown'    // After prereq tx confirmed, 10s wait
+  | 'ready-to-start'      // Ready for user to start pre-registration
   | 'calling-api'         // Calling pre-register API
   | 'already-registered'  // All addresses registered (no tx needed)
   | 'signing'             // Waiting for wallet signature
@@ -301,27 +302,26 @@ export function PreRegistrationStep({
         onConfirmed: () => {
           showToastRef.current({
             title: 'Blacklist Transaction Confirmed',
-            description: 'Proceeding with stake address registration...',
+            description: 'Ready to proceed with stake address registration',
             variant: 'success',
           });
-          // Start backend cooldown then call API
+          // Start backend cooldown then wait for user action
           setPhase('backend-cooldown');
-          startCooldown('calling-api');
+          startCooldown('ready-to-start');
         },
       }).catch((error) => {
         if (error.message === 'Aborted') return;
-        // On timeout, proceed anyway
+        // On timeout, let user decide to proceed
         showToastRef.current({
           title: 'Confirmation Check Failed',
-          description: 'Proceeding with registration...',
+          description: 'You can still proceed with registration',
           variant: 'warning',
         });
-        setPhase('backend-cooldown');
-        startCooldown('calling-api');
+        setPhase('ready-to-start');
       });
     } else {
-      // For dummy flow, go directly to API call
-      setPhase('calling-api');
+      // For dummy flow, wait for user to start
+      setPhase('ready-to-start');
     }
 
     // Cleanup
@@ -338,12 +338,11 @@ export function PreRegistrationStep({
     };
   }, [isFreezeAndSeize, blacklistInitTxHash, startCooldown]);
 
-  // Effect to call API when phase changes to calling-api
-  useEffect(() => {
-    if (phase === 'calling-api' && !isCallingApiRef.current) {
-      callPreRegisterApi();
-    }
-  }, [phase, callPreRegisterApi]);
+  // Manual handler to start pre-registration (user clicks button)
+  const handleStartPreRegistration = useCallback(() => {
+    setPhase('calling-api');
+    callPreRegisterApi();
+  }, [callPreRegisterApi]);
 
   // Handle continue from already-registered state
   const handleContinue = useCallback(() => {
@@ -424,6 +423,25 @@ export function PreRegistrationStep({
           </div>
           <div className="text-2xl font-bold text-white">
             {cooldownRemaining}s
+          </div>
+        </Card>
+      )}
+
+      {/* Ready to Start */}
+      {phase === 'ready-to-start' && (
+        <Card className="p-4 bg-blue-500/10 border-blue-500/30">
+          <div className="flex items-start gap-3">
+            <svg className="w-5 h-5 text-blue-400 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <div>
+              <p className="text-blue-300 font-medium text-sm">Ready to Register Stake Addresses</p>
+              <p className="text-blue-200/70 text-sm mt-1">
+                {isFreezeAndSeize
+                  ? 'Blacklist initialization complete. Click below to register required stake addresses.'
+                  : 'Click below to check and register required stake addresses.'}
+              </p>
+            </div>
           </div>
         </Card>
       )}
@@ -593,6 +611,17 @@ export function PreRegistrationStep({
             disabled={isProcessing || ['calling-api', 'checking-prereqs', 'backend-cooldown'].includes(phase)}
           >
             Back
+          </Button>
+        )}
+
+        {phase === 'ready-to-start' && (
+          <Button
+            variant="primary"
+            className="flex-1"
+            onClick={handleStartPreRegistration}
+            disabled={isProcessing || !connected}
+          >
+            Register Stake Addresses
           </Button>
         )}
 

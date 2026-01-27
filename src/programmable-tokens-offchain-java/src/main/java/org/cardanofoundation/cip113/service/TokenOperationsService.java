@@ -21,6 +21,7 @@ import org.cardanofoundation.cip113.service.substandard.capabilities.BasicOperat
 import org.cardanofoundation.cip113.service.substandard.context.FreezeAndSeizeContext;
 import org.springframework.stereotype.Service;
 
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -54,7 +55,7 @@ public class TokenOperationsService {
      * @return Transaction context with unsigned CBOR tx (null if all already registered) and list of stake addresses
      */
     @SuppressWarnings("unchecked")
-    public TransactionContext<java.util.List<String>> preRegisterToken(RegisterTokenRequest request, String protocolTxHash) {
+    public TransactionContext<List<String>> preRegisterToken(RegisterTokenRequest request, String protocolTxHash) {
         log.info("Pre-registering token with substandard: {}, protocol: {}",
                 request.getSubstandardId(), protocolTxHash);
 

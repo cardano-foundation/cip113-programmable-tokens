@@ -39,13 +39,6 @@ export function SelectSubstandardStep({
 
   return (
     <div className="space-y-6">
-      <div>
-        <h3 className="text-lg font-semibold text-white mb-2">Select Token Type</h3>
-        <p className="text-dark-300 text-sm">
-          Choose the substandard that defines your token&apos;s compliance rules
-        </p>
-      </div>
-
       <div className="space-y-3">
         {flows.map((flow) => (
           <Card

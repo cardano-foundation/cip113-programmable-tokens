@@ -172,15 +172,18 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
             var requiredStakeAddresses = Stream.of(substandardIssueAddress, substandardTransferAddress)
                     .map(Address::getAddress)
                     .toList();
+            log.info("requiredStakeAddresses: {}", String.join(", ", requiredStakeAddresses));
 
             var registeredStakeAddresses = requiredStakeAddresses.stream()
                     .filter(stakeAddress -> stakeRegistrationRepository.findRegistrationsByStakeAddress(stakeAddress)
                             .map(stakeRegistration -> stakeRegistration.getType().equals(CertificateType.STAKE_REGISTRATION)).orElse(false))
                     .toList();
+            log.info("registeredStakeAddresses: {}", String.join(", ", registeredStakeAddresses));
 
-            var stakeAddressesToRegister = registeredStakeAddresses.stream()
-                    .filter(stakeAddress -> !requiredStakeAddresses.contains(stakeAddress))
+            var stakeAddressesToRegister = requiredStakeAddresses.stream()
+                    .filter(stakeAddress -> !registeredStakeAddresses.contains(stakeAddress))
                     .toList();
+            log.info("stakeAddressesToRegister: {}", String.join(", ", stakeAddressesToRegister));
 
             if (stakeAddressesToRegister.isEmpty()) {
                 return TransactionContext.ok(null, registeredStakeAddresses);
@@ -250,16 +253,6 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
 
             var substandardIssueAddress = AddressProvider.getRewardAddress(substandardIssueContract, network.getCardanoNetwork());
             log.info("substandardIssueAddress: {}", substandardIssueAddress.getAddress());
-
-
-            var accountInfo = bfBackendService.getAccountService().getAccountInformation(substandardIssueAddress.getAddress());
-            if (!accountInfo.isSuccessful()) {
-                return TransactionContext.typedError("could no check status script account");
-            }
-//            else if (!accountInfo.getValue().getActive()) {
-//                return TransactionContext.typedError("script not registered");
-//            }
-//            log.info("is {} registered: {}", substandardIssueAddress.getAddress(), accountInfo.getValue().getActive());
 
 
             var transferContractOpt = substandardService.getSubstandardValidator(SUBSTANDARD_ID, "example_transfer_logic.transfer.withdraw");
