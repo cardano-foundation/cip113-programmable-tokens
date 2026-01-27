@@ -9,6 +9,8 @@ import org.cardanofoundation.cip113.service.SubstandardService;
 import org.cardanofoundation.cip113.service.substandard.capabilities.BasicOperations;
 import org.springframework.stereotype.Service;
 
+import java.util.List;
+
 /**
  * Handler for the "bafin" programmable token substandard.
  * This substandard has 22 validators with complex parameterization requirements.
@@ -47,6 +49,11 @@ public class BafinSubstandardHandler implements SubstandardHandler, BasicOperati
         // TODO: Implement Bafin minting logic
         log.warn("Bafin minting not yet implemented");
         throw new UnsupportedOperationException("Bafin substandard minting not yet implemented");
+    }
+
+    @Override
+    public TransactionContext<List<String>> buildPreRegistrationTransaction(RegisterTokenRequest request, ProtocolBootstrapParams protocolParams) {
+        return null;
     }
 
     @Override

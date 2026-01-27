@@ -6,12 +6,18 @@
 import { registerFlow } from '../flow-registry';
 import type { RegistrationFlow, WizardState, DummyRegistrationData } from '@/types/registration';
 import { TokenDetailsStep } from '@/components/register/steps/token-details-step';
+import { PreRegistrationStep } from '@/components/register/steps/pre-registration-step';
 import { SuccessStep } from '@/components/register/steps/success-step';
 
 // Create wrapper components that pass flowId to BuildPreviewStep and SignSubmitStep
 import { BuildPreviewStep } from '@/components/register/steps/build-preview-step';
 import { SignSubmitStep } from '@/components/register/steps/sign-submit-step';
 import type { StepComponentProps } from '@/types/registration';
+
+// Wrapper for PreRegistrationStep with flowId
+function DummyPreRegistrationStep(props: StepComponentProps) {
+  return <PreRegistrationStep {...props} flowId="dummy" />;
+}
 
 // Wrapper for BuildPreviewStep with flowId
 function DummyBuildPreviewStep(props: StepComponentProps) {
@@ -45,6 +51,13 @@ const dummyFlow: RegistrationFlow = {
       description: 'Define your token name, supply, and recipient',
       requiresWalletSign: false,
       component: TokenDetailsStep as React.ComponentType<StepComponentProps<unknown, unknown>>,
+    },
+    {
+      id: 'pre-registration',
+      title: 'Pre-Register',
+      description: 'Register required stake addresses',
+      requiresWalletSign: true,
+      component: DummyPreRegistrationStep as React.ComponentType<StepComponentProps<unknown, unknown>>,
     },
     {
       id: 'build-preview',

@@ -14,11 +14,13 @@ import com.bloxbean.cardano.client.plutus.spec.ConstrPlutusData;
 import com.bloxbean.cardano.client.plutus.spec.ListPlutusData;
 import com.bloxbean.cardano.client.quicktx.QuickTxBuilder;
 import com.bloxbean.cardano.client.quicktx.ScriptTx;
+import com.bloxbean.cardano.client.quicktx.Tx;
 import com.bloxbean.cardano.client.transaction.spec.Asset;
 import com.bloxbean.cardano.client.transaction.spec.MultiAsset;
 import com.bloxbean.cardano.client.transaction.spec.TransactionInput;
 import com.bloxbean.cardano.client.transaction.spec.Value;
 import com.bloxbean.cardano.client.util.HexUtil;
+import com.bloxbean.cardano.yaci.core.model.certs.CertificateType;
 import com.bloxbean.cardano.yaci.store.utxo.storage.impl.model.UtxoId;
 import com.bloxbean.cardano.yaci.store.utxo.storage.impl.repository.UtxoRepository;
 import com.easy1staking.cardano.model.AssetType;
@@ -35,6 +37,7 @@ import org.cardanofoundation.cip113.model.TransactionContext.RegistrationResult;
 import org.cardanofoundation.cip113.model.bootstrap.ProtocolBootstrapParams;
 import org.cardanofoundation.cip113.model.onchain.RegistryNode;
 import org.cardanofoundation.cip113.model.onchain.RegistryNodeParser;
+import org.cardanofoundation.cip113.repository.CustomStakeRegistrationRepository;
 import org.cardanofoundation.cip113.repository.ProgrammableTokenRegistryRepository;
 import org.cardanofoundation.cip113.service.ProtocolScriptBuilderService;
 import org.cardanofoundation.cip113.service.SubstandardService;
@@ -79,9 +82,77 @@ public class DummySubstandardHandler implements SubstandardHandler, BasicOperati
 
     private final ProgrammableTokenRegistryRepository programmableTokenRegistryRepository;
 
+    private final CustomStakeRegistrationRepository stakeRegistrationRepository;
+
     @Override
     public String getSubstandardId() {
         return SUBSTANDARD_ID;
+    }
+
+    @Override
+    public TransactionContext<List<String>> buildPreRegistrationTransaction(DummyRegisterRequest registerTokenRequest,
+                                                                            ProtocolBootstrapParams protocolBootstrapParams) {
+
+        try {
+
+            var rigistrarUtxosOpt = utxoRepository.findUnspentByOwnerAddr(registerTokenRequest.getFeePayerAddress(), Pageable.unpaged());
+            if (rigistrarUtxosOpt.isEmpty()) {
+                return TransactionContext.typedError("issuer wallet is empty");
+            }
+
+            // Handler knows its own contract names internally
+            var substandardIssuanceContractOpt = substandardService.getSubstandardValidator(SUBSTANDARD_ID, "transfer.issue.withdraw");
+            var substandardTransferContractOpt = substandardService.getSubstandardValidator(SUBSTANDARD_ID, "transfer.transfer.withdraw");
+
+            if (substandardIssuanceContractOpt.isEmpty() || substandardTransferContractOpt.isEmpty()) {
+                log.warn("substandard issuance or transfer contract are empty");
+                return TransactionContext.typedError("substandard issuance or transfer contract are empty");
+            }
+
+            var substandardIssueContract = PlutusBlueprintUtil.getPlutusScriptFromCompiledCode(substandardIssuanceContractOpt.get().scriptBytes(), PlutusVersion.v3);
+            log.info("substandardIssueContract: {}", substandardIssueContract.getPolicyId());
+
+            var substandardIssueAddress = AddressProvider.getRewardAddress(substandardIssueContract, network.getCardanoNetwork());
+            log.info("substandardIssueAddress: {}", substandardIssueAddress.getAddress());
+
+            var substandardTransferContract = PlutusBlueprintUtil.getPlutusScriptFromCompiledCode(substandardTransferContractOpt.get().scriptBytes(), PlutusVersion.v3);
+            var substandardTransferAddress = AddressProvider.getRewardAddress(substandardTransferContract, network.getCardanoNetwork());
+            log.info("substandardTransferAddress: {}", substandardTransferAddress.getAddress());
+
+            var requiredStakeAddresses = Stream.of(substandardIssueAddress, substandardTransferAddress)
+                    .map(Address::getAddress)
+                    .toList();
+
+            var registeredStakeAddresses = requiredStakeAddresses.stream()
+                    .filter(stakeAddress -> stakeRegistrationRepository.findRegistrationsByStakeAddress(stakeAddress)
+                            .map(stakeRegistration -> stakeRegistration.getType().equals(CertificateType.STAKE_REGISTRATION)).orElse(false))
+                    .toList();
+
+            var stakeAddressesToRegister = registeredStakeAddresses.stream()
+                    .filter(stakeAddress -> !requiredStakeAddresses.contains(stakeAddress))
+                    .toList();
+
+            if (stakeAddressesToRegister.isEmpty()) {
+                return TransactionContext.ok(null, registeredStakeAddresses);
+            } else {
+
+                var registerAddressTx = new Tx()
+                        .from(registerTokenRequest.getFeePayerAddress())
+                        .withChangeAddress(registerTokenRequest.getFeePayerAddress());
+
+                stakeAddressesToRegister.forEach(registerAddressTx::registerStakeAddress);
+
+                var transaction = quickTxBuilder.compose(registerAddressTx)
+                        .feePayer(registerTokenRequest.getFeePayerAddress())
+                        .build();
+
+                return TransactionContext.ok(transaction.serializeToHex(), registeredStakeAddresses);
+            }
+
+        } catch (Exception e) {
+            return TransactionContext.typedError(e.getMessage());
+        }
+
     }
 
     @Override

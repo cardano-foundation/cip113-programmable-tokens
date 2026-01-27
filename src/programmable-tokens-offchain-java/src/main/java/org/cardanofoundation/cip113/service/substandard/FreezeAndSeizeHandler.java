@@ -16,11 +16,13 @@ import com.bloxbean.cardano.client.plutus.spec.ConstrPlutusData;
 import com.bloxbean.cardano.client.plutus.spec.ListPlutusData;
 import com.bloxbean.cardano.client.quicktx.QuickTxBuilder;
 import com.bloxbean.cardano.client.quicktx.ScriptTx;
+import com.bloxbean.cardano.client.quicktx.Tx;
 import com.bloxbean.cardano.client.transaction.spec.Asset;
 import com.bloxbean.cardano.client.transaction.spec.MultiAsset;
 import com.bloxbean.cardano.client.transaction.spec.TransactionInput;
 import com.bloxbean.cardano.client.transaction.spec.Value;
 import com.bloxbean.cardano.client.util.HexUtil;
+import com.bloxbean.cardano.yaci.core.model.certs.CertificateType;
 import com.bloxbean.cardano.yaci.store.utxo.storage.impl.repository.UtxoRepository;
 import com.easy1staking.cardano.comparator.TransactionInputComparator;
 import com.easy1staking.cardano.comparator.UtxoComparator;
@@ -44,6 +46,7 @@ import org.cardanofoundation.cip113.model.onchain.RegistryNode;
 import org.cardanofoundation.cip113.model.onchain.RegistryNodeParser;
 import org.cardanofoundation.cip113.model.onchain.siezeandfreeze.blacklist.*;
 import org.cardanofoundation.cip113.repository.BlacklistInitRepository;
+import org.cardanofoundation.cip113.repository.CustomStakeRegistrationRepository;
 import org.cardanofoundation.cip113.repository.FreezeAndSeizeTokenRegistrationRepository;
 import org.cardanofoundation.cip113.repository.ProgrammableTokenRegistryRepository;
 import org.cardanofoundation.cip113.service.*;
@@ -106,6 +109,8 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
 
     private final ProgrammableTokenRegistryRepository programmableTokenRegistryRepository;
 
+    private final CustomStakeRegistrationRepository stakeRegistrationRepository;
+
     private final UtxoProvider utxoProvider;
 
     private final BFBackendService bfBackendService;
@@ -124,6 +129,81 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
 
     // ========== BasicOperations Implementation ==========
 
+    @Override
+    public TransactionContext<List<String>> buildPreRegistrationTransaction(
+            FreezeAndSeizeRegisterRequest request,
+            ProtocolBootstrapParams protocolParams) {
+
+        try {
+            var adminPkh = Credential.fromKey(request.getAdminPubKeyHash());
+            var blacklistNodePolicyId = request.getBlacklistNodePolicyId();
+
+            var feePayerUtxos = accountService.findAdaOnlyUtxo(request.getFeePayerAddress(), 10_000_000L);
+
+            /// Getting Substandard Contracts and parameterize
+            // Issuer to be used for minting/burning/sieze
+            var issuerContractOpt = substandardService.getSubstandardValidator(SUBSTANDARD_ID, "example_transfer_logic.issuer_admin_contract.withdraw");
+            var issuerContract = issuerContractOpt.get();
+
+            var issuerAdminContractInitParams = ListPlutusData.of(serialize(adminPkh));
+
+            var substandardIssueContract = PlutusBlueprintUtil.getPlutusScriptFromCompiledCode(
+                    AikenScriptUtil.applyParamToScript(issuerAdminContractInitParams, issuerContract.scriptBytes()),
+                    PlutusVersion.v3
+            );
+
+            var substandardIssueAddress = AddressProvider.getRewardAddress(substandardIssueContract, network.getCardanoNetwork());
+            log.info("substandardIssueAddress: {}", substandardIssueAddress.getAddress());
+
+            var transferContractOpt = substandardService.getSubstandardValidator(SUBSTANDARD_ID, "example_transfer_logic.transfer.withdraw");
+            var transferContract = transferContractOpt.get();
+
+            var transferContractInitParams = ListPlutusData.of(serialize(Credential.fromScript(protocolParams.programmableLogicBaseParams().scriptHash())),
+                    BytesPlutusData.of(HexUtil.decodeHexString(blacklistNodePolicyId))
+            );
+
+            var substandardTransferContract = PlutusBlueprintUtil.getPlutusScriptFromCompiledCode(
+                    AikenScriptUtil.applyParamToScript(transferContractInitParams, transferContract.scriptBytes()),
+                    PlutusVersion.v3
+            );
+            var substandardTransferAddress = AddressProvider.getRewardAddress(substandardTransferContract, network.getCardanoNetwork());
+            log.info("substandardTransferAddress: {}", substandardTransferAddress.getAddress());
+
+            var requiredStakeAddresses = Stream.of(substandardIssueAddress, substandardTransferAddress)
+                    .map(Address::getAddress)
+                    .toList();
+
+            var registeredStakeAddresses = requiredStakeAddresses.stream()
+                    .filter(stakeAddress -> stakeRegistrationRepository.findRegistrationsByStakeAddress(stakeAddress)
+                            .map(stakeRegistration -> stakeRegistration.getType().equals(CertificateType.STAKE_REGISTRATION)).orElse(false))
+                    .toList();
+
+            var stakeAddressesToRegister = registeredStakeAddresses.stream()
+                    .filter(stakeAddress -> !requiredStakeAddresses.contains(stakeAddress))
+                    .toList();
+
+            if (stakeAddressesToRegister.isEmpty()) {
+                return TransactionContext.ok(null, registeredStakeAddresses);
+            } else {
+
+                var registerAddressTx = new Tx()
+                        .from(request.getFeePayerAddress())
+                        .withChangeAddress(request.getFeePayerAddress());
+
+                stakeAddressesToRegister.forEach(registerAddressTx::registerStakeAddress);
+
+                var transaction = quickTxBuilder.compose(registerAddressTx)
+                        .feePayer(request.getFeePayerAddress())
+                        .build();
+
+                return TransactionContext.ok(transaction.serializeToHex(), registeredStakeAddresses);
+            }
+
+        } catch (Exception e) {
+            log.error("error", e);
+            return TransactionContext.typedError("error: " + e.getMessage());
+        }
+    }
     @Override
     public TransactionContext<RegistrationResult> buildRegistrationTransaction(
             FreezeAndSeizeRegisterRequest request,

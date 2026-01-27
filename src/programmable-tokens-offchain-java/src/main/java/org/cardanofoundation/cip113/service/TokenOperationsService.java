@@ -46,6 +46,46 @@ public class TokenOperationsService {
     private final ProgrammableTokenRegistryRepository programmableTokenRegistryRepository;
 
     /**
+     * Pre-register a programmable token by registering required stake addresses.
+     * This step registers withdraw-0 script stake addresses before the main registration.
+     *
+     * @param request        The registration request (polymorphic - dispatched by type)
+     * @param protocolTxHash Optional protocol version tx hash (uses default if null)
+     * @return Transaction context with unsigned CBOR tx (null if all already registered) and list of stake addresses
+     */
+    @SuppressWarnings("unchecked")
+    public TransactionContext<java.util.List<String>> preRegisterToken(RegisterTokenRequest request, String protocolTxHash) {
+        log.info("Pre-registering token with substandard: {}, protocol: {}",
+                request.getSubstandardId(), protocolTxHash);
+
+        // Get protocol bootstrap params
+        var protocolParams = resolveProtocolParams(protocolTxHash);
+
+        // Pattern matching dispatch based on request type
+        var txContext = switch (request) {
+            case DummyRegisterRequest dummyRequest -> {
+                var handler = handlerFactory.getHandler("dummy");
+                var basicOps = (BasicOperations<DummyRegisterRequest>) handler.asBasicOperations()
+                        .orElseThrow(() -> new UnsupportedOperationException("dummy does not support basic operations"));
+                yield basicOps.buildPreRegistrationTransaction(dummyRequest, protocolParams);
+            }
+            case FreezeAndSeizeRegisterRequest fasRequest -> {
+                var handler = handlerFactory.getHandler("freeze-and-seize", FreezeAndSeizeContext.emptyContext());
+                var basicOps = (BasicOperations<FreezeAndSeizeRegisterRequest>) handler.asBasicOperations()
+                        .orElseThrow(() -> new UnsupportedOperationException("freeze-and-seize does not support basic operations"));
+                yield basicOps.buildPreRegistrationTransaction(fasRequest, protocolParams);
+            }
+            default -> throw new UnsupportedOperationException(
+                    "Unknown request type: " + request.getClass().getSimpleName());
+        };
+
+        log.info("Pre-registration transaction built successfully for substandard: {}",
+                request.getSubstandardId());
+
+        return txContext;
+    }
+
+    /**
      * Register a new programmable token.
      * Uses pattern matching to dispatch to the correct handler based on request type.
      *

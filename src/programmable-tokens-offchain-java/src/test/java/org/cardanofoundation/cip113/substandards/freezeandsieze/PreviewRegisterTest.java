@@ -359,7 +359,7 @@ public class PreviewRegisterTest extends AbstractPreviewTest implements PreviewF
         log.info("success?: {}", result.isSuccessful());
 
         if (!result.isSuccessful()) {
-            
+
             var registerAddressTx = new Tx()
                     .from(aliceAccount.baseAddress())
                     .registerStakeAddress("stake_test17r8mqag8vjlqkpmnyeu4uujq6hp0lsmzytlpu3xf54al5kcv5ksz7")

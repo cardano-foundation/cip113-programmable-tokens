@@ -17,6 +17,27 @@ public class IssueTokenController {
 
     private final TokenOperationsService tokenOperationsService;
 
+    @PostMapping("/pre-register")
+    public ResponseEntity<?> preRegisterToken(
+            @RequestBody RegisterTokenRequest request,
+            @RequestParam(required = false) String protocolTxHash) {
+
+        log.info("preRegisterToken request: {}, protocolTxHash: {}", request, protocolTxHash);
+
+        try {
+            var txContext = tokenOperationsService.preRegisterToken(request, protocolTxHash);
+
+            if (txContext.isSuccessful()) {
+                return ResponseEntity.ok(txContext);
+            } else {
+                return ResponseEntity.badRequest().body(txContext.error());
+            }
+        } catch (Exception e) {
+            log.warn("error", e);
+            return ResponseEntity.internalServerError().body(e.getMessage());
+        }
+    }
+
     @PostMapping("/register")
     public ResponseEntity<?> register(
             @RequestBody RegisterTokenRequest registerTokenRequest,

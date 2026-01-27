@@ -9,7 +9,6 @@ import { useToast } from '@/components/ui/use-toast';
 import { useProtocolVersion } from '@/contexts/protocol-version-context';
 import { registerToken, stringToHex } from '@/lib/api';
 import { getPaymentKeyHash } from '@/lib/utils/address';
-import { waitForTxConfirmation } from '@/lib/utils/tx-confirmation';
 import type { DummyRegisterRequest, FreezeAndSeizeRegisterRequest } from '@/types/api';
 import type {
   StepComponentProps,
@@ -27,16 +26,10 @@ interface BuildPreviewStepProps extends StepComponentProps<Record<string, unknow
 }
 
 type StepPhase =
-  | 'checking-tx'      // Polling Blockfrost for tx confirmation
-  | 'backend-cooldown' // Tx confirmed, waiting for backend to process
   | 'ready-to-build'   // Ready for user to click build
   | 'building'         // API call in progress
   | 'preview'          // Showing tx preview
   | 'error';           // Error state
-
-const BACKEND_COOLDOWN_SECONDS = 10;
-const TX_POLL_INTERVAL = 10000; // 10 seconds
-const TX_POLL_TIMEOUT = 300000; // 5 minutes
 
 export function BuildPreviewStep({
   onComplete,
@@ -52,16 +45,8 @@ export function BuildPreviewStep({
   const { selectedVersion } = useProtocolVersion();
 
   // Phase management
-  const [phase, setPhase] = useState<StepPhase>('checking-tx');
+  const [phase, setPhase] = useState<StepPhase>('ready-to-build');
   const [errorMessage, setErrorMessage] = useState('');
-
-  // Tx confirmation state
-  const [pollAttempt, setPollAttempt] = useState(0);
-  const [txConfirmed, setTxConfirmed] = useState(false);
-
-  // Backend cooldown state
-  const [cooldownRemaining, setCooldownRemaining] = useState(0);
-  const cooldownIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   // Build result state
   const [policyId, setPolicyId] = useState('');
@@ -71,17 +56,9 @@ export function BuildPreviewStep({
   const isCallingApiRef = useRef(false);
   const hasStartedPollingRef = useRef(false);
 
-  // Abort controller for tx confirmation polling
+  // Abort controller ref (kept for cleanup compatibility)
   const abortControllerRef = useRef<AbortController | null>(null);
-
-  // Store callbacks in refs to avoid dependency issues in useEffect
-  const showToastRef = useRef(showToast);
-  const startBackendCooldownRef = useRef<(() => void) | null>(null);
-
-  // Update showToast ref when it changes
-  useEffect(() => {
-    showToastRef.current = showToast;
-  }, [showToast]);
+  const cooldownIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   // Get token details from wizard state
   const tokenDetails = useMemo(() => {
@@ -98,104 +75,34 @@ export function BuildPreviewStep({
   // Check if this is F&S flow
   const isFreezeAndSeize = flowId === 'freeze-and-seize';
 
-  // Get the blacklist init tx hash
-  const blacklistInitTxHash = useMemo(() => {
-    const initState = wizardState.stepStates['init-blacklist'];
-    return initState?.result?.txHash as string | undefined;
+  // Check if pre-registration step was completed (means we can skip blacklist tx polling)
+  const preRegistrationCompleted = useMemo(() => {
+    const preRegState = wizardState.stepStates['pre-registration'];
+    return preRegState?.status === 'completed';
   }, [wizardState.stepStates]);
 
-  // Start backend cooldown after tx is confirmed
-  const startBackendCooldown = useCallback(() => {
-    setPhase('backend-cooldown');
-    setCooldownRemaining(BACKEND_COOLDOWN_SECONDS);
-
-    cooldownIntervalRef.current = setInterval(() => {
-      setCooldownRemaining(prev => {
-        if (prev <= 1) {
-          if (cooldownIntervalRef.current) {
-            clearInterval(cooldownIntervalRef.current);
-            cooldownIntervalRef.current = null;
-          }
-          setPhase('ready-to-build');
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-  }, []);
-
-  // Update startBackendCooldown ref after it's defined
+  // Initialize phase - skip polling if pre-registration was completed
+  // The pre-registration step already handles tx confirmation and cooldown
   useEffect(() => {
-    startBackendCooldownRef.current = startBackendCooldown;
-  }, [startBackendCooldown]);
+    // If pre-registration was completed, go directly to ready-to-build
+    if (preRegistrationCompleted) {
+      console.log('[BuildPreviewStep] Pre-registration completed, skipping tx polling');
+      setPhase('ready-to-build');
+      return;
+    }
 
-  // Poll for tx confirmation (F&S flow only)
-  // Using refs for callbacks to avoid re-running effect on callback changes
-  useEffect(() => {
-    // Only for F&S flow
+    // For non-F&S flow without pre-registration, go to ready-to-build
     if (!isFreezeAndSeize) {
       setPhase('ready-to-build');
       return;
     }
 
-    // Need blacklist init tx hash to poll
-    if (!blacklistInitTxHash) {
-      console.log('[BuildPreviewStep] No blacklist tx hash, skipping confirmation check');
-      setPhase('ready-to-build');
-      return;
-    }
+    // Legacy flow: F&S without pre-registration step (shouldn't happen with new flow)
+    // Go to ready-to-build as a fallback
+    console.log('[BuildPreviewStep] Fallback: going to ready-to-build');
+    setPhase('ready-to-build');
 
-    // Don't start polling twice
-    if (hasStartedPollingRef.current) {
-      console.log('[BuildPreviewStep] Already started polling, skipping');
-      return;
-    }
-    hasStartedPollingRef.current = true;
-
-    console.log('[BuildPreviewStep] Starting tx confirmation polling for:', blacklistInitTxHash);
-
-    // Create abort controller
-    abortControllerRef.current = new AbortController();
-
-    // Start polling
-    setPhase('checking-tx');
-    setPollAttempt(0);
-
-    waitForTxConfirmation(blacklistInitTxHash, {
-      pollInterval: TX_POLL_INTERVAL,
-      timeout: TX_POLL_TIMEOUT,
-      signal: abortControllerRef.current.signal,
-      onPoll: (attempt) => {
-        console.log(`[BuildPreviewStep] Poll attempt ${attempt}`);
-        setPollAttempt(attempt);
-      },
-      onConfirmed: () => {
-        console.log('[BuildPreviewStep] Tx confirmed!');
-        setTxConfirmed(true);
-        showToastRef.current({
-          title: 'Transaction Confirmed',
-          description: 'Blacklist initialization confirmed on-chain',
-          variant: 'success',
-        });
-        // Start backend cooldown
-        startBackendCooldownRef.current?.();
-      },
-    }).catch((error) => {
-      if (error.message === 'Aborted') {
-        console.log('[BuildPreviewStep] Polling was aborted');
-        return; // Ignore abort errors
-      }
-      console.error('[BuildPreviewStep] Tx confirmation error:', error);
-      // On timeout/error, proceed anyway with a warning
-      showToastRef.current({
-        title: 'Confirmation Check Failed',
-        description: 'Could not verify transaction. Proceeding anyway...',
-        variant: 'warning',
-      });
-      startBackendCooldownRef.current?.();
-    });
-
-    // Cleanup - reset state so effect can restart (needed for React Strict Mode)
+    // Cleanup
     return () => {
       console.log('[BuildPreviewStep] Cleanup running');
       if (abortControllerRef.current) {
@@ -206,10 +113,9 @@ export function BuildPreviewStep({
         clearInterval(cooldownIntervalRef.current);
         cooldownIntervalRef.current = null;
       }
-      // Reset the polling guard so effect can restart after cleanup
       hasStartedPollingRef.current = false;
     };
-  }, [isFreezeAndSeize, blacklistInitTxHash]); // Minimal dependencies - callbacks use refs
+  }, [isFreezeAndSeize, preRegistrationCompleted]);
 
   // Build transaction - only called on button click
   const handleBuildAndContinue = useCallback(async () => {
@@ -353,51 +259,6 @@ export function BuildPreviewStep({
             : 'Build and sign the registration transaction'}
         </p>
       </div>
-
-      {/* Checking TX Confirmation State (F&S only) */}
-      {phase === 'checking-tx' && isFreezeAndSeize && (
-        <Card className="p-6 text-center space-y-4">
-          <div className="flex justify-center">
-            <div className="w-12 h-12 border-4 border-orange-500 border-t-transparent rounded-full animate-spin" />
-          </div>
-          <div>
-            <p className="text-orange-400 font-medium">Waiting for Transaction Confirmation</p>
-            <p className="text-dark-400 text-sm mt-2">
-              Checking if blacklist initialization is confirmed on-chain...
-            </p>
-          </div>
-          <div className="text-sm text-dark-500">
-            Poll attempt: {pollAttempt} (checking every 10s)
-          </div>
-          {blacklistInitTxHash && (
-            <div className="text-xs text-dark-600 font-mono truncate px-4">
-              Tx: {blacklistInitTxHash.slice(0, 20)}...
-            </div>
-          )}
-        </Card>
-      )}
-
-      {/* Backend Cooldown State (F&S only) */}
-      {phase === 'backend-cooldown' && isFreezeAndSeize && (
-        <Card className="p-6 text-center space-y-4">
-          <div className="flex justify-center">
-            <div className="w-12 h-12 rounded-full bg-green-500/20 flex items-center justify-center">
-              <svg className="w-6 h-6 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-              </svg>
-            </div>
-          </div>
-          <div>
-            <p className="text-green-400 font-medium">Transaction Confirmed!</p>
-            <p className="text-dark-400 text-sm mt-2">
-              Waiting for backend to process the transaction...
-            </p>
-          </div>
-          <div className="text-2xl font-bold text-white">
-            {cooldownRemaining}s
-          </div>
-        </Card>
-      )}
 
       {/* Ready to Build State */}
       {phase === 'ready-to-build' && (
@@ -554,29 +415,9 @@ export function BuildPreviewStep({
           <Button
             variant="outline"
             onClick={onBack}
-            disabled={isProcessing || phase === 'building' || phase === 'checking-tx' || phase === 'backend-cooldown'}
+            disabled={isProcessing || phase === 'building'}
           >
             Back
-          </Button>
-        )}
-
-        {phase === 'checking-tx' && (
-          <Button
-            variant="primary"
-            className="flex-1"
-            disabled
-          >
-            Checking confirmation...
-          </Button>
-        )}
-
-        {phase === 'backend-cooldown' && (
-          <Button
-            variant="primary"
-            className="flex-1"
-            disabled
-          >
-            Processing... ({cooldownRemaining}s)
           </Button>
         )}
 
