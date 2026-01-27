@@ -16,7 +16,7 @@ import {
   Hash28ByteBase16,
 } from "@meshsdk/core-cst";
 
-import { provider } from "../config";
+import { provider, getNetworkName } from "../config";
 import { Cip113_scripts_standard } from "../standard/deploy";
 import cip113_scripts_subStandard from "../substandard/dummy/deploy";
 import { ProtocolBootstrapParams } from "../../../types/protocol";
@@ -55,14 +55,14 @@ const transfer_programmable_token = async (
     ?.getStakeCredential().hash;
 
   const senderBaseAddress = buildBaseAddress(
-    0,
+    Network_id,
     logic_base.policyId as Hash28ByteBase16,
     senderCredential!,
     CredentialType.ScriptHash,
     CredentialType.KeyHash
   );
   const recipientBaseAddress = buildBaseAddress(
-    0,
+    Network_id,
     logic_base.policyId as Hash28ByteBase16,
     recipientCredential!,
     CredentialType.ScriptHash,
@@ -136,7 +136,11 @@ const transfer_programmable_token = async (
     });
   }
 
-  const txBuilder = new MeshTxBuilder();
+  const txBuilder = new MeshTxBuilder({
+    fetcher: provider,
+    submitter: provider,
+    verbose: true,
+  });
 
   for (const utxo of selectedUtxos) {
     txBuilder
@@ -187,7 +191,7 @@ const transfer_programmable_token = async (
 
     .txInCollateral(collateral.input.txHash, collateral.input.outputIndex)
     .selectUtxosFrom(walletUtxos)
-    .setNetwork("preview")
+    .setNetwork(getNetworkName())
     .changeAddress(changeAddress);
 
   return await txBuilder.complete();

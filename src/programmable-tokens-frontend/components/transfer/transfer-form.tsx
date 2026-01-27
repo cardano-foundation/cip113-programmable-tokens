@@ -23,6 +23,7 @@ import { useProtocolVersion } from "@/contexts/protocol-version-context";
 import { getSubstandardHandler } from "@/lib/mesh-sdk/standard/factory";
 import type { TransferTransactionParams } from "@/lib/mesh-sdk/standard/factory";
 import type { IWallet } from "@meshsdk/core";
+import { getNetworkId } from "@/lib/mesh-sdk/config";
 import { ChevronDown, RefreshCw, Coins } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -219,7 +220,7 @@ export function TransferForm({ onTransactionBuilt }: TransferFormProps) {
           quantity,
           senderAddress,
           recipientAddress: recipientAddress.trim(),
-          networkId: 0, // Preview/testnet
+          networkId: getNetworkId(),
         };
 
         // Build transaction client-side

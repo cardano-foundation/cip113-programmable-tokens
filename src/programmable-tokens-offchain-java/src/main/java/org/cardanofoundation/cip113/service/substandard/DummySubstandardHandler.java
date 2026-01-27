@@ -42,6 +42,8 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Stream;
 
+import static java.math.BigInteger.ONE;
+
 /**
  * Handler for the "dummy" programmable token substandard.
  * This is a simple reference implementation with basic issue and transfer validators.
@@ -95,6 +97,7 @@ public class DummySubstandardHandler implements SubstandardHandler {
             log.info("directorySpendContractAddress: {}", directorySpendContractAddress.getAddress());
 
             var directoryMintContract = protocolScriptBuilderService.getParameterizedDirectoryMintScript(protocolBootstrapParams);
+            var directoryMintPolicyId = directoryMintContract.getPolicyId();
 
             var issuanceUtxoOpt = utxoRepository.findById(UtxoId.builder().txHash(bootstrapTxHash).outputIndex(2).build());
             if (issuanceUtxoOpt.isEmpty()) {
@@ -191,9 +194,20 @@ public class DummySubstandardHandler implements SubstandardHandler {
                         .value(BigInteger.ONE)
                         .build();
 
+                Optional<Amount> registrySpentNftOpt = directoryUtxo.getAmount()
+                        .stream()
+                        .filter(amount -> amount.getQuantity().equals(ONE) && directoryMintPolicyId.equals(AssetType.fromUnit(amount.getUnit()).policyId()))
+                        .findAny();
+
+                if (registrySpentNftOpt.isEmpty()) {
+                    return RegisterTransactionContext.error("could not find amount for directory mint");
+                }
+
+                var registrySpentNft = AssetType.fromUnit(registrySpentNftOpt.get().getUnit());
+
                 var directorySpendNft = Asset.builder()
-                        .name("0x")
-                        .value(BigInteger.ONE)
+                        .name("0x" + registrySpentNft.assetName())
+                        .value(ONE)
                         .build();
 
                 var directorySpendDatum = existingRegistryNodeDatum.toBuilder()

@@ -15,7 +15,7 @@ import {
   Hash28ByteBase16,
 } from "@meshsdk/core-cst";
 
-import { provider } from "../config";
+import { provider, getNetworkName } from "../config";
 import { Cip113_scripts_standard } from "../standard/deploy";
 import { cip113_scripts_subStandard } from "../substandard/dummy/deploy";
 import { ProtocolBootstrapParams } from "../../../types/protocol";
@@ -61,7 +61,7 @@ const mint_programmable_tokens = async (
   }
   const logic_base = await standardScript.programmable_logic_base(params);
   const logic_address = buildBaseAddress(
-    0,
+    Network_id,
     logic_base.policyId as Hash28ByteBase16,
     sender_cred.getStakeCredential().hash,
     CredentialType.ScriptHash,
@@ -104,7 +104,7 @@ const mint_programmable_tokens = async (
 
     .txInCollateral(collateral.input.txHash, collateral.input.outputIndex)
     .selectUtxosFrom(walletUtxos)
-    .setNetwork("preview")
+    .setNetwork(getNetworkName())
     .changeAddress(changeAddress)
     .complete();
 
