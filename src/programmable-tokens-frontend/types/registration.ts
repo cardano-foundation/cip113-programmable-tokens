@@ -75,6 +75,8 @@ export interface RegistrationFlow {
   name: string;
   /** Description of this flow */
   description: string;
+  /** Whether this flow is enabled (can be controlled via env vars) */
+  enabled: boolean;
   /** Ordered list of steps */
   steps: WizardStep[];
   /** Factory for initial flow-specific data */

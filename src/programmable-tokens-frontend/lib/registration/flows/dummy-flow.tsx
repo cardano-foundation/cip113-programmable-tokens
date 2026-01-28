@@ -3,7 +3,7 @@
  * Simple token registration without compliance features
  */
 
-import { registerFlow } from '../flow-registry';
+import { registerFlow, isFlowEnabled } from '../flow-registry';
 import type { RegistrationFlow, WizardState, DummyRegistrationData } from '@/types/registration';
 import { TokenDetailsStep } from '@/components/register/steps/token-details-step';
 import { PreRegistrationStep } from '@/components/register/steps/pre-registration-step';
@@ -44,6 +44,7 @@ const dummyFlow: RegistrationFlow = {
   id: 'dummy',
   name: 'Dummy Token',
   description: 'Simple programmable token without compliance features. Good for testing and basic use cases.',
+  enabled: isFlowEnabled('dummy', true), // Default: enabled
   steps: [
     {
       id: 'token-details',
