@@ -141,7 +141,7 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
 
             /// Getting Substandard Contracts and parameterize
             // Issuer to be used for minting/burning/sieze
-            var substandardIssueContract = fesScriptBuilder.buildIssuerAdminScript(adminPkh);
+            var substandardIssueContract = fesScriptBuilder.buildIssuerAdminScript(Credential.fromKey(adminPkh));
             var substandardIssueAddress = AddressProvider.getRewardAddress(substandardIssueContract, network.getCardanoNetwork());
             log.info("substandardIssueAddress: {}", substandardIssueAddress.getAddress());
 
@@ -225,7 +225,7 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
 
             /// Getting Substandard Contracts and parameterize
             // Issuer to be used for minting/burning/sieze
-            var substandardIssueContract = fesScriptBuilder.buildIssuerAdminScript(request.getAdminPubKeyHash());
+            var substandardIssueContract = fesScriptBuilder.buildIssuerAdminScript(Credential.fromKey(request.getAdminPubKeyHash()));
             var substandardIssueAddress = AddressProvider.getRewardAddress(substandardIssueContract, network.getCardanoNetwork());
             log.info("substandardIssueAddress: {}", substandardIssueAddress.getAddress());
 
@@ -466,7 +466,7 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
             /// Getting Substandard Contracts and parameterize
             // Issuer to be used for minting/burning/sieze
             var adminPkh = Credential.fromKey(context.getIssuerAdminPkh());
-            var substandardIssueContract = fesScriptBuilder.buildIssuerAdminScript(context.getIssuerAdminPkh());
+            var substandardIssueContract = fesScriptBuilder.buildIssuerAdminScript(Credential.fromKey(context.getIssuerAdminPkh()));
             log.info("substandardIssueContract: {}", substandardIssueContract.getPolicyId());
 
             var substandardIssueAddress = AddressProvider.getRewardAddress(substandardIssueContract, network.getCardanoNetwork());
@@ -1251,8 +1251,9 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
             log.info("programmableLogicBase policy: {}", programmableLogicBase.getPolicyId());
 
             // Issuer to be used for minting/burning/sieze
+            log.info("context.getIssuerAdminPkh(): {}", context.getIssuerAdminPkh());
             var adminPkh = Credential.fromKey(context.getIssuerAdminPkh());
-            var substandardIssueAdminContract = fesScriptBuilder.buildIssuerAdminScript(context.getIssuerAdminPkh());
+            var substandardIssueAdminContract = fesScriptBuilder.buildIssuerAdminScript(Credential.fromKey(context.getIssuerAdminPkh()));
             log.info("substandardIssueAdminContract: {}", substandardIssueAdminContract.getPolicyId());
 
             var substandardIssueAdminAddress = AddressProvider.getRewardAddress(substandardIssueAdminContract, network.getCardanoNetwork());

@@ -16,6 +16,8 @@ import org.cardanofoundation.cip113.model.SubstandardValidator;
 import org.cardanofoundation.cip113.util.PlutusSerializationHelper;
 import org.springframework.stereotype.Service;
 
+import static org.cardanofoundation.cip113.util.PlutusSerializationHelper.serialize;
+
 /**
  * Service for building parameterized Freeze-and-Seize scripts.
  * <p>
@@ -48,12 +50,10 @@ public class FreezeAndSeizeScriptBuilderService {
      * @param adminPubKeyHash Admin's payment credential hash (hex string)
      * @return Parameterized PlutusScript v3
      */
-    public PlutusScript buildIssuerAdminScript(String adminPubKeyHash) {
+    public PlutusScript buildIssuerAdminScript(Credential adminPubKeyHash) {
         var contract = getContract("example_transfer_logic.issuer_admin_contract.withdraw");
 
-        var params = ListPlutusData.of(
-                BytesPlutusData.of(HexUtil.decodeHexString(adminPubKeyHash))
-        );
+        var params = ListPlutusData.of(serialize(adminPubKeyHash));
 
         return applyParameters(contract, params, "issuer_admin");
     }
