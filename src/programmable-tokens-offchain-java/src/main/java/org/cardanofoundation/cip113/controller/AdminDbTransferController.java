@@ -126,12 +126,31 @@ public class AdminDbTransferController {
                             continue;
                         }
 
-                        // Get or create blacklist init reference
-                        String blacklistNodePolicyId = (String) data.get("blacklistNodePolicyId");
-                        BlacklistInitEntity blacklistInit = null;
-                        if (blacklistNodePolicyId != null) {
-                            blacklistInit = blacklistInitRepository.findByBlacklistNodePolicyId(blacklistNodePolicyId)
-                                    .orElse(null);
+                        // Extract blacklistNodePolicyId from nested blacklistInit object
+                        String blacklistNodePolicyId = null;
+                        Object blacklistInitObj = data.get("blacklistInit");
+                        if (blacklistInitObj instanceof Map) {
+                            @SuppressWarnings("unchecked")
+                            Map<String, Object> blacklistInitMap = (Map<String, Object>) blacklistInitObj;
+                            blacklistNodePolicyId = (String) blacklistInitMap.get("blacklistNodePolicyId");
+                        }
+
+                        // Find the required blacklist init reference
+                        if (blacklistNodePolicyId == null) {
+                            log.warn("Skipping token registration {} - missing blacklistNodePolicyId", programmableTokenPolicyId);
+                            tokenRegistrationsSkipped++;
+                            continue;
+                        }
+
+                        BlacklistInitEntity blacklistInit = blacklistInitRepository
+                                .findByBlacklistNodePolicyId(blacklistNodePolicyId)
+                                .orElse(null);
+
+                        if (blacklistInit == null) {
+                            log.warn("Skipping token registration {} - blacklist init {} not found (import blacklist inits first)",
+                                    programmableTokenPolicyId, blacklistNodePolicyId);
+                            tokenRegistrationsSkipped++;
+                            continue;
                         }
 
                         // Create new entity

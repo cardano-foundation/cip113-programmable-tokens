@@ -1168,9 +1168,13 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
 
         try {
 
-            var adminUtxos = accountService.findAdaOnlyUtxoByPaymentPubKeyHash(request.feePayerAddress(), 10_000_000L);
+            log.info("request: {}", request);
 
             var feePayerAddress = new Address(request.feePayerAddress());
+            var feePayerPkh = feePayerAddress.getPaymentCredentialHash().map(HexUtil::encodeHexString).get();
+
+            var adminUtxos = accountService.findAdaOnlyUtxoByPaymentPubKeyHash(feePayerPkh, 10_000_000L);
+            log.info("adminUtxos: {}", adminUtxos);
 
             var bootstrapTxHash = protocolParams.txHash();
 
@@ -1310,6 +1314,13 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
             var transaction = quickTxBuilder.compose(tx)
                     .feePayer(feePayerAddress.getAddress())
                     .mergeOutputs(false)
+                    .preBalanceTx((txBuilderContext, transaction1) -> {
+                        try {
+                            log.info("pre balance tx: {}", objectMapper.writeValueAsString(transaction1));
+                        } catch (JsonProcessingException e) {
+                            throw new RuntimeException(e);
+                        }
+                    })
 //                    .withTxEvaluator(new AikenTransactionEvaluator(bfBackendService))
                     .withRequiredSigners(adminPkh.getBytes())
                     .build();
