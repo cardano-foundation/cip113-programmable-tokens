@@ -100,6 +100,7 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
     private final AccountService accountService;
     private final SubstandardService substandardService;
     private final ProtocolScriptBuilderService protocolScriptBuilderService;
+    private final FreezeAndSeizeScriptBuilderService fesScriptBuilder;
     private final LinkedListService linkedListService;
     private final QuickTxBuilder quickTxBuilder;
 
@@ -135,36 +136,19 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
             ProtocolBootstrapParams protocolParams) {
 
         try {
-            var adminPkh = Credential.fromKey(request.getAdminPubKeyHash());
+            var adminPkh = request.getAdminPubKeyHash();
             var blacklistNodePolicyId = request.getBlacklistNodePolicyId();
-
-            var feePayerUtxos = accountService.findAdaOnlyUtxo(request.getFeePayerAddress(), 10_000_000L);
 
             /// Getting Substandard Contracts and parameterize
             // Issuer to be used for minting/burning/sieze
-            var issuerContractOpt = substandardService.getSubstandardValidator(SUBSTANDARD_ID, "example_transfer_logic.issuer_admin_contract.withdraw");
-            var issuerContract = issuerContractOpt.get();
-
-            var issuerAdminContractInitParams = ListPlutusData.of(serialize(adminPkh));
-
-            var substandardIssueContract = PlutusBlueprintUtil.getPlutusScriptFromCompiledCode(
-                    AikenScriptUtil.applyParamToScript(issuerAdminContractInitParams, issuerContract.scriptBytes()),
-                    PlutusVersion.v3
-            );
-
+            var substandardIssueContract = fesScriptBuilder.buildIssuerAdminScript(adminPkh);
             var substandardIssueAddress = AddressProvider.getRewardAddress(substandardIssueContract, network.getCardanoNetwork());
             log.info("substandardIssueAddress: {}", substandardIssueAddress.getAddress());
 
-            var transferContractOpt = substandardService.getSubstandardValidator(SUBSTANDARD_ID, "example_transfer_logic.transfer.withdraw");
-            var transferContract = transferContractOpt.get();
-
-            var transferContractInitParams = ListPlutusData.of(serialize(Credential.fromScript(protocolParams.programmableLogicBaseParams().scriptHash())),
-                    BytesPlutusData.of(HexUtil.decodeHexString(blacklistNodePolicyId))
-            );
-
-            var substandardTransferContract = PlutusBlueprintUtil.getPlutusScriptFromCompiledCode(
-                    AikenScriptUtil.applyParamToScript(transferContractInitParams, transferContract.scriptBytes()),
-                    PlutusVersion.v3
+            // Transfer contract
+            var substandardTransferContract = fesScriptBuilder.buildTransferScript(
+                    protocolParams.programmableLogicBaseParams().scriptHash(),
+                    blacklistNodePolicyId
             );
             var substandardTransferAddress = AddressProvider.getRewardAddress(substandardTransferContract, network.getCardanoNetwork());
             log.info("substandardTransferAddress: {}", substandardTransferAddress.getAddress());
@@ -241,30 +225,14 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
 
             /// Getting Substandard Contracts and parameterize
             // Issuer to be used for minting/burning/sieze
-            var issuerContractOpt = substandardService.getSubstandardValidator(SUBSTANDARD_ID, "example_transfer_logic.issuer_admin_contract.withdraw");
-            var issuerContract = issuerContractOpt.get();
-
-            var issuerAdminContractInitParams = ListPlutusData.of(serialize(adminPkh));
-
-            var substandardIssueContract = PlutusBlueprintUtil.getPlutusScriptFromCompiledCode(
-                    AikenScriptUtil.applyParamToScript(issuerAdminContractInitParams, issuerContract.scriptBytes()),
-                    PlutusVersion.v3
-            );
-
+            var substandardIssueContract = fesScriptBuilder.buildIssuerAdminScript(request.getAdminPubKeyHash());
             var substandardIssueAddress = AddressProvider.getRewardAddress(substandardIssueContract, network.getCardanoNetwork());
             log.info("substandardIssueAddress: {}", substandardIssueAddress.getAddress());
 
-
-            var transferContractOpt = substandardService.getSubstandardValidator(SUBSTANDARD_ID, "example_transfer_logic.transfer.withdraw");
-            var transferContract = transferContractOpt.get();
-
-            var transferContractInitParams = ListPlutusData.of(serialize(Credential.fromScript(protocolParams.programmableLogicBaseParams().scriptHash())),
-                    BytesPlutusData.of(HexUtil.decodeHexString(blacklistNodePolicyId))
-            );
-
-            var substandardTransferContract = PlutusBlueprintUtil.getPlutusScriptFromCompiledCode(
-                    AikenScriptUtil.applyParamToScript(transferContractInitParams, transferContract.scriptBytes()),
-                    PlutusVersion.v3
+            // Transfer contract
+            var substandardTransferContract = fesScriptBuilder.buildTransferScript(
+                    protocolParams.programmableLogicBaseParams().scriptHash(),
+                    blacklistNodePolicyId
             );
             var substandardTransferAddress = AddressProvider.getRewardAddress(substandardTransferContract, network.getCardanoNetwork());
             log.info("substandardTransferAddress: {}", substandardTransferAddress.getAddress());
@@ -497,16 +465,8 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
 
             /// Getting Substandard Contracts and parameterize
             // Issuer to be used for minting/burning/sieze
-            var issuerContractOpt = substandardService.getSubstandardValidator(SUBSTANDARD_ID, "example_transfer_logic.issuer_admin_contract.withdraw");
-            var issuerContract = issuerContractOpt.get();
-
             var adminPkh = Credential.fromKey(context.getIssuerAdminPkh());
-            var issuerAdminContractInitParams = ListPlutusData.of(serialize(adminPkh));
-
-            var substandardIssueContract = PlutusBlueprintUtil.getPlutusScriptFromCompiledCode(
-                    AikenScriptUtil.applyParamToScript(issuerAdminContractInitParams, issuerContract.scriptBytes()),
-                    PlutusVersion.v3
-            );
+            var substandardIssueContract = fesScriptBuilder.buildIssuerAdminScript(context.getIssuerAdminPkh());
             log.info("substandardIssueContract: {}", substandardIssueContract.getPolicyId());
 
             var substandardIssueAddress = AddressProvider.getRewardAddress(substandardIssueContract, network.getCardanoNetwork());
@@ -608,7 +568,7 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
             var progToken = AssetType.fromUnit(request.unit());
             log.info("policy id: {}, asset name: {}", progToken.policyId(), progToken.unsafeHumanAssetName());
 
-            var amountToTransfer = BigInteger.valueOf(10_000_000L);
+            var amountToTransfer = new BigInteger(request.quantity());
 
             // Directory SPEND parameterization
             var registrySpendContract = protocolScriptBuilderService.getParameterizedDirectorySpendScript(protocolParams);
@@ -673,15 +633,9 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
                 return TransactionContext.typedError("could not resolve transfer contract");
             }
 
-            var substandardTransferContract1 = substandardTransferContractOpt.get();
-
-            var transferContractInitParams = ListPlutusData.of(serialize(Credential.fromScript(protocolParams.programmableLogicBaseParams().scriptHash())),
-                    BytesPlutusData.of(HexUtil.decodeHexString(blacklistNodePolicyId))
-            );
-
-            var parameterisedSubstandardTransferContract = PlutusBlueprintUtil.getPlutusScriptFromCompiledCode(
-                    AikenScriptUtil.applyParamToScript(transferContractInitParams, substandardTransferContract1.scriptBytes()),
-                    PlutusVersion.v3
+            var parameterisedSubstandardTransferContract = fesScriptBuilder.buildTransferScript(
+                    protocolParams.programmableLogicBaseParams().scriptHash(),
+                    blacklistNodePolicyId
             );
 
             var substandardTransferAddress = AddressProvider.getRewardAddress(parameterisedSubstandardTransferContract, network.getCardanoNetwork());
@@ -738,14 +692,7 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
                 return TransactionContext.typedError("Not enough funds");
             }
 
-            var blacklistSpendValidatorOpt = substandardService.getSubstandardValidator(SUBSTANDARD_ID, "blacklist_spend.blacklist_spend.spend");
-            var blacklistSpendValidator = blacklistSpendValidatorOpt.get();
-
-            var blacklistSpendInitParams = ListPlutusData.of(BytesPlutusData.of(HexUtil.decodeHexString(blacklistNodePolicyId)));
-            var parameterisedBlacklistSpendingScript = PlutusBlueprintUtil.getPlutusScriptFromCompiledCode(
-                    AikenScriptUtil.applyParamToScript(blacklistSpendInitParams, blacklistSpendValidator.scriptBytes()),
-                    PlutusVersion.v3
-            );
+            var parameterisedBlacklistSpendingScript = fesScriptBuilder.buildBlacklistSpendScript(blacklistNodePolicyId);
             var blacklistAddress = AddressProvider.getEntAddress(parameterisedBlacklistSpendingScript, network.getCardanoNetwork());
 
             var blacklistUtxos = utxoProvider.findUtxos(blacklistAddress.getAddress());
@@ -882,33 +829,19 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
                 return TransactionContext.typedError("no utxo found");
             }
 
-            var blackListMintValidatorOpt = substandardService.getSubstandardValidator(SUBSTANDARD_ID, "blacklist_mint.blacklist_mint.mint");
-            var blackListMintValidator = blackListMintValidatorOpt.get();
-
-            var serialisedTxInput = PlutusSerializationHelper.serialize(TransactionInput.builder()
+            var bootstrapTxInput = TransactionInput.builder()
                     .transactionId(bootstrapUtxo.getTxHash())
                     .index(bootstrapUtxo.getOutputIndex())
-                    .build());
+                    .build();
 
             var adminPkhBytes = adminAddress.getPaymentCredentialHash().get();
             var adminPks = HexUtil.encodeHexString(adminPkhBytes);
-            var blacklistMintInitParams = ListPlutusData.of(serialisedTxInput,
-                    BytesPlutusData.of(adminPkhBytes)
-            );
 
-            var parameterisedBlacklistMintingScript = PlutusBlueprintUtil.getPlutusScriptFromCompiledCode(
-                    AikenScriptUtil.applyParamToScript(blacklistMintInitParams, blackListMintValidator.scriptBytes()),
-                    PlutusVersion.v3
-            );
+            // Build both blacklist scripts at once
+            var blacklistScripts = fesScriptBuilder.buildBlacklistScripts(bootstrapTxInput, adminPks);
+            var parameterisedBlacklistMintingScript = blacklistScripts.first();
+            var parameterisedBlacklistSpendingScript = blacklistScripts.second();
 
-            var blacklistSpendValidatorOpt = substandardService.getSubstandardValidator(SUBSTANDARD_ID, "blacklist_spend.blacklist_spend.spend");
-            var blacklistSpendValidator = blacklistSpendValidatorOpt.get();
-
-            var blacklistSpendInitParams = ListPlutusData.of(BytesPlutusData.of(HexUtil.decodeHexString(parameterisedBlacklistMintingScript.getPolicyId())));
-            var parameterisedBlacklistSpendingScript = PlutusBlueprintUtil.getPlutusScriptFromCompiledCode(
-                    AikenScriptUtil.applyParamToScript(blacklistSpendInitParams, blacklistSpendValidator.scriptBytes()),
-                    PlutusVersion.v3
-            );
             var blacklistSpendAddress = AddressProvider.getEntAddress(parameterisedBlacklistSpendingScript, network.getCardanoNetwork());
 
             var blacklistInitDatum = BlacklistNode.builder()
@@ -987,31 +920,13 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
                     .orElse(ZERO);
             log.info("admin ada balance: {}", adminAdaBalance);
 
-            var blackListMintValidatorOpt = substandardService.getSubstandardValidator(SUBSTANDARD_ID, "blacklist_mint.blacklist_mint.mint");
-            var blackListMintValidator = blackListMintValidatorOpt.get();
-
-            var serialisedTxInput = PlutusSerializationHelper.serialize(TransactionInput.builder()
-                    .transactionId(context.getBlacklistInitTxInput().getTransactionId())
-                    .index(context.getBlacklistInitTxInput().getIndex())
-                    .build());
-
-            var blacklistMintInitParams = ListPlutusData.of(serialisedTxInput,
-                    BytesPlutusData.of(HexUtil.decodeHexString(context.getIssuerAdminPkh()))
+            // Build both blacklist scripts at once
+            var blacklistScripts = fesScriptBuilder.buildBlacklistScripts(
+                    context.getBlacklistInitTxInput(),
+                    context.getIssuerAdminPkh()
             );
-
-            var parameterisedBlacklistMintingScript = PlutusBlueprintUtil.getPlutusScriptFromCompiledCode(
-                    AikenScriptUtil.applyParamToScript(blacklistMintInitParams, blackListMintValidator.scriptBytes()),
-                    PlutusVersion.v3
-            );
-
-            var blacklistSpendValidatorOpt = substandardService.getSubstandardValidator(SUBSTANDARD_ID, "blacklist_spend.blacklist_spend.spend");
-            var blacklistSpendValidator = blacklistSpendValidatorOpt.get();
-
-            var blacklistSpendInitParams = ListPlutusData.of(BytesPlutusData.of(HexUtil.decodeHexString(parameterisedBlacklistMintingScript.getPolicyId())));
-            var parameterisedBlacklistSpendingScript = PlutusBlueprintUtil.getPlutusScriptFromCompiledCode(
-                    AikenScriptUtil.applyParamToScript(blacklistSpendInitParams, blacklistSpendValidator.scriptBytes()),
-                    PlutusVersion.v3
-            );
+            var parameterisedBlacklistMintingScript = blacklistScripts.first();
+            var parameterisedBlacklistSpendingScript = blacklistScripts.second();
             log.info("parameterisedBlacklistSpendingScript: {}", parameterisedBlacklistSpendingScript.getPolicyId());
 
             var blacklistSpendAddress = AddressProvider.getEntAddress(parameterisedBlacklistSpendingScript, network.getCardanoNetwork());
@@ -1098,31 +1013,13 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
                     .orElse(ZERO);
             log.info("admin ada balance: {}", adminAdaBalance);
 
-            var blackListMintValidatorOpt = substandardService.getSubstandardValidator(SUBSTANDARD_ID, "blacklist_mint.blacklist_mint.mint");
-            var blackListMintValidator = blackListMintValidatorOpt.get();
-
-            var serialisedTxInput = PlutusSerializationHelper.serialize(TransactionInput.builder()
-                    .transactionId(context.getBlacklistInitTxInput().getTransactionId())
-                    .index(context.getBlacklistInitTxInput().getIndex())
-                    .build());
-
-            var blacklistMintInitParams = ListPlutusData.of(serialisedTxInput,
-                    BytesPlutusData.of(HexUtil.decodeHexString(context.getIssuerAdminPkh()))
+            // Build both blacklist scripts at once
+            var blacklistScripts = fesScriptBuilder.buildBlacklistScripts(
+                    context.getBlacklistInitTxInput(),
+                    context.getIssuerAdminPkh()
             );
-
-            var parameterisedBlacklistMintingScript = PlutusBlueprintUtil.getPlutusScriptFromCompiledCode(
-                    AikenScriptUtil.applyParamToScript(blacklistMintInitParams, blackListMintValidator.scriptBytes()),
-                    PlutusVersion.v3
-            );
-
-            var blacklistSpendValidatorOpt = substandardService.getSubstandardValidator(SUBSTANDARD_ID, "blacklist_spend.blacklist_spend.spend");
-            var blacklistSpendValidator = blacklistSpendValidatorOpt.get();
-
-            var blacklistSpendInitParams = ListPlutusData.of(BytesPlutusData.of(HexUtil.decodeHexString(parameterisedBlacklistMintingScript.getPolicyId())));
-            var parameterisedBlacklistSpendingScript = PlutusBlueprintUtil.getPlutusScriptFromCompiledCode(
-                    AikenScriptUtil.applyParamToScript(blacklistSpendInitParams, blacklistSpendValidator.scriptBytes()),
-                    PlutusVersion.v3
-            );
+            var parameterisedBlacklistMintingScript = blacklistScripts.first();
+            var parameterisedBlacklistSpendingScript = blacklistScripts.second();
             log.info("parameterisedBlacklistSpendingScript: {}", parameterisedBlacklistSpendingScript.getPolicyId());
 
             var blacklistSpendAddress = AddressProvider.getEntAddress(parameterisedBlacklistSpendingScript, network.getCardanoNetwork());
@@ -1225,59 +1122,17 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
             var credentialHash = credentialHashOpt.get();
             log.debug("Extracted stake credential: {}", credentialHash);
 
-            // 2. Derive blacklist mint script (parameterized with init tx + admin pkh)
-            var blackListMintValidatorOpt = substandardService.getSubstandardValidator(
-                    SUBSTANDARD_ID,
-                    "blacklist_mint.blacklist_mint.mint"
+            // 2. Derive blacklist mint and spend scripts
+            var blacklistScripts = fesScriptBuilder.buildBlacklistScripts(
+                    context.getBlacklistInitTxInput(),
+                    context.getIssuerAdminPkh()
             );
-            if (blackListMintValidatorOpt.isEmpty()) {
-                log.warn("Blacklist mint validator not found for substandard: {}", SUBSTANDARD_ID);
-                return false;
-            }
-            var blackListMintValidator = blackListMintValidatorOpt.get();
-
-            // Serialize the blacklist init transaction input
-            var serialisedTxInput = PlutusSerializationHelper.serialize(TransactionInput.builder()
-                    .transactionId(context.getBlacklistInitTxInput().getTransactionId())
-                    .index(context.getBlacklistInitTxInput().getIndex())
-                    .build());
-
-            // Parameters: [txInput, adminPkh]
-            var blacklistMintInitParams = ListPlutusData.of(
-                    serialisedTxInput,
-                    BytesPlutusData.of(HexUtil.decodeHexString(context.getIssuerAdminPkh()))
-            );
-
-            // Apply parameters to get the policy ID
-            var parameterisedBlacklistMintingScript = PlutusBlueprintUtil.getPlutusScriptFromCompiledCode(
-                    AikenScriptUtil.applyParamToScript(blacklistMintInitParams, blackListMintValidator.scriptBytes()),
-                    PlutusVersion.v3
-            );
+            var parameterisedBlacklistMintingScript = blacklistScripts.first();
+            var parameterisedBlacklistSpendingScript = blacklistScripts.second();
             var blacklistPolicyId = parameterisedBlacklistMintingScript.getPolicyId();
             log.debug("Derived blacklist policy ID: {}", blacklistPolicyId);
 
-            // 3. Derive blacklist spend script (parameterized with policy ID)
-            var blacklistSpendValidatorOpt = substandardService.getSubstandardValidator(
-                    SUBSTANDARD_ID,
-                    "blacklist_spend.blacklist_spend.spend"
-            );
-            if (blacklistSpendValidatorOpt.isEmpty()) {
-                log.warn("Blacklist spend validator not found for substandard: {}", SUBSTANDARD_ID);
-                return false;
-            }
-            var blacklistSpendValidator = blacklistSpendValidatorOpt.get();
-
-            // Parameter: [blacklistPolicyId]
-            var blacklistSpendInitParams = ListPlutusData.of(
-                    BytesPlutusData.of(HexUtil.decodeHexString(blacklistPolicyId))
-            );
-
-            var parameterisedBlacklistSpendingScript = PlutusBlueprintUtil.getPlutusScriptFromCompiledCode(
-                    AikenScriptUtil.applyParamToScript(blacklistSpendInitParams, blacklistSpendValidator.scriptBytes()),
-                    PlutusVersion.v3
-            );
-
-            // 4. Compute blacklist spend address
+            // 3. Compute blacklist spend address
             var blacklistSpendAddress = AddressProvider.getEntAddress(
                     parameterisedBlacklistSpendingScript,
                     network.getCardanoNetwork()
@@ -1392,17 +1247,8 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
             log.info("programmableLogicBase policy: {}", programmableLogicBase.getPolicyId());
 
             // Issuer to be used for minting/burning/sieze
-            var issuerContractOpt = substandardService.getSubstandardValidator(SUBSTANDARD_ID, "example_transfer_logic.issuer_admin_contract.withdraw");
-            var issuerContract = issuerContractOpt.get();
-
             var adminPkh = Credential.fromKey(context.getIssuerAdminPkh());
-
-            var issuerAdminContractInitParams = ListPlutusData.of(serialize(adminPkh));
-
-            var substandardIssueAdminContract = PlutusBlueprintUtil.getPlutusScriptFromCompiledCode(
-                    AikenScriptUtil.applyParamToScript(issuerAdminContractInitParams, issuerContract.scriptBytes()),
-                    PlutusVersion.v3
-            );
+            var substandardIssueAdminContract = fesScriptBuilder.buildIssuerAdminScript(context.getIssuerAdminPkh());
             log.info("substandardIssueAdminContract: {}", substandardIssueAdminContract.getPolicyId());
 
             var substandardIssueAdminAddress = AddressProvider.getRewardAddress(substandardIssueAdminContract, network.getCardanoNetwork());
