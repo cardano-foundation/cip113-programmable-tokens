@@ -16,10 +16,40 @@ export function SelectSubstandardStep({
 }: SelectSubstandardStepProps) {
   const [flows, setFlows] = useState<RegistrationFlow[]>([]);
   const [selectedId, setSelectedId] = useState<string>(stepData.substandardId || '');
+  const [isLoadingConfig, setIsLoadingConfig] = useState(true);
 
   useEffect(() => {
-    // Get available flows on mount
-    setFlows(getAllFlows());
+    // Fetch runtime config and filter flows
+    async function loadFlows() {
+      try {
+        // Fetch runtime config from API
+        const response = await fetch('/api/config');
+        if (response.ok) {
+          const config = await response.json();
+
+          // Get all flows and apply runtime config
+          const allFlows = getAllFlows(true); // Include all flows
+          const enabledFlows = allFlows.filter(flow => {
+            const runtimeEnabled = config.flows[flow.id];
+            // Runtime config overrides build-time config
+            return runtimeEnabled !== undefined ? runtimeEnabled : flow.enabled;
+          });
+
+          setFlows(enabledFlows);
+        } else {
+          // Fallback to build-time config
+          setFlows(getAllFlows());
+        }
+      } catch (error) {
+        console.error('Failed to load runtime config, using build-time config:', error);
+        // Fallback to build-time config
+        setFlows(getAllFlows());
+      } finally {
+        setIsLoadingConfig(false);
+      }
+    }
+
+    loadFlows();
   }, []);
 
   const handleSelect = (flowId: string) => {
@@ -39,8 +69,14 @@ export function SelectSubstandardStep({
 
   return (
     <div className="space-y-6">
-      <div className="space-y-3">
-        {flows.map((flow) => (
+      {isLoadingConfig ? (
+        <div className="flex items-center justify-center py-8">
+          <div className="h-8 w-8 border-4 border-primary-500 border-t-transparent rounded-full animate-spin" />
+        </div>
+      ) : (
+        <>
+          <div className="space-y-3">
+            {flows.map((flow) => (
           <Card
             key={flow.id}
             className={`p-4 cursor-pointer transition-all ${
@@ -80,21 +116,23 @@ export function SelectSubstandardStep({
           </Card>
         ))}
 
-        {flows.length === 0 && (
-          <div className="text-center py-8 text-dark-400">
-            <p>No substandards available</p>
+            {flows.length === 0 && (
+              <div className="text-center py-8 text-dark-400">
+                <p>No substandards available</p>
+              </div>
+            )}
           </div>
-        )}
-      </div>
 
-      <Button
-        variant="primary"
-        className="w-full"
-        onClick={handleContinue}
-        disabled={!selectedId || isProcessing}
-      >
-        Continue
-      </Button>
+          <Button
+            variant="primary"
+            className="w-full"
+            onClick={handleContinue}
+            disabled={!selectedId || isProcessing}
+          >
+            Continue
+          </Button>
+        </>
+      )}
     </div>
   );
 }
