@@ -36,3 +36,14 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Environment files
+.env
+.env.local
+
+# Log files
+*.log
+frontend.log
+
+# IDE files
+.vscode/

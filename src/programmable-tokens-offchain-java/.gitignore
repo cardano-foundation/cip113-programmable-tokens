@@ -3,4 +3,13 @@
 .java-version
 build
 
+.env
 .env.*
+# Log files
+*.log
+backend.log
+backend-error.log
+backend-run.log
+
+# Build artifacts
+bin/
