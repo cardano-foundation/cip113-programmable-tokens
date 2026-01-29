@@ -3,7 +3,7 @@
  * Token registration with compliance features (freeze addresses, seize tokens)
  */
 
-import { registerFlow } from '../flow-registry';
+import { registerFlow, isFlowEnabled } from '../flow-registry';
 import type {
   RegistrationFlow,
   WizardState,
@@ -75,6 +75,7 @@ const freezeAndSeizeFlow: RegistrationFlow = {
   id: 'freeze-and-seize',
   name: 'Freeze & Seize Token',
   description: 'Programmable token with compliance features: freeze addresses and seize tokens from frozen accounts.',
+  enabled: isFlowEnabled('freeze-and-seize', true), // Default: enabled
   steps: [
     {
       id: 'token-details',

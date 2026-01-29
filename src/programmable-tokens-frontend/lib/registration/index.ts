@@ -11,6 +11,7 @@ export {
   getFlowIds,
   hasFlow,
   clearFlows,
+  isFlowEnabled,
 } from './flow-registry';
 
 // Import and register flows
