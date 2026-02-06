@@ -9,10 +9,10 @@ import {
   TransactionBuilderToggle,
   TransactionBuilder,
 } from "./transaction-builder-toggle";
-import { Substandard, MintFormData } from "@/types/api";
+import { Substandard, LegacyMintFormData } from "@/types/api";
 import {
-  prepareMintRequest,
-  mintToken,
+  prepareLegacyMintRequest,
+  legacyMintToken,
   stringToHex,
   getProtocolBlueprint,
   getProtocolBootstrap,
@@ -179,7 +179,7 @@ export function MintForm({
         );
       } else {
         // Server-side transaction building (existing logic)
-        const formData: MintFormData = {
+        const formData: LegacyMintFormData = {
           tokenName,
           quantity,
           substandardId,
@@ -187,8 +187,8 @@ export function MintForm({
           recipientAddress: recipientAddress.trim() || undefined,
         };
 
-        const request = prepareMintRequest(formData, issuerAddress);
-        unsignedTxCborHex = await mintToken(request);
+        const request = prepareLegacyMintRequest(formData, issuerAddress);
+        unsignedTxCborHex = await legacyMintToken(request);
       }
 
       showToast({

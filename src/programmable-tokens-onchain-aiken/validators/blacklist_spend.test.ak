@@ -1,11 +1,12 @@
+use aiken/collection/dict.{has_key}
 // Tests for blacklist spending validator
 // The blacklist_spend validator ensures that blacklist node UTxOs can only be spent
 // when the blacklist minting policy is also executed in the same transaction.
 
-use cardano/assets
+use cardano/assets.{PolicyId, Value, to_dict}
 
 fn has_policy(mint_valu: Value, policy_cs: PolicyId) -> Bool {
-  to_dict(self.mint) |> has_key(policy_cs)
+  to_dict(mint_valu) |> has_key(policy_cs)
 }
 
 // Test that has_policy returns true when policy is in mint

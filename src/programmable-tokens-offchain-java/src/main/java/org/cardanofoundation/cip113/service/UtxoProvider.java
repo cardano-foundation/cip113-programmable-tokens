@@ -52,19 +52,45 @@ public class UtxoProvider {
     public List<Utxo> findUtxos(String address) {
 
         if (utxoRepository == null) {
-            try {
-                var utxoResult = bfBackendService.getUtxoService().getUtxos(address, 100, 1);
-                if (utxoResult.isSuccessful()) {
-                    return utxoResult.getValue();
-                } else {
-                    log.warn("error: {}", utxoResult.getResponse());
-                    return List.of();
-                }
-            } catch (ApiException e) {
-                throw new RuntimeException(e);
-            }
+            return getBlockfrostUtxos(address);
         } else {
-            return utxoRepository.findUnspentByOwnerAddr(address, Pageable.unpaged())
+            var utxos = utxoRepository.findUnspentByOwnerAddr(address, Pageable.unpaged())
+                    .stream()
+                    .flatMap(Collection::stream)
+                    .map(UtxoUtil::toUtxo)
+                    .toList();
+
+            if (utxos.isEmpty()) {
+                // falling back on blockfrost if indexer is behind
+                return getBlockfrostUtxos(address);
+            } else {
+                return utxos;
+            }
+
+        }
+
+    }
+
+    private List<Utxo> getBlockfrostUtxos(String address) {
+        try {
+            var utxoResult = bfBackendService.getUtxoService().getUtxos(address, 100, 1);
+            if (utxoResult.isSuccessful()) {
+                return utxoResult.getValue();
+            } else {
+                log.warn("error: {}", utxoResult.getResponse());
+                return List.of();
+            }
+        } catch (ApiException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    public List<Utxo> findUtxosByPaymentPkh(String paymentPkh) {
+
+        if (utxoRepository == null) {
+            throw new RuntimeException("Unsupported");
+        } else {
+            return utxoRepository.findUnspentByOwnerPaymentCredential(paymentPkh, Pageable.unpaged())
                     .stream()
                     .flatMap(Collection::stream)
                     .map(UtxoUtil::toUtxo)

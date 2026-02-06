@@ -1,86 +1,100 @@
 package org.cardanofoundation.cip113.service.substandard;
 
 import com.bloxbean.cardano.client.plutus.spec.PlutusScript;
-import org.cardanofoundation.cip113.model.*;
-import org.cardanofoundation.cip113.model.bootstrap.ProtocolBootstrapParams;
+import org.cardanofoundation.cip113.service.substandard.capabilities.BasicOperations;
+import org.cardanofoundation.cip113.service.substandard.capabilities.BlacklistManageable;
+import org.cardanofoundation.cip113.service.substandard.capabilities.Seizeable;
+import org.cardanofoundation.cip113.service.substandard.capabilities.WhitelistManageable;
 
+import java.util.Optional;
 import java.util.Set;
 
 /**
- * Interface for handling different programmable token substandards (dummy, bafin, etc.)
- * Each substandard implementation provides its own logic for registration, minting, and transfer.
+ * Base interface for handling different programmable token substandards.
+ *
+ * This interface defines the common contract for all substandard handlers.
+ * Specific capabilities (basic operations, blacklist, seize, etc.) are defined
+ * in separate interfaces that handlers can implement based on their features.
+ *
+ * <h2>Capability Interfaces:</h2>
+ * <ul>
+ *   <li>{@link BasicOperations} - Register, mint, burn, transfer (all handlers)</li>
+ *   <li>{@link BlacklistManageable} - Blacklist init/add/remove (freeze functionality)</li>
+ *   <li>{@link WhitelistManageable} - Whitelist init/add/remove (KYC/securities)</li>
+ *   <li>{@link Seizeable} - Seize assets from blacklisted addresses</li>
+ * </ul>
+ *
+ * <h2>Example Handler Implementations:</h2>
+ * <ul>
+ *   <li>DummySubstandardHandler implements SubstandardHandler, BasicOperations</li>
+ *   <li>FreezeAndSeizeHandler implements SubstandardHandler, BasicOperations, BlacklistManageable, Seizeable</li>
+ * </ul>
  */
 public interface SubstandardHandler {
 
     /**
-     * Returns the unique identifier for this substandard (e.g., "dummy", "bafin")
+     * Returns the unique identifier for this substandard (e.g., "dummy", "freeze-and-seize")
      */
     String getSubstandardId();
 
-    /**
-     * Build registration transaction for this substandard
-     *
-     * @param request        The registration request
-     * @param protocolParams The protocol bootstrap parameters (from bootstrap tx)
-     * @return Transaction context with unsigned CBOR tx and metadata
-     */
-    RegisterTransactionContext buildRegistrationTransaction(
-            RegisterTokenRequest request,
-            ProtocolBootstrapParams protocolParams);
+    // ========== Capability Discovery Methods ==========
 
     /**
-     * Build mint transaction for this substandard
-     *
-     * @param request        The mint request
-     * @param protocolParams The protocol bootstrap parameters (from bootstrap tx)
-     * @return Transaction context with unsigned CBOR tx and metadata
+     * Check if this handler supports basic operations (register, mint, transfer).
+     * All handlers should support this.
      */
-    TransactionContext buildMintTransaction(
-            MintTokenRequest request,
-            ProtocolBootstrapParams protocolParams);
+    default boolean supportsBasicOperations() {
+        return this instanceof BasicOperations;
+    }
 
     /**
-     * Build transfer transaction for this substandard
-     *
-     * @param request        The transfer request
-     * @param protocolParams The protocol bootstrap parameters (from bootstrap tx)
-     * @return Transaction context with unsigned CBOR tx and metadata
+     * Check if this handler supports blacklist management (freeze/unfreeze).
      */
-    TransactionContext buildTransferTransaction(TransferTokenRequest request,
-                                                ProtocolBootstrapParams protocolParams);
+    default boolean supportsBlacklistManagement() {
+        return this instanceof BlacklistManageable;
+    }
 
     /**
-     * Returns the set of validator script names required by this substandard
-     * For example: ["issue_validator", "transfer_validator"] for dummy
-     * or all 22 validators for bafin
+     * Check if this handler supports whitelist management (KYC).
      */
-    Set<String> getRequiredValidators();
+    default boolean supportsWhitelistManagement() {
+        return this instanceof WhitelistManageable;
+    }
 
     /**
-     * Get a parameterized issue validator for this substandard
-     *
-     * @param contractName The name of the contract (e.g., "issue_validator")
-     * @param params       Parameters to apply to the script
-     * @return Parameterized PlutusScript
+     * Check if this handler supports seize operations.
      */
-    PlutusScript getParameterizedIssueValidator(String contractName, Object... params);
+    default boolean supportsSeize() {
+        return this instanceof Seizeable;
+    }
 
     /**
-     * Get a parameterized transfer validator for this substandard
-     *
-     * @param contractName The name of the contract (e.g., "transfer_validator")
-     * @param params       Parameters to apply to the script
-     * @return Parameterized PlutusScript
+     * Get this handler as BasicOperations if supported.
+     * Returns raw type to allow pattern matching dispatch in callers.
      */
-    PlutusScript getParameterizedTransferValidator(String contractName, Object... params);
+    @SuppressWarnings("rawtypes")
+    default Optional<BasicOperations> asBasicOperations() {
+        return this instanceof BasicOperations ops ? Optional.of(ops) : Optional.empty();
+    }
 
     /**
-     * Get a parameterized third-party validator for this substandard
-     * (Used by bafin for its 20 additional validators)
-     *
-     * @param contractName The name of the contract
-     * @param params       Parameters to apply to the script
-     * @return Parameterized PlutusScript
+     * Get this handler as BlacklistManageable if supported.
      */
-    PlutusScript getParameterizedThirdPartyValidator(String contractName, Object... params);
+    default Optional<BlacklistManageable> asBlacklistManageable() {
+        return this instanceof BlacklistManageable mgr ? Optional.of(mgr) : Optional.empty();
+    }
+
+    /**
+     * Get this handler as WhitelistManageable if supported.
+     */
+    default Optional<WhitelistManageable> asWhitelistManageable() {
+        return this instanceof WhitelistManageable mgr ? Optional.of(mgr) : Optional.empty();
+    }
+
+    /**
+     * Get this handler as Seizeable if supported.
+     */
+    default Optional<Seizeable> asSeizeable() {
+        return this instanceof Seizeable s ? Optional.of(s) : Optional.empty();
+    }
 }

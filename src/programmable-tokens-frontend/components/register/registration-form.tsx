@@ -9,7 +9,8 @@ import {
   TransactionBuilderToggle,
   TransactionBuilder,
 } from "@/components/mint/transaction-builder-toggle";
-import { Substandard, RegisterTokenRequest } from "@/types/api";
+import { Substandard, DummyRegisterRequest, FreezeAndSeizeRegisterRequest } from "@/types/api";
+import { getPaymentKeyHash } from "@/lib/utils/address";
 import {
   registerToken,
   stringToHex,
@@ -193,16 +194,31 @@ export function RegistrationForm({
         policyId = policy_Id;
       } else {
         // Server-side transaction building (existing logic)
-        const request: RegisterTokenRequest = {
-          registrarAddress,
-          substandardName: substandardId,
-          substandardIssueContractName: issueContract,
-          substandardTransferContractName: transferContract,
-          substandardThirdPartyContractName: thirdPartyContract || "",
-          assetName: stringToHex(tokenName),
-          quantity,
-          recipientAddress: recipientAddress.trim() || "",
-        };
+        let request: DummyRegisterRequest | FreezeAndSeizeRegisterRequest;
+
+        if (substandardId === 'freeze-and-seize') {
+          // Freeze-and-seize requires blacklist initialization step
+          // Use the wizard flow for full freeze-and-seize registration
+          const adminPubKeyHash = getPaymentKeyHash(registrarAddress);
+          request = {
+            substandardId: 'freeze-and-seize',
+            feePayerAddress: registrarAddress,
+            assetName: stringToHex(tokenName),
+            quantity,
+            recipientAddress: recipientAddress.trim() || "",
+            adminPubKeyHash,
+            blacklistNodePolicyId: "", // Not available in legacy form - must use wizard
+          };
+        } else {
+          // Dummy or other simple substandards
+          request = {
+            substandardId: 'dummy',
+            feePayerAddress: registrarAddress,
+            assetName: stringToHex(tokenName),
+            quantity,
+            recipientAddress: recipientAddress.trim() || "",
+          };
+        }
 
         // Call backend to build registration transaction
         const response = await registerToken(request, selectedVersion?.txHash);
