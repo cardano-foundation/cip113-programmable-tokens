@@ -4,35 +4,114 @@ use aiken/collection/list
 // Migrated from SmartTokens.Contracts.ExampleTransferLogic
 
 use cardano/address.{Credential, Inline, Script, VerificationKey}
-use cardano/assets.{PolicyId, quantity_of}
+use cardano/assets.{PolicyId, flatten, quantity_of}
 use cardano/transaction.{Input, Transaction, Withdraw}
 use types.{BlacklistProof, NonmembershipProof}
 use utils
 
-// Simple example: only allow transfers signed by a specific credential
-validator issuer_admin_contract(permitted_cred: Credential) {
-  withdraw(_redeemer: Data, _account: Credential, self: Transaction) {
-    // This example transfer logic simply checks that a specific credential
-    // has authorized the transfer
 
-    when permitted_cred is {
-      VerificationKey(pkh) ->
-        // Check that the transaction is signed by this public key
-        list.has(self.extra_signatories, pkh)
-      Script(script_hash) -> {
-        // For script credentials, check that the script is invoked via withdrawals
-        let script_cred = Script(script_hash)
+
+// // Simple example: only allow transfers signed by a specific credential
+// validator issuer_admin_contract(permitted_cred: Credential) {
+//   withdraw(_redeemer: Data, _account: Credential, self: Transaction) {
+//     // This example transfer logic simply checks that a specific credential
+//     // has authorized the transfer
+
+//     when permitted_cred is {
+//       VerificationKey(pkh) ->
+//         // Check that the transaction is signed by this public key
+//         list.has(self.extra_signatories, pkh)
+//       Script(script_hash) -> {
+//         // For script credentials, check that the script is invoked via withdrawals
+//         let script_cred = Script(script_hash)
+//         list.any(
+//           self.withdrawals,
+//           fn(wdrl) {
+//             let Pair(cred, _amount) = wdrl
+//             cred == script_cred
+//           },
+//         )
+//       }
+//     }
+//   }
+
+/// Issuer admin contract that allows transfers signed by a permitted credential
+/// AND enforces asset name consistency to prevent policy ID collisions
+///
+/// This validator solves the problem where multiple tokens from the same admin
+/// would have the same policy ID. By including the asset_name as a parameter,
+/// each token gets a unique script hash, resulting in unique policy IDs.
+///
+/// **Mainnet Production Notes:**
+/// - This validator is parameterized with both admin credential AND asset name
+/// - The asset name parameter ensures each token has a unique policy ID
+/// - Validation checks that minted tokens match the expected asset name
+/// - Seize operations (no minting) bypass asset name validation
+///
+/// @param permitted_cred - The credential authorized to control this token (admin)
+/// @param asset_name - The token name this contract is bound to (prevents reuse)
+validator issuer_admin_contract(
+  permitted_cred: Credential,
+  asset_name: ByteArray,
+) {
+  withdraw(_redeemer: Data, _account: Credential, self: Transaction) {
+    // ============================================================
+    // AUTHORIZATION CHECK
+    // ============================================================
+    // Verify that the transaction is authorized by the permitted credential
+    // This ensures only the admin can mint/burn/seize tokens
+    let authorized =
+      when permitted_cred is {
+        VerificationKey(pkh) ->
+          // For public key credentials: verify signature in extra_signatories
+          list.has(self.extra_signatories, pkh)
+        Script(script_hash) -> {
+          // For script credentials: verify script was invoked via withdrawals
+          let script_cred = Script(script_hash)
+          list.any(
+            self.withdrawals,
+            fn(wdrl) {
+              let Pair(cred, _amount) = wdrl
+              cred == script_cred
+            },
+          )
+        }
+      }
+    // ============================================================
+    // ASSET NAME VALIDATION (prevents policy ID collision)
+    // ============================================================
+    // This check ensures that if minting is happening, the asset name matches
+    // the parameter. This binds the contract to a specific token and prevents
+    // the same contract from being reused for different tokens.
+    //
+    // Why this works:
+    // - self.mint contains all tokens being minted in this transaction
+    // - flatten() converts Value type to list of (PolicyId, AssetName, Quantity)
+    // - We check that at least one minted token has token_name == asset_name
+    // - If no minting happens (e.g., seize operations), validation passes
+    let mint_validation =
+      if list.length(flatten(self.mint)) > 0 {
+        // Minting is happening → validate asset name matches
         list.any(
-          self.withdrawals,
-          fn(wdrl) {
-            let Pair(cred, _amount) = wdrl
-            cred == script_cred
+          flatten(self.mint),
+          fn(token) {
+            let (_policy_id, token_name, _quantity) = token
+            token_name == asset_name
           },
         )
+      } else {
+        // No minting (e.g., seize operations) → validation passes
+        // This allows seize operations to work without requiring minting
+        True
       }
+    // Both checks must pass
+    and {
+      authorized?,
+      mint_validation?,
     }
   }
 
+  // Reject all other redeemer types
   else(_) {
     fail
   }
@@ -88,7 +167,7 @@ fn validate_witnesses(
       expect
         quantity_of(node_output.value, blacklist_node_cs, "") > 0 || // Check for any token from this policy (some implementations use token names)
         list.any(
-          assets.flatten(node_output.value),
+          flatten(node_output.value),
           fn(asset) {
             let (cs, _tn, _qty) = asset
             cs == blacklist_node_cs
