@@ -6,6 +6,8 @@ import {
   MintTokenRequest,
   MintTokenResponse,
   MintFormData,
+  BurnTokenRequest,
+  BurnTokenResponse,
   LegacyMintTokenRequest,
   LegacyMintFormData
 } from '@/types/api';
@@ -67,6 +69,29 @@ export function prepareMintRequest(
     assetName: stringToHex(formData.tokenName),
     quantity: formData.quantity,
   };
+}
+
+// ============================================================================
+// Token Burning
+// ============================================================================
+
+/**
+ * Admin burn tokens from specific UTxO via backend API
+ * Returns unsigned transaction CBOR hex
+ */
+export async function burnToken(
+  request: BurnTokenRequest,
+  protocolTxHash?: string
+): Promise<BurnTokenResponse> {
+  const endpoint = protocolTxHash
+    ? `/issue-token/burn?protocolTxHash=${protocolTxHash}`
+    : '/issue-token/burn';
+
+  return apiPost<BurnTokenRequest, BurnTokenResponse>(
+    endpoint,
+    request,
+    { timeout: 60000 } // 60 seconds for burn transaction
+  );
 }
 
 // ============================================================================

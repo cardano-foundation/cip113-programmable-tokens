@@ -2,6 +2,7 @@ package org.cardanofoundation.cip113.controller;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.cardanofoundation.cip113.model.BurnTokenRequest;
 import org.cardanofoundation.cip113.model.MintTokenRequest;
 import org.cardanofoundation.cip113.model.RegisterTokenRequest;
 import org.cardanofoundation.cip113.model.RegisterTokenResponse;
@@ -80,6 +81,34 @@ public class IssueTokenController {
         } catch (Exception e) {
             log.warn("error", e);
             return ResponseEntity.internalServerError().body(e.getMessage());
+        }
+    }
+
+    @PostMapping("/burn")
+    public ResponseEntity<String> burnToken(
+            @RequestBody BurnTokenRequest request,
+            @RequestParam(required = false) String protocolTxHash) {
+
+        log.info("POST /issue-token/burn - policyId: {}, assetName: {}, quantity: {}, utxo: {}#{}",
+                request.tokenPolicyId(), request.assetName(), request.quantity(),
+                request.utxoTxHash(), request.utxoOutputIndex());
+
+        try {
+            // Call burn-specific method that preserves UTxO information
+            var txContext = tokenOperationsService.burnToken(request, protocolTxHash);
+
+            if (!txContext.isSuccessful()) {
+                log.error("Burn transaction build failed: {}", txContext.error());
+                return ResponseEntity.badRequest().body(txContext.error());
+            }
+
+            log.info("Burn transaction built successfully");
+            return ResponseEntity.ok(txContext.unsignedCborTx());
+
+        } catch (Exception e) {
+            log.error("Failed to build burn transaction", e);
+            return ResponseEntity.internalServerError()
+                    .body("Failed to build burn transaction: " + e.getMessage());
         }
     }
 

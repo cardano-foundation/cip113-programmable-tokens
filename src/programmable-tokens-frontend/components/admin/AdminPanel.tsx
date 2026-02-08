@@ -1,10 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { Coins, Shield, AlertTriangle } from "lucide-react";
+import { Coins, Shield, AlertTriangle, Flame } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { MintSection } from "./MintSection";
+import { BurnSection } from "./BurnSection";
 import { BlacklistSection } from "./BlacklistSection";
 import { SeizeSection } from "./SeizeSection";
 import { AdminTokenInfo } from "@/lib/api/admin";
@@ -15,7 +16,7 @@ interface AdminPanelProps {
   adminAddress: string;
 }
 
-type AdminTab = "mint" | "blacklist" | "seize";
+type AdminTab = "mint" | "burn" | "blacklist" | "seize";
 
 interface TabInfo {
   id: AdminTab;
@@ -31,6 +32,13 @@ const tabs: TabInfo[] = [
     label: "Mint",
     icon: <Coins className="h-4 w-4" />,
     description: "Mint new tokens to recipients",
+    requiredRole: "ISSUER_ADMIN",
+  },
+  {
+    id: "burn",
+    label: "Burn",
+    icon: <Flame className="h-4 w-4" />,
+    description: "Burn tokens from specific UTxOs",
     requiredRole: "ISSUER_ADMIN",
   },
   {
@@ -121,6 +129,9 @@ export function AdminPanel({ tokens, adminAddress }: AdminPanelProps) {
         {/* Tab Content */}
         {activeTab === "mint" && (
           <MintSection tokens={tokens} feePayerAddress={adminAddress} />
+        )}
+        {activeTab === "burn" && (
+          <BurnSection adminTokens={tokens} feePayerAddress={adminAddress} />
         )}
         {activeTab === "blacklist" && (
           <BlacklistSection tokens={tokens} adminAddress={adminAddress} />

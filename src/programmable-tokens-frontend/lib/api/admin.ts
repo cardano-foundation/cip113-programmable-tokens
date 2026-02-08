@@ -5,6 +5,7 @@
  * GET /api/v1/admin/tokens/{pkh}
  */
 
+import { UtxoListResponse } from '@/types/api';
 import { apiGet } from './client';
 
 // ============================================================================
@@ -95,4 +96,23 @@ export async function extractPkhFromAddress(address: string): Promise<string | n
     console.error("Failed to deserialize address:", error);
     return null;
   }
+}
+
+/**
+ * Fetch UTxOs at an address that contain a specific token
+ * Used for burning - allows admin to select which UTxOs to burn from
+ *
+ * @param address - Cardano address to query
+ * @param policyId - Policy ID of the token
+ * @param assetName - Hex-encoded asset name
+ * @returns Promise<UtxoListResponse>
+ */
+export async function getUtxosForBurning(
+  address: string,
+  policyId: string,
+  assetName: string
+): Promise<UtxoListResponse> {
+  const params = new URLSearchParams({ address, policyId, assetName });
+  const endpoint = `/admin/utxos?${params.toString()}`;
+  return apiGet<UtxoListResponse>(endpoint);
 }
