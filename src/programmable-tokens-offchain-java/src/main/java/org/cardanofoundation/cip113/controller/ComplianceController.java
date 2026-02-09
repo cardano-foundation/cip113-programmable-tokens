@@ -69,12 +69,32 @@ public class ComplianceController {
     public ResponseEntity<?> initBlacklist(@RequestBody BlacklistInitRequest request,
                                            @RequestParam(required = false) String protocolTxHash) {
 
-        log.info("POST /compliance/blacklist/init - substandardId: {}, admin: {}",
-                request.substandardId(), request.adminAddress());
+        log.info("POST /compliance/blacklist/init - request: {}", request);
+        log.info("POST /compliance/blacklist/init - substandardId: {}, admin: {}, feePayer: {}",
+                request != null ? request.substandardId() : "null",
+                request != null ? request.adminAddress() : "null",
+                request != null ? request.feePayerAddress() : "null");
 
         try {
-            // Resolve substandard from policyId via unified registry
+            // Validate request
+            if (request == null) {
+                log.error("Request body is null");
+                return ResponseEntity.badRequest().body("Request body is required");
+            }
+            
             var substandardId = request.substandardId();
+            if (substandardId == null || substandardId.isEmpty()) {
+                log.error("substandardId is null or empty");
+                return ResponseEntity.badRequest().body("substandardId is required");
+            }
+            
+            var adminAddress = request.adminAddress();
+            if (adminAddress == null || adminAddress.isEmpty()) {
+                log.error("adminAddress is null or empty");
+                return ResponseEntity.badRequest().body("adminAddress is required");
+            }
+            
+            // Resolve substandard from policyId via unified registry
 
             var context = switch (substandardId) {
                 case "freeze-and-seize" -> FreezeAndSeizeContext.emptyContext();

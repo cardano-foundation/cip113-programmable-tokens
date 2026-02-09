@@ -1,0 +1,81 @@
+
+> programmable-tokens-frontend@0.1.0 dev
+> next dev
+
+ ⚠ Port 3000 is in use by an unknown process, using available port 3002 instead.
+   ▲ Next.js 15.5.6
+   - Local:        http://localhost:3002
+   - Network:      http://172.16.15.60:3002
+   - Environments: .env.local, .env
+
+ ✓ Starting...
+ ✓ Ready in 2.4s
+ ○ Compiling / ...
+ ✓ Compiled / in 42.5s (5943 modules)
+ GET / 200 in 43636ms
+ GET / 200 in 37298ms
+ ✓ Compiled in 3.3s (2808 modules)
+ ○ Compiling /icon.svg ...
+ ✓ Compiled /icon.svg in 17.7s (3141 modules)
+ GET /icon.svg 200 in 18324ms
+ GET /icon.svg 200 in 19ms
+ GET / 200 in 276ms
+ GET /icon.svg 200 in 49ms
+ GET /icon.svg 200 in 9ms
+ ○ Compiling /register ...
+ ✓ Compiled /register in 6.9s (5986 modules)
+ GET /register 200 in 7074ms
+ ✓ Compiled in 9.8s (5983 modules)
+ GET /register 200 in 960ms
+ ✓ Compiled in 7.7s (5983 modules)
+ GET /register 200 in 504ms
+ ✓ Compiled in 4.9s (5983 modules)
+ GET /register 200 in 494ms
+ ✓ Compiled in 7.8s (5983 modules)
+ GET /register 200 in 266ms
+ ✓ Compiled in 4.2s (5983 modules)
+ GET /register 200 in 268ms
+ ✓ Compiled in 4.7s (5983 modules)
+ GET /register 200 in 380ms
+ ✓ Compiled in 3.1s (5983 modules)
+ GET /register 200 in 450ms
+ ✓ Compiled in 5.2s (5983 modules)
+ GET /register 200 in 961ms
+ ✓ Compiled in 3.9s (5983 modules)
+ GET /register 200 in 266ms
+ ✓ Compiled in 4.2s (5983 modules)
+ GET /register 200 in 269ms
+ ✓ Compiled in 3.5s (5983 modules)
+ GET /register 200 in 335ms
+ GET /register 200 in 214ms
+ ○ Compiling /icon.svg ...
+ ✓ Compiled /icon.svg in 7.5s (3168 modules)
+ GET /icon.svg 200 in 7984ms
+ GET /icon.svg 200 in 15ms
+ GET /register 200 in 458ms
+ GET /icon.svg 200 in 146ms
+ GET /icon.svg 200 in 20ms
+ ○ Compiling /_not-found ...
+ GET /register 404 in 26100ms
+ ✓ Compiled /_not-found in 33s (5974 modules)
+ ✓ Compiled in 13.5s (5983 modules)
+ ✓ Compiled in 5.3s (5983 modules)
+ ✓ Compiled in 5.6s (5983 modules)
+ ✓ Compiled in 10.5s (5983 modules)
+ ✓ Compiled in 3.5s (5983 modules)
+ ✓ Compiled in 7.2s (5983 modules)
+ ✓ Compiled in 13.4s (5969 modules)
+ ✓ Compiled in 4.4s (2832 modules)
+ ✓ Compiled in 2.4s (2832 modules)
+ ✓ Compiled in 2.2s (2832 modules)
+ ✓ Compiled in 2.7s (2832 modules)
+ ✓ Compiled in 3.8s (2832 modules)
+ ✓ Compiled in 1664ms (2832 modules)
+ ✓ Compiled in 3s (2832 modules)
+ ✓ Compiled in 2.6s (2832 modules)
+ ✓ Compiled in 2.2s (2832 modules)
+ ✓ Compiled in 2.4s (2832 modules)
+ ✓ Compiled in 33.9s (5983 modules)
+<w> [webpack.cache.PackFileCacheStrategy] Caching failed for pack: Error: ENOENT: no such file or directory, rename '/data/cardano/cip113-programmable-tokens/src/programmable-tokens-frontend/.next/cache/webpack/client-development/0.pack.gz_' -> '/data/cardano/cip113-programmable-tokens/src/programmable-tokens-frontend/.next/cache/webpack/client-development/0.pack.gz'
+ ✓ Compiled in 7.4s (5969 modules)
+[?25h

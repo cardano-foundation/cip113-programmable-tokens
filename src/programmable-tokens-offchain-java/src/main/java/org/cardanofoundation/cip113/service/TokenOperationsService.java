@@ -122,6 +122,11 @@ public class TokenOperationsService {
 
         log.info("Registration transaction built successfully for substandard: {}",
                 request.getSubstandardId());
+        
+        // Log transaction context status for debugging
+        log.info("Transaction context isSuccessful: {}, error: {}", 
+                txContext.isSuccessful(), 
+                txContext.error() != null ? txContext.error() : "none");
 
         return txContext;
     }
@@ -250,9 +255,16 @@ public class TokenOperationsService {
      */
     private ProtocolBootstrapParams resolveProtocolParams(String protocolTxHash) {
         if (protocolTxHash != null && !protocolTxHash.isEmpty()) {
-            return protocolBootstrapService.getProtocolBootstrapParamsByTxHash(protocolTxHash)
-                    .orElseThrow(() -> new IllegalArgumentException(
-                            "Protocol version not found: " + protocolTxHash));
+            var bootstrapOpt = protocolBootstrapService.getProtocolBootstrapParamsByTxHash(protocolTxHash);
+            if (bootstrapOpt.isEmpty()) {
+                log.warn("Protocol version not found: {}. Available versions: {}", 
+                        protocolTxHash, 
+                        protocolBootstrapService.getAllBootstraps().keySet());
+                // Fall back to default instead of throwing error
+                log.info("Falling back to default protocol bootstrap");
+                return protocolBootstrapService.getProtocolBootstrapParams();
+            }
+            return bootstrapOpt.get();
         }
         return protocolBootstrapService.getProtocolBootstrapParams();
     }

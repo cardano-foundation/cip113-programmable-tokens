@@ -12,16 +12,16 @@ import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "balance_log", indexes = {
-    @Index(name = "idx_balance_address", columnList = "address"),
-    @Index(name = "idx_balance_payment_script", columnList = "paymentScriptHash"),
-    @Index(name = "idx_balance_stake_key", columnList = "stakeKeyHash"),
-    @Index(name = "idx_balance_payment_stake", columnList = "paymentScriptHash, stakeKeyHash"),
-    @Index(name = "idx_balance_tx_hash", columnList = "txHash"),
-    @Index(name = "idx_balance_slot", columnList = "slot"),
-    @Index(name = "idx_balance_transaction_type", columnList = "transactionType"),
-    @Index(name = "idx_balance_payment_type", columnList = "paymentScriptHash, transactionType")
+        @Index(name = "idx_balance_address", columnList = "address"),
+        @Index(name = "idx_balance_payment_script", columnList = "paymentScriptHash"),
+        @Index(name = "idx_balance_stake_key", columnList = "stakeKeyHash"),
+        @Index(name = "idx_balance_payment_stake", columnList = "paymentScriptHash, stakeKeyHash"),
+        @Index(name = "idx_balance_tx_hash", columnList = "txHash"),
+        @Index(name = "idx_balance_slot", columnList = "slot"),
+        @Index(name = "idx_balance_transaction_type", columnList = "transaction_type"),
+        @Index(name = "idx_balance_payment_type", columnList = "paymentScriptHash, transaction_type")
 }, uniqueConstraints = {
-    @UniqueConstraint(name = "unique_balance_entry", columnNames = {"address", "txHash"})
+        @UniqueConstraint(name = "unique_balance_entry", columnNames = { "address", "txHash" })
 })
 @Data
 @Builder
@@ -53,7 +53,8 @@ public class BalanceLogEntity {
     @Column(nullable = false)
     private Long blockHeight;
 
-    // Balance State (after this transaction) - JSON format: {"lovelace": "1000000", "unit": "amount"}
+    // Balance State (after this transaction) - JSON format: {"lovelace": "1000000",
+    // "unit": "amount"}
     @Column(nullable = false, columnDefinition = "TEXT")
     private String balance;
 

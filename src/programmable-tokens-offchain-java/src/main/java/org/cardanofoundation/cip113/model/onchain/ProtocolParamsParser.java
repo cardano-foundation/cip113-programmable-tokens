@@ -31,7 +31,8 @@ public class ProtocolParamsParser {
             }
 
             var registryNodePolicyId = jsonData.path(rootName).get(0).path("bytes").asText();
-            var programmableLogicBaseScriptHash = jsonData.path(rootName).get(1).path("fields").get(0).path("bytes").asText();
+            var programmableLogicBaseScriptHash = jsonData.path(rootName).get(1).path("fields").get(0).path("bytes")
+                    .asText();
 
             return Optional.of(ProtocolParams.builder()
                     .registryNodePolicyId(registryNodePolicyId)
@@ -39,9 +40,9 @@ public class ProtocolParamsParser {
                     .build());
         } catch (Exception e) {
             log.warn("error", e);
+            e.printStackTrace();
             return Optional.empty();
         }
     }
-
 
 }

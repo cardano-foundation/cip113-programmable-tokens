@@ -96,3 +96,31 @@ export async function extractPkhFromAddress(address: string): Promise<string | n
     return null;
   }
 }
+
+// ============================================================================
+// Spent UTXOs API
+// ============================================================================
+
+export interface SpentUtxoInfo {
+  txHash: string;
+  outputIndex: number;
+  source: string;  // "BLACKLIST_INIT", "TOKEN_REGISTRATION", etc.
+  adaAmount: string | null;
+  spentByTxHash: string | null;
+}
+
+export interface SpentUtxosResponse {
+  adminPkh: string;
+  spentUtxos: SpentUtxoInfo[];
+}
+
+/**
+ * Get spent UTXOs for an admin PKH
+ *
+ * @param pkh - Payment key hash of the admin
+ * @returns Promise<SpentUtxosResponse>
+ */
+export async function getSpentUtxos(pkh: string): Promise<SpentUtxosResponse> {
+  const endpoint = `/admin/spent-utxos/${pkh}`;
+  return apiGet<SpentUtxosResponse>(endpoint);
+}

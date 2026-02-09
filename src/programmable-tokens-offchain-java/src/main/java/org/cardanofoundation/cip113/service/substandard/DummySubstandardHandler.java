@@ -6,6 +6,7 @@ import com.bloxbean.cardano.client.address.Credential;
 import com.bloxbean.cardano.client.api.model.Amount;
 import com.bloxbean.cardano.client.api.model.Utxo;
 import com.bloxbean.cardano.client.api.util.ValueUtil;
+import com.bloxbean.cardano.client.backend.blockfrost.service.BFBackendService;
 import com.bloxbean.cardano.client.plutus.blueprint.PlutusBlueprintUtil;
 import com.bloxbean.cardano.client.plutus.blueprint.model.PlutusVersion;
 import com.bloxbean.cardano.client.plutus.spec.BigIntPlutusData;
@@ -84,6 +85,8 @@ public class DummySubstandardHandler implements SubstandardHandler, BasicOperati
 
     private final CustomStakeRegistrationRepository stakeRegistrationRepository;
 
+    private final BFBackendService bfBackendService;
+
     @Override
     public String getSubstandardId() {
         return SUBSTANDARD_ID;
@@ -123,9 +126,36 @@ public class DummySubstandardHandler implements SubstandardHandler, BasicOperati
                     .map(Address::getAddress)
                     .toList();
 
+            // Check stake address registration - try database first, fallback to Blockfrost
             var registeredStakeAddresses = requiredStakeAddresses.stream()
-                    .filter(stakeAddress -> stakeRegistrationRepository.findRegistrationsByStakeAddress(stakeAddress)
-                            .map(stakeRegistration -> stakeRegistration.getType().equals(CertificateType.STAKE_REGISTRATION)).orElse(false))
+                    .filter(stakeAddress -> {
+                        // First try database (if chain sync is running)
+                        var dbResult = stakeRegistrationRepository.findRegistrationsByStakeAddress(stakeAddress)
+                                .map(stakeRegistration -> stakeRegistration.getType().equals(CertificateType.STAKE_REGISTRATION));
+                        
+                        if (dbResult.isPresent()) {
+                            boolean isRegistered = dbResult.get();
+                            log.debug("Stake address {} registration from DB: {}", stakeAddress, isRegistered);
+                            return isRegistered;
+                        }
+                        
+                        // Fallback to Blockfrost API (when chain sync is not available)
+                        log.debug("Stake address {} not found in DB, checking Blockfrost...", stakeAddress);
+                        try {
+                            var accountInfo = bfBackendService.getAccountService().getAccountInformation(stakeAddress);
+                            if (accountInfo.isSuccessful()) {
+                                boolean isRegistered = accountInfo.getValue().getActive();
+                                log.info("Stake address {} registration from Blockfrost: {}", stakeAddress, isRegistered);
+                                return isRegistered;
+                            } else {
+                                log.warn("Failed to get account info from Blockfrost for {}: {}", stakeAddress, accountInfo.getResponse());
+                                return false;
+                            }
+                        } catch (Exception e) {
+                            log.error("Error checking stake address registration via Blockfrost for {}: {}", stakeAddress, e.getMessage());
+                            return false;
+                        }
+                    })
                     .toList();
 
             var stakeAddressesToRegister = registeredStakeAddresses.stream()

@@ -31,6 +31,7 @@ type StepPhase =
   | 'backend-cooldown'    // After prereq tx confirmed, 10s wait
   | 'ready-to-start'      // Ready for user to start pre-registration
   | 'calling-api'         // Calling pre-register API
+  | 'preview'             // Showing transaction preview before signing
   | 'already-registered'  // All addresses registered (no tx needed)
   | 'signing'             // Waiting for wallet signature
   | 'submitting'          // Submitting to blockchain
@@ -62,6 +63,7 @@ export function PreRegistrationStep({
 
   // Tx confirmation state
   const [pollAttempt, setPollAttempt] = useState(0);
+  const [allowManualProceed, setAllowManualProceed] = useState(false);
 
   // Cooldown state
   const [cooldownRemaining, setCooldownRemaining] = useState(0);
@@ -70,6 +72,7 @@ export function PreRegistrationStep({
   // Pre-registration result state
   const [stakeAddresses, setStakeAddresses] = useState<string[]>([]);
   const [txHash, setTxHash] = useState('');
+  const [unsignedCborTx, setUnsignedCborTx] = useState('');
 
   // Prevent double API calls
   const isCallingApiRef = useRef(false);
@@ -173,17 +176,36 @@ export function PreRegistrationStep({
         };
       }
 
-      // Call pre-register API
-      const response = await preRegisterToken(request, selectedVersion?.txHash);
-
-      if (!response.isSuccessful) {
-        throw new Error(response.error || 'Pre-registration failed');
+      // Call pre-register API with timeout handling
+      console.log('[PreRegister] Calling API with request:', request);
+      
+      let response: Awaited<ReturnType<typeof preRegisterToken>>;
+      try {
+        response = await preRegisterToken(request, selectedVersion?.txHash);
+        console.log('[PreRegister] API Response received:', response);
+      } catch (apiError) {
+        console.error('[PreRegister] API call failed:', apiError);
+        throw new Error(apiError instanceof Error ? apiError.message : 'Failed to call pre-register API');
       }
 
-      setStakeAddresses(response.metadata || []);
+      // Handle both possible response formats
+      const isSuccessful = response?.isSuccessful ?? (response as any)?.successful ?? false;
+      const unsignedCborTx = response?.unsignedCborTx ?? (response as any)?.unsignedCborTx ?? null;
+      const metadata = response?.metadata ?? (response as any)?.metadata ?? [];
+      const error = response?.error ?? (response as any)?.error ?? null;
+
+      console.log('[PreRegister] Parsed response:', { isSuccessful, hasUnsignedTx: !!unsignedCborTx, metadataCount: Array.isArray(metadata) ? metadata.length : 0, error });
+
+      if (!isSuccessful) {
+        throw new Error(error || 'Pre-registration failed');
+      }
+
+      // Store stake addresses from metadata (these are the registered addresses returned by backend)
+      const stakeAddrs = Array.isArray(metadata) ? metadata : [];
+      setStakeAddresses(stakeAddrs);
 
       // Check if transaction is needed
-      if (!response.unsignedCborTx) {
+      if (!unsignedCborTx) {
         // All addresses already registered
         setPhase('already-registered');
         showToastRef.current({
@@ -192,54 +214,14 @@ export function PreRegistrationStep({
           variant: 'success',
         });
       } else {
-        // Need to sign and submit the transaction
-        setPhase('signing');
+        // Store the unsigned transaction and show preview
+        setUnsignedCborTx(unsignedCborTx);
+        setPhase('preview');
         showToastRef.current({
-          title: 'Sign Transaction',
-          description: 'Please sign the stake address registration transaction',
+          title: 'Transaction Ready',
+          description: 'Review the transaction before signing',
           variant: 'default',
         });
-
-        // Sign the transaction
-        const signedTx = await wallet.signTx(response.unsignedCborTx, true);
-
-        setPhase('submitting');
-
-        // Submit the transaction
-        const hash = await wallet.submitTx(signedTx);
-        setTxHash(hash);
-
-        showToastRef.current({
-          title: 'Transaction Submitted',
-          description: 'Waiting for confirmation...',
-          variant: 'default',
-        });
-
-        // Start polling for confirmation
-        setPhase('polling');
-        setPollAttempt(0);
-
-        abortControllerRef.current = new AbortController();
-
-        await waitForTxConfirmation(hash, {
-          pollInterval: TX_POLL_INTERVAL,
-          timeout: TX_POLL_TIMEOUT,
-          signal: abortControllerRef.current.signal,
-          onPoll: (attempt) => {
-            setPollAttempt(attempt);
-          },
-          onConfirmed: () => {
-            showToastRef.current({
-              title: 'Transaction Confirmed',
-              description: 'Stake addresses registered on-chain',
-              variant: 'success',
-            });
-          },
-        });
-
-        // Start post-tx cooldown
-        setPhase('post-tx-cooldown');
-        startCooldown('complete');
       }
     } catch (error) {
       if (error instanceof Error && error.message === 'Aborted') {
@@ -251,7 +233,8 @@ export function PreRegistrationStep({
       setErrorMessage(message);
 
       if (message.toLowerCase().includes('user declined') ||
-          message.toLowerCase().includes('user rejected')) {
+          message.toLowerCase().includes('user rejected') ||
+          message.toLowerCase().includes('cancelled')) {
         showToastRef.current({
           title: 'Transaction Cancelled',
           description: 'You cancelled the transaction',
@@ -298,6 +281,10 @@ export function PreRegistrationStep({
         signal: abortControllerRef.current.signal,
         onPoll: (attempt) => {
           setPollAttempt(attempt);
+          // After 3 attempts (30 seconds), allow manual proceed if transaction is confirmed on explorer
+          if (attempt >= 3) {
+            setAllowManualProceed(true);
+          }
         },
         onConfirmed: () => {
           showToastRef.current({
@@ -317,6 +304,7 @@ export function PreRegistrationStep({
           description: 'You can still proceed with registration',
           variant: 'warning',
         });
+        setAllowManualProceed(true);
         setPhase('ready-to-start');
       });
     } else {
@@ -356,6 +344,109 @@ export function PreRegistrationStep({
       completedAt: Date.now(),
     });
   }, [stakeAddresses, txHash, onComplete]);
+
+  // Handler to proceed from preview to signing
+  const handleProceedToSign = useCallback(async () => {
+    if (!unsignedCborTx || !wallet) {
+      onError('Transaction or wallet not available');
+      return;
+    }
+
+    try {
+      setProcessing(true);
+      setPhase('signing');
+      showToastRef.current({
+        title: 'Sign Transaction',
+        description: 'Please sign the stake address registration transaction',
+        variant: 'default',
+      });
+
+      // Sign the transaction
+      const signedTx = await wallet.signTx(unsignedCborTx, true);
+
+      setPhase('submitting');
+
+      // Submit the transaction
+      const hash = await wallet.submitTx(signedTx);
+      setTxHash(hash); // Store hash immediately so it's available in UI
+
+      showToastRef.current({
+        title: 'Transaction Submitted',
+        description: 'Waiting for confirmation...',
+        variant: 'default',
+      });
+
+      // Keep submitting phase visible for 2 seconds so user can see hash and use buttons
+      await new Promise(resolve => setTimeout(resolve, 2000));
+
+      // Start polling for confirmation
+      setPhase('polling');
+      setPollAttempt(0);
+
+      abortControllerRef.current = new AbortController();
+
+      await waitForTxConfirmation(hash, {
+        pollInterval: TX_POLL_INTERVAL,
+        timeout: TX_POLL_TIMEOUT,
+        signal: abortControllerRef.current.signal,
+        onPoll: (attempt) => {
+          setPollAttempt(attempt);
+        },
+        onConfirmed: () => {
+          showToastRef.current({
+            title: 'Transaction Confirmed',
+            description: 'Stake addresses registered on-chain',
+            variant: 'success',
+          });
+        },
+      });
+
+      // Start post-tx cooldown
+      setPhase('post-tx-cooldown');
+      startCooldown('complete');
+    } catch (walletError) {
+      // Handle wallet-specific errors (signing/submitting)
+      if (walletError instanceof Error) {
+        const walletMessage = walletError.message.toLowerCase();
+        const errorInfo = walletError.info || '';
+        
+        // Check if stake addresses are already registered
+        if (errorInfo.includes('StakeKeyRegisteredDELEG') || 
+            errorInfo.includes('stakekeyregistered') ||
+            walletMessage.includes('stakekeyregistered')) {
+          // Stake addresses are already registered - treat as success
+          // The stake addresses should already be stored from the API response metadata
+          showToastRef.current({
+            title: 'Stake Addresses Already Registered',
+            description: 'The required stake addresses are already registered on-chain. You can proceed.',
+            variant: 'success',
+          });
+          setPhase('already-registered');
+          // Stake addresses are already set from API response, no need to clear them
+          setProcessing(false);
+          return;
+        }
+        
+        if (walletMessage.includes('user declined') || 
+            walletMessage.includes('user rejected') ||
+            walletMessage.includes('user cancelled') ||
+            walletMessage.includes('cancelled')) {
+          setPhase('preview'); // Go back to preview instead of error
+          setErrorMessage('Transaction signing was cancelled. You can try again.');
+          showToastRef.current({
+            title: 'Transaction Cancelled',
+            description: 'You cancelled the transaction signing',
+            variant: 'default',
+          });
+          return;
+        }
+      }
+      // Re-throw wallet errors to be caught by outer catch
+      throw walletError;
+    } finally {
+      setProcessing(false);
+    }
+  }, [unsignedCborTx, wallet, onError, setProcessing, startCooldown]);
 
   // Effect to auto-complete when phase is complete
   useEffect(() => {
@@ -402,6 +493,45 @@ export function PreRegistrationStep({
           <div className="text-sm text-dark-500">
             Poll attempt: {pollAttempt} (checking every 10s)
           </div>
+          {blacklistInitTxHash && (
+            <div className="mt-6 p-5 bg-blue-500/10 border-2 border-blue-500/50 rounded-lg">
+              <p className="text-blue-300 font-medium mb-2">
+                Transaction confirmed on explorer? Proceed manually:
+              </p>
+              <p className="text-blue-200/70 text-xs mb-4">
+                If you see the transaction on Cardanoscan, you can skip the automatic confirmation check.
+              </p>
+              <div className="flex gap-3 justify-center flex-wrap">
+                <Button
+                  onClick={() => {
+                    if (abortControllerRef.current) {
+                      abortControllerRef.current.abort();
+                    }
+                    showToastRef.current({
+                      title: 'Proceeding Manually',
+                      description: 'Skipping confirmation check',
+                      variant: 'default',
+                    });
+                    setPhase('backend-cooldown');
+                    startCooldown('ready-to-start');
+                  }}
+                  className="bg-blue-500 hover:bg-blue-600 text-white font-medium px-6 py-2"
+                >
+                  ✓ Proceed Manually
+                </Button>
+                <Button
+                  onClick={() => {
+                    const explorerUrl = `https://preview.cardanoscan.io/transaction/${blacklistInitTxHash}`;
+                    window.open(explorerUrl, '_blank');
+                  }}
+                  variant="outline"
+                  className="bg-gray-500/20 border-gray-500/50 text-gray-300 hover:bg-gray-500/30"
+                >
+                  View on Explorer
+                </Button>
+              </div>
+            </div>
+          )}
         </Card>
       )}
 
@@ -457,6 +587,75 @@ export function PreRegistrationStep({
             <p className="text-dark-400 text-sm mt-2">
               Determining which addresses need to be registered...
             </p>
+          </div>
+          {errorMessage && (
+            <div className="mt-4 p-4 bg-red-500/10 border border-red-500/30 rounded-lg">
+              <p className="text-red-300 text-sm">{errorMessage}</p>
+            </div>
+          )}
+          <div className="mt-4 p-4 bg-blue-500/10 border border-blue-500/30 rounded-lg">
+            <p className="text-blue-300 text-xs mb-3">
+              If the API call seems stuck, you can try refreshing the page or check the browser console for errors.
+            </p>
+            <Button
+              onClick={() => {
+                if (abortControllerRef.current) {
+                  abortControllerRef.current.abort();
+                }
+                setPhase('error');
+                setErrorMessage('API call was cancelled. Please try again.');
+              }}
+              variant="outline"
+              className="bg-gray-500/20 border-gray-500/50 text-gray-300 hover:bg-gray-500/30 text-sm"
+            >
+              Cancel & Retry
+            </Button>
+          </div>
+        </Card>
+      )}
+
+      {/* Preview Transaction */}
+      {phase === 'preview' && unsignedCborTx && (
+        <Card className="p-6 space-y-4">
+          <div className="flex items-start gap-3">
+            <svg className="w-5 h-5 text-primary-400 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+            <div className="flex-1">
+              <h3 className="text-white font-medium mb-2">Transaction Preview</h3>
+              <p className="text-dark-400 text-sm mb-4">
+                Review the transaction details before signing. The transaction will register the required stake addresses on-chain.
+              </p>
+              
+              {stakeAddresses.length > 0 && (
+                <div className="mb-4">
+                  <p className="text-dark-300 text-sm font-medium mb-2">Stake Addresses to Register:</p>
+                  <div className="space-y-2">
+                    {stakeAddresses.map((addr, index) => (
+                      <div key={index} className="flex items-center justify-between p-2 bg-dark-800 rounded text-sm">
+                        <span className="text-dark-300 font-mono">{truncateAddress(addr)}</span>
+                        <CopyButton value={addr} />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="p-3 bg-dark-800 rounded border border-dark-700">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs text-dark-400">Unsigned Transaction (CBOR)</span>
+                  <CopyButton value={unsignedCborTx} />
+                </div>
+                <p className="text-xs text-primary-400 font-mono break-all">{unsignedCborTx.substring(0, 100)}...</p>
+                <p className="text-xs text-dark-500 mt-1">Full transaction: {unsignedCborTx.length} characters</p>
+              </div>
+
+              {errorMessage && (
+                <div className="mt-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg">
+                  <p className="text-red-300 text-sm">{errorMessage}</p>
+                </div>
+              )}
+            </div>
           </div>
         </Card>
       )}
@@ -526,6 +725,69 @@ export function PreRegistrationStep({
               Submitting to the blockchain...
             </p>
           </div>
+          {txHash && (
+            <>
+              <div className="mt-4 p-3 bg-dark-800 rounded border border-dark-700">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs text-dark-400">Transaction Hash</span>
+                  <CopyButton value={txHash} />
+                </div>
+                <p className="text-xs text-primary-400 font-mono mt-1 truncate">{txHash}</p>
+              </div>
+              <div className="mt-4 p-4 bg-blue-500/10 border border-blue-500/30 rounded-lg">
+                <p className="text-blue-300 text-xs mb-3">
+                  Transaction submitted! You can view it on the explorer or proceed manually once confirmed.
+                </p>
+                <div className="flex gap-3 justify-center flex-wrap">
+                  <Button
+                    onClick={() => {
+                      const explorerUrl = `https://preview.cardanoscan.io/transaction/${txHash}`;
+                      window.open(explorerUrl, '_blank');
+                    }}
+                    variant="outline"
+                    className="bg-blue-500/20 border-blue-500/50 text-blue-300 hover:bg-blue-500/30"
+                  >
+                    View on Explorer
+                  </Button>
+                  <Button
+                    onClick={() => {
+                      showToastRef.current({
+                        title: 'Proceeding Manually',
+                        description: 'Skipping automatic confirmation check',
+                        variant: 'default',
+                      });
+                      setPhase('polling');
+                      setPollAttempt(0);
+                      abortControllerRef.current = new AbortController();
+                      // Start polling but allow manual proceed
+                      waitForTxConfirmation(txHash, {
+                        pollInterval: TX_POLL_INTERVAL,
+                        timeout: TX_POLL_TIMEOUT,
+                        signal: abortControllerRef.current.signal,
+                        onPoll: (attempt) => {
+                          setPollAttempt(attempt);
+                        },
+                        onConfirmed: () => {
+                          showToastRef.current({
+                            title: 'Transaction Confirmed',
+                            description: 'Stake addresses registered on-chain',
+                            variant: 'success',
+                          });
+                          setPhase('post-tx-cooldown');
+                          startCooldown('complete');
+                        },
+                      }).catch(() => {
+                        // Ignore errors, user can proceed manually
+                      });
+                    }}
+                    className="bg-blue-500 hover:bg-blue-600 text-white font-medium px-6 py-2"
+                  >
+                    ✓ Proceed Manually
+                  </Button>
+                </div>
+              </div>
+            </>
+          )}
         </Card>
       )}
 
@@ -545,13 +807,52 @@ export function PreRegistrationStep({
             Poll attempt: {pollAttempt} (checking every 10s)
           </div>
           {txHash && (
-            <div className="p-2 bg-dark-800 rounded">
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-dark-400">Transaction Hash</span>
-                <CopyButton value={txHash} />
+            <>
+              <div className="p-2 bg-dark-800 rounded">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-dark-400">Transaction Hash</span>
+                  <CopyButton value={txHash} />
+                </div>
+                <p className="text-xs text-primary-400 font-mono mt-1 truncate">{txHash}</p>
               </div>
-              <p className="text-xs text-primary-400 font-mono mt-1 truncate">{txHash}</p>
-            </div>
+              <div className="mt-4 p-5 bg-blue-500/10 border-2 border-blue-500/50 rounded-lg">
+                <p className="text-blue-300 font-medium mb-2">
+                  Transaction confirmed on explorer? Proceed manually:
+                </p>
+                <p className="text-blue-200/70 text-xs mb-4">
+                  If you see the transaction on Cardanoscan, you can skip the automatic confirmation check.
+                </p>
+                <div className="flex gap-3 justify-center flex-wrap">
+                  <Button
+                    onClick={() => {
+                      if (abortControllerRef.current) {
+                        abortControllerRef.current.abort();
+                      }
+                      showToastRef.current({
+                        title: 'Proceeding Manually',
+                        description: 'Skipping confirmation check',
+                        variant: 'default',
+                      });
+                      setPhase('post-tx-cooldown');
+                      startCooldown('complete');
+                    }}
+                    className="bg-blue-500 hover:bg-blue-600 text-white font-medium px-6 py-2"
+                  >
+                    ✓ Proceed Manually
+                  </Button>
+                  <Button
+                    onClick={() => {
+                      const explorerUrl = `https://preview.cardanoscan.io/transaction/${txHash}`;
+                      window.open(explorerUrl, '_blank');
+                    }}
+                    variant="outline"
+                    className="bg-gray-500/20 border-gray-500/50 text-gray-300 hover:bg-gray-500/30"
+                  >
+                    View on Explorer
+                  </Button>
+                </div>
+              </div>
+            </>
           )}
         </Card>
       )}
@@ -604,7 +905,7 @@ export function PreRegistrationStep({
 
       {/* Actions */}
       <div className="flex gap-3">
-        {onBack && !['complete', 'post-tx-cooldown', 'polling', 'submitting', 'signing'].includes(phase) && (
+        {onBack && !['complete', 'post-tx-cooldown', 'polling', 'submitting', 'signing', 'preview'].includes(phase) && (
           <Button
             variant="outline"
             onClick={onBack}
@@ -622,6 +923,17 @@ export function PreRegistrationStep({
             disabled={isProcessing || !connected}
           >
             Register Stake Addresses
+          </Button>
+        )}
+
+        {phase === 'preview' && (
+          <Button
+            variant="primary"
+            className="flex-1"
+            onClick={handleProceedToSign}
+            disabled={isProcessing || !unsignedCborTx}
+          >
+            Sign & Submit Transaction
           </Button>
         )}
 

@@ -105,7 +105,9 @@ export function SeizeSection({ tokens, adminAddress }: SeizeSectionProps) {
       setIsSigning(true);
 
       // Sign and submit
-      const signedTx = await wallet.signTx(unsignedCborTx);
+      // Use partial signing (true) because the transaction may include UTXOs or certificates
+      // that don't belong to the connected wallet (e.g., script UTXOs)
+      const signedTx = await wallet.signTx(unsignedCborTx, true);
       const submittedTxHash = await wallet.submitTx(signedTx);
 
       setTxHash(submittedTxHash);
@@ -120,16 +122,26 @@ export function SeizeSection({ tokens, adminAddress }: SeizeSectionProps) {
       console.error("Seize error:", error);
 
       let errorMessage = "Failed to seize tokens";
+      let errorTitle = "Seize Failed";
+      
       if (error instanceof Error) {
         if (error.message.includes("User declined")) {
           errorMessage = "Transaction was cancelled";
+        } else if (error.message.includes("could not find registry entry") || 
+                   error.message.includes("not found in registry") ||
+                   error.message.includes("Registry is empty")) {
+          errorTitle = "Token Not Registered";
+          errorMessage = "The selected token is not registered in the protocol registry. Please ensure the token has been properly registered before attempting to seize tokens.";
+        } else if (error.message.includes("not registered in programmable token registry")) {
+          errorTitle = "Token Not Registered";
+          errorMessage = "The token is not registered in the programmable token registry. Please register the token first.";
         } else {
           errorMessage = error.message;
         }
       }
 
       showToast({
-        title: "Seize Failed",
+        title: errorTitle,
         description: errorMessage,
         variant: "error",
       });

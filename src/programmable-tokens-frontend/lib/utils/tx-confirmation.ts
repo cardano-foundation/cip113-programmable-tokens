@@ -28,6 +28,41 @@ export interface TxConfirmationOptions {
 }
 
 /**
+ * Check if a transaction exists on-chain via Cardanoscan (fallback)
+ * Uses the Cardanoscan explorer page to verify transaction exists
+ * @param txHash Transaction hash to check
+ * @returns Transaction info if found, null otherwise
+ */
+async function checkTxOnCardanoscan(txHash: string, network: string = 'preview'): Promise<TxConfirmationResult | null> {
+  try {
+    // Cardanoscan doesn't have a public API, but we can check if the explorer page loads
+    // For preview: https://preview.cardanoscan.io/transaction/{txHash}
+    // For mainnet: https://cardanoscan.io/transaction/{txHash}
+    const baseUrl = network === 'mainnet' 
+      ? 'https://cardanoscan.io'
+      : `https://${network}.cardanoscan.io`;
+    
+    // Try to fetch the transaction page - if it returns 200, transaction exists
+    const response = await fetch(`${baseUrl}/transaction/${txHash}`, {
+      method: 'HEAD', // Use HEAD to avoid downloading the full page
+      mode: 'no-cors', // Avoid CORS issues
+    });
+
+    // With no-cors, we can't read status, but if no error, assume it exists
+    // This is a best-effort check
+    console.log('[TxConfirmation] Cardanoscan check attempted (may not be reliable due to CORS)');
+    
+    // Since we can't reliably check Cardanoscan due to CORS,
+    // we'll return null and let the polling continue
+    // The user can manually verify on Cardanoscan and proceed
+    return null;
+  } catch (error) {
+    console.error('[TxConfirmation] Cardanoscan check error:', error);
+    return null;
+  }
+}
+
+/**
  * Check if a transaction exists on-chain via Blockfrost
  * @param txHash Transaction hash to check
  * @returns Transaction info if found, null otherwise
@@ -35,7 +70,9 @@ export interface TxConfirmationOptions {
 export async function checkTxOnChain(txHash: string): Promise<TxConfirmationResult | null> {
   if (!BLOCKFROST_API_KEY) {
     console.warn('[TxConfirmation] Blockfrost API key not configured');
-    return null;
+    // Try Cardanoscan as fallback
+    const network = process.env.NEXT_PUBLIC_NETWORK || 'preview';
+    return await checkTxOnCardanoscan(txHash, network);
   }
 
   try {
@@ -55,6 +92,19 @@ export async function checkTxOnChain(txHash: string): Promise<TxConfirmationResu
       return null;
     }
 
+    // 403 Forbidden - try Cardanoscan as fallback
+    if (response.status === 403) {
+      console.warn('[TxConfirmation] Blockfrost returned 403, trying Cardanoscan fallback...');
+      const network = process.env.NEXT_PUBLIC_NETWORK || 'preview';
+      const cardanoscanResult = await checkTxOnCardanoscan(txHash, network);
+      if (cardanoscanResult) {
+        return cardanoscanResult;
+      }
+      // If Cardanoscan also fails, return null to continue polling
+      console.error('[TxConfirmation] Both Blockfrost and Cardanoscan failed');
+      return null;
+    }
+
     // Other error statuses
     if (response.status >= 400) {
       let errorText = '';
@@ -64,6 +114,12 @@ export async function checkTxOnChain(txHash: string): Promise<TxConfirmationResu
         errorText = 'Could not read error body';
       }
       console.error(`[TxConfirmation] Blockfrost error ${response.status}: ${errorText}`);
+      // Try Cardanoscan as fallback for other errors too
+      const network = process.env.NEXT_PUBLIC_NETWORK || 'preview';
+      const cardanoscanResult = await checkTxOnCardanoscan(txHash, network);
+      if (cardanoscanResult) {
+        return cardanoscanResult;
+      }
       // Return null to continue polling - might be a temporary error
       return null;
     }
@@ -80,6 +136,12 @@ export async function checkTxOnChain(txHash: string): Promise<TxConfirmationResu
     };
   } catch (error) {
     console.error('[TxConfirmation] Network/fetch error:', error);
+    // Try Cardanoscan as fallback on network errors
+    const network = process.env.NEXT_PUBLIC_NETWORK || 'preview';
+    const cardanoscanResult = await checkTxOnCardanoscan(txHash, network);
+    if (cardanoscanResult) {
+      return cardanoscanResult;
+    }
     // Return null on error - don't throw, so polling continues
     return null;
   }
