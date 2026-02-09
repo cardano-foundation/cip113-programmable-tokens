@@ -218,7 +218,6 @@ export function TransferForm({ onTransactionBuilt }: TransferFormProps) {
         const transferParams: TransferTransactionParams = {
           unit: selectedAsset!.unit,
           quantity,
-          senderAddress,
           recipientAddress: recipientAddress.trim(),
           networkId: getNetworkId(),
         };

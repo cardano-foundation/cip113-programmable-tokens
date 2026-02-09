@@ -13,16 +13,20 @@ import {
 } from "@meshsdk/core";
 import { scriptHashToRewardAddress } from "@meshsdk/core-cst";
 
-import { ProtocolBootstrapParams } from "../../../types/protocol";
+import { ProtocolBootstrapParams, ProtocolBlueprint } from "../../../types/protocol";
 import { findValidator } from "../../utils/script-utils";
 
 export class Cip113_scripts_standard {
   private networkID: number;
-  constructor(networkID: number) {
+  private validators: { title: string; compiledCode: string }[];
+
+  constructor(networkID: number, blueprint: ProtocolBlueprint) {
     this.networkID = networkID;
+    this.validators = blueprint.validators;
   }
+
   async blacklist_mint(utxo_reference: any, manager_pubkey_hash: string) {
-    const validator = findValidator("blacklist_mint", "mint");
+    const validator = findValidator(this.validators, "blacklist_mint", "mint");
     const cbor = applyParamsToScript(
       validator,
       [
@@ -47,7 +51,7 @@ export class Cip113_scripts_standard {
     params: ProtocolBootstrapParams,
     minting_logic_credential: string
   ) {
-    const validator = findValidator("issuance_mint", "mint");
+    const validator = findValidator(this.validators, "issuance_mint", "mint");
     const cbor = applyParamsToScript(
       validator,
       [
@@ -65,7 +69,7 @@ export class Cip113_scripts_standard {
   }
 
   async issuance_cbor_hex_mint(utxo_reference: any) {
-    const validator = findValidator("issuance_cbor_hex_mint", "mint");
+    const validator = findValidator(this.validators, "issuance_cbor_hex_mint", "mint");
     const cbor = applyParamsToScript(
       validator,
       [
@@ -85,7 +89,7 @@ export class Cip113_scripts_standard {
   }
 
   async programmable_logic_base(params: ProtocolBootstrapParams) {
-    const validator = findValidator("programmable_logic_base", "spend");
+    const validator = findValidator(this.validators, "programmable_logic_base", "spend");
     const cbor = applyParamsToScript(
       validator,
       [conStr1([byteString(params.programmableLogicGlobalPrams.scriptHash)])],
@@ -104,7 +108,7 @@ export class Cip113_scripts_standard {
   }
 
   async programmable_logic_global(params: ProtocolBootstrapParams) {
-    const validator = findValidator("programmable_logic_global", "withdraw");
+    const validator = findValidator(this.validators, "programmable_logic_global", "withdraw");
     const cbor = applyParamsToScript(
       validator,
       [scriptHash(params.protocolParams.scriptHash)],
@@ -124,7 +128,7 @@ export class Cip113_scripts_standard {
   }
 
   async protocol_param_mint(utxo_reference: any) {
-    const validator = findValidator("protocol_param_mint", "mint");
+    const validator = findValidator(this.validators, "protocol_param_mint", "mint");
     const cbor = applyParamsToScript(
       validator,
       [
@@ -145,7 +149,7 @@ export class Cip113_scripts_standard {
 
   async registry_mint(params: ProtocolBootstrapParams) {
     const parameter = params.directoryMintParams.txInput;
-    const validator = findValidator("registry_mint", "mint");
+    const validator = findValidator(this.validators, "registry_mint", "mint");
     const cbor = applyParamsToScript(
       validator,
       [
@@ -166,7 +170,7 @@ export class Cip113_scripts_standard {
   }
 
   async registry_spend(params: ProtocolBootstrapParams) {
-    const validator = findValidator("registry_spend", "spend");
+    const validator = findValidator(this.validators, "registry_spend", "spend");
     const cbor = applyParamsToScript(
       validator,
       [scriptHash(params.protocolParams.scriptHash)],
@@ -178,7 +182,7 @@ export class Cip113_scripts_standard {
     };
     const address = serializePlutusScript(
       plutus_script,
-      "",
+      undefined,
       this.networkID,
       false
     ).address;
@@ -192,7 +196,7 @@ export class Cip113_scripts_standard {
   }
 
   async example_transfer_logic(permitted_credential: string) {
-    const validator = findValidator("example_transfer_logic", "withdraw");
+    const validator = findValidator(this.validators, "example_transfer_logic", "withdraw");
     const cbor = applyParamsToScript(
       validator,
       [scriptHash(permitted_credential)],

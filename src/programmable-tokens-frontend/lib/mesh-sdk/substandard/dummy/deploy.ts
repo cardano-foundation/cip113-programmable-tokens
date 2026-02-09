@@ -4,17 +4,21 @@ import { PlutusScript } from "@meshsdk/common";
 import { resolveScriptHash } from "@meshsdk/core";
 import { scriptHashToRewardAddress } from "@meshsdk/core-cst";
 
-import { findValidator } from "../../../utils/script-utils";
+import { SubstandardBlueprint } from "../../../../types/protocol";
+import { findSubstandardValidator } from "../../../utils/script-utils";
 
 export class cip113_scripts_subStandard {
   private networkID: number;
-  constructor(networkID: number) {
+  private validators: { title: string; script_bytes: string }[];
+
+  constructor(networkID: number, blueprint: SubstandardBlueprint) {
     this.networkID = networkID;
+    this.validators = blueprint.validators;
   }
 
   async transfer_issue_withdraw() {
-    const validator = findValidator("transfer.issue", "withdraw", true);
-    const _cbor = cbor.encode(Buffer.from(validator, "hex")).toString("hex");
+    const scriptBytes = findSubstandardValidator(this.validators, "transfer.issue", "withdraw");
+    const _cbor = cbor.encode(Buffer.from(scriptBytes, "hex")).toString("hex");
     const plutus_script: PlutusScript = {
       code: _cbor,
       version: "V3",
@@ -31,8 +35,8 @@ export class cip113_scripts_subStandard {
   }
 
   async transfer_transfer_withdraw() {
-    const validator = findValidator("transfer.transfer", "withdraw", true);
-    const _cbor = cbor.encode(Buffer.from(validator, "hex")).toString("hex");
+    const scriptBytes = findSubstandardValidator(this.validators, "transfer.transfer", "withdraw");
+    const _cbor = cbor.encode(Buffer.from(scriptBytes, "hex")).toString("hex");
     const plutus_script: PlutusScript = {
       code: _cbor,
       version: "V3",

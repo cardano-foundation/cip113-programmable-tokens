@@ -1,31 +1,29 @@
-import subStandard_plutusScript from "../../config/substandards/simple-transfer.json";
-import standard_plutusScript from "../../config/cip113-blueprint.json";
 import { RegistryDatum } from "../../types/protocol";
 
 export const findValidator = (
+  validators: { title: string; compiledCode: string }[],
   validatorName: string,
-  purpose: string,
-  isSubStandard?: boolean
-) => {
-  if (isSubStandard) {
-    const validator = subStandard_plutusScript.plutus.validators.find(
-      ({ title }) => title === `${validatorName}.${purpose}`
-    );
-    if (!validator) {
-      throw new Error(`Validator ${validatorName}.${purpose} not found`);
-    }
-    return validator.compiledCode;
-  } else {
-    const validator = standard_plutusScript.validators.find(
-      ({ title }) => title === `${validatorName}.${validatorName}.${purpose}`
-    );
-    if (!validator) {
-      throw new Error(
-        `Validator ${validatorName}.${validatorName}.${purpose} not found`
-      );
-    }
-    return validator.compiledCode;
+  purpose: string
+): string => {
+  const title = `${validatorName}.${validatorName}.${purpose}`;
+  const validator = validators.find((v) => v.title === title);
+  if (!validator) {
+    throw new Error(`Validator ${title} not found`);
   }
+  return validator.compiledCode;
+};
+
+export const findSubstandardValidator = (
+  validators: { title: string; script_bytes: string }[],
+  validatorName: string,
+  purpose: string
+): string => {
+  const title = `${validatorName}.${purpose}`;
+  const validator = validators.find((v) => v.title === title);
+  if (!validator) {
+    throw new Error(`Validator ${title} not found`);
+  }
+  return validator.script_bytes;
 };
 
 export function parseRegistryDatum(datum: any): RegistryDatum | null {

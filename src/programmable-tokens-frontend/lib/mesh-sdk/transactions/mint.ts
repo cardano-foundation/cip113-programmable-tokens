@@ -18,7 +18,7 @@ import {
 import { provider, getNetworkName } from "../config";
 import { Cip113_scripts_standard } from "../standard/deploy";
 import { cip113_scripts_subStandard } from "../substandard/dummy/deploy";
-import { ProtocolBootstrapParams } from "../../../types/protocol";
+import { ProtocolBootstrapParams, ProtocolBlueprint, SubstandardBlueprint } from "../../../types/protocol";
 
 const mint_programmable_tokens = async (
   params: ProtocolBootstrapParams,
@@ -26,6 +26,8 @@ const mint_programmable_tokens = async (
   quantity: string,
   Network_id: 0 | 1,
   wallet: IWallet,
+  protocolBlueprint: ProtocolBlueprint,
+  substandardBlueprint: SubstandardBlueprint,
   recipientAddress?: string | null
 ) => {
   const changeAddress = await wallet.getChangeAddress();
@@ -40,8 +42,8 @@ const mint_programmable_tokens = async (
     throw new Error("Issuer wallet is empty");
   }
 
-  const standardScript = new Cip113_scripts_standard(Network_id);
-  const substandardScript = new cip113_scripts_subStandard(Network_id);
+  const standardScript = new Cip113_scripts_standard(Network_id, protocolBlueprint);
+  const substandardScript = new cip113_scripts_subStandard(Network_id, substandardBlueprint);
 
   const substandard_issue = await substandardScript.transfer_issue_withdraw();
 
@@ -86,6 +88,7 @@ const mint_programmable_tokens = async (
   const txBuilder = new MeshTxBuilder({
     fetcher: provider,
     submitter: provider,
+    evaluator: provider,
     verbose: true,
   });
   const unsignedTx = await txBuilder

@@ -152,11 +152,9 @@ export function TransferModal({
         const transferParams: TransferTransactionParams = {
           unit: asset.unit,
           quantity,
-          senderAddress,
           recipientAddress: recipientAddress.trim(),
           networkId: getNetworkId(),
         };
-
         // Build transaction client-side using Mesh SDK
         unsignedCborTx = await handler.buildTransferTransaction(
           transferParams,

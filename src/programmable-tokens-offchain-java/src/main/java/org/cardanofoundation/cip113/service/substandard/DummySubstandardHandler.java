@@ -39,6 +39,7 @@ import org.cardanofoundation.cip113.model.onchain.RegistryNode;
 import org.cardanofoundation.cip113.model.onchain.RegistryNodeParser;
 import org.cardanofoundation.cip113.repository.CustomStakeRegistrationRepository;
 import org.cardanofoundation.cip113.repository.ProgrammableTokenRegistryRepository;
+import org.cardanofoundation.cip113.service.AccountService;
 import org.cardanofoundation.cip113.service.ProtocolScriptBuilderService;
 import org.cardanofoundation.cip113.service.SubstandardService;
 import org.cardanofoundation.cip113.service.substandard.capabilities.BasicOperations;
@@ -73,6 +74,8 @@ public class DummySubstandardHandler implements SubstandardHandler, BasicOperati
     private final UtxoRepository utxoRepository;
 
     private final RegistryNodeParser registryNodeParser;
+
+    private final AccountService accountService;
 
     private final SubstandardService substandardService;
 
@@ -601,11 +604,7 @@ public class DummySubstandardHandler implements SubstandardHandler, BasicOperati
                 return TransactionContext.error("Not enough funds");
             }
 
-            var senderUtxos = utxoRepository.findUnspentByOwnerAddr(transferTokenRequest.senderAddress(), Pageable.unpaged())
-                    .stream()
-                    .flatMap(Collection::stream)
-                    .map(UtxoUtil::toUtxo)
-                    .toList();
+            var senderUtxos = accountService.findAdaOnlyUtxo(senderAddress.getAddress(), 10_000_000L);
 
             // Programmable Logic Global parameterization
             var programmableLogicGlobal = protocolScriptBuilderService.getParameterizedProgrammableLogicGlobalScript(protocolBootstrapParams);
