@@ -6,10 +6,11 @@ import type {
 } from "@/types/protocol";
 import { register_programmable_tokens } from "../transactions/register";
 import { transfer_programmable_token } from "../transactions/transfer";
+import { transfer_freeze_and_seize_token } from "../transactions/transfer-fes";
 import { mint_programmable_tokens } from "../transactions/mint";
 import { getNetworkId } from "../config";
 
-export type SubstandardId = "dummy" | "bafin";
+export type SubstandardId = "dummy" | "bafin" | "freeze-and-seize";
 
 export interface MintTransactionParams {
   assetName: string;
@@ -37,6 +38,9 @@ export interface TransferTransactionParams {
   quantity: string;
   recipientAddress: string;
   networkId?: 0 | 1;
+  context?: {
+    blacklistNodePolicyId?: string;
+  };
 }
 
 export interface SubstandardHandler {
@@ -158,9 +162,52 @@ const bafinHandler: SubstandardHandler = {
   },
 };
 
+const freezeAndSeizeHandler: SubstandardHandler = {
+  async buildMintTransaction() {
+    throw new Error(
+      "Freeze-and-seize mint not yet implemented for client-side transaction building"
+    );
+  },
+
+  async buildRegisterTransaction() {
+    throw new Error(
+      "Freeze-and-seize register not yet implemented for client-side transaction building"
+    );
+  },
+
+  async buildTransferTransaction(
+    params: TransferTransactionParams,
+    protocolParams: ProtocolBootstrapParams,
+    protocolBlueprint: ProtocolBlueprint,
+    substandardBlueprint: SubstandardBlueprint,
+    wallet: IWallet
+  ): Promise<string> {
+    if (!params.context?.blacklistNodePolicyId) {
+      throw new Error(
+        "blacklistNodePolicyId is required for freeze-and-seize transfers"
+      );
+    }
+
+    const networkId = params.networkId ?? getNetworkId();
+
+    return transfer_freeze_and_seize_token(
+      params.unit,
+      params.quantity,
+      params.recipientAddress,
+      protocolParams,
+      networkId,
+      wallet,
+      protocolBlueprint,
+      substandardBlueprint,
+      params.context.blacklistNodePolicyId
+    );
+  },
+};
+
 const handlers: Record<string, SubstandardHandler> = {
   dummy: dummyHandler,
   bafin: bafinHandler,
+  "freeze-and-seize": freezeAndSeizeHandler,
 };
 
 /**
