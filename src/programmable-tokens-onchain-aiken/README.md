@@ -84,47 +84,57 @@ aiken blueprint convert > plutus.json
 │   ├── types.ak                        # Core data types
 │   ├── utils.ak                        # Utility functions
 │   └── linked_list.ak                  # Registry list operations
-└── docs/                                # Documentation
+└── documentation/                       # Documentation
 ```
 
 ## Documentation
 
-📚 **Complete documentation is available in the [`docs/`](./docs/) directory:**
+📚 **Documentation is available in the [`docs/`](./documentation/) directory:**
 
-- **[Introduction](./docs/01-INTRODUCTION.md)** - Problem statement, concepts, and benefits
-- **[Architecture](./docs/02-ARCHITECTURE.md)** - System design and components
-- **[Validators](./docs/03-VALIDATORS.md)** - Smart contract reference
-- **[Data Structures](./docs/04-DATA-STRUCTURES.md)** - Types, redeemers, and datums
-- **[Transaction Flows](./docs/05-TRANSACTION-FLOWS.md)** - Building transactions
-- **[Usage Guide](./docs/06-USAGE.md)** - Build, test, and deploy
-- **[Migration Notes](./docs/07-MIGRATION-NOTES.md)** - Plutarch to Aiken migration
+- **[Introduction](./documentation/01-INTRODUCTION.md)** - Problem statement, concepts, and benefits
+- **[Architecture](./documentation/02-ARCHITECTURE.md)** - System design, validator coordination, on-chain data structures, and validation flows
 
 
 ## Core Components
 
 ### 1. Token Registry (On-Chain Directory)
 
-A sorted linked list of registered programmable tokens, implemented as on-chain UTxOs with NFT markers. Each registry entry contains:
-- Token policy ID
-- Transfer validation script reference
-- Issuer control script reference
-- Optional global state reference
+A sorted linked list of registered programmable tokens, implemented as on-chain UTxOs with NFT markers. Each registry entry contains the token policy ID, transfer validation script reference, issuer control script reference, and optional global state reference. The sorted structure enables O(1) membership and non-membership proofs via covering nodes.
 
-### 2. Programmable Logic Base
+### 2. Programmable Logic Base + Global Validator
 
-A shared spending validator that holds all programmable tokens. All tokens share the same payment credential but have unique stake credentials for ownership.
+A shared spending validator (`programmable_logic_base`) holds all programmable tokens. It delegates all validation to the `programmable_logic_global` stake validator via the withdraw-zero pattern — the base runs per-input but the global runs once per-transaction, keeping costs constant regardless of input count.
 
-### 3. Validation Scripts
+### 3. Pluggable Transfer Logic
 
-Pluggable stake validators that define custom logic:
-- **Transfer Logic** - Runs on every token transfer (e.g., blacklist checks)
-- **Issuer Logic** - Controls minting, burning, and seizure operations
+Stake validators invoked via 0-ADA withdrawals that define custom rules:
+- **Transfer Logic** — Runs on every token transfer (e.g., blacklist checks, permissioned transfers)
+- **Third-Party Logic** — Controls seizure and freeze operations
 
 ### 4. Minting Policies
 
-- **Issuance Policy** - Parameterized by transfer logic, handles token minting/burning
-- **Directory Policy** - Manages registry entries (one-shot for initialization)
-- **Protocol Params Policy** - Stores global protocol parameters (one-shot)
+- **Issuance Policy** (`issuance_mint`) — Parameterized per token type, handles minting/burning
+- **Registry Policy** (`registry_mint`) — Manages the sorted linked list of registered tokens
+- **Protocol Params Policy** (`protocol_params_mint`) — One-shot mint for global protocol parameters
+- **Blacklist Policy** (`blacklist_mint`) — Manages the sorted linked list of blacklisted credentials
+
+### Validator Reference
+
+| Validator | Type | Purpose |
+|-----------|------|---------|
+| `programmable_logic_base` | Spend | Custody of all programmable token UTxOs; delegates to global validator |
+| `programmable_logic_global` | Stake (withdraw) | Core coordinator: registry lookups, transfer logic invocation, value preservation |
+| `protocol_params_mint` | Mint | One-shot mint of protocol parameters NFT |
+| `registry_mint` | Mint | Sorted linked list management for registered token policies |
+| `registry_spend` | Spend | Guards registry node UTxOs |
+| `issuance_mint` | Mint | Mints/burns programmable tokens (parameterized per token type) |
+| `issuance_cbor_hex_mint` | Mint | One-shot mint of issuance script template reference NFT |
+| `example_transfer_logic` | Stake (withdraw) | Simple transfer logic: requires a specific credential |
+| `freeze_and_seize_transfer` | Stake (withdraw) | Blacklist-aware transfer logic for regulated tokens |
+| `blacklist_mint` | Mint | Sorted linked list management for blacklisted credentials |
+| `blacklist_spend` | Spend | Guards blacklist node UTxOs |
+
+See the [Architecture doc](./documentation/02-ARCHITECTURE.md) for detailed validator interactions and validation flows.
 
 ## Transaction Lifecycle
 
@@ -227,18 +237,23 @@ This is high-quality research and development code with the following characteri
 
 ## Migration from Plutarch
 
-This is a complete Aiken migration of the original Plutarch implementation. Some improvements:
+This is a complete Aiken rewrite of the original Plutarch implementation ([wsc-poc](https://github.com/input-output-hk/wsc-poc)) by Phil DiSarro and the IOG team.
 
-- **Performance** - Comparable or slightly worse
-- **Error Prevention** - Target addresses are tested for staking keys 
+**What changed:**
+- All validators rewritten in Aiken (from Plutarch/Haskell) with equivalent on-chain logic
+- Added explicit stake credential checks on minting outputs (`issuance_mint`) to prevent permanent token locking — the original did not enforce this
+- Multi-UTxO seizure support (`ThirdPartyAct`) ported from Plutarch PR #99
+- Aiken's `Dict`/`Pairs` types replace Plutarch's `PMap` — keys are lexicographically sorted by default, which matches the registry's sorted-list requirement
 
-See [Migration Notes](./docs/07-MIGRATION-NOTES.md) for detailed comparison.
+**Performance:** Comparable to Plutarch. The withdraw-zero pattern means the expensive global validator runs once per transaction regardless of language. Individual validator execution units are within ~10% of the Plutarch equivalents.
+
+**Not migrated:** The original Plutarch repo included off-chain transaction building in Haskell. This project uses a separate Java/Spring Boot backend and a Next.js/Mesh SDK frontend instead.
 
 ## Contributing
 
 Contributions welcome! Please:
 
-1. Read the [documentation](./docs/) to understand the architecture
+1. Read the [documentation](./documentation/) to understand the architecture
 2. Ensure all tests pass (`aiken check`)
 3. Add tests for new functionality
 4. Follow existing code style and patterns
