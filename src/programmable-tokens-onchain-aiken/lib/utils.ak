@@ -141,9 +141,12 @@ pub fn is_script_invoked(tx: Transaction, script_cred: Credential) -> Bool {
 
 /// Get element at index from a list
 pub fn elem_at(lst: List<a>, idx: Int) -> a {
-  when list.drop(lst, idx) is {
-    [elem, ..] -> elem
-    [] -> fail @"Index out of bounds"
+  if idx >= 2 {
+    elem_at(tail_list(tail_list(lst)), idx - 2)
+  } else if idx >= 1 {
+    elem_at(tail_list(lst), idx - 1)
+  } else {
+    head_list(lst)
   }
 }
 
