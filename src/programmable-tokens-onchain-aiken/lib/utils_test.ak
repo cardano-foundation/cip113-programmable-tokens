@@ -1,11 +1,13 @@
 // Unit tests for utility functions
-use aiken/collection/dict
+use aiken/collection/dict.{Dict}
 use aiken/interval
-use cardano/assets.{ada_asset_name, ada_policy_id, add, from_asset, zero}
+use cardano/assets.{
+  AssetName, PolicyId, ada_asset_name, ada_policy_id, add, from_asset, zero,
+}
 use cardano/transaction.{Transaction}
 use utils.{
   bytearray_lt, count_unique_tokens, has_currency_symbol, is_signed_by,
-  match_assets,
+  value_contains,
 }
 
 // Test bytearray_lt with different bytearrays
@@ -61,48 +63,70 @@ test has_currency_symbol_absent() fail {
   has_currency_symbol(value, cs2)
 }
 
-// Test 'match_assets' with exact match
-test match_exact() {
-  let cs = #"0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c"
-  let value =
-    from_asset(cs, #"746f6b656e", 100)
-      |> assets.to_dict
+const fixture_value_contains_policy_id: PolicyId =
+  #"0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c"
 
-  match_assets(value, value)
+const fixture_value_contains_asset_name: AssetName = #"746f6b656e"
+
+const fixture_value_contains_superset: Pairs<PolicyId, Dict<AssetName, Int>> =
+  from_asset(
+    fixture_value_contains_policy_id,
+    fixture_value_contains_asset_name,
+    100,
+  )
+    |> assets.to_dict
+    |> dict.to_pairs
+
+const fixture_value_contains_superset_with_ada: Pairs<
+    PolicyId,
+    Dict<AssetName, Int>,
+  > =
+  from_asset(
+    fixture_value_contains_policy_id,
+    fixture_value_contains_asset_name,
+    100,
+  )
+    |> assets.add(ada_policy_id, ada_asset_name, 1234)
+    |> assets.to_dict
+    |> dict.to_pairs
+
+const fixture_value_contains_subset: Pairs<PolicyId, Dict<AssetName, Int>> =
+  from_asset(
+    fixture_value_contains_policy_id,
+    fixture_value_contains_asset_name,
+    50,
+  )
+    |> assets.to_dict
+    |> dict.to_pairs
+
+// Test 'value_contains' with exact match
+test value_contains_exact_match() {
+  value_contains(
+    fixture_value_contains_superset,
+    fixture_value_contains_superset,
+  )
 }
 
-// Test 'match_assets' with more an ada mismatch
-test match_more_lovelace() {
-  let cs = #"0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c"
-  let in =
-    from_asset(cs, #"746f6b656e", 100)
-      |> add(ada_policy_id, ada_asset_name, 1234)
-      |> assets.to_dict
-  let out =
-    from_asset(cs, #"746f6b656e", 100)
-      |> add(ada_policy_id, ada_asset_name, 4321)
-      |> assets.to_dict
-
+// Test 'value_contains' with subset
+test value_contains_subset() {
   and {
-    match_assets(in, out),
-    match_assets(out, in),
+    value_contains(
+      fixture_value_contains_superset,
+      fixture_value_contains_subset,
+    )?,
+    value_contains(
+      fixture_value_contains_superset_with_ada,
+      fixture_value_contains_subset,
+    )?,
   }
 }
 
-// Test 'match_assets' with non-matching assets
-test match_less_lovelace() {
-  let cs = #"0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c"
-  let in =
-    from_asset(cs, #"746f6b656e", 50)
-      |> assets.to_dict
-  let out =
-    from_asset(cs, #"746f6b656e", 100)
-      |> assets.to_dict
-
-  and {
-    !match_assets(in, out),
-    !match_assets(out, in),
-  }
+// Test 'value_contains' with insufficient funds
+test value_contains_insufficient() {
+  !value_contains(
+    fixture_value_contains_subset,
+    fixture_value_contains_superset,
+  )
 }
 
 // Test is_signed_by

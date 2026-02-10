@@ -129,7 +129,32 @@ fn validate_transfer(
     )
 
   // The output must contain all the validated programmable tokens
-  utils.match_assets(validated_prog_value, output_prog_value)
+  // TODO: Check whether we can strengthen output requirement on prog tokens.
+  //
+  // Right now, the smart contract checks for inclusion of the validated tokens
+  // in outputs. Although, outputs are also already filtered by programmable
+  // logic credentials. So it seems to me that we could require that the
+  // filtered output value *exactly* matches the validated inputs' one, modulo
+  // lovelaces.
+  //
+  // The motivation: checking for exact match is MUCH faster.
+  //
+  // The cons: it doesn't allow one to add non-validated programmable tokens to
+  // the outputs, yet I fail to see when this can happen apart from when
+  // issuing new tokens (in which case, it would suffice to add the minting
+  // quantities to the 'input' value...).
+  //
+  // So, TL; DR; I believe this can be replaced with:
+  //
+  //   utils.match_assets(validated_prog_value, output_prog_value)
+  //
+  // But I need more familiarity with the desired specs to really confirm that.
+  //
+  // == Pre-condition ==
+  // The pre-condition of 'value_contains' is guaranteed here since both pairs
+  // are coming from 'Dict', thus guaranteeing key uniqueness and ordering.
+  dict.to_pairs(output_prog_value)
+    |> utils.value_contains(dict.to_pairs(validated_prog_value))
 }
 
 /// Validate a third party action (seizure, freeze, etc.) on multiple UTxOs
