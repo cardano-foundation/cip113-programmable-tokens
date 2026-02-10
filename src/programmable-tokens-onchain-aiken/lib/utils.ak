@@ -1,9 +1,9 @@
-use aiken/builtin
+//// Utility functions for CIP-0143 validators
+//// Migrated from various Plutarch utility modules
+
+use aiken/builtin.{head_list, tail_list}
 use aiken/collection/dict
 use aiken/collection/list
-// Utility functions for CIP-0143 validators
-// Migrated from various Plutarch utility modules
-
 use cardano/address.{Credential}
 use cardano/assets.{PolicyId, Value, flatten, quantity_of}
 use cardano/transaction.{InlineDatum, Input, Output, Transaction}
@@ -188,4 +188,12 @@ pub fn is_programmable_token_registration(
   let cs_matches = computed_cs == cs_to_insert
 
   has_minting? && cs_matches?
+}
+
+/// Search a specific key in an associative list, and fail if not found.
+pub fn expect_key(
+  haystack: List<Pair<Credential, a>>,
+  needle: Credential,
+) -> Bool {
+  head_list(haystack).1st == needle || expect_key(tail_list(haystack), needle)
 }
