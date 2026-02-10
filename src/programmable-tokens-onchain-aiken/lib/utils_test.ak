@@ -4,8 +4,7 @@ use aiken/interval
 use cardano/assets.{ada_asset_name, ada_policy_id, add, from_asset, zero}
 use cardano/transaction.{Transaction}
 use utils.{
-  bytearray_lt, count_unique_tokens, has_currency_symbol, is_signed_by,
-  value_contains,
+  bytearray_lt, count_unique_tokens, has_currency_symbol, is_signed_by, match,
 }
 
 // Test bytearray_lt with different bytearrays
@@ -62,29 +61,44 @@ test has_currency_symbol_absent() fail {
 }
 
 // Test value_contains with exact match
-test value_contains_exact_match() {
+test match_exact() {
   let cs = #"0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c"
-  let value = from_asset(cs, #"746f6b656e", 100)
+  let value =
+    from_asset(cs, #"746f6b656e", 100)
+      |> add(ada_policy_id, ada_asset_name, 1234)
+      |> assets.to_dict
 
-  value_contains(value, value)
+  match(value, value, >=)
 }
 
 // Test value_contains with subset
-test value_contains_subset() {
+test match_more_lovelace() {
   let cs = #"0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c"
-  let value = from_asset(cs, #"746f6b656e", 100)
-  let required = from_asset(cs, #"746f6b656e", 50)
+  let value =
+    from_asset(cs, #"746f6b656e", 100)
+      |> add(ada_policy_id, ada_asset_name, 4321)
+      |> assets.to_dict
+  let required =
+    from_asset(cs, #"746f6b656e", 100)
+      |> add(ada_policy_id, ada_asset_name, 1234)
+      |> assets.to_dict
 
-  value_contains(value, required)
+  match(value, required, >=)
 }
 
 // Test value_contains with insufficient amount
-test value_contains_insufficient() {
+test match_less_lovelace() {
   let cs = #"0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c"
-  let value = from_asset(cs, #"746f6b656e", 50)
-  let required = from_asset(cs, #"746f6b656e", 100)
+  let value =
+    from_asset(cs, #"746f6b656e", 100)
+      |> add(ada_policy_id, ada_asset_name, 1234)
+      |> assets.to_dict
+  let required =
+    from_asset(cs, #"746f6b656e", 100)
+      |> add(ada_policy_id, ada_asset_name, 4321)
+      |> assets.to_dict
 
-  !value_contains(value, required)
+  !match(value, required, >=)
 }
 
 // Test is_signed_by

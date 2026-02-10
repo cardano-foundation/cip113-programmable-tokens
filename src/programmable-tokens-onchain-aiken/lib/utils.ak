@@ -12,42 +12,8 @@ use cardano/assets.{
 }
 use cardano/transaction.{InlineDatum, Input, Output, Transaction}
 
-/// Check if a value contains at least the required amount of a specific asset
-pub fn value_contains(value: Value, required: Value) -> Bool {
-  list.all(
-    flatten(required),
-    fn(asset) {
-      let (policy, name, req_qty) = asset
-      quantity_of(value, policy, name) >= req_qty
-    },
-  )
-}
-
-// Is there any chance values have same assets.....
-pub fn value_contains_v2(value: Value, required: Value) -> Bool {
-  assets.reduce(
-    required,
-    True,
-    fn(policy, name, req_qty, acc) {
-      acc && quantity_of(value, policy, name) >= req_qty
-    },
-  )
-}
-
-// Is there any chance values have same assets.....
-pub fn expect_value_contains_v3(value: RawValue, required: Value) -> Void {
-  assets.reduce(
-    required,
-    Void,
-    fn(policy, name, req_qty, _acc) {
-      let qty =
-        value
-          |> dict.get_or_else(policy, fn() { fail })
-          |> dict.get_or_else(name, fn() { fail })
-      expect qty >= req_qty
-    },
-  )
-}
+pub type RawValue =
+  Dict<PolicyId, Dict<AssetName, Int>>
 
 /// Get the datum from an output, expecting an inline datum
 pub fn expect_inline_datum(output: Output) -> Data {
@@ -74,7 +40,7 @@ pub fn must_find_input(
   }
 }
 
-/// Check if a currency symbol is present in a value
+/// Check if a currency symbol is present in a value. Fail loudly if missing
 pub fn has_currency_symbol(haystack: Value, needle: PolicyId) -> Bool {
   // Fast skip first pair which is always ada
   let haystack = haystack |> assets.to_dict |> dict.to_pairs |> tail_list
@@ -91,52 +57,12 @@ fn do_has_currency_symbol(
 
 /// Count unique tokens in a value (number of distinct currency symbol + token name pairs)
 pub fn count_unique_tokens(value: Value) -> Int {
-  // Original
-  // flatten(value) |> list.length
   assets.reduce(value, 0, fn(_policy, _name, _amount, acc) { acc + 1 })
-}
-
-/// Get all outputs paying to a specific credential
-pub fn outputs_at_credential(
-  outputs: List<Output>,
-  cred: Credential,
-) -> List<Output> {
-  list.filter(outputs, fn(output) { output.address.payment_credential == cred })
-}
-
-/// Get all inputs spending from a specific credential
-pub fn inputs_from_credential(
-  inputs: List<Input>,
-  cred: Credential,
-) -> List<Input> {
-  list.filter(
-    inputs,
-    fn(input) { input.output.address.payment_credential == cred },
-  )
-}
-
-/// Count inputs from a specific credential
-pub fn count_inputs_from_credential(
-  inputs: List<Input>,
-  cred: Credential,
-) -> Int {
-  inputs_from_credential(inputs, cred) |> list.length
 }
 
 /// Check if a transaction is signed by a public key hash
 pub fn is_signed_by(tx: Transaction, pkh: ByteArray) -> Bool {
   list.any(tx.extra_signatories, fn(sig) { sig == pkh })
-}
-
-/// Check if a script is invoked (via withdrawal)
-pub fn is_script_invoked(tx: Transaction, script_cred: Credential) -> Bool {
-  list.any(
-    tx.withdrawals,
-    fn(withdrawal) {
-      let Pair(cred, _amount) = withdrawal
-      cred == script_cred
-    },
-  )
 }
 
 /// Get element at index from a list
@@ -209,28 +135,38 @@ pub fn is_programmable_token_registration(
 }
 
 /// Search a specific key in an associative list, and fail if not found.
-pub fn expect_key(
-  haystack: List<Pair<Credential, a>>,
-  needle: Credential,
-) -> Bool {
-  head_list(haystack).1st == needle || expect_key(tail_list(haystack), needle)
+pub fn has_key(haystack: List<Pair<Credential, a>>, needle: Credential) -> Bool {
+  head_list(haystack).1st == needle || has_key(tail_list(haystack), needle)
 }
 
-// A faster version of assets.merge that is specialized to positive values
-// (typically found in outputs). This allows to bypass the null check on value
-// since quantities can only ever increase.
-//
-// The function handles recurses over a list or input-like objects, and let the
-// caller select whether to add an output or not.
+/// A faster version of assets.merge that is specialized to positive values
+/// (typically found in outputs). This allows to bypass the null check on value
+/// since quantities can only ever increase.
+///
+/// The function handles recurses over a list or input-like objects, and let the
+/// caller select whether to add an output or not.
+///
+/// ## Example
+///
+/// ```aiken
+/// sum_output_values(
+///   self.inputs,
+///   fn(input, select, discard) {
+///     let output = input.output
+///     if output.address.payment_credential == needle {
+///       select(output)
+///     } else {
+///       discard()
+///     }
+///   },
+/// )
+/// ```
 pub fn sum_output_values(
   elems: List<i>,
   strategy: fn(i, fn(Output) -> RawValue, fn() -> RawValue) -> RawValue,
 ) -> RawValue {
   do_sum_output_values(elems, strategy, dict.empty)
 }
-
-pub type RawValue =
-  Dict<PolicyId, Dict<AssetName, Int>>
 
 fn do_sum_output_values(
   elems: List<i>,

@@ -1,12 +1,12 @@
+//// Programmable Logic Global Stake Validator
+//// This is the core CIP-0143 validator that coordinates all programmable token transfers
+//// Migrated from SmartTokens.Contracts.ProgrammableLogicBase (mkProgrammableLogicGlobal)
+
 use aiken/builtin.{head_list, tail_list}
 use aiken/collection/dict.{Dict}
 use aiken/collection/dict/strategy as dict_strategy
 use aiken/collection/list
 use aiken/collection/pairs
-// Programmable Logic Global Stake Validator
-// This is the core CIP-0143 validator that coordinates all programmable token transfers
-// Migrated from SmartTokens.Contracts.ProgrammableLogicBase (mkProgrammableLogicGlobal)
-
 use cardano/address.{Credential, Inline, Script, VerificationKey}
 use cardano/assets.{AssetName, PolicyId, Value, ada_policy_id, merge, zero}
 use cardano/transaction.{Input, Output, Transaction}
@@ -15,9 +15,8 @@ use types.{
   RegistryProof, ThirdPartyAct, TokenDoesNotExist, TokenExists, TransferAct,
 }
 use utils.{
-  RawValue, bytearray_lt, elem_at, expect_inline_datum, expect_key,
-  expect_value_contains_v3, has_currency_symbol, is_script_invoked, is_signed_by,
-  sum_output_values,
+  RawValue, bytearray_lt, elem_at, expect_inline_datum, has_currency_symbol,
+  has_key, is_signed_by, sum_output_values,
 }
 
 validator programmable_logic_global(protocol_params_cs: PolicyId) {
@@ -235,7 +234,7 @@ fn get_signed_prog_value(
             expect is_signed_by(tx, pkh)
           }
           Script(_hash) -> {
-            expect expect_key(tx.withdrawals, stake_cred)
+            expect has_key(tx.withdrawals, stake_cred)
           }
         }
         select(output)
@@ -382,7 +381,7 @@ fn validate_single_cs(
       expect node.key == cs
 
       // Validate the transfer logic script is invoked
-      expect_key(self.withdrawals, node.transfer_logic_script)
+      has_key(self.withdrawals, node.transfer_logic_script)
     }
 
     TokenDoesNotExist { node_idx } -> {

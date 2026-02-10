@@ -5,7 +5,7 @@
 
 use cardano/address.{Credential}
 use cardano/transaction.{Transaction}
-use utils.{expect_key}
+use utils.{has_key}
 
 validator programmable_logic_base(stake_cred: Credential) {
   spend(
@@ -19,7 +19,7 @@ validator programmable_logic_base(stake_cred: Credential) {
     // The programmable logic base validator simply checks that the global
     // programmable logic stake script is invoked in the transaction via the
     // withdraw-zero pattern Check that the stake credential is invoked
-    self.withdrawals |> expect_key(stake_cred)
+    self.withdrawals |> has_key(stake_cred)
   }
 
   else(_) {
