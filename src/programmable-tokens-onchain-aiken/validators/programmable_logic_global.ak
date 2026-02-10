@@ -14,8 +14,8 @@ use types.{
   RegistryProof, ThirdPartyAct, TokenDoesNotExist, TokenExists, TransferAct,
 }
 use utils.{
-  bytearray_lt, elem_at, expect_inline_datum, expect_value_contains_v3,
-  has_currency_symbol, is_script_invoked, is_signed_by,
+  bytearray_lt, elem_at, expect_inline_datum, expect_key,
+  expect_value_contains_v3, has_currency_symbol, is_script_invoked, is_signed_by,
 }
 
 validator programmable_logic_global(protocol_params_cs: PolicyId) {
@@ -36,14 +36,9 @@ validator programmable_logic_global(protocol_params_cs: PolicyId) {
     let registry_node_cs = params.registry_node_cs
 
     // Get all invoked scripts via withdrawals
-    let invoked_scripts =
-      list.map(
-        self.withdrawals,
-        fn(wdrl) {
-          let Pair(cred, _amount) = wdrl
-          cred
-        },
-      )
+    let expect_withdrawal =
+      expect_key(self.withdrawals, _)
+
     when redeemer is {
       TransferAct { proofs } ->
         validate_transfer(
@@ -51,15 +46,28 @@ validator programmable_logic_global(protocol_params_cs: PolicyId) {
           prog_logic_cred,
           registry_node_cs,
           proofs,
-          invoked_scripts,
+          expect_withdrawal,
         )
-
       ThirdPartyAct {
         registry_node_idx,
         input_idxs,
         outputs_start_idx,
         length_input_idxs,
-      } ->
+      } -> {
+        // FIXME: Inconsistent invoked scripts check
+        //
+        // This code used to be shared between the transfer and 3rd party
+        // actions; we refactored transfered to use a pre-applied function
+        // instead, but not this branch (yet).
+        let invoked_scripts =
+          list.map(
+            self.withdrawals,
+            fn(wdrl) {
+              let Pair(cred, _amount) = wdrl
+              cred
+            },
+          )
+
         validate_third_party(
           self,
           prog_logic_cred,
@@ -70,6 +78,7 @@ validator programmable_logic_global(protocol_params_cs: PolicyId) {
           length_input_idxs,
           invoked_scripts,
         )
+      }
     }
   }
 
@@ -96,7 +105,7 @@ fn validate_transfer(
   prog_logic_cred: Credential,
   registry_node_cs: PolicyId,
   proofs: List<RegistryProof>,
-  invoked_scripts: List<Credential>,
+  expect_withdrawal: fn(Credential) -> Bool,
 ) -> Bool {
   // Calculate the total value of programmable tokens being transferred
   // by summing all inputs from the programmable logic credential
@@ -115,7 +124,7 @@ fn validate_transfer(
       registry_node_cs,
       tx.reference_inputs,
       proofs,
-      invoked_scripts,
+      expect_withdrawal,
     )
 
   let output_prog_value =
@@ -135,6 +144,7 @@ fn validate_transfer(
 
   // The output must contain all the validated programmable tokens
   expect_value_contains_v3(output_prog_value, validated_prog_value)
+
   True
 }
 
@@ -321,7 +331,7 @@ fn check_transfer_and_compute_prog_value(
   registry_node_cs: PolicyId,
   reference_inputs: List<Input>,
   proofs: List<RegistryProof>,
-  invoked_scripts: List<Credential>,
+  expect_withdrawal: fn(Credential) -> Bool,
 ) -> Value {
   let
     remaining_proofs,
@@ -334,7 +344,7 @@ fn check_transfer_and_compute_prog_value(
         |> pairs.delete_first(ada_policy_id),
       registry_node_cs,
       reference_inputs,
-      invoked_scripts,
+      expect_withdrawal,
       proofs,
       zero,
     )
@@ -346,7 +356,7 @@ fn do_check_transfer(
   my_value: Pairs<PolicyId, Dict<ByteArray, Int>>,
   registry_node_cs: PolicyId,
   reference_inputs: List<Input>,
-  invoked_scripts: List<Credential>,
+  expect_withdrawal: fn(Credential) -> Bool,
   proofs: List<RegistryProof>,
   acc: Value,
   return: fn(List<RegistryProof>, Value) -> result,
@@ -363,7 +373,7 @@ fn do_check_transfer(
               proof,
               reference_inputs,
               registry_node_cs,
-              invoked_scripts,
+              expect_withdrawal,
             )
 
           let new_acc =
@@ -383,7 +393,7 @@ fn do_check_transfer(
             rest,
             registry_node_cs,
             reference_inputs,
-            invoked_scripts,
+            expect_withdrawal,
             rest_proofs,
             new_acc,
             return,
@@ -399,7 +409,7 @@ fn validate_currency_symbols(
   proofs: List<RegistryProof>,
   reference_inputs: List<Input>,
   registry_node_cs: PolicyId,
-  invoked_scripts: List<Credential>,
+  expect_withdrawal: fn(Credential) -> Bool,
   original_value: Value,
   acc_value: Value,
 ) -> Value {
@@ -420,7 +430,7 @@ fn validate_currency_symbols(
               proof,
               reference_inputs,
               registry_node_cs,
-              invoked_scripts,
+              expect_withdrawal,
             )
 
           let new_acc =
@@ -441,7 +451,7 @@ fn validate_currency_symbols(
             rest_proofs,
             reference_inputs,
             registry_node_cs,
-            invoked_scripts,
+            expect_withdrawal,
             original_value,
             new_acc,
           )
@@ -459,7 +469,7 @@ fn validate_single_cs(
   proof: RegistryProof,
   reference_inputs: List<Input>,
   registry_node_cs: PolicyId,
-  invoked_scripts: List<Credential>,
+  expect_withdrawal: fn(Credential) -> Bool,
 ) -> Bool {
   when proof is {
     TokenExists { node_idx } -> {
@@ -473,11 +483,9 @@ fn validate_single_cs(
       expect has_currency_symbol(node_input.output.value, registry_node_cs)
       // Validate the node's key matches the currency symbol
       expect node.key == cs
-      // Validate the transfer logic script is invoked
-      expect list.has(invoked_scripts, node.transfer_logic_script)
 
-      // This IS a programmable token
-      True
+      // Validate the transfer logic script is invoked
+      expect_withdrawal(node.transfer_logic_script)
     }
 
     TokenDoesNotExist { node_idx } -> {
@@ -489,6 +497,7 @@ fn validate_single_cs(
       // All checks must pass to prove non-membership, or transaction fails
       // Validate this is a legitimate registry node
       expect has_currency_symbol(node_input.output.value, registry_node_cs)
+
       // Validate the node covers the currency symbol (nodeKey < cs < nodeNext)
       expect bytearray_lt(node.key, cs)
       expect bytearray_lt(cs, node.next)
