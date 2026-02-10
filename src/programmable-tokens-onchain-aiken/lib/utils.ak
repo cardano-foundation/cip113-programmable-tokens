@@ -6,7 +6,10 @@ use aiken/collection/dict.{Dict}
 use aiken/collection/dict/strategy as dict_strategy
 use aiken/collection/list
 use cardano/address.{Credential}
-use cardano/assets.{AssetName, PolicyId, Value, flatten, quantity_of}
+use cardano/assets.{
+  AssetName, Lovelace, PolicyId, Value, ada_asset_name, ada_policy_id, flatten,
+  quantity_of,
+}
 use cardano/transaction.{InlineDatum, Input, Output, Transaction}
 
 /// Check if a value contains at least the required amount of a specific asset
@@ -256,4 +259,51 @@ fn do_sum_output_values(
         ),
       )
   }
+}
+
+// Unfortunate... This is a copy-paste from Aiken's stdlib but with the first parameter as RawValue.
+//
+// Aiken's stdlib should be amended instead to take `Data` as first argument
+// instead of `Value`. This would allow better reuse of the function.
+pub fn match(
+  left: RawValue,
+  right: Data,
+  assert_lovelace: fn(Lovelace, Lovelace) -> Bool,
+) -> Bool {
+  builtin.choose_data(
+    right,
+    False,
+    {
+      let (left_lovelace, left_assets) = dict.pop(left, ada_policy_id)
+      let left_assets: Data = left_assets
+      let left_lovelace =
+        when left_lovelace is {
+          Some(tokens) -> builtin.head_list(dict.to_pairs(tokens)).2nd
+          None -> 0
+        }
+      when builtin.un_map_data(right) is {
+        [] -> left_assets == right && assert_lovelace(left_lovelace, 0)
+        [first_asset, ..right_assets] ->
+          if first_asset.1st == builtin.b_data(ada_policy_id) {
+            and {
+              assert_lovelace(
+                left_lovelace,
+                builtin.un_i_data(
+                  builtin.head_list(builtin.un_map_data(first_asset.2nd)).2nd,
+                ),
+              ),
+              left_assets == builtin.map_data(right_assets),
+            }
+          } else {
+            and {
+              assert_lovelace(left_lovelace, 0),
+              left_assets == right,
+            }
+          }
+      }
+    },
+    False,
+    False,
+    False,
+  )
 }

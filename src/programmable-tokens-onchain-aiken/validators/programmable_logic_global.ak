@@ -1,5 +1,6 @@
 use aiken/builtin.{head_list, tail_list}
 use aiken/collection/dict.{Dict}
+use aiken/collection/dict/strategy as dict_strategy
 use aiken/collection/list
 use aiken/collection/pairs
 // Programmable Logic Global Stake Validator
@@ -7,7 +8,7 @@ use aiken/collection/pairs
 // Migrated from SmartTokens.Contracts.ProgrammableLogicBase (mkProgrammableLogicGlobal)
 
 use cardano/address.{Credential, Inline, Script, VerificationKey}
-use cardano/assets.{PolicyId, Value, ada_policy_id, merge, zero}
+use cardano/assets.{AssetName, PolicyId, Value, ada_policy_id, merge, zero}
 use cardano/transaction.{Input, Output, Transaction}
 use types.{
   ProgrammableLogicGlobalParams, ProgrammableLogicGlobalRedeemer, RegistryNode,
@@ -130,7 +131,7 @@ fn validate_transfer(
     )
 
   // The output must contain all the validated programmable tokens
-  assets.match(
+  utils.match(
     validated_prog_value,
     output_prog_value,
     fn(validated, in_outputs) { in_outputs >= validated },
@@ -257,63 +258,66 @@ fn check_transfer_and_compute_prog_value(
   value: RawValue,
   registry_node_cs: PolicyId,
   proofs: List<RegistryProof>,
-) -> Value {
+) -> RawValue {
+  let assets = tail_list(dict.to_pairs(value))
+
   let
     remaining_proofs,
     acc_value,
-  <-
-    do_check_transfer(
-      self,
-      value
-        |> dict.to_pairs
-        |> pairs.delete_first(ada_policy_id),
-      registry_node_cs,
-      proofs,
-      zero,
-    )
+  <- do_check_transfer(self, assets, registry_node_cs, proofs, dict.empty)
+
   expect [] == remaining_proofs
+
   acc_value
 }
 
 fn do_check_transfer(
   self: Transaction,
-  my_value: Pairs<PolicyId, Dict<ByteArray, Int>>,
+  assets: Pairs<PolicyId, Dict<AssetName, Int>>,
   registry_node_cs: PolicyId,
   proofs: List<RegistryProof>,
-  acc: Value,
-  return: fn(List<RegistryProof>, Value) -> result,
+  acc: RawValue,
+  return: fn(List<RegistryProof>, RawValue) -> result,
 ) -> result {
-  when my_value is {
+  when assets is {
     [] -> return(proofs, acc)
-    [Pair(cs, tokens), ..rest] ->
-      when proofs is {
-        [] -> fail @"Not enough proofs for currency symbols"
-        [proof, ..rest_proofs] -> {
-          let validated = validate_single_cs(self, cs, proof, registry_node_cs)
+    [Pair(cs, tokens), ..rest] -> {
+      let proof = head_list(proofs)
+      let validated = validate_single_cs(self, cs, proof, registry_node_cs)
 
-          let new_acc =
-            if validated {
-              // Add this CS's tokens from the original value to the accumulator
-              dict.foldl(
-                tokens,
-                acc,
-                fn(name, amount, acc) { assets.add(acc, cs, name, amount) },
-              )
-            } else {
-              // Not a programmable token, skip it
-              acc
-            }
-
-          do_check_transfer(
-            self,
-            rest,
-            registry_node_cs,
-            rest_proofs,
-            new_acc,
-            return,
-          )
+      // TODO: Failing-fast when finding non-validated programmable tokens?
+      //
+      // This seems a little suspicious but I do not want to alter the logic
+      // without diving more into the spec and what's the expected behaviour
+      // here.
+      //
+      // What is "suspicious" here is that we are already iterating over an
+      // asset list that was obtained from looping over the inputs, and
+      // selecting only tokens that were locked by the programmable logic
+      // script, and with a matching transfer logic as stake script.
+      //
+      // Couldn't we simply fail if any such token found in inputs appear to be
+      // unauthenticated? It would save quite some cost, as we are otherwise
+      // forced to re-create a whole new value object, which in the nominal
+      // case end up being the same as the original object.
+      let new_acc =
+        if validated {
+          // Validated programmable token, keep it.
+          dict.insert(acc, cs, tokens)
+        } else {
+          // Not a programmable token, skip it
+          acc
         }
-      }
+
+      do_check_transfer(
+        self,
+        rest,
+        registry_node_cs,
+        tail_list(proofs),
+        new_acc,
+        return,
+      )
+    }
   }
 }
 
