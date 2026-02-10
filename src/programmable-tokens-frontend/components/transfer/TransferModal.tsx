@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { X, Send, CheckCircle, ExternalLink } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { transferToken, getProtocolBlueprint, getProtocolBootstrap, getSubstandardBlueprint } from "@/lib/api";
+import { transferToken, getProtocolBlueprint, getProtocolBootstrap, getSubstandardBlueprint, getTokenContext } from "@/lib/api";
 import { TransferTokenRequest, ParsedAsset } from "@/types/api";
 import { useProtocolVersion } from "@/contexts/protocol-version-context";
 import { useToast } from "@/components/ui/use-toast";
@@ -16,7 +16,7 @@ import {
   TransactionBuilderToggle,
   TransactionBuilder,
 } from "@/components/mint/transaction-builder-toggle";
-import { getSubstandardHandler } from "@/lib/mesh-sdk/standard/factory";
+import { getSubstandardHandler, SubstandardId } from "@/lib/mesh-sdk/standard/factory";
 import type { TransferTransactionParams } from "@/lib/mesh-sdk/standard/factory";
 import type { IWallet } from "@meshsdk/core";
 import { getNetworkId } from "@/lib/mesh-sdk/config";
@@ -130,9 +130,10 @@ export function TransferModal({
           variant: "default",
         });
 
-        // Determine substandard from asset (default to 'dummy' for now)
-        // TODO: Get substandardId from asset metadata when available
-        const substandardId = "dummy";
+        // Resolve substandard and context from backend
+        const tokenPolicyId = asset.unit.substring(0, 56);
+        const tokenContext = await getTokenContext(tokenPolicyId);
+        const substandardId = tokenContext.substandardId;
 
         // Fetch protocol data
         const protocolTxHash = selectedVersion?.txHash;
@@ -145,7 +146,7 @@ export function TransferModal({
 
         // Get substandard handler
         const handler = getSubstandardHandler(
-          substandardId as "dummy" | "bafin"
+          substandardId as SubstandardId
         );
 
         // Prepare transfer parameters
@@ -154,6 +155,9 @@ export function TransferModal({
           quantity,
           recipientAddress: recipientAddress.trim(),
           networkId: getNetworkId(),
+          context: {
+            blacklistNodePolicyId: tokenContext.blacklistNodePolicyId,
+          },
         };
         // Build transaction client-side using Mesh SDK
         unsignedCborTx = await handler.buildTransferTransaction(
@@ -378,7 +382,7 @@ export function TransferModal({
 
               <div className="flex gap-3 w-full">
                 <a
-                  href={getExplorerTxUrl(network, txHash)}
+                  href={getExplorerTxUrl(txHash)}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="flex-1"

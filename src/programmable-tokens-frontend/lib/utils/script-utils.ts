@@ -26,6 +26,26 @@ export const findSubstandardValidator = (
   return validator.script_bytes;
 };
 
+export interface BlacklistNode {
+  key: string;
+  next: string;
+}
+
+export function parseBlacklistNodeDatum(datum: any): BlacklistNode | null {
+  if (!datum?.fields || datum.fields.length < 2) return null;
+  return {
+    key: datum.fields[0].bytes,
+    next: datum.fields[1].bytes,
+  };
+}
+
+export function sortTxInputRefs(inputs: { txHash: string; outputIndex: number }[]) {
+  return [...inputs].sort((a, b) => {
+    const cmp = a.txHash.localeCompare(b.txHash);
+    return cmp !== 0 ? cmp : a.outputIndex - b.outputIndex;
+  });
+}
+
 export function parseRegistryDatum(datum: any): RegistryDatum | null {
   if (!datum?.fields || datum.fields.length < 5) {
     return null;
