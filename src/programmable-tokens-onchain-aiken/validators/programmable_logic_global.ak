@@ -14,8 +14,9 @@ use types.{
   RegistryProof, ThirdPartyAct, TokenDoesNotExist, TokenExists, TransferAct,
 }
 use utils.{
-  bytearray_lt, elem_at, expect_inline_datum, expect_key,
+  RawValue, bytearray_lt, elem_at, expect_inline_datum, expect_key,
   expect_value_contains_v3, has_currency_symbol, is_script_invoked, is_signed_by,
+  sum_output_values,
 }
 
 validator programmable_logic_global(protocol_params_cs: PolicyId) {
@@ -104,7 +105,7 @@ fn validate_transfer(
 
   // Sum up the value from those inputs
   // let total_prog_value = sum_input_values(prog_inputs)
-  let total_prog_value = get_signed_prog_value(tx, prog_logic_cred)
+  let total_prog_value: RawValue = get_signed_prog_value(tx, prog_logic_cred)
 
   // Check transfer logic for each programmable token type and filter to only programmable tokens
   let validated_prog_value =
@@ -115,17 +116,15 @@ fn validate_transfer(
       proofs,
     )
 
-  let output_prog_value =
-    list.foldl(
+  let output_prog_value: RawValue =
+    sum_output_values(
       tx.outputs,
-      assets.zero,
-      fn(output, acc) {
+      fn(output, select, discard) {
         if output.address.payment_credential == prog_logic_cred {
           expect Some(Inline(_stake_cred)) = output.address.stake_credential
-          // expensive
-          merge(acc, output.value)
+          select(output)
         } else {
-          acc
+          discard()
         }
       },
     )
@@ -219,95 +218,31 @@ fn validate_third_party(
   True
 }
 
-fn get_signed_prog_value(tx: Transaction, prog_logic_cred: Credential) -> Value {
-  list.foldl(
+fn get_signed_prog_value(
+  tx: Transaction,
+  prog_logic_cred: Credential,
+) -> RawValue {
+  sum_output_values(
     tx.inputs,
-    assets.zero,
-    fn(input, acc) {
-      if input.output.address.payment_credential == prog_logic_cred {
-        expect Some(Inline(stake_cred)) = input.output.address.stake_credential
-
+    fn(input, select, discard) {
+      let output = input.output
+      if output.address.payment_credential == prog_logic_cred {
+        expect Some(Inline(stake_cred)) = output.address.stake_credential
         when stake_cred is {
-          VerificationKey(pkh) ->
-            if is_signed_by(tx, pkh) {
-              merge(acc, input.output.value)
-            } else {
-              fail @"Missing required pk witness"
-            }
-          Script(_hash) ->
-            if is_script_invoked(tx, stake_cred) {
-              merge(acc, input.output.value)
-            } else {
-              fail @"Missing required script witness"
-            }
+          VerificationKey(pkh) -> {
+            expect is_signed_by(tx, pkh)
+          }
+          Script(_hash) -> {
+            expect expect_key(tx.withdrawals, stake_cred)
+          }
         }
+        select(output)
       } else {
-        acc
+        discard()
       }
     },
   )
 }
-
-// fn get_signed_prog_inputs(
-//   tx: Transaction,
-//   prog_logic_cred: Credential,
-// ) -> List<Input> {
-//   // First, collect ALL inputs from prog_logic_cred
-//   let prog_cred_inputs =
-//     list.filter(
-//       tx.inputs,
-//       fn(input) { input.output.address.payment_credential == prog_logic_cred },
-//     )
-
-//   // Verify each input is properly authorized and return them
-//   // If any input is NOT authorized, the transaction fails with an error
-//   list.map(
-//     prog_cred_inputs,
-//     fn(input) {
-//       expect Some(Inline(stake_cred)) = input.output.address.stake_credential
-
-//       when stake_cred is {
-//         VerificationKey(pkh) ->
-//           if is_signed_by(tx, pkh) {
-//             input
-//           } else {
-//             fail @"Missing required pk witness"
-//           }
-//         Script(_hash) ->
-//           if is_script_invoked(tx, stake_cred) {
-//             input
-//           } else {
-//             fail @"Missing required script witness"
-//           }
-//       }
-//     },
-//   )
-// }
-
-// fn sum_input_values(inputs: List<Input>) -> Value {
-//   list.foldl(inputs, zero, fn(input, acc) { merge(acc, input.output.value) })
-// }
-
-// fn check_transfer_logic_and_filter(
-//   value: Value,
-//   registry_node_cs: PolicyId,
-//   reference_inputs: List<Input>,
-//   proofs: List<RegistryProof>,
-//   invoked_scripts: List<Credential>,
-// ) -> Value {
-//   expect [_, ..currency_symbols] = policies(value)
-//   // For each currency symbol, check the proof
-//   validate_currency_symbols(
-//     currency_symbols,
-//     proofs,
-//     reference_inputs,
-//     registry_node_cs,
-//     invoked_scripts,
-//     value,
-//     // Pass the original value so we can filter by CS
-//     zero,
-//   )
-// }
 
 /// Get inputs from prog_logic_cred and verify ALL have proper authorization
 /// This function enforces ownership by requiring that every input from prog_logic_cred
@@ -317,7 +252,7 @@ fn get_signed_prog_value(tx: Transaction, prog_logic_cred: Credential) -> Value 
 /// Check transfer logic for each currency symbol and filter to only programmable tokens
 fn check_transfer_and_compute_prog_value(
   self: Transaction,
-  value: Value,
+  value: RawValue,
   registry_node_cs: PolicyId,
   proofs: List<RegistryProof>,
 ) -> Value {
@@ -328,7 +263,6 @@ fn check_transfer_and_compute_prog_value(
     do_check_transfer(
       self,
       value
-        |> assets.to_dict
         |> dict.to_pairs
         |> pairs.delete_first(ada_policy_id),
       registry_node_cs,

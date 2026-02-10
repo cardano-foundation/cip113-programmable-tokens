@@ -2,10 +2,11 @@
 //// Migrated from various Plutarch utility modules
 
 use aiken/builtin.{head_list, tail_list}
-use aiken/collection/dict
+use aiken/collection/dict.{Dict}
+use aiken/collection/dict/strategy as dict_strategy
 use aiken/collection/list
 use cardano/address.{Credential}
-use cardano/assets.{PolicyId, Value, flatten, quantity_of}
+use cardano/assets.{AssetName, PolicyId, Value, flatten, quantity_of}
 use cardano/transaction.{InlineDatum, Input, Output, Transaction}
 
 /// Check if a value contains at least the required amount of a specific asset
@@ -31,12 +32,16 @@ pub fn value_contains_v2(value: Value, required: Value) -> Bool {
 }
 
 // Is there any chance values have same assets.....
-pub fn expect_value_contains_v3(value: Value, required: Value) -> Void {
+pub fn expect_value_contains_v3(value: RawValue, required: Value) -> Void {
   assets.reduce(
     required,
     Void,
     fn(policy, name, req_qty, _acc) {
-      expect quantity_of(value, policy, name) >= req_qty
+      let qty =
+        value
+          |> dict.get_or_else(policy, fn() { fail })
+          |> dict.get_or_else(name, fn() { fail })
+      expect qty >= req_qty
     },
   )
 }
@@ -203,4 +208,52 @@ pub fn expect_key(
   needle: Credential,
 ) -> Bool {
   head_list(haystack).1st == needle || expect_key(tail_list(haystack), needle)
+}
+
+// A faster version of assets.merge that is specialized to positive values
+// (typically found in outputs). This allows to bypass the null check on value
+// since quantities can only ever increase.
+//
+// The function handles recurses over a list or input-like objects, and let the
+// caller select whether to add an output or not.
+pub fn sum_output_values(
+  elems: List<i>,
+  strategy: fn(i, fn(Output) -> RawValue, fn() -> RawValue) -> RawValue,
+) -> RawValue {
+  do_sum_output_values(elems, strategy, dict.empty)
+}
+
+pub type RawValue =
+  Dict<PolicyId, Dict<AssetName, Int>>
+
+fn do_sum_output_values(
+  elems: List<i>,
+  strategy: fn(i, fn(Output) -> RawValue, fn() -> RawValue) -> RawValue,
+  sum: RawValue,
+) -> RawValue {
+  when elems is {
+    [] -> sum
+    [head, ..tail] ->
+      do_sum_output_values(
+        tail,
+        strategy,
+        strategy(
+          head,
+          // Output is selected
+          fn(output) {
+            output.value
+              |> assets.to_dict
+              |> dict.union_with(
+                  sum,
+                  _,
+                  fn(_, left, right, keep, _discard) {
+                    keep(dict.union_with(left, right, dict_strategy.sum()))
+                  },
+                )
+          },
+          // Output is discarded
+          fn() { sum },
+        ),
+      )
+  }
 }
