@@ -1,3 +1,4 @@
+use aiken/builtin.{head_list, tail_list}
 use aiken/collection/dict.{Dict}
 use aiken/collection/list
 use aiken/collection/pairs
@@ -26,13 +27,11 @@ validator programmable_logic_global(protocol_params_cs: PolicyId) {
     trace @"Starting programmable_logic_global validation"
 
     // Extract protocol parameters from reference inputs
-    let protocol_params_ref <-
+    let protocol_params_ref =
       get_protocol_params_ref(protocol_params_cs, self.reference_inputs)
-
     let protocol_params_utxo = protocol_params_ref.output
     let params_datum = expect_inline_datum(protocol_params_utxo)
     expect params: ProgrammableLogicGlobalParams = params_datum
-
     let prog_logic_cred = params.prog_logic_cred
     let registry_node_cs = params.registry_node_cs
 
@@ -79,19 +78,15 @@ validator programmable_logic_global(protocol_params_cs: PolicyId) {
   }
 }
 
-fn get_protocol_params_ref(
+pub fn get_protocol_params_ref(
   protocol_params_cs: PolicyId,
   ref_inputs: List<Input>,
-  return: fn(Input) -> result,
-) -> result {
-  when ref_inputs is {
-    [] -> fail @"Protocol parameters reference input not found"
-    [first_ref, ..rest_refs] ->
-      if has_currency_symbol(first_ref.output.value, protocol_params_cs) {
-        return(first_ref)
-      } else {
-        get_protocol_params_ref(protocol_params_cs, rest_refs, return)
-      }
+) -> Input {
+  let head = head_list(ref_inputs)
+  if has_currency_symbol(head.output.value, protocol_params_cs) {
+    head
+  } else {
+    get_protocol_params_ref(protocol_params_cs, tail_list(ref_inputs))
   }
 }
 

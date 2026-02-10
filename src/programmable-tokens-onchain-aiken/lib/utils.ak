@@ -67,11 +67,18 @@ pub fn must_find_input(
 }
 
 /// Check if a currency symbol is present in a value
-pub fn has_currency_symbol(value: Value, cs: PolicyId) -> Bool {
-  // Check if I have assets name () -> quantity_of
-  // to_dict - values are dict. , and 
-  assets.to_dict(value) |> dict.has_key(cs)
-  // !dict.is_empty(tokens(value, cs))
+pub fn has_currency_symbol(haystack: Value, needle: PolicyId) -> Bool {
+  // Fast skip first pair which is always ada
+  let haystack = haystack |> assets.to_dict |> dict.to_pairs |> tail_list
+  do_has_currency_symbol(haystack, needle)
+}
+
+fn do_has_currency_symbol(
+  haystack: List<Pair<PolicyId, a>>,
+  needle: PolicyId,
+) -> Bool {
+  let Pair(candidate, _) = head_list(haystack)
+  candidate == needle || do_has_currency_symbol(tail_list(haystack), needle)
 }
 
 /// Count unique tokens in a value (number of distinct currency symbol + token name pairs)

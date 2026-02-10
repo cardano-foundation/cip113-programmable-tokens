@@ -44,18 +44,21 @@ test count_unique_tokens_multiple() {
 // Test has_currency_symbol
 test has_currency_symbol_present() {
   let cs = #"0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c"
-  let value = from_asset(cs, #"746f6b656e", 100)
-
+  let value =
+    from_asset(cs, #"746f6b656e", 100)
+      |> add(ada_policy_id, ada_asset_name, 1000000)
   has_currency_symbol(value, cs)
 }
 
 // Test has_currency_symbol absent
-test has_currency_symbol_absent() {
+test has_currency_symbol_absent() fail {
   let cs1 = #"0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c"
   let cs2 = #"1112131415161718191a1b1c0d0e0f0102030405060708090a0b0c0d"
-  let value = from_asset(cs1, #"746f6b656e", 100)
+  let value =
+    from_asset(cs1, #"746f6b656e", 100)
+      |> add(ada_policy_id, ada_asset_name, 1000000)
 
-  !has_currency_symbol(value, cs2)
+  has_currency_symbol(value, cs2)
 }
 
 // Test value_contains with exact match
