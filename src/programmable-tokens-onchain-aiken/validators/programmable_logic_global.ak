@@ -43,21 +43,7 @@ validator programmable_logic_global(protocol_params_cs: PolicyId) {
         input_idxs,
         outputs_start_idx,
         length_input_idxs,
-      } -> {
-        // FIXME: Inconsistent invoked scripts check
-        //
-        // This code used to be shared between the transfer and 3rd party
-        // actions; we refactored transfered to use a pre-applied function
-        // instead, but not this branch (yet).
-        let invoked_scripts =
-          list.map(
-            self.withdrawals,
-            fn(wdrl) {
-              let Pair(cred, _amount) = wdrl
-              cred
-            },
-          )
-
+      } ->
         validate_third_party(
           self,
           prog_logic_cred,
@@ -66,9 +52,7 @@ validator programmable_logic_global(protocol_params_cs: PolicyId) {
           input_idxs,
           outputs_start_idx,
           length_input_idxs,
-          invoked_scripts,
         )
-      }
     }
   }
 
@@ -166,7 +150,6 @@ fn validate_third_party(
   input_idxs: List<Int>,
   outputs_start_idx: Int,
   length_input_idxs: Int,
-  invoked_scripts: List<Credential>,
 ) -> Bool {
   trace @"validate_third_party: processing multiple inputs"
 
@@ -232,7 +215,7 @@ fn validate_third_party(
   expect has_currency_symbol(registry_ref_input.output.value, registry_node_cs)
   // The third party transfer logic script must be invoked
   expect
-    list.has(invoked_scripts, registry_node.third_party_transfer_logic_script)
+    has_key(tx.withdrawals, registry_node.third_party_transfer_logic_script)
   // Must match the number of inputs we're processing
   expect prog_input_count == length_input_idxs
 
