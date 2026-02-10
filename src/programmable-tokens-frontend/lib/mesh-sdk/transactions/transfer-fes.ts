@@ -289,6 +289,7 @@ const transfer_freeze_and_seize_token = async (
   }
 
   // Build transaction
+
   const txBuilder = new MeshTxBuilder({
     fetcher: provider,
     submitter: provider,
@@ -306,17 +307,19 @@ const transfer_freeze_and_seize_token = async (
       .txInInlineDatumPresent();
   }
 
-  // Withdrawal validators: substandard transfer + global logic
+  // Withdrawal validators: global logic first, then substandard transfer
+  // (swapped order — Cardano sorts withdrawals by reward address,
+  //  Mesh may not re-sort redeemers to match)
   txBuilder
-    .withdrawalPlutusScriptV3()
-    .withdrawal(substandard_transfer.reward_address, "0")
-    .withdrawalScript(substandard_transfer.cbor)
-    .withdrawalRedeemerValue(fesRedeemer, "JSON")
-
     .withdrawalPlutusScriptV3()
     .withdrawal(logic_global.reward_address, "0")
     .withdrawalScript(logic_global.cbor)
     .withdrawalRedeemerValue(programmableLogicGlobalRedeemer, "JSON")
+
+    .withdrawalPlutusScriptV3()
+    .withdrawal(substandard_transfer.reward_address, "0")
+    .withdrawalScript(substandard_transfer.cbor)
+    .withdrawalRedeemerValue(fesRedeemer, "JSON")
     .requiredSignerHash(senderCredential!.toString())
 
     .txOut(changeAddress, [
