@@ -2,14 +2,14 @@
 //// This is the core CIP-0143 validator that coordinates all programmable token transfers
 //// Migrated from SmartTokens.Contracts.ProgrammableLogicBase (mkProgrammableLogicGlobal)
 
-use aiken/builtin.{head_list, tail_list}
+use aiken/builtin.{head_list, tail_list, un_constr_data, unconstr_fields}
 use aiken/collection/dict.{Dict}
 use aiken/collection/dict/strategy as dict_strategy
 use aiken/collection/list
 use aiken/collection/pairs
 use cardano/address.{Credential, Inline, Script, VerificationKey}
 use cardano/assets.{AssetName, PolicyId, Value, ada_policy_id, merge, zero}
-use cardano/transaction.{Input, Output, Transaction}
+use cardano/transaction.{Datum, InlineDatum, Input, Output, Transaction}
 use types.{
   ProgrammableLogicGlobalParams, ProgrammableLogicGlobalRedeemer, RegistryNode,
   RegistryProof, ThirdPartyAct, TokenDoesNotExist, TokenExists, TransferAct,
@@ -30,11 +30,10 @@ validator programmable_logic_global(protocol_params_cs: PolicyId) {
     // Extract protocol parameters from reference inputs
     let protocol_params_ref =
       get_protocol_params_ref(protocol_params_cs, self.reference_inputs)
-    let protocol_params_utxo = protocol_params_ref.output
-    let params_datum = expect_inline_datum(protocol_params_utxo)
-    expect params: ProgrammableLogicGlobalParams = params_datum
-    let prog_logic_cred = params.prog_logic_cred
-    let registry_node_cs = params.registry_node_cs
+    let
+      registry_node_cs,
+      prog_logic_cred,
+    <- expect_programmable_logic_params(protocol_params_ref.output.datum)
 
     when redeemer is {
       TransferAct { proofs } ->
@@ -388,39 +387,67 @@ fn validate_single_cs(
   proof: RegistryProof,
   registry_node_cs: PolicyId,
 ) -> Bool {
+  expect node_idx: Int = head_list(unconstr_fields(proof))
+
+  // Get the registry node details
+  let node_input = elem_at(self.reference_inputs, node_idx)
+  let
+    key,
+    next,
+    transfer_logic_script,
+  <- expect_registry_node(node_input.output.datum)
+
+  // Validate this is a legitimate registry node
+  expect has_currency_symbol(node_input.output.value, registry_node_cs)
+
   when proof is {
-    TokenExists { node_idx } -> {
-      // Get the registry node
-      let node_input = elem_at(self.reference_inputs, node_idx)
-      let node_datum = expect_inline_datum(node_input.output)
-      expect node: RegistryNode = node_datum
-
-      // All checks must pass or transaction fails
-      // Validate this is a legitimate registry node
-      expect has_currency_symbol(node_input.output.value, registry_node_cs)
+    TokenExists { .. } -> {
       // Validate the node's key matches the currency symbol
-      expect node.key == cs
-
+      expect key == cs
       // Validate the transfer logic script is invoked
-      has_key(self.withdrawals, node.transfer_logic_script)
+      has_key(self.withdrawals, transfer_logic_script)
     }
 
-    TokenDoesNotExist { node_idx } -> {
-      // Get the covering node
-      let node_input = elem_at(self.reference_inputs, node_idx)
-      let node_datum = expect_inline_datum(node_input.output)
-      expect node: RegistryNode = node_datum
-
-      // All checks must pass to prove non-membership, or transaction fails
-      // Validate this is a legitimate registry node
-      expect has_currency_symbol(node_input.output.value, registry_node_cs)
-
+    TokenDoesNotExist { .. } -> {
       // Validate the node covers the currency symbol (nodeKey < cs < nodeNext)
-      expect bytearray_lt(node.key, cs)
-      expect bytearray_lt(cs, node.next)
-
+      expect bytearray_lt(key, cs)
+      expect bytearray_lt(cs, next)
       // This is NOT a programmable token (proof is valid)
       False
     }
   }
+}
+
+/// Extract useful information from an inlined 'RegistryNode' datum. Note that
+/// we need not to 'validate' the full shape of the datum here, because we do not
+/// produce it. We're only consuming it, and its well-formedness is guaranteed by the
+/// linked list contract when producing the datum.
+///
+/// This even makes the contract more 'interoperable', as the linked-list datum
+/// can change in addititive manner without invalidating this contract.
+fn expect_registry_node(
+  datum: Datum,
+  return: fn(ByteArray, ByteArray, Credential) -> result,
+) -> result {
+  expect InlineDatum(inline_datum) = datum
+  let fields = unconstr_fields(inline_datum)
+  expect key: ByteArray = head_list(fields)
+  let fields = tail_list(fields)
+  expect next: ByteArray = head_list(fields)
+  let fields = tail_list(fields)
+  expect transfer_logic_script: Credential = head_list(fields)
+  return(key, next, transfer_logic_script)
+}
+
+/// See note on 'expect_registry_node'.
+fn expect_programmable_logic_params(
+  datum: Datum,
+  return: fn(PolicyId, Credential) -> result,
+) -> result {
+  expect InlineDatum(inline_datum) = datum
+  let fields = unconstr_fields(inline_datum)
+  expect registry_node_cs: PolicyId = head_list(fields)
+  let fields = tail_list(fields)
+  expect prog_logic_cred: Credential = head_list(fields)
+  return(registry_node_cs, prog_logic_cred)
 }
