@@ -6,7 +6,7 @@ use cardano/assets.{
 }
 use cardano/transaction.{Transaction}
 use utils.{
-  bytearray_lt, count_unique_tokens, has_currency_symbol, is_signed_by,
+  bytearray_lt, count_unique_tokens, has_currency_symbol, has_signatory,
   value_contains,
 }
 
@@ -129,55 +129,15 @@ test value_contains_insufficient() {
   )
 }
 
-// Test is_signed_by
-test is_signed_by_present() {
-  let pkh = #"aabbccdd"
-  let tx =
-    Transaction {
-      inputs: [],
-      reference_inputs: [],
-      outputs: [],
-      fee: 0,
-      mint: zero,
-      certificates: [],
-      withdrawals: [],
-      validity_range: interval.everything,
-      extra_signatories: [pkh],
-      redeemers: [],
-      datums: dict.empty,
-      id: #"00",
-      votes: [],
-      proposal_procedures: [],
-      current_treasury_amount: None,
-      treasury_donation: None,
-    }
-
-  is_signed_by(tx, pkh)
+// Test has_signatory
+test has_signatory_present() {
+  let vkh = #"aabbccdd"
+  has_signatory([vkh], vkh)
 }
 
-// Test is_signed_by absent
-test is_signed_by_absent() {
-  let pkh1 = #"aabbccdd"
-  let pkh2 = #"ddeeff00"
-  let tx =
-    Transaction {
-      inputs: [],
-      reference_inputs: [],
-      outputs: [],
-      fee: 0,
-      mint: zero,
-      certificates: [],
-      withdrawals: [],
-      validity_range: interval.everything,
-      extra_signatories: [pkh1],
-      redeemers: [],
-      datums: dict.empty,
-      id: #"00",
-      votes: [],
-      proposal_procedures: [],
-      current_treasury_amount: None,
-      treasury_donation: None,
-    }
-
-  !is_signed_by(tx, pkh2)
+// Test has_signatory absent
+test has_signatory_absent() fail {
+  let vkh1 = #"aabbccdd"
+  let vkh2 = #"ddeeff00"
+  has_signatory([vkh1], vkh2)
 }

@@ -16,7 +16,7 @@ use types.{
 }
 use utils.{
   RawValue, bytearray_lt, elem_at, expect_inline_datum, has_currency_symbol,
-  has_key, is_signed_by, sum_output_values,
+  has_key, has_signatory, sum_output_values,
 }
 
 validator programmable_logic_global(protocol_params_cs: PolicyId) {
@@ -234,7 +234,7 @@ fn get_signed_prog_value(
         expect Some(Inline(stake_cred)) = output.address.stake_credential
         when stake_cred is {
           VerificationKey(pkh) -> {
-            expect is_signed_by(tx, pkh)
+            expect has_signatory(tx.extra_signatories, pkh)
           }
           Script(_hash) -> {
             expect has_key(tx.withdrawals, stake_cred)

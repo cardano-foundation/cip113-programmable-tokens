@@ -5,6 +5,7 @@ use aiken/builtin.{head_list, tail_list}
 use aiken/collection/dict.{Dict}
 use aiken/collection/dict/strategy as dict_strategy
 use aiken/collection/list
+use aiken/crypto.{VerificationKeyHash}
 use cardano/address.{Credential}
 use cardano/assets.{
   AssetName, Lovelace, PolicyId, Value, ada_asset_name, ada_policy_id, flatten,
@@ -60,9 +61,12 @@ pub fn count_unique_tokens(value: Value) -> Int {
   assets.reduce(value, 0, fn(_policy, _name, _amount, acc) { acc + 1 })
 }
 
-/// Check if a transaction is signed by a public key hash
-pub fn is_signed_by(tx: Transaction, pkh: ByteArray) -> Bool {
-  list.any(tx.extra_signatories, fn(sig) { sig == pkh })
+/// Check if a transaction is signed by a public key hash. Fails loudly otherwise.
+pub fn has_signatory(
+  signatories: List<VerificationKeyHash>,
+  vkh: VerificationKeyHash,
+) -> Bool {
+  head_list(signatories) == vkh || has_signatory(tail_list(signatories), vkh)
 }
 
 /// Get element at index from a list
