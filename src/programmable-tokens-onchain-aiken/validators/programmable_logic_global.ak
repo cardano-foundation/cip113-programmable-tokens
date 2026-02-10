@@ -130,9 +130,11 @@ fn validate_transfer(
     )
 
   // The output must contain all the validated programmable tokens
-  expect_value_contains_v3(output_prog_value, validated_prog_value)
-
-  True
+  assets.match(
+    validated_prog_value,
+    output_prog_value,
+    fn(validated, in_outputs) { in_outputs >= validated },
+  )
 }
 
 /// Validate a third party action (seizure, freeze, etc.) on multiple UTxOs
