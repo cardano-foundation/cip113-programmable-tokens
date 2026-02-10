@@ -35,19 +35,9 @@ validator programmable_logic_global(protocol_params_cs: PolicyId) {
     let prog_logic_cred = params.prog_logic_cred
     let registry_node_cs = params.registry_node_cs
 
-    // Get all invoked scripts via withdrawals
-    let expect_withdrawal =
-      expect_key(self.withdrawals, _)
-
     when redeemer is {
       TransferAct { proofs } ->
-        validate_transfer(
-          self,
-          prog_logic_cred,
-          registry_node_cs,
-          proofs,
-          expect_withdrawal,
-        )
+        validate_transfer(self, prog_logic_cred, registry_node_cs, proofs)
       ThirdPartyAct {
         registry_node_idx,
         input_idxs,
@@ -105,7 +95,6 @@ fn validate_transfer(
   prog_logic_cred: Credential,
   registry_node_cs: PolicyId,
   proofs: List<RegistryProof>,
-  expect_withdrawal: fn(Credential) -> Bool,
 ) -> Bool {
   // Calculate the total value of programmable tokens being transferred
   // by summing all inputs from the programmable logic credential
@@ -120,11 +109,10 @@ fn validate_transfer(
   // Check transfer logic for each programmable token type and filter to only programmable tokens
   let validated_prog_value =
     check_transfer_and_compute_prog_value(
+      tx,
       total_prog_value,
       registry_node_cs,
-      tx.reference_inputs,
       proofs,
-      expect_withdrawal,
     )
 
   let output_prog_value =
@@ -223,7 +211,8 @@ fn validate_third_party(
   // Validate registry node is authentic
   expect has_currency_symbol(registry_ref_input.output.value, registry_node_cs)
   // The third party transfer logic script must be invoked
-  expect list.has(invoked_scripts, registry_node.third_party_transfer_logic_script)
+  expect
+    list.has(invoked_scripts, registry_node.third_party_transfer_logic_script)
   // Must match the number of inputs we're processing
   expect prog_input_count == length_input_idxs
 
@@ -327,24 +316,22 @@ fn get_signed_prog_value(tx: Transaction, prog_logic_cred: Credential) -> Value 
 /// Sum values from a list of inputs
 /// Check transfer logic for each currency symbol and filter to only programmable tokens
 fn check_transfer_and_compute_prog_value(
+  self: Transaction,
   value: Value,
   registry_node_cs: PolicyId,
-  reference_inputs: List<Input>,
   proofs: List<RegistryProof>,
-  expect_withdrawal: fn(Credential) -> Bool,
 ) -> Value {
   let
     remaining_proofs,
     acc_value,
   <-
     do_check_transfer(
+      self,
       value
         |> assets.to_dict
         |> dict.to_pairs
         |> pairs.delete_first(ada_policy_id),
       registry_node_cs,
-      reference_inputs,
-      expect_withdrawal,
       proofs,
       zero,
     )
@@ -353,10 +340,9 @@ fn check_transfer_and_compute_prog_value(
 }
 
 fn do_check_transfer(
+  self: Transaction,
   my_value: Pairs<PolicyId, Dict<ByteArray, Int>>,
   registry_node_cs: PolicyId,
-  reference_inputs: List<Input>,
-  expect_withdrawal: fn(Credential) -> Bool,
   proofs: List<RegistryProof>,
   acc: Value,
   return: fn(List<RegistryProof>, Value) -> result,
@@ -367,14 +353,7 @@ fn do_check_transfer(
       when proofs is {
         [] -> fail @"Not enough proofs for currency symbols"
         [proof, ..rest_proofs] -> {
-          let validated =
-            validate_single_cs(
-              cs,
-              proof,
-              reference_inputs,
-              registry_node_cs,
-              expect_withdrawal,
-            )
+          let validated = validate_single_cs(self, cs, proof, registry_node_cs)
 
           let new_acc =
             if validated {
@@ -390,10 +369,9 @@ fn do_check_transfer(
             }
 
           do_check_transfer(
+            self,
             rest,
             registry_node_cs,
-            reference_inputs,
-            expect_withdrawal,
             rest_proofs,
             new_acc,
             return,
@@ -405,11 +383,10 @@ fn do_check_transfer(
 
 /// Validate each currency symbol against proofs
 fn validate_currency_symbols(
+  self: Transaction,
   currency_symbols: List<PolicyId>,
   proofs: List<RegistryProof>,
-  reference_inputs: List<Input>,
   registry_node_cs: PolicyId,
-  expect_withdrawal: fn(Credential) -> Bool,
   original_value: Value,
   acc_value: Value,
 ) -> Value {
@@ -424,14 +401,7 @@ fn validate_currency_symbols(
       when proofs is {
         [] -> fail @"Not enough proofs for currency symbols"
         [proof, ..rest_proofs] -> {
-          let validated =
-            validate_single_cs(
-              cs,
-              proof,
-              reference_inputs,
-              registry_node_cs,
-              expect_withdrawal,
-            )
+          let validated = validate_single_cs(self, cs, proof, registry_node_cs)
 
           let new_acc =
             if validated {
@@ -447,11 +417,10 @@ fn validate_currency_symbols(
             }
 
           validate_currency_symbols(
+            self,
             rest_cs,
             rest_proofs,
-            reference_inputs,
             registry_node_cs,
-            expect_withdrawal,
             original_value,
             new_acc,
           )
@@ -465,16 +434,15 @@ fn validate_currency_symbols(
 /// Returns False if the token is NOT a programmable token (TokenDoesNotExist with valid proof)
 /// FAILS the transaction if any proof is invalid
 fn validate_single_cs(
+  self: Transaction,
   cs: PolicyId,
   proof: RegistryProof,
-  reference_inputs: List<Input>,
   registry_node_cs: PolicyId,
-  expect_withdrawal: fn(Credential) -> Bool,
 ) -> Bool {
   when proof is {
     TokenExists { node_idx } -> {
       // Get the registry node
-      let node_input = elem_at(reference_inputs, node_idx)
+      let node_input = elem_at(self.reference_inputs, node_idx)
       let node_datum = expect_inline_datum(node_input.output)
       expect node: RegistryNode = node_datum
 
@@ -485,12 +453,12 @@ fn validate_single_cs(
       expect node.key == cs
 
       // Validate the transfer logic script is invoked
-      expect_withdrawal(node.transfer_logic_script)
+      expect_key(self.withdrawals, node.transfer_logic_script)
     }
 
     TokenDoesNotExist { node_idx } -> {
       // Get the covering node
-      let node_input = elem_at(reference_inputs, node_idx)
+      let node_input = elem_at(self.reference_inputs, node_idx)
       let node_datum = expect_inline_datum(node_input.output)
       expect node: RegistryNode = node_datum
 
