@@ -93,7 +93,7 @@ pub fn get_protocol_params_ref(
 
 /// Validate a transfer action
 fn validate_transfer(
-  tx: Transaction,
+  self: Transaction,
   prog_logic_cred: Credential,
   registry_node_cs: PolicyId,
   proofs: List<RegistryProof>,
@@ -106,20 +106,19 @@ fn validate_transfer(
 
   // Sum up the value from those inputs
   // let total_prog_value = sum_input_values(prog_inputs)
-  let total_prog_value: RawValue = get_signed_prog_value(tx, prog_logic_cred)
+  let total_prog_value: RawValue = get_signed_prog_value(self, prog_logic_cred)
 
   // Check transfer logic for each programmable token type and filter to only programmable tokens
   let validated_prog_value =
     check_transfer_and_compute_prog_value(
-      tx,
       total_prog_value,
-      registry_node_cs,
       proofs,
+      validate_single_cs(self, _, _, registry_node_cs),
     )
 
   let output_prog_value: RawValue =
     sum_output_values(
-      tx.outputs,
+      self.outputs,
       fn(output, select, discard) {
         if output.address.payment_credential == prog_logic_cred {
           expect Some(Inline(_stake_cred)) = output.address.stake_credential
@@ -254,17 +253,16 @@ fn get_signed_prog_value(
 /// Sum values from a list of inputs
 /// Check transfer logic for each currency symbol and filter to only programmable tokens
 fn check_transfer_and_compute_prog_value(
-  self: Transaction,
   value: RawValue,
-  registry_node_cs: PolicyId,
   proofs: List<RegistryProof>,
+  check_policy: fn(PolicyId, RegistryProof) -> Bool,
 ) -> RawValue {
   let assets = tail_list(dict.to_pairs(value))
 
   let
     remaining_proofs,
     acc_value,
-  <- do_check_transfer(self, assets, registry_node_cs, proofs, dict.empty)
+  <- do_check_transfer(assets, proofs, check_policy, dict.empty)
 
   expect [] == remaining_proofs
 
@@ -272,10 +270,9 @@ fn check_transfer_and_compute_prog_value(
 }
 
 fn do_check_transfer(
-  self: Transaction,
   assets: Pairs<PolicyId, Dict<AssetName, Int>>,
-  registry_node_cs: PolicyId,
   proofs: List<RegistryProof>,
+  check_policy: fn(PolicyId, RegistryProof) -> Bool,
   acc: RawValue,
   return: fn(List<RegistryProof>, RawValue) -> result,
 ) -> result {
@@ -283,7 +280,6 @@ fn do_check_transfer(
     [] -> return(proofs, acc)
     [Pair(cs, tokens), ..rest] -> {
       let proof = head_list(proofs)
-      let validated = validate_single_cs(self, cs, proof, registry_node_cs)
 
       // TODO: Failing-fast when finding non-validated programmable tokens?
       //
@@ -301,7 +297,7 @@ fn do_check_transfer(
       // forced to re-create a whole new value object, which in the nominal
       // case end up being the same as the original object.
       let new_acc =
-        if validated {
+        if check_policy(cs, proof) {
           // Validated programmable token, keep it.
           dict.insert(acc, cs, tokens)
         } else {
@@ -309,14 +305,7 @@ fn do_check_transfer(
           acc
         }
 
-      do_check_transfer(
-        self,
-        rest,
-        registry_node_cs,
-        tail_list(proofs),
-        new_acc,
-        return,
-      )
+      do_check_transfer(rest, tail_list(proofs), check_policy, new_acc, return)
     }
   }
 }
