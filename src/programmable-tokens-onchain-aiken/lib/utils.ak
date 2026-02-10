@@ -49,8 +49,11 @@ fn do_has_currency_symbol(
   haystack: List<Pair<PolicyId, a>>,
   needle: PolicyId,
 ) -> Bool {
-  let Pair(candidate, _) = head_list(haystack)
-  candidate == needle || do_has_currency_symbol(tail_list(haystack), needle)
+  when haystack is {
+    [] -> False
+    [Pair(head, _), ..tail] ->
+      head == needle || do_has_currency_symbol(tail, needle)
+  }
 }
 
 /// Count unique tokens in a value (number of distinct currency symbol + token name pairs)
