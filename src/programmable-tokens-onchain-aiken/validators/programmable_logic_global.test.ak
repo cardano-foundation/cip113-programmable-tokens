@@ -1,8 +1,7 @@
+//// Integration tests for programmable logic global validator
+
 use aiken/collection/list
-use aiken/crypto.{ScriptHash, blake2b_256}
-use aiken/fuzz
-// Integration tests for programmable logic global validator
-use aiken/primitive/bytearray
+use aiken/crypto.{blake2b_256}
 use cardano/address.{Address, Credential, Inline, Script, VerificationKey}
 use cardano/assets.{
   PolicyId, ada_asset_name, ada_policy_id, from_asset, merge, negate, zero,

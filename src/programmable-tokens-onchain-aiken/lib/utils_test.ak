@@ -1,10 +1,9 @@
-// Unit tests for utility functions
+//// Unit tests for utility functions
+
 use aiken/collection/dict.{Dict}
-use aiken/interval
 use cardano/assets.{
   AssetName, PolicyId, ada_asset_name, ada_policy_id, add, from_asset, zero,
 }
-use cardano/transaction.{Transaction}
 use utils.{
   bytearray_lt, count_unique_tokens, has_currency_symbol, has_signatory,
   value_contains,

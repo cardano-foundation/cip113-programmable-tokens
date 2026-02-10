@@ -7,11 +7,8 @@ use aiken/collection/dict/strategy as dict_strategy
 use aiken/collection/list
 use aiken/crypto.{VerificationKeyHash}
 use cardano/address.{Credential}
-use cardano/assets.{
-  AssetName, Lovelace, PolicyId, Value, ada_asset_name, ada_policy_id, flatten,
-  quantity_of,
-}
-use cardano/transaction.{InlineDatum, Input, Output, Transaction}
+use cardano/assets.{AssetName, PolicyId, Value, ada_policy_id, flatten}
+use cardano/transaction.{InlineDatum, Input, Output}
 
 pub type RawValue =
   Dict<PolicyId, Dict<AssetName, Int>>

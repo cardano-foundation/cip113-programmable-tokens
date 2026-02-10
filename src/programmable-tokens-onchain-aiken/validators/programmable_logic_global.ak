@@ -2,17 +2,15 @@
 //// This is the core CIP-0143 validator that coordinates all programmable token transfers
 //// Migrated from SmartTokens.Contracts.ProgrammableLogicBase (mkProgrammableLogicGlobal)
 
-use aiken/builtin.{head_list, tail_list, un_constr_data, unconstr_fields}
+use aiken/builtin.{head_list, tail_list, unconstr_fields}
 use aiken/collection/dict.{Dict}
-use aiken/collection/dict/strategy as dict_strategy
 use aiken/collection/list
-use aiken/collection/pairs
 use cardano/address.{Credential, Inline, Script, VerificationKey}
-use cardano/assets.{AssetName, PolicyId, Value, ada_policy_id, merge, zero}
+use cardano/assets.{AssetName, PolicyId}
 use cardano/transaction.{Datum, InlineDatum, Input, Output, Transaction}
 use types.{
-  ProgrammableLogicGlobalParams, ProgrammableLogicGlobalRedeemer, RegistryNode,
-  RegistryProof, ThirdPartyAct, TokenDoesNotExist, TokenExists, TransferAct,
+  ProgrammableLogicGlobalRedeemer, RegistryNode, RegistryProof, ThirdPartyAct,
+  TokenDoesNotExist, TokenExists, TransferAct,
 }
 use utils.{
   RawValue, bytearray_lt, elem_at, expect_inline_datum, has_currency_symbol,
