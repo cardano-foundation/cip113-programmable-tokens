@@ -4,7 +4,8 @@ use aiken/interval
 use cardano/assets.{ada_asset_name, ada_policy_id, add, from_asset, zero}
 use cardano/transaction.{Transaction}
 use utils.{
-  bytearray_lt, count_unique_tokens, has_currency_symbol, is_signed_by, match,
+  bytearray_lt, count_unique_tokens, has_currency_symbol, is_signed_by,
+  match_assets,
 }
 
 // Test bytearray_lt with different bytearrays
@@ -60,45 +61,48 @@ test has_currency_symbol_absent() fail {
   has_currency_symbol(value, cs2)
 }
 
-// Test value_contains with exact match
+// Test 'match_assets' with exact match
 test match_exact() {
   let cs = #"0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c"
   let value =
     from_asset(cs, #"746f6b656e", 100)
-      |> add(ada_policy_id, ada_asset_name, 1234)
       |> assets.to_dict
 
-  match(value, value, >=)
+  match_assets(value, value)
 }
 
-// Test value_contains with subset
+// Test 'match_assets' with more an ada mismatch
 test match_more_lovelace() {
   let cs = #"0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c"
-  let value =
-    from_asset(cs, #"746f6b656e", 100)
-      |> add(ada_policy_id, ada_asset_name, 4321)
-      |> assets.to_dict
-  let required =
+  let in =
     from_asset(cs, #"746f6b656e", 100)
       |> add(ada_policy_id, ada_asset_name, 1234)
       |> assets.to_dict
+  let out =
+    from_asset(cs, #"746f6b656e", 100)
+      |> add(ada_policy_id, ada_asset_name, 4321)
+      |> assets.to_dict
 
-  match(value, required, >=)
+  and {
+    match_assets(in, out),
+    match_assets(out, in),
+  }
 }
 
-// Test value_contains with insufficient amount
+// Test 'match_assets' with non-matching assets
 test match_less_lovelace() {
   let cs = #"0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c"
-  let value =
-    from_asset(cs, #"746f6b656e", 100)
-      |> add(ada_policy_id, ada_asset_name, 1234)
+  let in =
+    from_asset(cs, #"746f6b656e", 50)
       |> assets.to_dict
-  let required =
+  let out =
     from_asset(cs, #"746f6b656e", 100)
-      |> add(ada_policy_id, ada_asset_name, 4321)
       |> assets.to_dict
 
-  !match(value, required, >=)
+  and {
+    !match_assets(in, out),
+    !match_assets(out, in),
+  }
 }
 
 // Test is_signed_by

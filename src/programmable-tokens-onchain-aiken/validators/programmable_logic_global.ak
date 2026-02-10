@@ -129,11 +129,7 @@ fn validate_transfer(
     )
 
   // The output must contain all the validated programmable tokens
-  utils.match(
-    validated_prog_value,
-    output_prog_value,
-    fn(validated, in_outputs) { in_outputs >= validated },
-  )
+  utils.match_assets(validated_prog_value, output_prog_value)
 }
 
 /// Validate a third party action (seizure, freeze, etc.) on multiple UTxOs

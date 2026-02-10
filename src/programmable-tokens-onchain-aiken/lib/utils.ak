@@ -200,49 +200,19 @@ fn do_sum_output_values(
   }
 }
 
-// Unfortunate... This is a copy-paste from Aiken's stdlib but with the first parameter as RawValue.
-//
-// Aiken's stdlib should be amended instead to take `Data` as first argument
-// instead of `Value`. This would allow better reuse of the function.
-pub fn match(
-  left: RawValue,
-  right: Data,
-  assert_lovelace: fn(Lovelace, Lovelace) -> Bool,
-) -> Bool {
-  builtin.choose_data(
-    right,
-    False,
-    {
-      let (left_lovelace, left_assets) = dict.pop(left, ada_policy_id)
-      let left_assets: Data = left_assets
-      let left_lovelace =
-        when left_lovelace is {
-          Some(tokens) -> builtin.head_list(dict.to_pairs(tokens)).2nd
-          None -> 0
-        }
-      when builtin.un_map_data(right) is {
-        [] -> left_assets == right && assert_lovelace(left_lovelace, 0)
-        [first_asset, ..right_assets] ->
-          if first_asset.1st == builtin.b_data(ada_policy_id) {
-            and {
-              assert_lovelace(
-                left_lovelace,
-                builtin.un_i_data(
-                  builtin.head_list(builtin.un_map_data(first_asset.2nd)).2nd,
-                ),
-              ),
-              left_assets == builtin.map_data(right_assets),
-            }
-          } else {
-            and {
-              assert_lovelace(left_lovelace, 0),
-              left_assets == right,
-            }
-          }
+/// Compare two 'RawValue' to check if they have matchings assets.
+pub fn match_assets(left: RawValue, right: RawValue) -> Bool {
+  let without_lovelace =
+    fn(pairs: Pairs<PolicyId, Dict<AssetName, Int>>) {
+      if head_list(pairs).1st == ada_policy_id {
+        tail_list(pairs)
+      } else {
+        pairs
       }
-    },
-    False,
-    False,
-    False,
-  )
+    }
+
+  let left_assets = without_lovelace(dict.to_pairs(left))
+  let right_assets = without_lovelace(dict.to_pairs(right))
+
+  left_assets == right_assets
 }
