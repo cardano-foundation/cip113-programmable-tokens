@@ -312,54 +312,6 @@ fn do_check_transfer(
   }
 }
 
-/// Validate each currency symbol against proofs
-fn validate_currency_symbols(
-  self: Transaction,
-  currency_symbols: List<PolicyId>,
-  proofs: List<RegistryProof>,
-  registry_node_cs: PolicyId,
-  original_value: Value,
-  acc_value: Value,
-) -> Value {
-  // By the looks of it this multy array traversing/foldin requires the currency_symbols and proofs to be
-  // in the right order. Plutarch data structure makes it implicit to have policies in order.
-  // In aiken seems to be enforced at pairs level where keys are ordered lexicographically.
-  // Is this correct?
-
-  when currency_symbols is {
-    [] -> acc_value
-    [cs, ..rest_cs] ->
-      when proofs is {
-        [] -> fail @"Not enough proofs for currency symbols"
-        [proof, ..rest_proofs] -> {
-          let validated = validate_single_cs(self, cs, proof, registry_node_cs)
-
-          let new_acc =
-            if validated {
-              // Add this CS's tokens from the original value to the accumulator
-              dict.foldl(
-                assets.tokens(original_value, cs),
-                acc_value,
-                fn(name, amount, acc) { assets.add(acc, cs, name, amount) },
-              )
-            } else {
-              // Not a programmable token, skip it
-              acc_value
-            }
-
-          validate_currency_symbols(
-            self,
-            rest_cs,
-            rest_proofs,
-            registry_node_cs,
-            original_value,
-            new_acc,
-          )
-        }
-      }
-  }
-}
-
 /// Validate a single currency symbol against its proof
 /// Returns True if the token IS a programmable token (TokenExists with valid proof)
 /// Returns False if the token is NOT a programmable token (TokenDoesNotExist with valid proof)
