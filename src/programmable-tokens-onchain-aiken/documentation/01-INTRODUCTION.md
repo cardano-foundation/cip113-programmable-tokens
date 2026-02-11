@@ -80,7 +80,7 @@ This approach means:
 ### Example Use Cases
 
 **Regulated Stablecoins**:
-- Blacklist sanctioned addresses
+- Denylist sanctioned addresses
 - Freeze accounts pending investigation
 - Seize tokens in response to court orders
 - Maintain compliance with FATF travel rule
@@ -94,7 +94,7 @@ This approach means:
 **Real-World Assets**:
 - Programmable vesting schedules
 - Time-locked transfers
-- Whitelist-only trading
+- Allowlist-only trading
 - Custom compliance logic
 
 ---
@@ -142,13 +142,13 @@ A sorted linked list of registered programmable tokens, stored as on-chain UTxOs
 - Token policy ID
 - Transfer validation script reference
 - Issuer control script reference
-- Optional global state reference (e.g., blacklist)
+- Optional global state reference (e.g., denylist)
 
 The linked list structure enables **O(1) verification** - you can prove a token is registered (or not registered) with constant-time lookups.
 
 #### 3. Validation Scripts
 Pluggable stake validators that define custom logic:
-- **Transfer Logic**: Runs on every token transfer (e.g., blacklist checks, whitelist validation)
+- **Transfer Logic**: Runs on every token transfer (e.g., denylist checks, allowlist validation)
 - **Issuer Logic**: Controls minting, burning, and seizure operations
 
 Scripts are invoked using the **withdraw-zero pattern** - stake validators are triggered with 0 ADA withdrawals.
@@ -177,7 +177,7 @@ Let's walk through a simple transfer:
 3. **Validation executes**:
    - Global validator checks Alice's signature ✓
    - Registry lookup finds USDC is registered ✓
-   - Transfer logic script runs (e.g., checks blacklist) ✓
+   - Transfer logic script runs (e.g., checks denylist) ✓
    - Tokens go to programmable address with Bob's stake credential ✓
 
 4. **Result**: Bob now owns the tokens at the shared address with his stake credential.

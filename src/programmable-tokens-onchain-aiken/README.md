@@ -12,7 +12,7 @@ This repository contains a complete Aiken implementation of CIP-113 programmable
 
 ## What Are Programmable Tokens?
 
-Programmable tokens are **native Cardano assets** with an additional layer of validation logic that executes on every transfer, mint, or burn operation. They remain fully compatible with existing Cardano infrastructure (wallets, explorers, DEXes) while adding programmable constraints required for regulated assets.
+Programmable tokens are **native Cardano assets** with an additional layer of validation logic that executes on every transfer, mint, or burn operation. They leverage Cardano's existing native token infrastructure and require no hard fork or ledger changes — all programmable logic is implemented using features already supported at the L1 level. However, because all programmable tokens are held at a shared script address (with ownership determined by stake credentials), existing wallets, explorers, and DEXes would require integration work to fully support them — for example, wallets need to resolve stake-credential-based ownership to display balances, and DEX contracts would need to account for the programmable logic validators.
 
 **Key principle**: All programmable tokens are locked in a shared smart contract address. Ownership is determined by stake credentials, allowing standard wallets to manage them while enabling unified validation across the entire token ecosystem.
 
@@ -23,9 +23,9 @@ Programmable tokens are **native Cardano assets** with an additional layer of va
 - 🎯 **Composable Logic** - Plug-and-play transfer and minting validation scripts
 - 🚫 **Freeze & Seize** - Optional issuer controls for regulatory compliance
 - ⚡ **Constant-Time Lookups** - Sorted linked list registry enables O(1) token verification
-- 🔗 **Native Asset Compatible** - Works with existing Cardano wallets and infrastructure
+- 🔗 **Native Asset Based** - Built on Cardano's native token infrastructure with no hard fork required
 - 🛡️ **Multi-Layer Security** - NFT authenticity, ownership proofs, and authorization checks
-- 🧩 **Extensible** - Support for blacklists, whitelists, time-locks, and custom policies
+- 🧩 **Extensible** - Support for denylists, allowlists, time-locks, and custom policies
 
 ## Use Cases
 
@@ -59,31 +59,25 @@ All tests should pass:
     Summary 1 error(s), 89 passing (89) [89/89 checks passed]
 ```
 
-### Generate Blueprints
-
-```bash
-aiken blueprint convert > plutus.json
-```
-
 ## Project Structure
 
 ```
 .
 ├── validators/          # Smart contract validators
-│   ├── programmable_logic_global.ak    # Core transfer validation
-│   ├── programmable_logic_base.ak      # Token custody
-│   ├── registry_mint.ak                # Registry minting policy
-│   ├── registry_spend.ak               # Registry spending validator
-│   ├── issuance_mint.ak                # Token issuance policy
-│   ├── issuance_cbor_hex_mint.ak       # CBOR hex reference NFT
-│   ├── protocol_params_mint.ak         # Protocol parameters NFT
-│   ├── example_transfer_logic.ak       # Example: freeze-and-seize
-│   ├── blacklist_mint.ak               # Blacklist management
-│   └── ...
+│   ├── programmable_logic_global.ak    # Core transfer validation coordinator
+│   ├── programmable_logic_base.ak      # Token custody (delegates to global)
+│   ├── registry_mint.ak                # Registry sorted linked list management
+│   ├── registry_spend.ak               # Registry node UTxO guard
+│   ├── issuance_mint.ak                # Token minting/burning policy
+│   ├── issuance_cbor_hex_mint.ak       # Issuance script template reference NFT
+│   ├── protocol_params_mint.ak         # Protocol parameters NFT (one-shot)
+│   ├── example_transfer_logic.ak       # Example: simple permissioned transfer
+│   ├── blacklist_mint.ak               # Denylist sorted linked list management
+│   └── blacklist_spend.ak              # Denylist node UTxO guard
 ├── lib/
 │   ├── types.ak                        # Core data types
 │   ├── utils.ak                        # Utility functions
-│   └── linked_list.ak                  # Registry list operations
+│   └── linked_list.ak                  # Sorted linked list operations
 └── documentation/                       # Documentation
 ```
 
@@ -108,7 +102,7 @@ A shared spending validator (`programmable_logic_base`) holds all programmable t
 ### 3. Pluggable Transfer Logic
 
 Stake validators invoked via 0-ADA withdrawals that define custom rules:
-- **Transfer Logic** — Runs on every token transfer (e.g., blacklist checks, permissioned transfers)
+- **Transfer Logic** — Runs on every token transfer (e.g., denylist checks, permissioned transfers)
 - **Third-Party Logic** — Controls seizure and freeze operations
 
 ### 4. Minting Policies
@@ -116,7 +110,7 @@ Stake validators invoked via 0-ADA withdrawals that define custom rules:
 - **Issuance Policy** (`issuance_mint`) — Parameterized per token type, handles minting/burning
 - **Registry Policy** (`registry_mint`) — Manages the sorted linked list of registered tokens
 - **Protocol Params Policy** (`protocol_params_mint`) — One-shot mint for global protocol parameters
-- **Blacklist Policy** (`blacklist_mint`) — Manages the sorted linked list of blacklisted credentials
+- **Denylist Policy** (`blacklist_mint`) — Manages the sorted linked list of denylisted credentials
 
 ### Validator Reference
 
@@ -130,9 +124,9 @@ Stake validators invoked via 0-ADA withdrawals that define custom rules:
 | `issuance_mint` | Mint | Mints/burns programmable tokens (parameterized per token type) |
 | `issuance_cbor_hex_mint` | Mint | One-shot mint of issuance script template reference NFT |
 | `example_transfer_logic` | Stake (withdraw) | Simple transfer logic: requires a specific credential |
-| `freeze_and_seize_transfer` | Stake (withdraw) | Blacklist-aware transfer logic for regulated tokens |
-| `blacklist_mint` | Mint | Sorted linked list management for blacklisted credentials |
-| `blacklist_spend` | Spend | Guards blacklist node UTxOs |
+| `freeze_and_seize_transfer` | Stake (withdraw) | Denylist-aware transfer logic for regulated tokens |
+| `blacklist_mint` | Mint | Sorted linked list management for denylisted credentials |
+| `blacklist_spend` | Spend | Guards denylist node UTxOs |
 
 See the [Architecture doc](./documentation/02-ARCHITECTURE.md) for detailed validator interactions and validation flows.
 
@@ -191,8 +185,8 @@ All programmable tokens are locked at a shared smart contract address. When a tr
 
 This implementation includes a complete example of a regulated stablecoin with freeze and seize capabilities:
 
-- **On-chain Blacklist** - Sorted linked list of sanctioned addresses
-- **Transfer Validation** - Every transfer checks sender/recipient not blacklisted
+- **On-chain Denylist** - Sorted linked list of sanctioned addresses
+- **Transfer Validation** - Every transfer checks sender/recipient not denylisted
 - **Constant-Time Checks** - O(1) verification using covering node proofs
 - **Issuer Controls** - Authorized parties can freeze/seize tokens
 
@@ -214,7 +208,7 @@ This is high-quality research and development code with the following characteri
 - ✅ Registry (directory) operations complete
 - ✅ Token issuance and transfer flows working
 - ✅ Freeze & seize functionality complete
-- ✅ Blacklist system operational
+- ✅ Denylist system operational
 - ✅ Good test coverage (89 passing tests)
 - ✅ Tested on Preview testnet (limited scope)
 - ⏳ Comprehensive testing required

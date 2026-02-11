@@ -10,7 +10,7 @@ This document explains the on-chain architecture of the CIP-113 programmable tok
 2. [Validator Architecture](#validator-architecture)
 3. [Withdraw-Zero Pattern](#withdraw-zero-pattern)
 4. [On-Chain Registry](#on-chain-registry)
-5. [Blacklist System](#blacklist-system)
+5. [Denylist System](#denylist-system)
 6. [Data Structures](#data-structures)
 7. [Validation Flows](#validation-flows)
 8. [Security Properties](#security-properties)
@@ -82,7 +82,7 @@ graph TB
         FES[freeze_and_seize_transfer<br/><i>Stake Validator</i>]
     end
 
-    subgraph "Blacklist (Substandard)"
+    subgraph "Denylist (Substandard)"
         BM[blacklist_mint<br/><i>Minting Policy</i>]
         BS[blacklist_spend<br/><i>Spending Validator</i>]
     end
@@ -108,9 +108,9 @@ graph TB
 | `issuance_mint` | Mint | `programmable_logic_base`, `minting_logic_cred` | Mints/burns programmable tokens. Parameterized per token type. |
 | `issuance_cbor_hex_mint` | Mint | `utxo_ref` | One-shot mint of the reference NFT holding issuance script template bytes. |
 | `example_transfer_logic` | Stake (withdraw) | `permitted_cred` | Simple transfer logic: requires a specific credential to authorize. |
-| `freeze_and_seize_transfer` | Stake (withdraw) | `programmable_logic_base_cred`, `blacklist_node_cs` | Blacklist-aware transfer logic for regulated tokens. |
-| `blacklist_mint` | Mint | `utxo_ref`, `manager_pkh` | Manages the sorted linked list of blacklisted credentials. |
-| `blacklist_spend` | Spend | `blacklist_cs` | Guards blacklist node UTxOs; only allows spending when `blacklist_mint` is active. |
+| `freeze_and_seize_transfer` | Stake (withdraw) | `programmable_logic_base_cred`, `blacklist_node_cs` | Denylist-aware transfer logic for regulated tokens. |
+| `blacklist_mint` | Mint | `utxo_ref`, `manager_pkh` | Manages the sorted linked list of denylisted credentials. |
+| `blacklist_spend` | Spend | `blacklist_cs` | Guards denylist node UTxOs; only allows spending when `blacklist_mint` is active. |
 
 ### Dual Validator Delegation
 
@@ -229,14 +229,14 @@ After:   [covering: key=A, next=B]  [new: key=B, next=C]
 
 ---
 
-## Blacklist System
+## Denylist System
 
-The blacklist uses the same sorted linked list pattern as the registry, but for credential hashes instead of policy IDs. It is part of the freeze-and-seize substandard.
+The denylist uses the same sorted linked list pattern as the registry, but for credential hashes instead of policy IDs. It is part of the freeze-and-seize substandard.
 
 ### Structure
 
 Each `BlacklistNode` contains:
-- `key`: The blacklisted credential hash (28 bytes)
+- `key`: The denylisted credential hash (28 bytes)
 - `next`: The next credential hash in sorted order
 
 ### Operations
@@ -244,8 +244,8 @@ Each `BlacklistNode` contains:
 | Operation | Description | Authorization |
 |-----------|-------------|--------------|
 | `BlacklistInit` | Create origin node | One-shot (UTxO consumed) |
-| `BlacklistInsert` | Add credential to blacklist | Manager signature required |
-| `BlacklistRemove` | Remove credential from blacklist | Manager signature required |
+| `BlacklistInsert` | Add credential to denylist | Manager signature required |
+| `BlacklistRemove` | Remove credential from denylist | Manager signature required |
 
 ### Non-Membership Proofs in Transfers
 
@@ -254,9 +254,9 @@ During a transfer, the `freeze_and_seize_transfer` validator:
 1. Extracts all stake credential hashes from programmable token inputs
 2. For each credential, requires a `NonmembershipProof { node_idx }` pointing to a covering node
 3. Validates `node.key < credential_hash < node.next` for each proof
-4. If any credential IS blacklisted (no valid covering node exists), the transaction fails
+4. If any credential IS denylisted (no valid covering node exists), the transaction fails
 
-This means every transfer of a blacklist-protected token requires O(n) proofs where n is the number of unique stake credentials in the transaction inputs — but each individual proof is O(1).
+This means every transfer of a denylist-protected token requires O(n) proofs where n is the number of unique stake credentials in the transaction inputs — but each individual proof is O(1).
 
 ---
 
@@ -270,7 +270,7 @@ type RegistryNode {
   next: ByteArray,                             // Next key in sorted order
   transfer_logic_script: Credential,           // Stake validator for transfer rules
   third_party_transfer_logic_script: Credential, // Stake validator for seizure/freeze
-  global_state_cs: ByteArray,                  // Optional NFT for global state (e.g., blacklist)
+  global_state_cs: ByteArray,                  // Optional NFT for global state (e.g., denylist)
 }
 ```
 
@@ -278,7 +278,7 @@ type RegistryNode {
 
 ```aiken
 type BlacklistNode {
-  key: ByteArray,   // Blacklisted credential hash
+  key: ByteArray,   // Denylisted credential hash
   next: ByteArray,  // Next key in sorted order
 }
 ```
@@ -321,7 +321,7 @@ type RegistryProof {
 }
 ```
 
-**Blacklist proofs** (`BlacklistProof`):
+**Denylist proofs** (`BlacklistProof`):
 
 ```aiken
 type BlacklistProof {
@@ -412,7 +412,7 @@ The `ThirdPartyAct` redeemer handles admin operations like token seizure. It dif
 ## Security Properties
 
 ### NFT Authenticity
-Every registry and blacklist node is marked with an NFT from a one-shot minting policy. Validators always check `has_currency_symbol(node.value, expected_cs)` before trusting any datum. This prevents forged registry entries.
+Every registry and denylist node is marked with an NFT from a one-shot minting policy. Validators always check `has_currency_symbol(node.value, expected_cs)` before trusting any datum. This prevents forged registry entries.
 
 ### Ownership Enforcement
 The global validator iterates over **all** inputs from `prog_logic_cred` and requires each one to be authorized by its stake credential (signature for verification keys, withdrawal invocation for scripts). If any input lacks authorization, the entire transaction fails.
@@ -421,10 +421,10 @@ The global validator iterates over **all** inputs from `prog_logic_cred` and req
 During transfers, the global validator computes the total programmable token value from authorized inputs and verifies that outputs at `prog_logic_cred` contain **at least** that much value. Tokens cannot be moved to non-programmable addresses.
 
 ### Sorted List Integrity
-Both registry and blacklist maintain the invariant `node.key < node.next` for every node. Insertions verify the covering node covers the new key. This prevents duplicate entries and ensures covering-node proofs are always valid.
+Both registry and denylist maintain the invariant `node.key < node.next` for every node. Insertions verify the covering node covers the new key. This prevents duplicate entries and ensures covering-node proofs are always valid.
 
 ### One-Shot Policies
-Protocol parameters, registry, blacklist, and issuance CBOR hex NFTs use one-shot minting policies (parameterized by a UTxO reference). This guarantees exactly one instance of each can exist, preventing duplication attacks.
+Protocol parameters, registry, denylist, and issuance CBOR hex NFTs use one-shot minting policies (parameterized by a UTxO reference). This guarantees exactly one instance of each can exist, preventing duplication attacks.
 
 ### Anti-DDOS in Seizures
 The `ThirdPartyAct` handler explicitly checks that the input value differs from the expected output value (`input_dict != expected_output_dict`). This prevents adversaries from submitting no-op seizure transactions that waste on-chain resources.
