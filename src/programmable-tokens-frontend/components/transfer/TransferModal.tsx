@@ -7,11 +7,19 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { X, Send, CheckCircle, ExternalLink } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { transferToken } from "@/lib/api";
+import { transferToken, getProtocolBlueprint, getProtocolBootstrap, getSubstandardBlueprint, getTokenContext } from "@/lib/api";
 import { TransferTokenRequest, ParsedAsset } from "@/types/api";
 import { useProtocolVersion } from "@/contexts/protocol-version-context";
 import { useToast } from "@/components/ui/use-toast";
 import { getExplorerTxUrl } from "@/lib/utils";
+import {
+  TransactionBuilderToggle,
+  TransactionBuilder,
+} from "@/components/mint/transaction-builder-toggle";
+import { getSubstandardHandler, SubstandardId } from "@/lib/mesh-sdk/standard/factory";
+import type { TransferTransactionParams } from "@/lib/mesh-sdk/standard/factory";
+import type { IWallet } from "@meshsdk/core";
+import { getNetworkId } from "@/lib/mesh-sdk/config";
 
 interface TransferModalProps {
   isOpen: boolean;
@@ -39,6 +47,8 @@ export function TransferModal({
   const [isBuilding, setIsBuilding] = useState(false);
   const [isSigning, setIsSigning] = useState(false);
   const [txHash, setTxHash] = useState<string | null>(null);
+  const [transactionBuilder, setTransactionBuilder] =
+    useState<TransactionBuilder>("backend");
 
   const [errors, setErrors] = useState({
     quantity: "",
@@ -110,15 +120,70 @@ export function TransferModal({
     try {
       setIsBuilding(true);
 
-      // Build transfer transaction
-      const request: TransferTokenRequest = {
-        senderAddress,
-        unit: asset.unit,
-        quantity,
-        recipientAddress: recipientAddress.trim(),
-      };
+      let unsignedCborTx: string;
 
-      const unsignedCborTx = await transferToken(request, selectedVersion?.txHash);
+      if (transactionBuilder === "frontend") {
+        // Client-side transaction building using Mesh SDK
+        showToast({
+          title: "Building Transaction",
+          description: "Building transaction on client side...",
+          variant: "default",
+        });
+
+        // Resolve substandard and context from backend
+        const tokenPolicyId = asset.unit.substring(0, 56);
+        const tokenContext = await getTokenContext(tokenPolicyId);
+        const substandardId = tokenContext.substandardId;
+
+        // Fetch protocol data
+        const protocolTxHash = selectedVersion?.txHash;
+        const [protocolBlueprint, protocolBootstrap, substandardBlueprint] =
+          await Promise.all([
+            getProtocolBlueprint(),
+            getProtocolBootstrap(protocolTxHash),
+            getSubstandardBlueprint(substandardId),
+          ]);
+
+        // Get substandard handler
+        const handler = getSubstandardHandler(
+          substandardId as SubstandardId
+        );
+
+        // Prepare transfer parameters
+        const transferParams: TransferTransactionParams = {
+          unit: asset.unit,
+          quantity,
+          recipientAddress: recipientAddress.trim(),
+          networkId: getNetworkId(),
+          context: {
+            blacklistNodePolicyId: tokenContext.blacklistNodePolicyId,
+          },
+        };
+        // Build transaction client-side using Mesh SDK
+        unsignedCborTx = await handler.buildTransferTransaction(
+          transferParams,
+          protocolBootstrap,
+          protocolBlueprint,
+          substandardBlueprint,
+          wallet as IWallet
+        );
+
+        showToast({
+          title: "Transaction Built",
+          description: "Transaction built successfully using Mesh SDK",
+          variant: "success",
+        });
+      } else {
+        // Server-side transaction building (existing logic)
+        const request: TransferTokenRequest = {
+          senderAddress,
+          unit: asset.unit,
+          quantity,
+          recipientAddress: recipientAddress.trim(),
+        };
+
+        unsignedCborTx = await transferToken(request, selectedVersion?.txHash);
+      }
 
       setIsBuilding(false);
       setStep("signing");
@@ -251,6 +316,15 @@ export function TransferModal({
                 />
               </div>
 
+              {/* Transaction Builder Toggle */}
+              <div className="pt-2">
+                <TransactionBuilderToggle
+                  value={transactionBuilder}
+                  onChange={setTransactionBuilder}
+                  disabled={isBuilding}
+                />
+              </div>
+
               {/* Submit Button */}
               <div className="flex gap-3 pt-2">
                 <Button
@@ -308,7 +382,7 @@ export function TransferModal({
 
               <div className="flex gap-3 w-full">
                 <a
-                  href={getExplorerTxUrl(network, txHash)}
+                  href={getExplorerTxUrl(txHash)}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="flex-1"

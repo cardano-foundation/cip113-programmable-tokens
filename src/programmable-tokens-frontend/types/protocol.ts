@@ -73,3 +73,9 @@ export interface SubstandardBlueprint {
   id: string;
   validators: SubstandardValidator[];
 }
+
+export interface TokenContext {
+  policyId: string;
+  substandardId: string;
+  blacklistNodePolicyId?: string;
+}

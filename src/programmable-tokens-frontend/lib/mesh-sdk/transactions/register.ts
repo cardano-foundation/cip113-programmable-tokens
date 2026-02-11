@@ -14,6 +14,8 @@ import { Cip113_scripts_standard } from "../standard/deploy";
 import { cip113_scripts_subStandard } from "../substandard/dummy/deploy";
 import {
   ProtocolBootstrapParams,
+  ProtocolBlueprint,
+  SubstandardBlueprint,
   RegistryDatum,
 } from "../../../types/protocol";
 import { parseRegistryDatum } from "../../utils/script-utils";
@@ -31,6 +33,8 @@ const register_programmable_tokens = async (
   subStandardName: "issuance" | "transfer",
   Network_id: 0 | 1,
   wallet: IWallet,
+  protocolBlueprint: ProtocolBlueprint,
+  substandardBlueprint: SubstandardBlueprint,
   recipientAddress?: string | null
 ) => {
   // Get wallet details
@@ -46,8 +50,8 @@ const register_programmable_tokens = async (
     throw new Error("Issuer wallet is empty");
   }
 
-  const standardScript = new Cip113_scripts_standard(Network_id);
-  const substandardScript = new cip113_scripts_subStandard(Network_id);
+  const standardScript = new Cip113_scripts_standard(Network_id, protocolBlueprint);
+  const substandardScript = new cip113_scripts_subStandard(Network_id, substandardBlueprint);
 
   const registry_spend = await standardScript.registry_spend(params);
   const registry_mint = await standardScript.registry_mint(params);

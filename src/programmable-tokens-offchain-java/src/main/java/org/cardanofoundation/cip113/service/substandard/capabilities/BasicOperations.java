@@ -4,6 +4,7 @@ import org.cardanofoundation.cip113.model.*;
 import org.cardanofoundation.cip113.model.TransactionContext.RegistrationResult;
 import org.cardanofoundation.cip113.model.bootstrap.ProtocolBootstrapParams;
 
+import java.math.BigInteger;
 import java.util.List;
 
 /**
@@ -51,19 +52,27 @@ public interface BasicOperations<R extends RegisterTokenRequest> {
             ProtocolBootstrapParams protocolParams);
 
     /**
-     * Build burn transaction for this substandard.
-     * Burns (destroys) tokens of a programmable token.
-     * Default implementation delegates to mint with negative quantity.
+     * Build burn transaction from a specific UTxO.
+     * Burns (destroys) tokens from a designated UTxO for precise control.
+     * Default implementation converts to MintTokenRequest and delegates to buildMintTransaction.
      *
-     * @param request        The burn request (similar to mint but destroys tokens)
+     * @param request        The burn request with UTxO reference
      * @param protocolParams The protocol bootstrap parameters (from bootstrap tx)
      * @return Transaction context with unsigned CBOR tx
      */
     default TransactionContext<Void> buildBurnTransaction(
-            MintTokenRequest request,
+            BurnTokenRequest request,
             ProtocolBootstrapParams protocolParams) {
-        // Default: burn is mint with negative quantity - handlers can override
-        return buildMintTransaction(request, protocolParams);
+        // Default: convert to MintTokenRequest with negative quantity
+        // Handlers can override to use UTxO information
+        MintTokenRequest mintRequest = new MintTokenRequest(
+                request.feePayerAddress(),
+                request.tokenPolicyId(),
+                request.assetName(),
+                new java.math.BigInteger(request.quantity()).negate().toString(),
+                request.feePayerAddress()
+        );
+        return buildMintTransaction(mintRequest, protocolParams);
     }
 
     /**

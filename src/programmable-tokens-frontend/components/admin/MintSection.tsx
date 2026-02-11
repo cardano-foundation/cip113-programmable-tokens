@@ -183,7 +183,7 @@ export function MintSection({ tokens, feePayerAddress }: MintSectionProps) {
 
         <div className="flex gap-3 w-full">
           <a
-            href={getExplorerTxUrl(network, txHash)}
+            href={getExplorerTxUrl(txHash)}
             target="_blank"
             rel="noopener noreferrer"
             className="flex-1"

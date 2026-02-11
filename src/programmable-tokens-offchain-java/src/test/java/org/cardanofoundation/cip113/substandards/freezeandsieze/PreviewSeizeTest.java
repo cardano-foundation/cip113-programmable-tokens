@@ -34,6 +34,7 @@ import org.cardanofoundation.cip113.service.*;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import scalus.utils.Hex;
 
 import java.math.BigInteger;
 import java.util.stream.Stream;
@@ -43,7 +44,8 @@ import static org.cardanofoundation.cip113.util.PlutusSerializationHelper.serial
 @Slf4j
 public class PreviewSeizeTest extends AbstractPreviewTest implements PreviewFreezeAndSieze {
 
-    private static final String DEFAULT_PROTOCOL = "114adc8ee212b5ded1f895ab53c7741e5521feff735d05aeef2a92dcf05c9ae2";
+    //    private static final String DEFAULT_PROTOCOL = "114adc8ee212b5ded1f895ab53c7741e5521feff735d05aeef2a92dcf05c9ae2";
+    private static final String DEFAULT_PROTOCOL = "61fae36e28a62a65496907c9660da9cf5d27fa0e9054a04581e1d8a087fbd93e";
 
     private final Network network = Networks.preview();
 
@@ -81,9 +83,9 @@ public class PreviewSeizeTest extends AbstractPreviewTest implements PreviewFree
 
         var substandardName = "freeze-and-seize";
 
-        var issuerAdminAccount = bobAccount;
+        var feePayerAddress = "addr_test1qra006fdksqadv3z09a8lqf4aw8n62nmgkra9narr683x9rn2r00tud22p3ylwhk4s85764ndh5zdpnmfmfqleagml4qkhan0d";
 
-        var adminUtxos = accountService.findAdaOnlyUtxo(issuerAdminAccount.baseAddress(), 10_000_000L);
+        var adminUtxos = accountService.findAdaOnlyUtxo(feePayerAddress, 10_000_000L);
 
         var protocolBootstrapParamsOpt = protocolBootstrapService.getProtocolBootstrapParamsByTxHash(DEFAULT_PROTOCOL);
         var protocolBootstrapParams = protocolBootstrapParamsOpt.get();
@@ -91,7 +93,8 @@ public class PreviewSeizeTest extends AbstractPreviewTest implements PreviewFree
 
         var bootstrapTxHash = protocolBootstrapParams.txHash();
 
-        var progToken = AssetType.fromUnit("76658c4afd597ba7524f85bf32ac59d9e58856593a2e8399326f853a7455534454");
+//        var progToken = AssetType.fromUnit("76658c4afd597ba7524f85bf32ac59d9e58856593a2e8399326f853a7455534454");
+        var progToken = AssetType.fromUnit("00216cc4179840e4d355e60cf071137e317d94a8de0fccf43b4b514a7465737432");
         log.info("policy id: {}, asset name: {}", progToken.policyId(), progToken.unsafeHumanAssetName());
 
         // Directory SPEND parameterization
@@ -134,12 +137,12 @@ public class PreviewSeizeTest extends AbstractPreviewTest implements PreviewFree
         var protocolParamsUtxo = protocolParamsUtxoOpt.get();
         log.info("protocolParamsUtxo: {}", protocolParamsUtxo);
 
-        var seizedAddress = aliceAccount.getBaseAddress();
+        var seizedAddress = new Address("addr_test1qqxk5ma8qycuwupav8rdqclzas8mw5d4hyc95evnh8p64m2yhv63m63lpr56n4974lm9ldvcjde6guwe3q2kxg4l567qht6pvs");
         var seizedProgrammableTokenAddress = AddressProvider.getBaseAddress(Credential.fromScript(protocolBootstrapParams.programmableLogicBaseParams().scriptHash()),
                 seizedAddress.getDelegationCredential().get(),
                 network);
 
-        var recipientAddress = new Address(bobAccount.baseAddress());
+        var recipientAddress = new Address(feePayerAddress);
         var recipientProgrammableTokenAddress = AddressProvider.getBaseAddress(Credential.fromScript(protocolBootstrapParams.programmableLogicBaseParams().scriptHash()),
                 recipientAddress.getDelegationCredential().get(),
                 network);
@@ -161,7 +164,8 @@ public class PreviewSeizeTest extends AbstractPreviewTest implements PreviewFree
         var issuerContractOpt = substandardService.getSubstandardValidator(substandardName, "example_transfer_logic.issuer_admin_contract.withdraw");
         var issuerContract = issuerContractOpt.get();
 
-        var issuerAdminContractInitParams = ListPlutusData.of(serialize(issuerAdminAccount.getBaseAddress().getPaymentCredential().get()));
+//        var issuerAdminContractInitParams = ListPlutusData.of(serialize(issuerAdminAccount.getBaseAddress().getPaymentCredential().get()));
+        var issuerAdminContractInitParams = ListPlutusData.of(serialize(Credential.fromKey("faf7e92db401d6b222797a7f8135eb8f3d2a7b4587d2cfa31e8f1314")));
 
         var substandardIssueAdminContract = PlutusBlueprintUtil.getPlutusScriptFromCompiledCode(
                 AikenScriptUtil.applyParamToScript(issuerAdminContractInitParams, issuerContract.scriptBytes()),
@@ -249,18 +253,17 @@ public class PreviewSeizeTest extends AbstractPreviewTest implements PreviewFree
                 .attachRewardValidator(programmableLogicGlobal) // global
                 .attachRewardValidator(substandardIssueAdminContract)
                 .attachSpendingValidator(programmableLogicBase) // base
-                .withChangeAddress(issuerAdminAccount.baseAddress());
+                .withChangeAddress(feePayerAddress);
 
 
         var transaction = quickTxBuilder.compose(tx)
-
-                .feePayer(issuerAdminAccount.baseAddress())
+                .feePayer(feePayerAddress)
                 .mergeOutputs(false)
 //                .withTxEvaluator(ogmiosTxEvaluator())
                 .withTxEvaluator(new AikenTransactionEvaluator(bfBackendService))
-                .withRequiredSigners(issuerAdminAccount.getBaseAddress())
-                .withSigner(SignerProviders.signerFrom(issuerAdminAccount))
-                .buildAndSign();
+                .withRequiredSigners(HexUtil.decodeHexString("faf7e92db401d6b222797a7f8135eb8f3d2a7b4587d2cfa31e8f1314"))
+//                .withSigner(SignerProviders.signerFrom(issuerAdminAccount))
+                .build();
 
 
         log.info("tx: {}", transaction.serializeToHex());

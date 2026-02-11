@@ -6,7 +6,6 @@ import com.easy1staking.util.Pair;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.cardanofoundation.cip113.entity.ProgrammableTokenRegistryEntity;
-import org.cardanofoundation.cip113.entity.RegistryNodeEntity;
 import org.cardanofoundation.cip113.model.*;
 import org.cardanofoundation.cip113.model.TransactionContext.RegistrationResult;
 import org.cardanofoundation.cip113.model.bootstrap.ProtocolBootstrapParams;
@@ -22,7 +21,6 @@ import org.cardanofoundation.cip113.service.substandard.context.FreezeAndSeizeCo
 import org.springframework.stereotype.Service;
 
 import java.util.List;
-import java.util.Optional;
 
 /**
  * Service orchestration layer for token operations.
@@ -177,13 +175,77 @@ public class TokenOperationsService {
         // Get substandard handler with BasicOperations capability
         var handler = context != null ? handlerFactory.getHandler(substandardId, context) : handlerFactory.getHandler(substandardId);
         var txContext = switch (handler) {
-            case  DummySubstandardHandler dummySubstandardHandler -> dummySubstandardHandler.buildMintTransaction(request,protocolParams);
-            case FreezeAndSeizeHandler freezeAndSeizeHandler -> freezeAndSeizeHandler.buildMintTransaction(request,protocolParams);
-            case BafinSubstandardHandler bafinSubstandardHandler -> bafinSubstandardHandler.buildMintTransaction(request,protocolParams);
+            case DummySubstandardHandler dummySubstandardHandler ->
+                    dummySubstandardHandler.buildMintTransaction(request, protocolParams);
+            case FreezeAndSeizeHandler freezeAndSeizeHandler ->
+                    freezeAndSeizeHandler.buildMintTransaction(request, protocolParams);
+            case BafinSubstandardHandler bafinSubstandardHandler ->
+                    bafinSubstandardHandler.buildMintTransaction(request, protocolParams);
             default -> throw new UnsupportedOperationException();
         };
 
         log.info("Mint transaction built successfully for substandard: {}", substandardId);
+
+        return txContext;
+    }
+
+    /**
+     * Burn programmable tokens from a specific UTxO
+     *
+     * @param request        The burn request with UTxO reference
+     * @param protocolTxHash Optional protocol version tx hash (uses default if null)
+     * @return Transaction context with unsigned CBOR tx
+     */
+    public TransactionContext<Void> burnToken(BurnTokenRequest request, String protocolTxHash) {
+        log.info("Burning token from UTxO: {}#{}, protocol: {}",
+                request.utxoTxHash(), request.utxoOutputIndex(), protocolTxHash);
+
+        // Get protocol bootstrap params
+        var protocolParams = resolveProtocolParams(protocolTxHash);
+
+        // Resolve substandard from policyId via unified registry
+        String substandardId = resolveSubstandardId(request.tokenPolicyId());
+
+        var context = switch (substandardId) {
+            case "freeze-and-seize" -> {
+                var dataOpt = freezeAndSeizeTokenRegistrationRepository.findByProgrammableTokenPolicyId(request.tokenPolicyId())
+                        .flatMap(token -> blacklistInitRepository.findByBlacklistNodePolicyId(token.getBlacklistInit().getBlacklistNodePolicyId())
+                                .map(blacklistInitEntity -> new Pair<>(token, blacklistInitEntity)));
+
+                if (dataOpt.isEmpty()) {
+                    throw new RuntimeException("could not find programmable token or blacklist init data");
+                }
+
+                var data = dataOpt.get();
+                var tokenRegistration = data.first();
+                var blacklistInitEntity = data.second();
+                yield FreezeAndSeizeContext.builder()
+                        .issuerAdminPkh(tokenRegistration.getIssuerAdminPkh())
+                        .blacklistManagerPkh(blacklistInitEntity.getAdminPkh())
+                        .blacklistInitTxInput(TransactionInput.builder()
+                                .transactionId(blacklistInitEntity.getTxHash())
+                                .index(blacklistInitEntity.getOutputIndex())
+                                .build())
+                        .blacklistNodePolicyId(blacklistInitEntity.getBlacklistNodePolicyId())
+                        .build();
+            }
+
+            default -> null;
+        };
+
+        // Get substandard handler with BasicOperations capability
+        var handler = context != null ? handlerFactory.getHandler(substandardId, context) : handlerFactory.getHandler(substandardId);
+        var txContext = switch (handler) {
+            case DummySubstandardHandler dummySubstandardHandler ->
+                    dummySubstandardHandler.buildBurnTransaction(request, protocolParams);
+            case FreezeAndSeizeHandler freezeAndSeizeHandler ->
+                    freezeAndSeizeHandler.buildBurnTransaction(request, protocolParams);
+            case BafinSubstandardHandler bafinSubstandardHandler ->
+                    bafinSubstandardHandler.buildBurnTransaction(request, protocolParams);
+            default -> throw new UnsupportedOperationException();
+        };
+
+        log.info("Burn transaction built successfully for substandard: {}", substandardId);
 
         return txContext;
     }
@@ -238,9 +300,12 @@ public class TokenOperationsService {
         // Get substandard handler with BasicOperations capability
         var handler = context != null ? handlerFactory.getHandler(substandardId, context) : handlerFactory.getHandler(substandardId);
         var txContext = switch (handler) {
-            case  DummySubstandardHandler dummySubstandardHandler -> dummySubstandardHandler.buildTransferTransaction(request,protocolParams);
-            case FreezeAndSeizeHandler freezeAndSeizeHandler -> freezeAndSeizeHandler.buildTransferTransaction(request,protocolParams);
-            case BafinSubstandardHandler bafinSubstandardHandler -> bafinSubstandardHandler.buildTransferTransaction(request,protocolParams);
+            case DummySubstandardHandler dummySubstandardHandler ->
+                    dummySubstandardHandler.buildTransferTransaction(request, protocolParams);
+            case FreezeAndSeizeHandler freezeAndSeizeHandler ->
+                    freezeAndSeizeHandler.buildTransferTransaction(request, protocolParams);
+            case BafinSubstandardHandler bafinSubstandardHandler ->
+                    bafinSubstandardHandler.buildTransferTransaction(request, protocolParams);
             default -> throw new UnsupportedOperationException();
         };
 

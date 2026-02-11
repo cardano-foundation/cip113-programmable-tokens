@@ -6,10 +6,11 @@ import type {
 } from "@/types/protocol";
 import { register_programmable_tokens } from "../transactions/register";
 import { transfer_programmable_token } from "../transactions/transfer";
+import { transfer_freeze_and_seize_token } from "../transactions/transfer-fes";
 import { mint_programmable_tokens } from "../transactions/mint";
 import { getNetworkId } from "../config";
 
-export type SubstandardId = "dummy" | "bafin";
+export type SubstandardId = "dummy" | "bafin" | "freeze-and-seize";
 
 export interface MintTransactionParams {
   assetName: string;
@@ -35,9 +36,11 @@ export interface RegisterTransactionParams {
 export interface TransferTransactionParams {
   unit: string;
   quantity: string;
-  senderAddress: string;
   recipientAddress: string;
   networkId?: 0 | 1;
+  context?: {
+    blacklistNodePolicyId?: string;
+  };
 }
 
 export interface SubstandardHandler {
@@ -67,14 +70,11 @@ export interface SubstandardHandler {
 }
 
 const dummyHandler: SubstandardHandler = {
-  /**
-   * Build mint transaction using the transaction builder
-   */
   async buildMintTransaction(
     params: MintTransactionParams,
     protocolParams: ProtocolBootstrapParams,
-    _protocolBlueprint: ProtocolBlueprint,
-    _substandardBlueprint: SubstandardBlueprint,
+    protocolBlueprint: ProtocolBlueprint,
+    substandardBlueprint: SubstandardBlueprint,
     wallet: IWallet
   ): Promise<string> {
     const networkId = getNetworkId();
@@ -85,6 +85,8 @@ const dummyHandler: SubstandardHandler = {
       params.quantity,
       networkId,
       wallet,
+      protocolBlueprint,
+      substandardBlueprint,
       params.recipientAddress || null
     );
   },
@@ -92,8 +94,8 @@ const dummyHandler: SubstandardHandler = {
   async buildRegisterTransaction(
     params: RegisterTransactionParams,
     protocolParams: ProtocolBootstrapParams,
-    _protocolBlueprint: ProtocolBlueprint,
-    _substandardBlueprint: SubstandardBlueprint,
+    protocolBlueprint: ProtocolBlueprint,
+    substandardBlueprint: SubstandardBlueprint,
     wallet: IWallet
   ): Promise<{ unsignedTx: string; policy_Id: string }> {
     const subStandardName = params.substandardIssueContractName.includes(
@@ -111,19 +113,18 @@ const dummyHandler: SubstandardHandler = {
       subStandardName,
       networkId,
       wallet,
+      protocolBlueprint,
+      substandardBlueprint,
       params.recipientAddress || null
     );
     return { unsignedTx, policy_Id };
   },
 
-  /**
-   * Build transfer transaction
-   */
   async buildTransferTransaction(
     params: TransferTransactionParams,
     protocolParams: ProtocolBootstrapParams,
-    _protocolBlueprint: ProtocolBlueprint,
-    _substandardBlueprint: SubstandardBlueprint,
+    protocolBlueprint: ProtocolBlueprint,
+    substandardBlueprint: SubstandardBlueprint,
     wallet: IWallet
   ): Promise<string> {
     const networkId = params.networkId ?? getNetworkId();
@@ -134,7 +135,9 @@ const dummyHandler: SubstandardHandler = {
       params.recipientAddress,
       protocolParams,
       networkId,
-      wallet
+      wallet,
+      protocolBlueprint,
+      substandardBlueprint
     );
   },
 };
@@ -159,17 +162,56 @@ const bafinHandler: SubstandardHandler = {
   },
 };
 
+const freezeAndSeizeHandler: SubstandardHandler = {
+  async buildMintTransaction() {
+    throw new Error(
+      "Freeze-and-seize mint not yet implemented for client-side transaction building"
+    );
+  },
+
+  async buildRegisterTransaction() {
+    throw new Error(
+      "Freeze-and-seize register not yet implemented for client-side transaction building"
+    );
+  },
+
+  async buildTransferTransaction(
+    params: TransferTransactionParams,
+    protocolParams: ProtocolBootstrapParams,
+    protocolBlueprint: ProtocolBlueprint,
+    substandardBlueprint: SubstandardBlueprint,
+    wallet: IWallet
+  ): Promise<string> {
+    if (!params.context?.blacklistNodePolicyId) {
+      throw new Error(
+        "blacklistNodePolicyId is required for freeze-and-seize transfers"
+      );
+    }
+
+    const networkId = params.networkId ?? getNetworkId();
+
+    return transfer_freeze_and_seize_token(
+      params.unit,
+      params.quantity,
+      params.recipientAddress,
+      protocolParams,
+      networkId,
+      wallet,
+      protocolBlueprint,
+      substandardBlueprint,
+      params.context.blacklistNodePolicyId
+    );
+  },
+};
+
 const handlers: Record<string, SubstandardHandler> = {
   dummy: dummyHandler,
   bafin: bafinHandler,
+  "freeze-and-seize": freezeAndSeizeHandler,
 };
 
 /**
  * Get a substandard handler by ID
- *
- * @param substandardId - The substandard identifier
- * @returns The handler for the substandard
- * @throws Error if substandard not found
  */
 export function getSubstandardHandler(
   substandardId: SubstandardId
@@ -185,9 +227,6 @@ export function getSubstandardHandler(
 
 /**
  * Check if a substandard is supported for client-side transaction building
- *
- * @param substandardId - The substandard identifier
- * @returns true if supported, false otherwise
  */
 export function isSubstandardSupported(substandardId: string): boolean {
   return substandardId.toLowerCase() in handlers;
@@ -195,8 +234,6 @@ export function isSubstandardSupported(substandardId: string): boolean {
 
 /**
  * Get all supported substandard IDs
- *
- * @returns Array of supported substandard IDs
  */
 export function getSupportedSubstandards(): SubstandardId[] {
   return Object.keys(handlers) as SubstandardId[];

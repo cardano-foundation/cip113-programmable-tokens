@@ -29,10 +29,13 @@ public abstract class AbstractPreviewTest {
 
     protected static final Account bobAccount = Account.createFromMnemonic(network, PreviewConstants.ADMIN_MNEMONIC, 2, 0);
 
+    protected static final Account userWipeAccount = Account.createFromMnemonic(network, PreviewConstants.ADMIN_MNEMONIC, 3, 0);
+
     static {
         log.info("Admin Address: {}", adminAccount.baseAddress());
         log.info("Alice Address: {}", aliceAccount.baseAddress());
         log.info("Bob Address: {}", bobAccount.baseAddress());
+        log.info("Wipe Address: {}", userWipeAccount.baseAddress());
     }
 
     protected final BFBackendService bfBackendService = new BFBackendService(BLOCKFROST_PREVIEW_URL, BLOCKFROST_KEY);

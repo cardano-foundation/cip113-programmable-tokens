@@ -16,11 +16,12 @@ import {
   getProtocolBlueprint,
   getProtocolBootstrap,
   getSubstandardBlueprint,
+  getTokenContext,
 } from "@/lib/api";
 import { useToast } from "@/components/ui/use-toast";
 import { TransferTokenRequest, ParsedAsset } from "@/types/api";
 import { useProtocolVersion } from "@/contexts/protocol-version-context";
-import { getSubstandardHandler } from "@/lib/mesh-sdk/standard/factory";
+import { getSubstandardHandler, SubstandardId } from "@/lib/mesh-sdk/standard/factory";
 import type { TransferTransactionParams } from "@/lib/mesh-sdk/standard/factory";
 import type { IWallet } from "@meshsdk/core";
 import { getNetworkId } from "@/lib/mesh-sdk/config";
@@ -195,10 +196,10 @@ export function TransferForm({ onTransactionBuilt }: TransferFormProps) {
           variant: "default",
         });
 
-        // Extract policy ID and substandard from the asset
-        // We need to determine the substandard from the asset metadata
-        // For now, we'll try to get it from the balance response or use 'dummy' as default
-        const substandardId = "dummy"; // Default - you may want to store this with the asset
+        // Resolve substandard and context from backend
+        const tokenPolicyId = selectedAsset!.unit.substring(0, 56);
+        const tokenContext = await getTokenContext(tokenPolicyId);
+        const substandardId = tokenContext.substandardId;
 
         // Fetch protocol data
         const protocolTxHash = selectedVersion?.txHash;
@@ -211,16 +212,18 @@ export function TransferForm({ onTransactionBuilt }: TransferFormProps) {
 
         // Get substandard handler
         const handler = getSubstandardHandler(
-          substandardId as "dummy" | "bafin"
+          substandardId as SubstandardId
         );
 
         // Prepare transfer parameters
         const transferParams: TransferTransactionParams = {
           unit: selectedAsset!.unit,
           quantity,
-          senderAddress,
           recipientAddress: recipientAddress.trim(),
           networkId: getNetworkId(),
+          context: {
+            blacklistNodePolicyId: tokenContext.blacklistNodePolicyId,
+          },
         };
 
         // Build transaction client-side

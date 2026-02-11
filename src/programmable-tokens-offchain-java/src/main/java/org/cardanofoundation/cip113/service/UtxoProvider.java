@@ -83,8 +83,19 @@ public class UtxoProvider {
                     .map(UtxoUtil::toUtxo)
                     .toList();
 
+<<<<<<< HEAD
             log.debug("Found {} UTXOs in local DB for address: {}", utxos.size(), address);
             return utxos;
+=======
+            if (utxos.isEmpty()) {
+                log.info("No UTxos found for address {}", address);
+                // falling back on blockfrost if indexer is behind
+                return getBlockfrostUtxos(address);
+            } else {
+                return utxos;
+            }
+
+>>>>>>> upstream/main
         }
 
         return List.of();
@@ -117,6 +128,27 @@ public class UtxoProvider {
             throw new RuntimeException("Unsupported");
         } else {
             return utxoRepository.findUnspentByOwnerPaymentCredential(paymentPkh, Pageable.unpaged())
+                    .stream()
+                    .flatMap(Collection::stream)
+                    .map(UtxoUtil::toUtxo)
+                    .toList();
+        }
+
+    }
+
+    /**
+     * Find UTxOs by stake credential (delegation credential).
+     * For programmable tokens, the user's payment PKH is used as the stake credential.
+     *
+     * @param stakePkh The stake key hash / delegation credential
+     * @return List of UTxOs with this stake credential
+     */
+    public List<Utxo> findUtxosByStakePkh(String stakePkh) {
+
+        if (utxoRepository == null) {
+            throw new RuntimeException("Unsupported - requires local UTXO repository");
+        } else {
+            return utxoRepository.findUnspentByOwnerStakeCredential(stakePkh, Pageable.unpaged())
                     .stream()
                     .flatMap(Collection::stream)
                     .map(UtxoUtil::toUtxo)

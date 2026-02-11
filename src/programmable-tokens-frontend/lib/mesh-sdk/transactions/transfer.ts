@@ -18,8 +18,8 @@ import {
 
 import { provider, getNetworkName } from "../config";
 import { Cip113_scripts_standard } from "../standard/deploy";
-import cip113_scripts_subStandard from "../substandard/dummy/deploy";
-import { ProtocolBootstrapParams } from "../../../types/protocol";
+import { cip113_scripts_subStandard } from "../substandard/dummy/deploy";
+import { ProtocolBootstrapParams, ProtocolBlueprint, SubstandardBlueprint } from "../../../types/protocol";
 import { parseRegistryDatum } from "../../utils/script-utils";
 
 const transfer_programmable_token = async (
@@ -28,7 +28,9 @@ const transfer_programmable_token = async (
   recipientAddress: string,
   params: ProtocolBootstrapParams,
   Network_id: 0 | 1,
-  wallet: IWallet
+  wallet: IWallet,
+  protocolBlueprint: ProtocolBlueprint,
+  substandardBlueprint: SubstandardBlueprint
 ) => {
   const policyId = unit.substring(0, POLICY_ID_LENGTH);
   const changeAddress = await wallet.getChangeAddress();
@@ -38,33 +40,51 @@ const transfer_programmable_token = async (
   if (!collateral) throw new Error("No collateral available");
   if (!walletUtxos) throw new Error("Issuer wallet is empty");
 
-  const standardScript = new Cip113_scripts_standard(Network_id);
-  const substandardScript = new cip113_scripts_subStandard(Network_id);
+  const standardScript = new Cip113_scripts_standard(Network_id, protocolBlueprint);
+  const substandardScript = new cip113_scripts_subStandard(Network_id, substandardBlueprint);
+
   const logic_base = await standardScript.programmable_logic_base(params);
   const logic_global = await standardScript.programmable_logic_global(params);
   const registry_spend = await standardScript.registry_spend(params);
-  const substandard_transfer =
-    await substandardScript.transfer_transfer_withdraw();
+  const substandard_transfer = await substandardScript.transfer_transfer_withdraw();
 
-  const senderCredential = deserializeAddress(changeAddress)
-    .asBase()
-    ?.getStakeCredential().hash;
+  const senderDeserialized = deserializeAddress(changeAddress);
+  const senderBase = senderDeserialized.asBase();
 
-  const recipientCredential = deserializeAddress(recipientAddress)
-    .asBase()
-    ?.getStakeCredential().hash;
+  if (!senderBase) {
+    throw new Error(`Sender changeAddress is not a base address: ${changeAddress}`);
+  }
+  const senderStakeCred = senderBase.getStakeCredential();
+  const senderCredential = senderStakeCred.hash;
+
+  if (!senderCredential) {
+    throw new Error(`Could not extract staking credential from sender address: ${changeAddress}`);
+  }
+
+  const recipientDeserialized = deserializeAddress(recipientAddress);
+  const recipientBase = recipientDeserialized.asBase();
+
+  if (!recipientBase) {
+    throw new Error(`Recipient address is not a base address: ${recipientAddress}`);
+  }
+  const recipientStakeCred = recipientBase.getStakeCredential();
+  const recipientCredential = recipientStakeCred.hash;
+
+  if (!recipientCredential) {
+    throw new Error(`Could not extract staking credential from recipient address: ${recipientAddress}`);
+  }
 
   const senderBaseAddress = buildBaseAddress(
     Network_id,
     logic_base.policyId as Hash28ByteBase16,
-    senderCredential!,
+    senderCredential,
     CredentialType.ScriptHash,
     CredentialType.KeyHash
   );
   const recipientBaseAddress = buildBaseAddress(
     Network_id,
     logic_base.policyId as Hash28ByteBase16,
-    recipientCredential!,
+    recipientCredential,
     CredentialType.ScriptHash,
     CredentialType.KeyHash
   );
@@ -91,7 +111,7 @@ const transfer_programmable_token = async (
   const protocolParamsUtxo = protocolParamsUtxos[0];
 
   const senderProgTokenUtxos = await provider.fetchAddressUTxOs(senderAddress);
-  if (!senderProgTokenUtxos) {
+  if (!senderProgTokenUtxos || senderProgTokenUtxos.length === 0) {
     throw new Error("No programmable tokens found at sender address");
   }
 
@@ -139,6 +159,7 @@ const transfer_programmable_token = async (
   const txBuilder = new MeshTxBuilder({
     fetcher: provider,
     submitter: provider,
+    evaluator: provider,
     verbose: true,
   });
 
@@ -194,7 +215,8 @@ const transfer_programmable_token = async (
     .setNetwork(getNetworkName())
     .changeAddress(changeAddress);
 
-  return await txBuilder.complete();
+  const result = await txBuilder.complete();
+  return result;
 };
 
 export { transfer_programmable_token };

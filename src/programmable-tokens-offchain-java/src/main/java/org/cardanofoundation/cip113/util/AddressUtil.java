@@ -103,4 +103,29 @@ public class AddressUtil {
         }
         return components.getPaymentScriptHash().equalsIgnoreCase(scriptHash);
     }
+
+    /**
+     * Extract payment public key hash from a vanilla wallet address.
+     * For programmable tokens, this PKH is used in the stake credential part
+     * of the smart contract address.
+     *
+     * Note: The decompose() method returns "paymentScriptHash" but for vanilla
+     * wallet addresses, this is actually the payment key hash (PKH), not a script hash.
+     *
+     * @param bech32Address the vanilla wallet address (e.g., addr_test1...)
+     * @return payment key hash (hex), or null if extraction fails
+     */
+    public static String extractPaymentPkh(String bech32Address) {
+        AddressComponents components = decompose(bech32Address);
+        if (components == null) {
+            log.warn("Failed to decompose address: {}", bech32Address);
+            return null;
+        }
+        String paymentHash = components.getPaymentScriptHash();
+        if (paymentHash == null || paymentHash.isEmpty()) {
+            log.warn("No payment credential found in address: {}", bech32Address);
+            return null;
+        }
+        return paymentHash;
+    }
 }

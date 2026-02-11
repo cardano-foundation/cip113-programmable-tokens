@@ -199,6 +199,36 @@ export interface TransactionHistoryEntry {
 export type TransactionHistoryResponse = TransactionHistoryEntry[];
 
 // ============================================================================
+// Token Burning
+// ============================================================================
+
+export interface BurnTokenRequest {
+  feePayerAddress: string;
+  tokenPolicyId: string;
+  assetName: string;           // Hex encoded
+  quantity: string;            // Positive string
+  utxoTxHash: string;
+  utxoOutputIndex: number;
+}
+
+// Backend returns plain text CBOR hex string (not JSON)
+export type BurnTokenResponse = string;
+
+export interface UtxoInfo {
+  txHash: string;
+  outputIndex: number;
+  tokenAmount: string;         // Amount of queried token
+  fullValue: string;           // Full Value JSON
+}
+
+export interface UtxoListResponse {
+  address: string;
+  policyId: string;
+  assetName: string;
+  utxos: UtxoInfo[];
+}
+
+// ============================================================================
 // API Error
 // ============================================================================
 

@@ -3,6 +3,7 @@ package org.cardanofoundation.cip113.service;
 import com.bloxbean.cardano.client.transaction.spec.TransactionInput;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.cardanofoundation.cip113.entity.ProgrammableTokenRegistryEntity;
 import org.cardanofoundation.cip113.repository.BlacklistInitRepository;
 import org.cardanofoundation.cip113.repository.FreezeAndSeizeTokenRegistrationRepository;
 import org.cardanofoundation.cip113.repository.ProgrammableTokenRegistryRepository;
@@ -49,7 +50,7 @@ public class BlacklistQueryService {
 
             // 1. Resolve substandard ID from policy ID
             var substandardIdOpt = programmableTokenRegistryRepository.findByPolicyId(tokenPolicyId)
-                    .map(entity -> entity.getSubstandardId());
+                    .map(ProgrammableTokenRegistryEntity::getSubstandardId);
 
             if (substandardIdOpt.isEmpty()) {
                 log.debug("Token {} not found in programmable token registry", tokenPolicyId);
