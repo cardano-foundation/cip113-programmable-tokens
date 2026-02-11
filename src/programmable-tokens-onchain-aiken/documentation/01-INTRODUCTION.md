@@ -62,6 +62,18 @@ This approach means:
 
 **Important**: Programmable tokens are NOT a separate token standard or blockchain fork. They are **Cardano native assets** enhanced with lifecycle rules. Their minting policies, transfer rules, and burning operations are governed by additional smart contract logic, but they remain native tokens at the ledger level.
 
+### Standard and Substandards
+
+CIP-113 follows a layered design:
+
+- **CIP-113 (Core Standard)** — The overarching framework that defines the shared infrastructure: the custody model (programmable logic base), the on-chain registry, the global validation coordinator, and the token issuance mechanism. This framework is deployed once and shared by all programmable tokens. It requires no hard fork — everything is built on existing Cardano L1 features.
+
+- **Substandards** — The actual rules that specific programmable tokens must obey. A substandard is a pluggable set of validators (typically stake scripts invoked via the withdraw-zero pattern) that define transfer logic, issuer controls, and any supporting on-chain state. Different tokens can use different substandards depending on their compliance requirements. Examples include:
+  - **Simple permissioned transfer** — Requires a specific credential to authorize transfers
+  - **Freeze and seize** — Denylist-aware transfer logic with on-chain sanctioned address management, freeze capabilities, and token seizure by authorized parties
+
+This separation means the core framework remains stable and shared, while new substandards can be developed and deployed independently to support new compliance models without modifying the base protocol.
+
 ### Comparison: Native vs Programmable Tokens
 
 | Aspect | Native Token | Programmable Token |
@@ -146,12 +158,12 @@ A sorted linked list of registered programmable tokens, stored as on-chain UTxOs
 
 The linked list structure enables **O(1) verification** - you can prove a token is registered (or not registered) with constant-time lookups.
 
-#### 3. Validation Scripts
-Pluggable stake validators that define custom logic:
+#### 3. Validation Scripts (Substandards)
+Pluggable stake validators defined by substandards that enforce token-specific rules:
 - **Transfer Logic**: Runs on every token transfer (e.g., denylist checks, allowlist validation)
 - **Issuer Logic**: Controls minting, burning, and seizure operations
 
-Scripts are invoked using the **withdraw-zero pattern** - stake validators are triggered with 0 ADA withdrawals.
+Different tokens can use different substandards — each substandard is registered in the on-chain registry and invoked automatically by the core framework. Scripts are invoked using the **withdraw-zero pattern** — stake validators are triggered with 0 ADA withdrawals.
 
 #### 4. Global Validator
 The core CIP-143 validator that coordinates all operations:

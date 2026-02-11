@@ -77,12 +77,12 @@ graph TB
         PP[protocol_params_mint<br/><i>Minting Policy</i>]
     end
 
-    subgraph "Transfer Logic (Pluggable)"
+    subgraph "Substandard: Transfer Logic"
         TL[example_transfer_logic<br/><i>Stake Validator</i>]
         FES[freeze_and_seize_transfer<br/><i>Stake Validator</i>]
     end
 
-    subgraph "Denylist (Substandard)"
+    subgraph "Substandard: Denylist"
         BM[blacklist_mint<br/><i>Minting Policy</i>]
         BS[blacklist_spend<br/><i>Spending Validator</i>]
     end
@@ -96,7 +96,11 @@ graph TB
     IM -->|"references"| ICH
 ```
 
+The diagram above separates the **core CIP-113 standard** (Token Custody, Coordination Layer, Registry, Token Issuance, Protocol Bootstrap) from **substandards** (Transfer Logic, Denylist). The core standard is deployed once and shared by all programmable tokens. Substandards are pluggable — different tokens can register different transfer logic and supporting validators depending on their compliance requirements, without modifying the core framework.
+
 ### Validator Reference
+
+**Core Standard (CIP-113 Framework)**
 
 | Validator | Type | Parameters | Purpose |
 |-----------|------|------------|---------|
@@ -107,6 +111,11 @@ graph TB
 | `registry_spend` | Spend | `protocol_params_cs` | Guards registry node UTxOs; only allows spending when `registry_mint` is active. |
 | `issuance_mint` | Mint | `programmable_logic_base`, `minting_logic_cred` | Mints/burns programmable tokens. Parameterized per token type. |
 | `issuance_cbor_hex_mint` | Mint | `utxo_ref` | One-shot mint of the reference NFT holding issuance script template bytes. |
+
+**Example Substandards**
+
+| Validator | Type | Parameters | Purpose |
+|-----------|------|------------|---------|
 | `example_transfer_logic` | Stake (withdraw) | `permitted_cred` | Simple transfer logic: requires a specific credential to authorize. |
 | `freeze_and_seize_transfer` | Stake (withdraw) | `programmable_logic_base_cred`, `blacklist_node_cs` | Denylist-aware transfer logic for regulated tokens. |
 | `blacklist_mint` | Mint | `utxo_ref`, `manager_pkh` | Manages the sorted linked list of denylisted credentials. |
