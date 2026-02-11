@@ -266,7 +266,7 @@ Programmable tokens enable compliance with various regulatory frameworks includi
 
 ### Relationship to CIP-113
 
-CIP-143 has been incorporated into the newer **[CIP-113](https://github.com/HarmonicLabs/CIPs/tree/master/CIP-0113)** proposal. This implementation follows CIP-143 and includes features useful for regulated tokens. See [CIP-113 Comparison](../../../CIP-113-COMPARISON.md) for detailed differences between the two standards.
+CIP-143 has been incorporated into the newer **[CIP-113](https://github.com/HarmonicLabs/CIPs/tree/master/CIP-0113)** proposal. This implementation follows CIP-143 and includes features useful for regulated tokens.
 
 ### Implementation Status
 
@@ -303,9 +303,8 @@ aiken check
 ### Additional Resources
 
 - 📖 [Main README](../README.md) - Project overview and quick start
-- 🏛️ [Official Architecture Docs](../../../doc/architecture.md) - Plutarch reference docs
+- 🏛️ [Architecture Deep-Dive](./02-ARCHITECTURE.md) - Validator coordination, data structures, and validation flows
 - 🔄 [CIP-143 Flow Documentation](../../../CIP-0143-FLOW.md) - Complete transaction flows
-- 📋 [CIP-113 Comparison](../../../CIP-113-COMPARISON.md) - Standards comparison
 
 ---
 
