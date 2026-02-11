@@ -34,7 +34,7 @@ This means:
 
 - **All programmable tokens live at addresses that share the same payment credential** — the `programmable_logic_base` validator hash. This is what enables unified validation: every spend from this payment credential triggers the same spending validator.
 - **Ownership is determined by the stake credential** — either a verification key (for wallet holders) or a script hash (for smart contract-controlled holdings).
-- **Wallets see tokens normally** — because the tokens are Cardano native assets at addresses the wallet controls via the stake key.
+- **Wallets require integration** — tokens are native assets at the ledger level, but wallets need to resolve stake-credential-based ownership at the shared script address to display balances correctly.
 
 ### Transferring Tokens
 

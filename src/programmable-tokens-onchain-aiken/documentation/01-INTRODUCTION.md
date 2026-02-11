@@ -46,7 +46,7 @@ Financial institutions and asset issuers cannot simply deploy tokens on blockcha
 
 **Programmable tokens are native Cardano assets with an additional layer of validation logic that executes on every transfer, mint, or burn operation.**
 
-They remain fully compatible with existing Cardano infrastructure (wallets, explorers, DEXes) while adding programmable constraints required for regulated assets.
+They leverage Cardano's existing native token infrastructure and require no hard fork or ledger changes. However, because tokens are held at a shared script address with stake-credential-based ownership, wallets, explorers, and DEXes would require integration work to fully support them.
 
 ### Key Principle
 
@@ -55,7 +55,7 @@ All programmable tokens are locked in a **shared smart contract address**. Owner
 This approach means:
 - Payment credential is **shared** across all token holders (the programmable logic base address)
 - Stake credential is **unique** per holder (determines ownership)
-- Wallets see and manage tokens normally
+- Wallets could manage tokens if they resolve stake-credential-based ownership
 - Every transfer automatically invokes validation logic
 
 ### Still Native Assets
@@ -71,11 +71,11 @@ This approach means:
 | **Custody** | Any address | Programmable logic address |
 | **Ownership** | Payment credential | Stake credential |
 | **Validation** | Ledger rules only | Ledger + custom logic |
-| **Wallet Support** | Standard wallets | Standard wallets* |
-| **Explorer Support** | All explorers | All explorers* |
-| **DEX Compatibility** | Full | Full (if transfer logic allows) |
+| **Wallet Support** | Standard wallets | Requires integration* |
+| **Explorer Support** | All explorers | Requires integration* |
+| **DEX Compatibility** | Full | Requires integration* |
 
-**\* Note**: Wallets and explorers work with programmable tokens the same way they work with native assets. The additional validation happens transparently at the smart contract layer.
+**\* Note**: Programmable tokens are native assets at the ledger level, but because they are held at a shared script address with ownership determined by stake credentials, wallets need to resolve stake-credential-based ownership to display balances, explorers need to attribute tokens to holders rather than the script address, and DEX contracts need to interact with the programmable logic validators. No hard fork or ledger changes are required — all programmable logic uses features already supported at the L1 level.
 
 ### Example Use Cases
 
@@ -222,10 +222,10 @@ Let's walk through a simple transfer:
 
 ### For Token Holders
 
-**Same User Experience**:
-- Works with existing Cardano wallets
-- Visible in standard explorers
-- No special software required
+**Native Asset Foundation**:
+- Built on Cardano's native token infrastructure, no hard fork required
+- Wallets and explorers can support them with stake-credential-aware integration
+- Tokens remain native assets at the ledger level
 
 **Transparent Rules**:
 - Validation logic is public and immutable
