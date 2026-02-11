@@ -177,6 +177,55 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
                 return SUBSTANDARD_ID;
         }
 
+        /**
+         * Extract issuance prefix and postfix from the issuance UTxO datum.
+         * The datum is a ConstrPlutusData with 2 fields: [prefix_bytes, postfix_bytes]
+         * 
+         * @param issuanceUtxo The issuance UTxO containing the prefix/postfix datum
+         /**
+          * @return Pair of (prefix, postfix) as byte arrays, or empty if parsing fails
+          */
+         private Optional<Pair<byte[], byte[]>> extractIssuancePrefixPostfix(Utxo issuanceUtxo) {
+             try {
+                 if (issuanceUtxo == null || issuanceUtxo.getInlineDatum() == null) {
+                     log.warn("Issuance UTxO or datum is null");
+                     return Optional.empty();
+                 }
+                        }
+
+                        var datumHex = issuanceUtxo.getInlineDatum();
+                        var datum = com.bloxbean.cardano.client.plutus.spec.PlutusData.deserialize(
+                                        HexUtil.decodeHexString(datumHex));
+
+                        if (!(datum instanceof ConstrPlutusData constrDatum)) {
+                                log.warn("Issuance datum is not a ConstrPlutusData");
+                                return Optional.empty();
+                        }
+
+                        // Use ObjectMapper to parse JSON structure (same approach as BlacklistNodeParser)
+                        var jsonData = objectMapper.readTree(objectMapper.writeValueAsString(constrDatum));
+                        var fields = jsonData.path("fields");
+                        if (!fields.isArray() || fields.size() < 2) {
+                                log.warn("Issuance datum does not have 2 fields");
+                                return Optional.empty();
+                        }
+
+                        var prefixHex = fields.get(0).path("bytes").asText();
+                        var postfixHex = fields.get(1).path("bytes").asText();
+
+                        var prefixBytes = HexUtil.decodeHexString(prefixHex);
+                        var postfixBytes = HexUtil.decodeHexString(postfixHex);
+
+                        return Optional.of(Pair.of(prefixBytes, postfixBytes));
+                }catch(
+
+        Exception e)
+        {
+                log.error("Failed to extract issuance prefix/postfix from UTxO", e);
+                return Optional.empty();
+        }
+        }
+
         // ========== BasicOperations Implementation ==========
 
         @Override
@@ -192,8 +241,8 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
 
                         /// Getting Substandard Contracts and parameterize
                         // Issuer to be used for minting/burning/sieze
-                        // NOTE: Parameterized with both adminPkh AND asset_name to prevent policy ID
-                        /// collisions
+                        // NOTE: Parameterized with adminPkh, asset_name, issuance_prefix,
+                        /// issuance_postfix, and programmable_base_hash
                         // This allows the same admin to register multiple tokens with unique policy IDs
                         var issuerContractOpt = substandardService.getSubstandardValidator(SUBSTANDARD_ID,
                                         "example_transfer_logic.issuer_admin_contract.withdraw");
@@ -202,15 +251,34 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
                         }
                         var issuerContract = issuerContractOpt.get();
 
-                        // Build parameter list: [adminPkh, assetName]
-                        // Parameter 1: Admin credential (who can control this token)
-                        // Parameter 2: Asset name (binds contract to specific token, prevents reuse)
+                        // Extract issuance prefix/postfix from issuance UTxO
+                        var issuanceTxHash = protocolParams.issuanceParams().txInput().txHash();
+                        var issuanceOutputIndex = protocolParams.issuanceParams().txInput().outputIndex();
+                        var issuanceUtxoOpt = utxoProvider.findUtxo(issuanceTxHash, issuanceOutputIndex);
+                        if (issuanceUtxoOpt.isEmpty()) {
+                                return TransactionContext
+                                                .typedError("could not find issuance UTxO to extract prefix/postfix");
+                        }
+                        var prefixPostfixOpt = extractIssuancePrefixPostfix(issuanceUtxoOpt.get());
+                        if (prefixPostfixOpt.isEmpty()) {
+                                return TransactionContext.typedError(
+                                                "could not extract issuance prefix/postfix from UTxO datum");
+                        }
+                        var prefixPostfix = prefixPostfixOpt.get();
+                        var issuancePrefix = prefixPostfix.first();
+                        var issuancePostfix = prefixPostfix.second();
+
+                        // Build parameter list: [permitted_cred, asset_name, issuance_prefix,
+                        // _issuance_postfix, programmable_base_hash]
                         var assetNameBytes = HexUtil.decodeHexString(request.getAssetName());
+                        var programmableBaseHash = HexUtil.decodeHexString(
+                                        protocolParams.programmableLogicBaseParams().scriptHash());
                         var issuerAdminContractInitParams = ListPlutusData.of(
                                         serialize(adminPkh),
-                                        BytesPlutusData.of(assetNameBytes) // NEW: Asset name parameter for policy ID
-                                                                           // uniqueness
-                        );
+                                        BytesPlutusData.of(assetNameBytes),
+                                        BytesPlutusData.of(issuancePrefix),
+                                        BytesPlutusData.of(issuancePostfix),
+                                        BytesPlutusData.of(programmableBaseHash));
 
                         var substandardIssueContract = PlutusBlueprintUtil.getPlutusScriptFromCompiledCode(
                                         AikenScriptUtil.applyParamToScript(issuerAdminContractInitParams,
@@ -492,22 +560,22 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
 
                         // For reference inputs, we don't need the full UTXO - we can construct
                         // TransactionInput directly
-                        // Try to find UTXO for validation (optional), but don't fail if it's spent
+                        // Try to find UTXO for validation (required for extracting prefix/postfix)
                         Optional<Utxo> issuanceUtxoOpt = utxoProvider.findUtxo(issuanceTxHash, issuanceOutputIndex);
                         if (issuanceUtxoOpt.isEmpty()) {
-                                log.info("Issuance params UTXO {}#{} not found (likely spent, used as reference input - this is OK)",
+                                log.error("Issuance params UTXO {}#{} not found - required for extracting prefix/postfix",
                                                 issuanceTxHash, issuanceOutputIndex);
-                        } else {
-                                log.debug("Found issuance params UTXO {}#{}", issuanceTxHash, issuanceOutputIndex);
+                                return TransactionContext
+                                                .typedError("could not find issuance UTxO to extract prefix/postfix");
                         }
+                        log.debug("Found issuance params UTXO {}#{}", issuanceTxHash, issuanceOutputIndex);
 
                         // We'll use the txHash and outputIndex from bootstrap for the reference input
 
                         /// Getting Substandard Contracts and parameterize
                         // Issuer to be used for minting/burning/sieze
-                        // NOTE: Parameterized with both adminPkh AND asset_name to prevent policy ID
-                        /// collisions
-                        // This allows the same admin to register multiple tokens with unique policy IDs
+                        // NOTE: Parameterized with adminPkh, asset_name, issuance_prefix,
+                        /// issuance_postfix, and programmable_base_hash
                         var issuerContractOpt = substandardService.getSubstandardValidator(SUBSTANDARD_ID,
                                         "example_transfer_logic.issuer_admin_contract.withdraw");
                         if (issuerContractOpt.isEmpty()) {
@@ -515,15 +583,27 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
                         }
                         var issuerContract = issuerContractOpt.get();
 
-                        // Build parameter list: [adminPkh, assetName]
-                        // Parameter 1: Admin credential (who can control this token)
-                        // Parameter 2: Asset name (binds contract to specific token, prevents reuse)
+                        // Extract issuance prefix/postfix from issuance UTxO
+                        var prefixPostfixOpt = extractIssuancePrefixPostfix(issuanceUtxoOpt.get());
+                        if (prefixPostfixOpt.isEmpty()) {
+                                return TransactionContext.typedError(
+                                                "could not extract issuance prefix/postfix from UTxO datum");
+                        }
+                        var prefixPostfix = prefixPostfixOpt.get();
+                        var issuancePrefix = prefixPostfix.first();
+                        var issuancePostfix = prefixPostfix.second();
+
+                        // Build parameter list: [permitted_cred, asset_name, issuance_prefix,
+                        // _issuance_postfix, programmable_base_hash]
                         var assetNameBytes = HexUtil.decodeHexString(request.getAssetName());
+                        var programmableBaseHash = HexUtil.decodeHexString(
+                                        protocolParams.programmableLogicBaseParams().scriptHash());
                         var issuerAdminContractInitParams = ListPlutusData.of(
                                         serialize(adminPkh),
-                                        BytesPlutusData.of(assetNameBytes) // NEW: Asset name parameter for policy ID
-                                                                           // uniqueness
-                        );
+                                        BytesPlutusData.of(assetNameBytes),
+                                        BytesPlutusData.of(issuancePrefix),
+                                        BytesPlutusData.of(issuancePostfix),
+                                        BytesPlutusData.of(programmableBaseHash));
 
                         var substandardIssueContract = PlutusBlueprintUtil.getPlutusScriptFromCompiledCode(
                                         AikenScriptUtil.applyParamToScript(issuerAdminContractInitParams,
@@ -1009,22 +1089,22 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
 
                         // For reference inputs, we don't need the full UTXO - we can construct
                         // TransactionInput directly
-                        // Try to find UTXO for validation (optional), but don't fail if it's spent
+                        // Try to find UTXO for validation (required for extracting prefix/postfix)
                         Optional<Utxo> issuanceUtxoOpt = utxoProvider.findUtxo(issuanceTxHash, issuanceOutputIndex);
                         if (issuanceUtxoOpt.isEmpty()) {
-                                log.info("Issuance params UTXO {}#{} not found (likely spent, used as reference input - this is OK)",
+                                log.error("Issuance params UTXO {}#{} not found - required for extracting prefix/postfix",
                                                 issuanceTxHash, issuanceOutputIndex);
-                        } else {
-                                log.debug("Found issuance params UTXO {}#{}", issuanceTxHash, issuanceOutputIndex);
+                                return TransactionContext
+                                                .typedError("could not find issuance UTxO to extract prefix/postfix");
                         }
+                        log.debug("Found issuance params UTXO {}#{}", issuanceTxHash, issuanceOutputIndex);
 
                         // We'll use the txHash and outputIndex from bootstrap for the reference input
 
                         /// Getting Substandard Contracts and parameterize
                         // Issuer to be used for minting/burning/sieze
-                        // NOTE: Parameterized with both adminPkh AND asset_name to prevent policy ID
-                        /// collisions
-                        // This allows the same admin to register multiple tokens with unique policy IDs
+                        // NOTE: Parameterized with adminPkh, asset_name, issuance_prefix,
+                        /// issuance_postfix, and programmable_base_hash
                         var issuerContractOpt = substandardService.getSubstandardValidator(SUBSTANDARD_ID,
                                         "example_transfer_logic.issuer_admin_contract.withdraw");
                         if (issuerContractOpt.isEmpty()) {
@@ -1032,18 +1112,28 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
                         }
                         var issuerContract = issuerContractOpt.get();
 
+                        // Extract issuance prefix/postfix from issuance UTxO
+                        var prefixPostfixOpt = extractIssuancePrefixPostfix(issuanceUtxoOpt.get());
+                        if (prefixPostfixOpt.isEmpty()) {
+                                return TransactionContext.typedError(
+                                                "could not extract issuance prefix/postfix from UTxO datum");
+                        }
+                        var prefixPostfix = prefixPostfixOpt.get();
+                        var issuancePrefix = prefixPostfix.first();
+                        var issuancePostfix = prefixPostfix.second();
+
                         var adminPkh = Credential.fromKey(context.getIssuerAdminPkh());
-                        // Build parameter list: [adminPkh, assetName]
-                        // Parameter 1: Admin credential (who can control this token)
-                        // Parameter 2: Asset name (binds contract to specific token, prevents reuse)
-                        // IMPORTANT: Asset name must match the token being minted for validation to
-                        // pass
+                        // Build parameter list: [permitted_cred, asset_name, issuance_prefix,
+                        // _issuance_postfix, programmable_base_hash]
                         var assetNameBytes = HexUtil.decodeHexString(request.assetName());
+                        var programmableBaseHash = HexUtil.decodeHexString(
+                                        protocolParams.programmableLogicBaseParams().scriptHash());
                         var issuerAdminContractInitParams = ListPlutusData.of(
                                         serialize(adminPkh),
-                                        BytesPlutusData.of(assetNameBytes) // NEW: Asset name parameter for policy ID
-                                                                           // uniqueness
-                        );
+                                        BytesPlutusData.of(assetNameBytes),
+                                        BytesPlutusData.of(issuancePrefix),
+                                        BytesPlutusData.of(issuancePostfix),
+                                        BytesPlutusData.of(programmableBaseHash));
 
                         var substandardIssueContract = PlutusBlueprintUtil.getPlutusScriptFromCompiledCode(
                                         AikenScriptUtil.applyParamToScript(issuerAdminContractInitParams,
@@ -2320,9 +2410,8 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
                         log.info("programmableLogicBase policy: {}", programmableLogicBase.getPolicyId());
 
                         // Issuer to be used for minting/burning/sieze
-                        // NOTE: Parameterized with both adminPkh AND asset_name to prevent policy ID
-                        // collisions
-                        // This allows the same admin to register multiple tokens with unique policy IDs
+                        // NOTE: Parameterized with adminPkh, asset_name, issuance_prefix,
+                        // issuance_postfix, and programmable_base_hash
                         var issuerContractOpt = substandardService.getSubstandardValidator(SUBSTANDARD_ID,
                                         "example_transfer_logic.issuer_admin_contract.withdraw");
                         if (issuerContractOpt.isEmpty()) {
@@ -2330,19 +2419,38 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
                         }
                         var issuerContract = issuerContractOpt.get();
 
+                        // Extract issuance prefix/postfix from issuance UTxO
+                        // For seize, we need to get issuance UTxO from protocol params
+                        var issuanceTxHash = protocolParams.issuanceParams().txInput().txHash();
+                        var issuanceOutputIndex = protocolParams.issuanceParams().txInput().outputIndex();
+                        var issuanceUtxoOpt = utxoProvider.findUtxo(issuanceTxHash, issuanceOutputIndex);
+                        if (issuanceUtxoOpt.isEmpty()) {
+                                return TransactionContext
+                                                .typedError("could not find issuance UTxO to extract prefix/postfix");
+                        }
+                        var prefixPostfixOpt = extractIssuancePrefixPostfix(issuanceUtxoOpt.get());
+                        if (prefixPostfixOpt.isEmpty()) {
+                                return TransactionContext.typedError(
+                                                "could not extract issuance prefix/postfix from UTxO datum");
+                        }
+                        var prefixPostfix = prefixPostfixOpt.get();
+                        var issuancePrefix = prefixPostfix.first();
+                        var issuancePostfix = prefixPostfix.second();
+
                         var adminPkh = Credential.fromKey(context.getIssuerAdminPkh());
-                        // Build parameter list: [adminPkh, assetName]
-                        // Parameter 1: Admin credential (who can control this token)
-                        // Parameter 2: Asset name (binds contract to specific token, prevents reuse)
+                        // Build parameter list: [permitted_cred, asset_name, issuance_prefix,
+                        // _issuance_postfix, programmable_base_hash]
                         // IMPORTANT: For seize operations, asset name validation is skipped (no
                         // minting)
-                        // Extract asset name from the token being seized
                         var assetNameBytes = HexUtil.decodeHexString(progToken.assetName());
+                        var programmableBaseHash = HexUtil.decodeHexString(
+                                        protocolParams.programmableLogicBaseParams().scriptHash());
                         var issuerAdminContractInitParams = ListPlutusData.of(
                                         serialize(adminPkh),
-                                        BytesPlutusData.of(assetNameBytes) // NEW: Asset name parameter for policy ID
-                                                                           // uniqueness
-                        );
+                                        BytesPlutusData.of(assetNameBytes),
+                                        BytesPlutusData.of(issuancePrefix),
+                                        BytesPlutusData.of(issuancePostfix),
+                                        BytesPlutusData.of(programmableBaseHash));
 
                         var substandardIssueAdminContract = PlutusBlueprintUtil.getPlutusScriptFromCompiledCode(
                                         AikenScriptUtil.applyParamToScript(issuerAdminContractInitParams,
