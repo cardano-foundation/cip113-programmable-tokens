@@ -98,7 +98,6 @@ export async function extractPkhFromAddress(address: string): Promise<string | n
   }
 }
 
-<<<<<<< HEAD
 // ============================================================================
 // Spent UTXOs API
 // ============================================================================
@@ -125,7 +124,8 @@ export interface SpentUtxosResponse {
 export async function getSpentUtxos(pkh: string): Promise<SpentUtxosResponse> {
   const endpoint = `/admin/spent-utxos/${pkh}`;
   return apiGet<SpentUtxosResponse>(endpoint);
-=======
+}
+
 /**
  * Fetch UTxOs at an address that contain a specific token
  * Used for burning - allows admin to select which UTxOs to burn from
@@ -143,5 +143,4 @@ export async function getUtxosForBurning(
   const params = new URLSearchParams({ address, policyId, assetName });
   const endpoint = `/admin/utxos?${params.toString()}`;
   return apiGet<UtxoListResponse>(endpoint);
->>>>>>> upstream/main
 }

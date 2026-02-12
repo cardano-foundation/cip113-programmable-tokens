@@ -4,7 +4,7 @@
 
 import { ApiException } from '@/types/api';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8081';
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8080';
 const API_PREFIX = '/api/v1';
 const DEFAULT_TIMEOUT = 30000; // 30 seconds
 
