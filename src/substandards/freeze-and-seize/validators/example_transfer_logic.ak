@@ -1,90 +1,17 @@
 use aiken/builtin
+use aiken/collection/dict
 use aiken/collection/list
 use cardano/address.{Credential, Script, VerificationKey}
-use cardano/assets.{flatten}
+use cardano/assets
 use cardano/transaction.{Transaction, Withdraw}
-use types.{IssuanceCborHex, issuance_cbor_hex_token_name}
+use types.{IssuanceCborHex}
 use utils.{apply_hashed_parameter, expect_inline_datum}
-
-// ------------------------------------------------------------
-// Utilities
-// ------------------------------------------------------------
-
-fn concat_bytes(a: ByteArray, b: ByteArray) -> ByteArray {
-  builtin.append_bytearray(a, b)
-}
-
-fn credential_authorized(
-  permitted_cred: Credential,
-  tx: Transaction,
-) -> Bool {
-  when permitted_cred is {
-    VerificationKey(pkh) ->
-      list.has(tx.extra_signatories, pkh)
-
-    Script(script_hash) -> {
-      let script_cred = Script(script_hash)
-
-      list.any(
-        tx.withdrawals,
-        fn(wdrl) {
-          let Pair(cred, _) = wdrl
-          cred == script_cred
-        },
-      )
-    }
-  }
-}
-
-fn withdraw_script_executed(
-  redeemers: Pairs<transaction.ScriptPurpose, transaction.Redeemer>,
-  expected_hash: ByteArray,
-) -> Bool {
-  list.any(
-    redeemers,
-    fn(pair) {
-      let Pair(purpose, _) = pair
-      when purpose is {
-        Withdraw(Script(hash)) -> hash == expected_hash
-        _ -> False
-      }
-    },
-  )
-}
-
-fn find_issuance_cbor_hex_params(tx: Transaction) -> IssuanceCborHex {
-  // Find the reference input that holds the IssuanceCborHex NFT
-  // We search by the well-known token name "IssuanceCborHex"
-  expect Some(ref_input) =
-    list.find(
-      tx.reference_inputs,
-      fn(input) {
-        let tokens = flatten(input.output.value)
-        list.any(
-          tokens,
-          fn(token) {
-            let (_, tn, _qty) = token
-            tn == issuance_cbor_hex_token_name
-          },
-        )
-      },
-    )
-
-  // Extract and decode the IssuanceCborHex datum from that reference input
-  let datum = expect_inline_datum(ref_input.output)
-  expect issuance_cbor: IssuanceCborHex = datum
-  issuance_cbor
-}
-
-// ------------------------------------------------------------
-// Issuer Admin Validator
-// ------------------------------------------------------------
 
 validator issuer_admin_contract(
   permitted_cred: Credential,
   asset_name: ByteArray,
-  issuance_prefix: ByteArray,
-  issuance_postfix: ByteArray,
+  issuance_cbor_hex_cs: PolicyId,
+  //  Only need the NFT policy
   programmable_base_hash: ByteArray,
 ) {
   withdraw(
@@ -92,62 +19,105 @@ validator issuer_admin_contract(
     _account: Credential,
     self: Transaction,
   ) {
+    // ============================================================
+    // OPTIMIZATION 1: Authorization check with early exit
+    // ============================================================
+    // Check authorization first - if fails, exit immediately
     let authorized =
-      credential_authorized(permitted_cred, self)
+      when permitted_cred is {
+        VerificationKey(pkh) ->
+          // Fast path: direct signature check
+          list.has(self.extra_signatories, pkh)
+        Script(script_hash) ->
+          // Use any() for early exit when match found
+          list.any(
+            self.withdrawals,
+            fn(wdrl) {
+              // Direct pattern match in lambda
+              when wdrl is {
+                Pair(Script(hash), _) -> hash == script_hash
+                _ -> False
+              }
+            },
+          )
+      }
+    // Early exit if not authorized
+    expect authorized
 
+    // ============================================================
+    // OPTIMIZATION 2: Withdraw script check with early exit
+    // ============================================================
     let withdraw_ok =
-      withdraw_script_executed(self.redeemers, withdraw_script_hash)
+      list.any(
+        self.redeemers,
+        fn(pair) {
+          when pair is {
+            Pair(Withdraw(Script(hash)), _) -> hash == withdraw_script_hash
+            _ -> False
+          }
+        },
+      )
+    // Early exit if withdraw not executed
+    expect withdraw_ok
 
-    // Load the canonical issuance prefix/postfix from the on-chain
-    // IssuanceCborHex reference UTxO to avoid relying on arbitrary
-    // parameters.
-    let issuance_cbor = find_issuance_cbor_hex_params(self)
-    let onchain_prefix = issuance_cbor.prefix_cbor_hex
-    let onchain_postfix = issuance_cbor.postfix_cbor_hex
+    // ============================================================
+    // OPTIMIZATION 3: Fetch IssuanceCborHex (aligned with registry_mint.ak)
+    // ============================================================
+    // Find reference input with issuance NFT
+    // Following exact pattern from registry_mint.ak line 25
+    expect Some(issuance_ref_input) =
+      list.find(
+        self.reference_inputs,
+        fn(input) {
+          // Check if this input has the issuance NFT
+          let tokens = assets.tokens(input.output.value, issuance_cbor_hex_cs)
+          !dict.is_empty(tokens)
+        },
+      )
 
-    // Sanity-check that the passed parameters match the on-chain values
-    let prefix_matches = onchain_prefix == issuance_prefix
-    let postfix_matches = onchain_postfix == issuance_postfix
+    // Extract datum - same pattern as registry_mint.ak
+    let issuance_datum = expect_inline_datum(issuance_ref_input.output)
+    expect issuance_cbor: IssuanceCborHex = issuance_datum
 
-    // Derive the expected issuance policy ID using the same
-    // prefix / hashed_param / postfix structure as the protocol.
-    // For this substandard, the hashed_param is the concatenation of:
-    //   programmable_base_hash || withdraw_script_hash
+    //  Now we have TRUSTED prefix/postfix from on-chain
+    //  No need for parameter validation - removed issuance_prefix/postfix params
+    // ============================================================
+    // OPTIMIZATION 4: Inline policy calculation
+    // ============================================================
+    // Concatenate hashes inline
     let hashed_param =
-      concat_bytes(programmable_base_hash, withdraw_script_hash)
+      builtin.append_bytearray(programmable_base_hash, withdraw_script_hash)
 
+    // Derive expected policy ID with trusted values
     let derived_policy_id =
       apply_hashed_parameter(
-        onchain_prefix,
-        onchain_postfix,
+        issuance_cbor.prefix_cbor_hex,
+        issuance_cbor.postfix_cbor_hex,
         hashed_param,
       )
 
-    let mint = flatten(self.mint)
+    // ============================================================
+    // OPTIMIZATION 5: Efficient mint validation
+    // ============================================================
+    // Flatten once and reuse
+    let mint = assets.flatten(self.mint)
+    let mint_length = list.length(mint)
 
-    let mint_valid =
-      if list.length(mint) == 0 {
-        // Seize (no mint) allowed
-        True
-      } else {
-        // When minting, enforce that there is exactly one asset entry
-        // and that it matches the derived policy ID and bound asset name.
-        when list.head(mint) is {
-          Some((policy_id, token_name, qty)) ->
-            list.length(mint) == 1
-              && policy_id == derived_policy_id
-              && token_name == asset_name
-              && qty > 0
-          None -> False
-        }
+    // Fast path: no minting (seize operation)
+    if mint_length == 0 {
+      True
+    } else {
+      // Minting path: validate single entry
+      // OPTIMIZATION: Combine length check with head extraction
+      expect mint_length == 1
+      // Get the single minted asset
+      expect Some((policy_id, token_name, qty)) = list.head(mint)
+      // All conditions must match
+      and {
+        policy_id == derived_policy_id,
+        token_name == asset_name,
+        qty > 0,
       }
-
-    and {
-      authorized,
-      withdraw_ok,
-      prefix_matches,
-      postfix_matches,
-      mint_valid,
     }
   }
 

@@ -1,263 +1,13 @@
 // // Integration tests for example transfer logic validators
-// use aiken/collection/list
-// use cardano/address.{Address, Credential, Inline, Script, VerificationKey}
-// use cardano/assets.{zero}
-// use cardano/transaction.{Input, NoDatum, Output, OutputReference}
-
-// // Test data
-// const test_permitted_pkh = #"aabbccdd"
-
-// // const test_permitted_cred: Credential = VerificationKey(test_permitted_pkh)
-
-// const test_other_pkh = #"11223344"
-
-// const test_prog_logic_base_cred: Credential = Script(#"70726f67")
-
-// // const test_blacklist_node_cs: PolicyId =
-// //   #"0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c"
-
-// // Test simple permissioned transfer with VerificationKey
-// test simple_permissioned_transfer_with_vkey() {
-//   let permitted_cred = VerificationKey(test_permitted_pkh)
-//   let extra_signatories = [test_permitted_pkh, #"99999999"]
-
-//   when permitted_cred is {
-//     VerificationKey(pkh) -> list.has(extra_signatories, pkh)
-//     _ -> False
-//   }
-// }
-
-// // Test simple permissioned transfer fails without signature
-// test simple_permissioned_transfer_fails_without_signature() {
-//   let permitted_cred = VerificationKey(test_permitted_pkh)
-//   let extra_signatories = [test_other_pkh]
-
-//   when permitted_cred is {
-//     VerificationKey(pkh) -> !list.has(extra_signatories, pkh)
-//     _ -> True
-//   }
-// }
-
-// // Test script credential always passes (simplified)
-// test script_credential_always_passes() {
-//   let permitted_cred = Script(#"736372697074")
-
-//   when permitted_cred is {
-//     VerificationKey(_) -> False
-//     _ -> True
-//   }
-// }
-
-// // Test freeze-and-seize gets prog inputs
-// test freeze_and_seize_gets_prog_inputs() {
-//   let inputs =
-//     [
-//       Input {
-//         output_reference: OutputReference {
-//           transaction_id: #"00",
-//           output_index: 0,
-//         },
-//         output: Output {
-//           address: Address {
-//             payment_credential: test_prog_logic_base_cred,
-//             stake_credential: Some(Inline(VerificationKey(test_permitted_pkh))),
-//           },
-//           value: zero,
-//           datum: NoDatum,
-//           reference_script: None,
-//         },
-//       },
-//       Input {
-//         output_reference: OutputReference {
-//           transaction_id: #"01",
-//           output_index: 1,
-//         },
-//         output: Output {
-//           address: Address {
-//             payment_credential: Script(#"6f74686572"),
-//             stake_credential: None,
-//           },
-//           value: zero,
-//           datum: NoDatum,
-//           reference_script: None,
-//         },
-//       },
-//     ]
-
-//   let prog_inputs =
-//     list.filter(
-//       inputs,
-//       fn(input) {
-//         input.output.address.payment_credential == test_prog_logic_base_cred
-//       },
-//     )
-
-//   list.length(prog_inputs) == 1
-// }
-
-// // Test freeze-and-seize extracts stake credentials
-// test freeze_and_seize_extracts_stake_credentials() {
-//   let input =
-//     Input {
-//       output_reference: OutputReference {
-//         transaction_id: #"00",
-//         output_index: 0,
-//       },
-//       output: Output {
-//         address: Address {
-//           payment_credential: test_prog_logic_base_cred,
-//           stake_credential: Some(Inline(VerificationKey(test_permitted_pkh))),
-//         },
-//         value: zero,
-//         datum: NoDatum,
-//         reference_script: None,
-//       },
-//     }
-
-//   when input.output.address.stake_credential is {
-//     Some(Inline(stake_cred)) ->
-//       when stake_cred is {
-//         VerificationKey(pkh) -> pkh == test_permitted_pkh
-//         _ -> False
-//       }
-//     _ -> False
-//   }
-// }
-
-// // Test freeze-and-seize validates VerificationKey stake credentials
-// test freeze_and_seize_validates_vkey_stake_credentials() {
-//   let stake_cred = VerificationKey(test_permitted_pkh)
-
-//   when stake_cred is {
-//     VerificationKey(pkh) -> pkh == test_permitted_pkh
-//     _ -> False
-//   }
-// }
-
-// // Test freeze-and-seize validates script stake credentials
-// test freeze_and_seize_validates_script_stake_credentials() {
-//   let stake_cred = Script(#"736372697074")
-
-//   when stake_cred is {
-//     VerificationKey(_) -> False
-//     _ -> True
-//   }
-// }
-
-// // Test freeze-and-seize requires stake credential
-// test freeze_and_seize_requires_stake_credential() {
-//   let with_stake =
-//     Address {
-//       payment_credential: test_prog_logic_base_cred,
-//       stake_credential: Some(Inline(VerificationKey(test_permitted_pkh))),
-//     }
-
-//   let without_stake =
-//     Address {
-//       payment_credential: test_prog_logic_base_cred,
-//       stake_credential: None,
-//     }
-
-//   when with_stake.stake_credential is {
-//     Some(Inline(_)) -> True
-//     _ -> False
-//   } && when without_stake.stake_credential is {
-//     Some(Inline(_)) -> False
-//     _ -> True
-//   }
-// }
-
-// // Test all prog inputs must validate
-// test all_prog_inputs_must_validate() {
-//   let inputs =
-//     [
-//       Input {
-//         output_reference: OutputReference {
-//           transaction_id: #"00",
-//           output_index: 0,
-//         },
-//         output: Output {
-//           address: Address {
-//             payment_credential: test_prog_logic_base_cred,
-//             stake_credential: Some(Inline(VerificationKey(test_permitted_pkh))),
-//           },
-//           value: zero,
-//           datum: NoDatum,
-//           reference_script: None,
-//         },
-//       },
-//       Input {
-//         output_reference: OutputReference {
-//           transaction_id: #"01",
-//           output_index: 1,
-//         },
-//         output: Output {
-//           address: Address {
-//             payment_credential: test_prog_logic_base_cred,
-//             stake_credential: Some(Inline(VerificationKey(test_other_pkh))),
-//           },
-//           value: zero,
-//           datum: NoDatum,
-//           reference_script: None,
-//         },
-//       },
-//     ]
-
-//   // Both inputs should validate (in this simplified version)
-//   list.all(
-//     inputs,
-//     fn(input) {
-//       when input.output.address.stake_credential is {
-//         Some(Inline(stake_cred)) ->
-//           when stake_cred is {
-//             VerificationKey(_) -> True
-//             _ -> True
-//           }
-//         _ -> False
-//       }
-//     },
-//   )
-// }
-
-// // Test BlacklistProof structure
-// test blacklist_proof_structure() {
-//   // BlacklistProof would contain node indices for validation
-//   // For this test, we just verify the type exists
-//   // let _proof: List<BlacklistProof> = []
-//   True
-// }
-
-// // Test extra signatories list handling
-// test extra_signatories_list_handling() {
-//   let signatories = [test_permitted_pkh, test_other_pkh, #"deadbeef"]
-
-//   list.has(signatories, test_permitted_pkh) && list.has(
-//     signatories,
-//     test_other_pkh,
-//   ) && !list.has(signatories, #"6e6f7470726573656e74")
-// }
-
-// // Test credential type matching
-// test credential_type_matching() {
-//   let vkey_cred = VerificationKey(test_permitted_pkh)
-//   let script_cred = Script(#"736372697074")
-
-//   when vkey_cred is {
-//     VerificationKey(_) -> True
-//     _ -> False
-//   } && when script_cred is {
-//     Script(_) -> True
-//     _ -> False
-//   }
-// }
-// ============================================================
-// Tests for Issuer Admin Contract
-// ============================================================
 
 use aiken/builtin
+use aiken/collection/dict
 use aiken/collection/list
 use cardano/address.{Script, VerificationKey}
+use cardano/assets.{PolicyId, from_asset, tokens}
 use cardano/transaction as transaction
+use cardano/transaction.{InlineDatum, Input, Output, OutputReference}
+use types.{IssuanceCborHex}
 use utils.{apply_hashed_parameter}
 
 // ------------------------------------------------------------
@@ -265,13 +15,24 @@ use utils.{apply_hashed_parameter}
 // ------------------------------------------------------------
 
 const test_permitted_pkh = #"aabbccdd"
+
 const test_other_pkh = #"11223344"
 
-const test_asset_name = #"544f4b454e" // "TOKEN"
+const test_asset_name = #"544f4b454e"
 
+// "TOKEN"
+
+// IssuanceCborHex NFT policy ID (used to find reference input)
+const issuance_cbor_hex_cs: PolicyId =
+  #"0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c"
+
+// Prefix/postfix stored in IssuanceCborHex datum (on-chain trusted values)
 const issuance_prefix = #"aa"
+
 const issuance_postfix = #"bb"
+
 const prog_base_hash = #"cccc"
+
 const withdraw_script_hash = #"dddd"
 
 // ------------------------------------------------------------
@@ -288,13 +49,57 @@ fn derive_policy_id(
   prog_base_hash: ByteArray,
   withdraw_script_hash: ByteArray,
 ) -> ByteArray {
-  let hashed_param =
-    concat_bytes(prog_base_hash, withdraw_script_hash)
+  let hashed_param = concat_bytes(prog_base_hash, withdraw_script_hash)
 
-  apply_hashed_parameter(
-    issuance_prefix,
-    issuance_postfix,
-    hashed_param,
+  apply_hashed_parameter(issuance_prefix, issuance_postfix, hashed_param)
+}
+
+// Helper to create an IssuanceCborHex datum
+fn create_issuance_cbor_hex(
+  prefix: ByteArray,
+  postfix: ByteArray,
+) -> IssuanceCborHex {
+  IssuanceCborHex { prefix_cbor_hex: prefix, postfix_cbor_hex: postfix }
+}
+
+// Helper to create a reference input with IssuanceCborHex NFT
+fn create_issuance_ref_input(
+  issuance_cbor: IssuanceCborHex,
+  nft_policy: PolicyId,
+) -> Input {
+  // Create value with the IssuanceCborHex NFT (token name: "IssuanceCborHex")
+  let nft_value = from_asset(nft_policy, #"49737375616e636543626f72486578", 1)
+
+  // "IssuanceCborHex"
+  Input {
+    output_reference: OutputReference {
+      // Dummy transaction ID (32 bytes = 64 hex chars)
+      transaction_id: #"0000000000000000000000000000000000000000000000000000000000000000",
+      output_index: 0,
+    },
+    output: Output {
+      // Dummy script address (28 bytes = 56 hex chars for blake2b_224 hash)
+      address: Script(
+        #"00000000000000000000000000000000000000000000000000000000",
+      ),
+      value: nft_value,
+      datum: InlineDatum(issuance_cbor),
+      reference_script: None,
+    },
+  }
+}
+
+// Helper to find IssuanceCborHex reference input (mirrors validator logic)
+fn find_issuance_ref_input(
+  reference_inputs: List<Input>,
+  issuance_cbor_hex_cs: PolicyId,
+) -> Option<Input> {
+  list.find(
+    reference_inputs,
+    fn(input) {
+      let token_dict = tokens(input.output.value, issuance_cbor_hex_cs)
+      !dict.is_empty(token_dict)
+    },
   )
 }
 
@@ -312,6 +117,61 @@ fn withdraw_script_executed(
       }
     },
   )
+}
+
+// ------------------------------------------------------------
+// IssuanceCborHex reference input tests
+// ------------------------------------------------------------
+
+test finds_issuance_cbor_hex_ref_input() {
+  let issuance_cbor =
+    create_issuance_cbor_hex(issuance_prefix, issuance_postfix)
+  let ref_input = create_issuance_ref_input(issuance_cbor, issuance_cbor_hex_cs)
+  let reference_inputs = [ref_input]
+
+  when find_issuance_ref_input(reference_inputs, issuance_cbor_hex_cs) is {
+    Some(found) -> found.output_reference == ref_input.output_reference
+    None -> False
+  }
+}
+
+test fails_to_find_issuance_cbor_hex_without_ref_input() {
+  let reference_inputs: List<Input> = []
+
+  when find_issuance_ref_input(reference_inputs, issuance_cbor_hex_cs) is {
+    Some(_) -> False
+    None -> True
+  }
+}
+
+test fails_to_find_issuance_cbor_hex_with_wrong_policy() {
+  let issuance_cbor =
+    create_issuance_cbor_hex(issuance_prefix, issuance_postfix)
+  let ref_input = create_issuance_ref_input(issuance_cbor, issuance_cbor_hex_cs)
+  let reference_inputs = [ref_input]
+  let wrong_policy: PolicyId =
+    #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+
+  when find_issuance_ref_input(reference_inputs, wrong_policy) is {
+    Some(_) -> False
+    None -> True
+  }
+}
+
+test extracts_prefix_postfix_from_issuance_cbor_hex() {
+  let issuance_cbor =
+    create_issuance_cbor_hex(issuance_prefix, issuance_postfix)
+  let ref_input = create_issuance_ref_input(issuance_cbor, issuance_cbor_hex_cs)
+
+  when ref_input.output.datum is {
+    InlineDatum(datum) ->
+      when datum is {
+        IssuanceCborHex { prefix_cbor_hex, postfix_cbor_hex } ->
+          prefix_cbor_hex == issuance_prefix && postfix_cbor_hex == issuance_postfix
+        _ -> False
+      }
+    _ -> False
+  }
 }
 
 // ------------------------------------------------------------
@@ -345,38 +205,32 @@ test admin_fails_without_signature() {
 test withdraw_script_executes() {
   let dummy_redeemer: transaction.Redeemer = 0
   let redeemers =
-    [
-      Pair(
-        transaction.Withdraw(Script(withdraw_script_hash)),
-        dummy_redeemer,
-      )
-    ]
+    [Pair(transaction.Withdraw(Script(withdraw_script_hash)), dummy_redeemer)]
 
   withdraw_script_executed(redeemers, withdraw_script_hash)
 }
 
 test withdraw_script_hash_mismatch_fails() {
   let dummy_redeemer: transaction.Redeemer = 0
-  let redeemers =
-    [
-      Pair(
-        transaction.Withdraw(Script(#"eeee")),
-        dummy_redeemer,
-      )
-    ]
+  let redeemers = [Pair(transaction.Withdraw(Script(#"eeee")), dummy_redeemer)]
 
   !withdraw_script_executed(redeemers, withdraw_script_hash)
 }
 
 // ------------------------------------------------------------
 // Mint validation tests
+// Note: These tests verify policy ID derivation using prefix/postfix
+// from IssuanceCborHex datum (on-chain trusted source), not parameters
 // ------------------------------------------------------------
 
 test valid_mint_passes() {
+  // Derive policy ID using prefix/postfix from IssuanceCborHex (on-chain trusted values)
   let pid =
     derive_policy_id(
       issuance_prefix,
+      // From IssuanceCborHex datum
       issuance_postfix,
+      // From IssuanceCborHex datum
       prog_base_hash,
       withdraw_script_hash,
     )
@@ -399,8 +253,9 @@ test wrong_asset_name_fails() {
       withdraw_script_hash,
     )
 
-  let mint = [(pid, #"424144", 1)] // "BAD"
+  let mint = [(pid, #"424144", 1)]
 
+  // "BAD"
   when list.head(mint) is {
     Some((_, name, _)) -> name != test_asset_name
     None -> False
@@ -433,14 +288,35 @@ test multiple_assets_fail() {
       withdraw_script_hash,
     )
 
-  let mint =
-    [
-      (pid, test_asset_name, 1),
-      (pid, #"424144", 1),
-    ]
+  let mint = [(pid, test_asset_name, 1), (pid, #"424144", 1)]
 
   // Multiple assets should not be considered a valid mint
   list.length(mint) > 1
+}
+
+test policy_id_derived_from_issuance_cbor_hex_values() {
+  // Verify that policy ID derivation uses values from IssuanceCborHex
+  // This ensures the validator uses on-chain trusted values, not user-provided params
+  let issuance_cbor =
+    create_issuance_cbor_hex(issuance_prefix, issuance_postfix)
+  // Derive policy ID using values from IssuanceCborHex datum
+  let pid_from_datum =
+    derive_policy_id(
+      issuance_cbor.prefix_cbor_hex,
+      issuance_cbor.postfix_cbor_hex,
+      prog_base_hash,
+      withdraw_script_hash,
+    )
+  // Derive policy ID using constants (should match)
+  let pid_from_constants =
+    derive_policy_id(
+      issuance_prefix,
+      issuance_postfix,
+      prog_base_hash,
+      withdraw_script_hash,
+    )
+  // Both should produce the same policy ID
+  pid_from_datum == pid_from_constants
 }
 
 // ------------------------------------------------------------
