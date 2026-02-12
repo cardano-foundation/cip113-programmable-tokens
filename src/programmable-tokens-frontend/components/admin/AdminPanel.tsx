@@ -18,11 +18,7 @@ interface AdminPanelProps {
   adminAddress: string;
 }
 
-<<<<<<< HEAD
-type AdminTab = "mint" | "blacklist" | "seize" | "spent-utxos";
-=======
-type AdminTab = "mint" | "burn" | "blacklist" | "seize";
->>>>>>> upstream/main
+type AdminTab = "mint" | "burn" | "blacklist" | "seize" | "spent-utxos";
 
 interface TabInfo {
   id: AdminTab;

@@ -33,7 +33,7 @@ export function BlacklistSection({ tokens, adminAddress }: BlacklistSectionProps
 
   const [selectedToken, setSelectedToken] = useState<AdminTokenInfo | null>(null);
   const [action, setAction] = useState<BlacklistAction>("add");
-  const [targetAddress, setTargetAddress] = useState("addr_test1qrhxewfhmagpjam32gn3g9flg620vdzzx6kg485cr48zs96xnd0c4sp430mfhegqvh5psjh5garzwgqank2ff8cxv0tq8luwgh");
+  const [targetAddress, setTargetAddress] = useState("");
   const [step, setStep] = useState<BlacklistStep>("form");
   const [isBuilding, setIsBuilding] = useState(false);
   const [isSigning, setIsSigning] = useState(false);
