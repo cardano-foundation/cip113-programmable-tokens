@@ -83,19 +83,8 @@ public class UtxoProvider {
                     .map(UtxoUtil::toUtxo)
                     .toList();
 
-<<<<<<< HEAD
             log.debug("Found {} UTXOs in local DB for address: {}", utxos.size(), address);
             return utxos;
-=======
-            if (utxos.isEmpty()) {
-                log.info("No UTxos found for address {}", address);
-                // falling back on blockfrost if indexer is behind
-                return getBlockfrostUtxos(address);
-            } else {
-                return utxos;
-            }
-
->>>>>>> upstream/main
         }
 
         return List.of();
