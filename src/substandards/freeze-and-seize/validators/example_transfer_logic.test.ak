@@ -3,10 +3,9 @@
 use aiken/builtin
 use aiken/collection/dict
 use aiken/collection/list
-use cardano/address.{Script, VerificationKey}
+use cardano/address.{Address, Script, VerificationKey}
 use cardano/assets.{PolicyId, from_asset, tokens}
 use cardano/transaction as transaction
-use cardano/transaction.{InlineDatum, Input, Output, OutputReference}
 use types.{IssuanceCborHex}
 use utils.{apply_hashed_parameter}
 
@@ -66,24 +65,27 @@ fn create_issuance_cbor_hex(
 fn create_issuance_ref_input(
   issuance_cbor: IssuanceCborHex,
   nft_policy: PolicyId,
-) -> Input {
+) -> transaction.Input {
   // Create value with the IssuanceCborHex NFT (token name: "IssuanceCborHex")
   let nft_value = from_asset(nft_policy, #"49737375616e636543626f72486578", 1)
 
   // "IssuanceCborHex"
-  Input {
-    output_reference: OutputReference {
+  transaction.Input {
+    output_reference: transaction.OutputReference {
       // Dummy transaction ID (32 bytes = 64 hex chars)
       transaction_id: #"0000000000000000000000000000000000000000000000000000000000000000",
       output_index: 0,
     },
-    output: Output {
+    output: transaction.Output {
       // Dummy script address (28 bytes = 56 hex chars for blake2b_224 hash)
-      address: Script(
-        #"00000000000000000000000000000000000000000000000000000000",
-      ),
+      address: Address {
+        payment_credential: Script(
+          #"00000000000000000000000000000000000000000000000000000000",
+        ),
+        stake_credential: None,
+      },
       value: nft_value,
-      datum: InlineDatum(issuance_cbor),
+      datum: transaction.InlineDatum(issuance_cbor),
       reference_script: None,
     },
   }
@@ -91,9 +93,9 @@ fn create_issuance_ref_input(
 
 // Helper to find IssuanceCborHex reference input (mirrors validator logic)
 fn find_issuance_ref_input(
-  reference_inputs: List<Input>,
+  reference_inputs: List<transaction.Input>,
   issuance_cbor_hex_cs: PolicyId,
-) -> Option<Input> {
+) -> Option<transaction.Input> {
   list.find(
     reference_inputs,
     fn(input) {
@@ -136,7 +138,7 @@ test finds_issuance_cbor_hex_ref_input() {
 }
 
 test fails_to_find_issuance_cbor_hex_without_ref_input() {
-  let reference_inputs: List<Input> = []
+  let reference_inputs: List<transaction.Input> = []
 
   when find_issuance_ref_input(reference_inputs, issuance_cbor_hex_cs) is {
     Some(_) -> False
@@ -164,12 +166,12 @@ test extracts_prefix_postfix_from_issuance_cbor_hex() {
   let ref_input = create_issuance_ref_input(issuance_cbor, issuance_cbor_hex_cs)
 
   when ref_input.output.datum is {
-    InlineDatum(datum) ->
-      when datum is {
-        IssuanceCborHex { prefix_cbor_hex, postfix_cbor_hex } ->
-          prefix_cbor_hex == issuance_prefix && postfix_cbor_hex == issuance_postfix
-        _ -> False
-      }
+    transaction.InlineDatum(datum) -> {
+      // Cast Data to IssuanceCborHex (same pattern as validator)
+      expect issuance_cbor_extracted: IssuanceCborHex = datum
+      issuance_cbor_extracted.prefix_cbor_hex == issuance_prefix
+        && issuance_cbor_extracted.postfix_cbor_hex == issuance_postfix
+    }
     _ -> False
   }
 }

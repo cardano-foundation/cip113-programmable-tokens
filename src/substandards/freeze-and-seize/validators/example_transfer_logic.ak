@@ -2,7 +2,7 @@ use aiken/builtin
 use aiken/collection/dict
 use aiken/collection/list
 use cardano/address.{Credential, Script, VerificationKey}
-use cardano/assets
+use cardano/assets.{PolicyId}
 use cardano/transaction.{Transaction, Withdraw}
 use types.{IssuanceCborHex}
 use utils.{apply_hashed_parameter, expect_inline_datum}
