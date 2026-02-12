@@ -31,15 +31,6 @@ pub type RegistryNode {
   global_state_cs: ByteArray,
 }
 
-/// Blacklist node in the linked list of sanctioned addresses
-/// Used for freeze-and-seize functionality
-pub type BlacklistNode {
-  /// The key (credential hash) of the blacklisted address
-  key: ByteArray,
-  /// The next key in lexicographical order
-  next: ByteArray,
-}
-
 /// Protocol parameters stored on-chain
 /// This is referenced by all programmable token transactions
 pub type ProgrammableLogicGlobalParams {
@@ -55,12 +46,6 @@ pub type RegistryProof {
   TokenExists { node_idx: Int }
   /// Token does not exist (proof via covering node at this index)
   TokenDoesNotExist { node_idx: Int }
-}
-
-/// Proof of blacklist membership or non-membership
-pub type BlacklistProof {
-  /// Proof of non-membership via covering node
-  NonmembershipProof { node_idx: Int }
 }
 
 /// Redeemer for the global programmable logic stake validator
@@ -93,16 +78,6 @@ pub type RegistryRedeemer {
   RegistryInit
   /// Insert a new programmable token policy into the registry
   RegistryInsert { key: ByteArray, hashed_param: ByteArray }
-}
-
-/// Redeemer for blacklist minting policy (linked list operations)
-pub type BlacklistRedeemer {
-  /// Initialize the blacklist with the origin node
-  BlacklistInit
-  /// Insert a credential into the blacklist
-  BlacklistInsert { key: ByteArray }
-  /// Remove a credential from the blacklist
-  BlacklistRemove { key: ByteArray }
 }
 
 /// Issuance CBOR hex reference data
