@@ -3,7 +3,8 @@ use aiken/collection/list
 use cardano/address.{Credential, Script, VerificationKey}
 use cardano/assets.{flatten}
 use cardano/transaction.{Transaction, Withdraw}
-use utils.{apply_hashed_parameter}
+use types.{IssuanceCborHex, issuance_cbor_hex_token_name}
+use utils.{apply_hashed_parameter, expect_inline_datum}
 
 // ------------------------------------------------------------
 // Utilities
@@ -51,6 +52,30 @@ fn withdraw_script_executed(
   )
 }
 
+fn find_issuance_cbor_hex_params(tx: Transaction) -> IssuanceCborHex {
+  // Find the reference input that holds the IssuanceCborHex NFT
+  // We search by the well-known token name "IssuanceCborHex"
+  expect Some(ref_input) =
+    list.find(
+      tx.reference_inputs,
+      fn(input) {
+        let tokens = flatten(input.output.value)
+        list.any(
+          tokens,
+          fn(token) {
+            let (_, tn, _qty) = token
+            tn == issuance_cbor_hex_token_name
+          },
+        )
+      },
+    )
+
+  // Extract and decode the IssuanceCborHex datum from that reference input
+  let datum = expect_inline_datum(ref_input.output)
+  expect issuance_cbor: IssuanceCborHex = datum
+  issuance_cbor
+}
+
 // ------------------------------------------------------------
 // Issuer Admin Validator
 // ------------------------------------------------------------
@@ -73,6 +98,17 @@ validator issuer_admin_contract(
     let withdraw_ok =
       withdraw_script_executed(self.redeemers, withdraw_script_hash)
 
+    // Load the canonical issuance prefix/postfix from the on-chain
+    // IssuanceCborHex reference UTxO to avoid relying on arbitrary
+    // parameters.
+    let issuance_cbor = find_issuance_cbor_hex_params(self)
+    let onchain_prefix = issuance_cbor.prefix_cbor_hex
+    let onchain_postfix = issuance_cbor.postfix_cbor_hex
+
+    // Sanity-check that the passed parameters match the on-chain values
+    let prefix_matches = onchain_prefix == issuance_prefix
+    let postfix_matches = onchain_postfix == issuance_postfix
+
     // Derive the expected issuance policy ID using the same
     // prefix / hashed_param / postfix structure as the protocol.
     // For this substandard, the hashed_param is the concatenation of:
@@ -82,8 +118,8 @@ validator issuer_admin_contract(
 
     let derived_policy_id =
       apply_hashed_parameter(
-        issuance_prefix,
-        issuance_postfix,
+        onchain_prefix,
+        onchain_postfix,
         hashed_param,
       )
 
@@ -109,6 +145,8 @@ validator issuer_admin_contract(
     and {
       authorized,
       withdraw_ok,
+      prefix_matches,
+      postfix_matches,
       mint_valid,
     }
   }
