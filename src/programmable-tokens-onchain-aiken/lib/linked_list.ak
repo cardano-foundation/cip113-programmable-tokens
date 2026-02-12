@@ -2,12 +2,12 @@ use aiken/collection/dict
 use aiken/collection/list
 use aiken/primitive/bytearray
 use cardano/address.{Credential, Script, VerificationKey}
-// Linked list validation logic for registry and blacklist
-// Migrated from SmartTokens.LinkedList.Common and SmartTokens.LinkedList.BlacklistCommon
+// Linked list validation logic for the token registry
+// Migrated from SmartTokens.LinkedList.Common
 
 use cardano/assets.{PolicyId, Value, tokens}
 use cardano/transaction.{Input, Output, Transaction}
-use types.{BlacklistNode, RegistryNode, empty_vkey, origin_node_tn}
+use types.{RegistryNode, empty_vkey, origin_node_tn}
 use utils.{
   bytearray_lt, count_unique_tokens, expect_inline_datum, has_currency_symbol,
 }
@@ -30,36 +30,6 @@ pub fn validate_directory_node_output(
 
   // Parse datum as RegistryNode
   expect node: RegistryNode = datum
-
-  // Node must be ordered: key < next
-  expect bytearray_lt(node.key, node.next)
-
-  // Token name must match the key - convert dict to list for pattern matching
-  let token_pairs = dict.to_pairs(node_tokens)
-  expect [Pair(tn, qty)] = token_pairs
-  expect qty == 1
-  expect tn == node.key || tn == origin_node_tn
-
-  node
-}
-
-/// Validate that a blacklist node output has the correct structure
-pub fn validate_blacklist_node_output(
-  output: Output,
-  node_cs: PolicyId,
-) -> BlacklistNode {
-  let value = output.value
-  let datum = expect_inline_datum(output)
-
-  // Must have exactly 2 unique tokens (Ada + node token)
-  expect count_unique_tokens(value) == 2
-
-  // Must have exactly 1 node token from this policy
-  let node_tokens = tokens(value, node_cs)
-  expect dict.size(node_tokens) == 1
-
-  // Parse datum as BlacklistNode
-  expect node: BlacklistNode = datum
 
   // Node must be ordered: key < next
   expect bytearray_lt(node.key, node.next)
@@ -132,28 +102,6 @@ pub fn validate_directory_init(
   }
 }
 
-/// Validate blacklist Init: same as directory but for BlacklistNode
-pub fn validate_blacklist_init(
-  node_inputs: List<Input>,
-  node_outputs: List<Output>,
-  mint: Value,
-  node_cs: PolicyId,
-) -> Bool {
-  // Exactly one node output
-  expect [node_output] = node_outputs
-  let node = validate_blacklist_node_output(node_output, node_cs)
-
-  and {
-    // No node inputs should be spent
-    list.is_empty(node_inputs),
-    // Node must be empty (origin node)
-    node.key == #"",
-    node.next == #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
-    // Must mint exactly one origin token and no other tokens from this policy
-    assets.has_nft(mint, node_cs, origin_node_tn),
-  }
-}
-
 /// Check if a registry node represents an insertion at a specific position
 pub fn is_inserted_directory_node(
   node: RegistryNode,
@@ -191,20 +139,3 @@ pub fn is_updated_directory_node(
   node.key == original_key && node.next == insert_key
 }
 
-/// Check if a blacklist node represents an insertion
-pub fn is_inserted_blacklist_node(
-  node: BlacklistNode,
-  insert_key: ByteArray,
-  next_key: ByteArray,
-) -> Bool {
-  node.key == insert_key && node.next == next_key
-}
-
-/// Check if a blacklist node represents the covering node after insertion
-pub fn is_updated_blacklist_node(
-  node: BlacklistNode,
-  original_key: ByteArray,
-  insert_key: ByteArray,
-) -> Bool {
-  node.key == original_key && node.next == insert_key
-}

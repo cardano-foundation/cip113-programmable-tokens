@@ -58,7 +58,7 @@ aiken check
 
 All tests should pass:
 ```
-    Summary 1 error(s), 89 passing (89) [89/89 checks passed]
+    Summary 57 checks, 0 failures
 ```
 
 ## Project Structure
@@ -72,10 +72,7 @@ All tests should pass:
 │   ├── registry_spend.ak               # Registry node UTxO guard
 │   ├── issuance_mint.ak                # Token minting/burning policy
 │   ├── issuance_cbor_hex_mint.ak       # Issuance script template reference NFT
-│   ├── protocol_params_mint.ak         # Protocol parameters NFT (one-shot)
-│   ├── example_transfer_logic.ak       # Example: simple permissioned transfer
-│   ├── blacklist_mint.ak               # Denylist sorted linked list management
-│   └── blacklist_spend.ak              # Denylist node UTxO guard
+│   └── protocol_params_mint.ak         # Protocol parameters NFT (one-shot)
 ├── lib/
 │   ├── types.ak                        # Core data types
 │   ├── utils.ak                        # Utility functions
@@ -117,16 +114,10 @@ A shared spending validator (`programmable_logic_base`) holds all programmable t
 
 Substandards define the actual rules that specific programmable tokens must obey. They are stake validators invoked via 0-ADA withdrawals, registered in the on-chain registry, and executed by the core framework on every transfer. Different tokens can use different substandards depending on their compliance requirements.
 
-This repository includes example substandards:
+Substandard implementations live in the [`substandards/`](../../substandards/) directory:
 
-#### Simple Permissioned Transfer
-- **Transfer Logic** (`example_transfer_logic`) — Requires a specific credential to authorize transfers
-
-#### Freeze and Seize (Regulated Stablecoin)
-- **Transfer Logic** (`freeze_and_seize_transfer`) — Denylist-aware transfer logic that checks sender/recipient against an on-chain denylist
-- **Third-Party Logic** — Controls seizure and freeze operations by authorized parties
-- **Denylist Policy** (`blacklist_mint`) — Manages the sorted linked list of denylisted credentials
-- **Denylist Guard** (`blacklist_spend`) — Guards denylist node UTxOs
+- **[Dummy](../../substandards/dummy/)** — Simple permissioned transfer requiring a specific credential
+- **[Freeze and Seize](../../substandards/freeze-and-seize/)** — Denylist-aware transfer logic, seizure/freeze operations, and on-chain denylist management for regulated stablecoins
 
 ### Validator Reference
 
@@ -142,16 +133,7 @@ This repository includes example substandards:
 | `issuance_mint` | Mint | Mints/burns programmable tokens (parameterized per token type) |
 | `issuance_cbor_hex_mint` | Mint | One-shot mint of issuance script template reference NFT |
 
-**Example Substandards**
-
-| Validator | Type | Purpose |
-|-----------|------|---------|
-| `example_transfer_logic` | Stake (withdraw) | Simple transfer logic: requires a specific credential |
-| `freeze_and_seize_transfer` | Stake (withdraw) | Denylist-aware transfer logic for regulated tokens |
-| `blacklist_mint` | Mint | Sorted linked list management for denylisted credentials |
-| `blacklist_spend` | Spend | Guards denylist node UTxOs |
-
-See the [Architecture doc](./documentation/02-ARCHITECTURE.md) for detailed validator interactions and validation flows.
+See the [Architecture doc](./documentation/02-ARCHITECTURE.md) for detailed validator interactions and validation flows. For substandard validators, see the [`substandards/`](../../substandards/) directory.
 
 ## Transaction Lifecycle
 
@@ -206,14 +188,14 @@ All programmable tokens are locked at a shared smart contract address. When a tr
 
 ## Example: Freeze & Seize Stablecoin
 
-This implementation includes a complete example of a regulated stablecoin with freeze and seize capabilities:
+The project includes a complete example of a regulated stablecoin with freeze and seize capabilities:
 
 - **On-chain Denylist** - Sorted linked list of sanctioned addresses
 - **Transfer Validation** - Every transfer checks sender/recipient not denylisted
 - **Constant-Time Checks** - O(1) verification using covering node proofs
 - **Issuer Controls** - Authorized parties can freeze/seize tokens
 
-See [`validators/example_transfer_logic.ak`](./validators/example_transfer_logic.ak) for the implementation.
+See the [freeze-and-seize substandard](../../substandards/freeze-and-seize/) for the implementation.
 
 ## Standards
 
@@ -232,7 +214,7 @@ This is high-quality research and development code with the following characteri
 - ✅ Token issuance and transfer flows working
 - ✅ Freeze & seize functionality complete
 - ✅ Denylist system operational
-- ✅ Good test coverage (89 passing tests)
+- ✅ Good test coverage (57 core tests passing; substandard tests in their own modules)
 - ✅ Tested on Preview testnet (limited scope)
 - ⏳ Comprehensive testing required
 - ⏳ Professional security audit pending
