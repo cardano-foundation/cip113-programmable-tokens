@@ -34,7 +34,7 @@ This means:
 
 - **All programmable tokens live at addresses that share the same payment credential** — the `programmable_logic_base` validator hash. This is what enables unified validation: every spend from this payment credential triggers the same spending validator.
 - **Ownership is determined by the stake credential** — either a verification key (for wallet holders) or a script hash (for smart contract-controlled holdings).
-- **Wallets see tokens normally** — because the tokens are Cardano native assets at addresses the wallet controls via the stake key.
+- **Wallets require integration** — tokens are native assets at the ledger level, but wallets need to resolve stake-credential-based ownership at the shared script address to display balances correctly.
 
 ### Transferring Tokens
 
@@ -77,26 +77,22 @@ graph TB
         PP[protocol_params_mint<br/><i>Minting Policy</i>]
     end
 
-    subgraph "Transfer Logic (Pluggable)"
-        TL[example_transfer_logic<br/><i>Stake Validator</i>]
-        FES[freeze_and_seize_transfer<br/><i>Stake Validator</i>]
-    end
-
-    subgraph "Denylist (Substandard)"
-        BM[blacklist_mint<br/><i>Minting Policy</i>]
-        BS[blacklist_spend<br/><i>Spending Validator</i>]
+    subgraph "Substandards (pluggable, separate modules)"
+        TL[transfer_logic<br/><i>Stake Validator</i>]
     end
 
     PLB -->|"delegates to"| PLG
     PLG -->|"looks up"| RS
     PLG -->|"invokes"| TL
-    PLG -->|"invokes"| FES
-    FES -->|"checks"| BS
     RM -->|"validates structure"| RS
     IM -->|"references"| ICH
 ```
 
+The diagram above shows the **core CIP-113 standard** (Token Custody, Coordination Layer, Registry, Token Issuance, Protocol Bootstrap) and indicates where **substandards** plug in. The core standard is deployed once and shared by all programmable tokens. Substandards are pluggable — different tokens can register different transfer logic and supporting validators depending on their compliance requirements, without modifying the core framework. See the [`substandards/`](../../../substandards/) directory for implementations (dummy, freeze-and-seize).
+
 ### Validator Reference
+
+**Core Standard (CIP-113 Framework)**
 
 | Validator | Type | Parameters | Purpose |
 |-----------|------|------------|---------|
@@ -107,10 +103,8 @@ graph TB
 | `registry_spend` | Spend | `protocol_params_cs` | Guards registry node UTxOs; only allows spending when `registry_mint` is active. |
 | `issuance_mint` | Mint | `programmable_logic_base`, `minting_logic_cred` | Mints/burns programmable tokens. Parameterized per token type. |
 | `issuance_cbor_hex_mint` | Mint | `utxo_ref` | One-shot mint of the reference NFT holding issuance script template bytes. |
-| `example_transfer_logic` | Stake (withdraw) | `permitted_cred` | Simple transfer logic: requires a specific credential to authorize. |
-| `freeze_and_seize_transfer` | Stake (withdraw) | `programmable_logic_base_cred`, `blacklist_node_cs` | Denylist-aware transfer logic for regulated tokens. |
-| `blacklist_mint` | Mint | `utxo_ref`, `manager_pkh` | Manages the sorted linked list of denylisted credentials. |
-| `blacklist_spend` | Spend | `blacklist_cs` | Guards denylist node UTxOs; only allows spending when `blacklist_mint` is active. |
+
+Substandard validators (transfer logic, denylist management, etc.) live in the [`substandards/`](../../../substandards/) directory as separate Aiken modules.
 
 ### Dual Validator Delegation
 
@@ -231,7 +225,9 @@ After:   [covering: key=A, next=B]  [new: key=B, next=C]
 
 ## Denylist System
 
-The denylist uses the same sorted linked list pattern as the registry, but for credential hashes instead of policy IDs. It is part of the freeze-and-seize substandard.
+> **Note:** The denylist is part of the [freeze-and-seize substandard](../../../substandards/freeze-and-seize/), not the core CIP-113 framework. It is documented here because it illustrates how substandards extend the core architecture.
+
+The denylist uses the same sorted linked list pattern as the registry, but for credential hashes instead of policy IDs.
 
 ### Structure
 
@@ -274,7 +270,7 @@ type RegistryNode {
 }
 ```
 
-### BlacklistNode
+### BlacklistNode (freeze-and-seize substandard)
 
 ```aiken
 type BlacklistNode {
@@ -321,7 +317,7 @@ type RegistryProof {
 }
 ```
 
-**Denylist proofs** (`BlacklistProof`):
+**Denylist proofs** (`BlacklistProof`, freeze-and-seize substandard):
 
 ```aiken
 type BlacklistProof {

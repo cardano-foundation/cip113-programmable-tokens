@@ -46,7 +46,7 @@ Financial institutions and asset issuers cannot simply deploy tokens on blockcha
 
 **Programmable tokens are native Cardano assets with an additional layer of validation logic that executes on every transfer, mint, or burn operation.**
 
-They remain fully compatible with existing Cardano infrastructure (wallets, explorers, DEXes) while adding programmable constraints required for regulated assets.
+They leverage Cardano's existing native token infrastructure and require no hard fork or ledger changes. However, because tokens are held at a shared script address with stake-credential-based ownership, wallets, explorers, and DEXes would require integration work to fully support them.
 
 ### Key Principle
 
@@ -55,12 +55,24 @@ All programmable tokens are locked in a **shared smart contract address**. Owner
 This approach means:
 - Payment credential is **shared** across all token holders (the programmable logic base address)
 - Stake credential is **unique** per holder (determines ownership)
-- Wallets see and manage tokens normally
+- Wallets could manage tokens if they resolve stake-credential-based ownership
 - Every transfer automatically invokes validation logic
 
 ### Still Native Assets
 
 **Important**: Programmable tokens are NOT a separate token standard or blockchain fork. They are **Cardano native assets** enhanced with lifecycle rules. Their minting policies, transfer rules, and burning operations are governed by additional smart contract logic, but they remain native tokens at the ledger level.
+
+### Standard and Substandards
+
+CIP-113 follows a layered design:
+
+- **CIP-113 (Core Standard)** — The overarching framework that defines the shared infrastructure: the custody model (programmable logic base), the on-chain registry, the global validation coordinator, and the token issuance mechanism. This framework is deployed once and shared by all programmable tokens. It requires no hard fork — everything is built on existing Cardano L1 features.
+
+- **Substandards** — The actual rules that specific programmable tokens must obey. A substandard is a pluggable set of validators (typically stake scripts invoked via the withdraw-zero pattern) that define transfer logic, issuer controls, and any supporting on-chain state. Different tokens can use different substandards depending on their compliance requirements. Examples include:
+  - **Simple permissioned transfer** — Requires a specific credential to authorize transfers
+  - **Freeze and seize** — Denylist-aware transfer logic with on-chain sanctioned address management, freeze capabilities, and token seizure by authorized parties
+
+This separation means the core framework remains stable and shared, while new substandards can be developed and deployed independently to support new compliance models without modifying the base protocol.
 
 ### Comparison: Native vs Programmable Tokens
 
@@ -71,11 +83,11 @@ This approach means:
 | **Custody** | Any address | Programmable logic address |
 | **Ownership** | Payment credential | Stake credential |
 | **Validation** | Ledger rules only | Ledger + custom logic |
-| **Wallet Support** | Standard wallets | Standard wallets* |
-| **Explorer Support** | All explorers | All explorers* |
-| **DEX Compatibility** | Full | Full (if transfer logic allows) |
+| **Wallet Support** | Standard wallets | Requires integration* |
+| **Explorer Support** | All explorers | Requires integration* |
+| **DEX Compatibility** | Full | Requires integration* |
 
-**\* Note**: Wallets and explorers work with programmable tokens the same way they work with native assets. The additional validation happens transparently at the smart contract layer.
+**\* Note**: Programmable tokens are native assets at the ledger level, but because they are held at a shared script address with ownership determined by stake credentials, wallets need to resolve stake-credential-based ownership to display balances, explorers need to attribute tokens to holders rather than the script address, and DEX contracts need to interact with the programmable logic validators. No hard fork or ledger changes are required — all programmable logic uses features already supported at the L1 level.
 
 ### Example Use Cases
 
@@ -146,12 +158,12 @@ A sorted linked list of registered programmable tokens, stored as on-chain UTxOs
 
 The linked list structure enables **O(1) verification** - you can prove a token is registered (or not registered) with constant-time lookups.
 
-#### 3. Validation Scripts
-Pluggable stake validators that define custom logic:
+#### 3. Validation Scripts (Substandards)
+Pluggable stake validators defined by substandards that enforce token-specific rules:
 - **Transfer Logic**: Runs on every token transfer (e.g., denylist checks, allowlist validation)
 - **Issuer Logic**: Controls minting, burning, and seizure operations
 
-Scripts are invoked using the **withdraw-zero pattern** - stake validators are triggered with 0 ADA withdrawals.
+Different tokens can use different substandards — each substandard is registered in the on-chain registry and invoked automatically by the core framework. Scripts are invoked using the **withdraw-zero pattern** — stake validators are triggered with 0 ADA withdrawals.
 
 #### 4. Global Validator
 The core CIP-143 validator that coordinates all operations:
@@ -222,10 +234,10 @@ Let's walk through a simple transfer:
 
 ### For Token Holders
 
-**Same User Experience**:
-- Works with existing Cardano wallets
-- Visible in standard explorers
-- No special software required
+**Native Asset Foundation**:
+- Built on Cardano's native token infrastructure, no hard fork required
+- Wallets and explorers can support them with stake-credential-aware integration
+- Tokens remain native assets at the ledger level
 
 **Transparent Rules**:
 - Validation logic is public and immutable
@@ -266,7 +278,7 @@ Programmable tokens enable compliance with various regulatory frameworks includi
 
 ### Relationship to CIP-113
 
-CIP-143 has been incorporated into the newer **[CIP-113](https://github.com/HarmonicLabs/CIPs/tree/master/CIP-0113)** proposal. This implementation follows CIP-143 and includes features useful for regulated tokens. See [CIP-113 Comparison](../../../CIP-113-COMPARISON.md) for detailed differences between the two standards.
+CIP-143 has been incorporated into the newer **[CIP-113](https://github.com/HarmonicLabs/CIPs/tree/master/CIP-0113)** proposal. This implementation follows CIP-143 and includes features useful for regulated tokens.
 
 ### Implementation Status
 
@@ -303,9 +315,8 @@ aiken check
 ### Additional Resources
 
 - 📖 [Main README](../README.md) - Project overview and quick start
-- 🏛️ [Official Architecture Docs](../../../doc/architecture.md) - Plutarch reference docs
+- 🏛️ [Architecture Deep-Dive](./02-ARCHITECTURE.md) - Validator coordination, data structures, and validation flows
 - 🔄 [CIP-143 Flow Documentation](../../../CIP-0143-FLOW.md) - Complete transaction flows
-- 📋 [CIP-113 Comparison](../../../CIP-113-COMPARISON.md) - Standards comparison
 
 ---
 

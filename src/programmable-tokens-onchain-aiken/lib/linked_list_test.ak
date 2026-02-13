@@ -1,10 +1,10 @@
 // Unit tests for linked list validation logic
 use cardano/address.{Script}
 use linked_list.{
-  is_inserted_blacklist_node, is_inserted_directory_node,
-  is_updated_blacklist_node, is_updated_directory_node,
+  is_inserted_directory_node,
+  is_updated_directory_node,
 }
-use types.{BlacklistNode, RegistryNode}
+use types.{RegistryNode}
 use utils.{bytearray_lt}
 
 // Helper to create a test address
@@ -66,36 +66,6 @@ test is_inserted_directory_node_works() {
     }
 
   is_inserted_directory_node(node, insert_key, next_key)
-}
-
-// Test is_updated_blacklist_node
-test is_updated_blacklist_node_works() {
-  let original_key = #"aa"
-  let insert_key = #"bb"
-
-  let node = BlacklistNode { key: original_key, next: insert_key }
-
-  is_updated_blacklist_node(node, original_key, insert_key)
-}
-
-// Test is_inserted_blacklist_node
-test is_inserted_blacklist_node_works() {
-  let insert_key = #"bb"
-  let next_key = #"cc"
-
-  let node = BlacklistNode { key: insert_key, next: next_key }
-
-  is_inserted_blacklist_node(node, insert_key, next_key)
-}
-
-// Test blacklist node ordering
-test blacklist_node_ordering() {
-  let key1 = #"aa"
-  let key2 = #"bb"
-  let key3 = #"cc"
-
-  // Nodes should be in lexicographical order
-  bytearray_lt(key1, key2) && bytearray_lt(key2, key3)
 }
 
 // Test directory node ordering

@@ -8,7 +8,9 @@
 
 ## Overview
 
-This repository contains a complete Aiken implementation of CIP-113 programmable tokens - native Cardano assets enhanced with programmable transfer rules and lifecycle controls. This implementation is based on the foundational CIP-143 architecture, adapted for CIP-113 requirements. Programmable tokens enable regulatory compliance for real-world assets like stablecoins and tokenized securities while maintaining full compatibility with the Cardano native token infrastructure.
+This repository contains a complete Aiken implementation of CIP-113 programmable tokens — native Cardano assets enhanced with programmable transfer rules and lifecycle controls.
+
+**CIP-113** is the overarching standard that defines the core framework: the shared custody model, on-chain registry, and validation coordination. The actual rules that specific programmable tokens must obey (e.g., denylist checks, freeze-and-seize) are defined in **substandards** — pluggable rule sets that operate within the CIP-113 framework. This repository includes the core standard implementation along with example substandards.
 
 ## What Are Programmable Tokens?
 
@@ -56,7 +58,7 @@ aiken check
 
 All tests should pass:
 ```
-    Summary 1 error(s), 89 passing (89) [89/89 checks passed]
+    Summary 57 checks, 0 failures
 ```
 
 ## Project Structure
@@ -70,10 +72,7 @@ All tests should pass:
 │   ├── registry_spend.ak               # Registry node UTxO guard
 │   ├── issuance_mint.ak                # Token minting/burning policy
 │   ├── issuance_cbor_hex_mint.ak       # Issuance script template reference NFT
-│   ├── protocol_params_mint.ak         # Protocol parameters NFT (one-shot)
-│   ├── example_transfer_logic.ak       # Example: simple permissioned transfer
-│   ├── blacklist_mint.ak               # Denylist sorted linked list management
-│   └── blacklist_spend.ak              # Denylist node UTxO guard
+│   └── protocol_params_mint.ak         # Protocol parameters NFT (one-shot)
 ├── lib/
 │   ├── types.ak                        # Core data types
 │   ├── utils.ak                        # Utility functions
@@ -91,28 +90,38 @@ All tests should pass:
 
 ## Core Components
 
-### 1. Token Registry (On-Chain Directory)
+The system is split into two layers: the **core standard** (CIP-113 framework) and **substandards** (pluggable token-specific rules).
+
+### Core Standard (CIP-113 Framework)
+
+These components form the shared infrastructure that all programmable tokens use:
+
+#### 1. Token Registry (On-Chain Directory)
 
 A sorted linked list of registered programmable tokens, implemented as on-chain UTxOs with NFT markers. Each registry entry contains the token policy ID, transfer validation script reference, issuer control script reference, and optional global state reference. The sorted structure enables O(1) membership and non-membership proofs via covering nodes.
 
-### 2. Programmable Logic Base + Global Validator
+#### 2. Programmable Logic Base + Global Validator
 
 A shared spending validator (`programmable_logic_base`) holds all programmable tokens. It delegates all validation to the `programmable_logic_global` stake validator via the withdraw-zero pattern — the base runs per-input but the global runs once per-transaction, keeping costs constant regardless of input count.
 
-### 3. Pluggable Transfer Logic
-
-Stake validators invoked via 0-ADA withdrawals that define custom rules:
-- **Transfer Logic** — Runs on every token transfer (e.g., denylist checks, permissioned transfers)
-- **Third-Party Logic** — Controls seizure and freeze operations
-
-### 4. Minting Policies
+#### 3. Minting Policies
 
 - **Issuance Policy** (`issuance_mint`) — Parameterized per token type, handles minting/burning
 - **Registry Policy** (`registry_mint`) — Manages the sorted linked list of registered tokens
 - **Protocol Params Policy** (`protocol_params_mint`) — One-shot mint for global protocol parameters
-- **Denylist Policy** (`blacklist_mint`) — Manages the sorted linked list of denylisted credentials
+
+### Substandards (Pluggable Token Rules)
+
+Substandards define the actual rules that specific programmable tokens must obey. They are stake validators invoked via 0-ADA withdrawals, registered in the on-chain registry, and executed by the core framework on every transfer. Different tokens can use different substandards depending on their compliance requirements.
+
+Substandard implementations live in the [`substandards/`](../../substandards/) directory:
+
+- **[Dummy](../../substandards/dummy/)** — Simple permissioned transfer requiring a specific credential
+- **[Freeze and Seize](../../substandards/freeze-and-seize/)** — Denylist-aware transfer logic, seizure/freeze operations, and on-chain denylist management for regulated stablecoins
 
 ### Validator Reference
+
+**Core Standard (CIP-113 Framework)**
 
 | Validator | Type | Purpose |
 |-----------|------|---------|
@@ -123,12 +132,8 @@ Stake validators invoked via 0-ADA withdrawals that define custom rules:
 | `registry_spend` | Spend | Guards registry node UTxOs |
 | `issuance_mint` | Mint | Mints/burns programmable tokens (parameterized per token type) |
 | `issuance_cbor_hex_mint` | Mint | One-shot mint of issuance script template reference NFT |
-| `example_transfer_logic` | Stake (withdraw) | Simple transfer logic: requires a specific credential |
-| `freeze_and_seize_transfer` | Stake (withdraw) | Denylist-aware transfer logic for regulated tokens |
-| `blacklist_mint` | Mint | Sorted linked list management for denylisted credentials |
-| `blacklist_spend` | Spend | Guards denylist node UTxOs |
 
-See the [Architecture doc](./documentation/02-ARCHITECTURE.md) for detailed validator interactions and validation flows.
+See the [Architecture doc](./documentation/02-ARCHITECTURE.md) for detailed validator interactions and validation flows. For substandard validators, see the [`substandards/`](../../substandards/) directory.
 
 ## Transaction Lifecycle
 
@@ -183,14 +188,14 @@ All programmable tokens are locked at a shared smart contract address. When a tr
 
 ## Example: Freeze & Seize Stablecoin
 
-This implementation includes a complete example of a regulated stablecoin with freeze and seize capabilities:
+The project includes a complete example of a regulated stablecoin with freeze and seize capabilities:
 
 - **On-chain Denylist** - Sorted linked list of sanctioned addresses
 - **Transfer Validation** - Every transfer checks sender/recipient not denylisted
 - **Constant-Time Checks** - O(1) verification using covering node proofs
 - **Issuer Controls** - Authorized parties can freeze/seize tokens
 
-See [`validators/example_transfer_logic.ak`](./validators/example_transfer_logic.ak) for the implementation.
+See the [freeze-and-seize substandard](../../substandards/freeze-and-seize/) for the implementation.
 
 ## Standards
 
@@ -209,7 +214,7 @@ This is high-quality research and development code with the following characteri
 - ✅ Token issuance and transfer flows working
 - ✅ Freeze & seize functionality complete
 - ✅ Denylist system operational
-- ✅ Good test coverage (89 passing tests)
+- ✅ Good test coverage (57 core tests passing; substandard tests in their own modules)
 - ✅ Tested on Preview testnet (limited scope)
 - ⏳ Comprehensive testing required
 - ⏳ Professional security audit pending
