@@ -1,10 +1,11 @@
-// Unit tests for utility functions
-use aiken/collection/dict
-use aiken/interval
-use cardano/assets.{ada_asset_name, ada_policy_id, add, from_asset, zero}
-use cardano/transaction.{Transaction}
+//// Unit tests for utility functions
+
+use aiken/collection/dict.{Dict}
+use cardano/assets.{
+  AssetName, PolicyId, ada_asset_name, ada_policy_id, add, from_asset, zero,
+}
 use utils.{
-  bytearray_lt, count_unique_tokens, has_currency_symbol, is_signed_by,
+  bytearray_lt, count_unique_tokens, has_currency_symbol, has_signatory,
   value_contains,
 }
 
@@ -44,95 +45,98 @@ test count_unique_tokens_multiple() {
 // Test has_currency_symbol
 test has_currency_symbol_present() {
   let cs = #"0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c"
-  let value = from_asset(cs, #"746f6b656e", 100)
-
+  let value =
+    from_asset(cs, #"746f6b656e", 100)
+      |> add(ada_policy_id, ada_asset_name, 1000000)
   has_currency_symbol(value, cs)
 }
 
 // Test has_currency_symbol absent
-test has_currency_symbol_absent() {
+test has_currency_symbol_absent() fail {
   let cs1 = #"0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c"
   let cs2 = #"1112131415161718191a1b1c0d0e0f0102030405060708090a0b0c0d"
-  let value = from_asset(cs1, #"746f6b656e", 100)
+  let value =
+    from_asset(cs1, #"746f6b656e", 100)
+      |> add(ada_policy_id, ada_asset_name, 1000000)
 
-  !has_currency_symbol(value, cs2)
+  has_currency_symbol(value, cs2)
 }
 
-// Test value_contains with exact match
+const fixture_value_contains_policy_id: PolicyId =
+  #"0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c"
+
+const fixture_value_contains_asset_name: AssetName = #"746f6b656e"
+
+const fixture_value_contains_superset: Pairs<PolicyId, Dict<AssetName, Int>> =
+  from_asset(
+    fixture_value_contains_policy_id,
+    fixture_value_contains_asset_name,
+    100,
+  )
+    |> assets.to_dict
+    |> dict.to_pairs
+
+const fixture_value_contains_superset_with_ada: Pairs<
+    PolicyId,
+    Dict<AssetName, Int>,
+  > =
+  from_asset(
+    fixture_value_contains_policy_id,
+    fixture_value_contains_asset_name,
+    100,
+  )
+    |> assets.add(ada_policy_id, ada_asset_name, 1234)
+    |> assets.to_dict
+    |> dict.to_pairs
+
+const fixture_value_contains_subset: Pairs<PolicyId, Dict<AssetName, Int>> =
+  from_asset(
+    fixture_value_contains_policy_id,
+    fixture_value_contains_asset_name,
+    50,
+  )
+    |> assets.to_dict
+    |> dict.to_pairs
+
+// Test 'value_contains' with exact match
 test value_contains_exact_match() {
-  let cs = #"0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c"
-  let value = from_asset(cs, #"746f6b656e", 100)
-
-  value_contains(value, value)
+  value_contains(
+    fixture_value_contains_superset,
+    fixture_value_contains_superset,
+  )
 }
 
-// Test value_contains with subset
+// Test 'value_contains' with subset
 test value_contains_subset() {
-  let cs = #"0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c"
-  let value = from_asset(cs, #"746f6b656e", 100)
-  let required = from_asset(cs, #"746f6b656e", 50)
-
-  value_contains(value, required)
+  and {
+    value_contains(
+      fixture_value_contains_superset,
+      fixture_value_contains_subset,
+    )?,
+    value_contains(
+      fixture_value_contains_superset_with_ada,
+      fixture_value_contains_subset,
+    )?,
+  }
 }
 
-// Test value_contains with insufficient amount
+// Test 'value_contains' with insufficient funds
 test value_contains_insufficient() {
-  let cs = #"0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c"
-  let value = from_asset(cs, #"746f6b656e", 50)
-  let required = from_asset(cs, #"746f6b656e", 100)
-
-  !value_contains(value, required)
+  !value_contains(
+    fixture_value_contains_subset,
+    fixture_value_contains_superset,
+  )
 }
 
-// Test is_signed_by
-test is_signed_by_present() {
-  let pkh = #"aabbccdd"
-  let tx =
-    Transaction {
-      inputs: [],
-      reference_inputs: [],
-      outputs: [],
-      fee: 0,
-      mint: zero,
-      certificates: [],
-      withdrawals: [],
-      validity_range: interval.everything,
-      extra_signatories: [pkh],
-      redeemers: [],
-      datums: dict.empty,
-      id: #"00",
-      votes: [],
-      proposal_procedures: [],
-      current_treasury_amount: None,
-      treasury_donation: None,
-    }
-
-  is_signed_by(tx, pkh)
+// Test has_signatory
+test has_signatory_present() {
+  let vkh = #"aabbccdd"
+  has_signatory([vkh], vkh)
 }
 
-// Test is_signed_by absent
-test is_signed_by_absent() {
-  let pkh1 = #"aabbccdd"
-  let pkh2 = #"ddeeff00"
-  let tx =
-    Transaction {
-      inputs: [],
-      reference_inputs: [],
-      outputs: [],
-      fee: 0,
-      mint: zero,
-      certificates: [],
-      withdrawals: [],
-      validity_range: interval.everything,
-      extra_signatories: [pkh1],
-      redeemers: [],
-      datums: dict.empty,
-      id: #"00",
-      votes: [],
-      proposal_procedures: [],
-      current_treasury_amount: None,
-      treasury_donation: None,
-    }
-
-  !is_signed_by(tx, pkh2)
+// Test has_signatory absent
+test has_signatory_absent() fail {
+  let vkh1 = #"aabbccdd"
+  let vkh2 = #"ddeeff00"
+  has_signatory([vkh1], vkh2)
 }

@@ -1,4 +1,5 @@
-// Integration tests for programmable logic global validator
+//// Integration tests for programmable logic global validator
+
 use aiken/collection/list
 use cardano/address.{Address, Credential, Inline, Script, VerificationKey}
 use cardano/assets.{PolicyId, from_asset, merge, negate, zero}
