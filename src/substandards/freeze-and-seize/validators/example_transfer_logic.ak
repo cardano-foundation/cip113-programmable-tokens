@@ -1,154 +1,123 @@
 use aiken/builtin
+use aiken/collection/dict
 use aiken/collection/list
-// Example Transfer Logic - Simple permissioned transfer
-// Migrated from SmartTokens.Contracts.ExampleTransferLogic
+use cardano/address.{Credential, Script, VerificationKey}
+use cardano/assets.{PolicyId}
+use cardano/transaction.{Transaction, Withdraw}
+use types.{IssuanceCborHex}
+use utils.{apply_hashed_parameter, expect_inline_datum}
 
-use cardano/address.{Credential, Inline, Script, VerificationKey}
-use cardano/assets.{PolicyId, quantity_of}
-use cardano/transaction.{Input, Transaction, Withdraw}
-use types.{BlacklistProof, NonmembershipProof}
-use utils
-
-// Simple example: only allow transfers signed by a specific credential
-validator issuer_admin_contract(permitted_cred: Credential) {
-  withdraw(_redeemer: Data, _account: Credential, self: Transaction) {
-    // This example transfer logic simply checks that a specific credential
-    // has authorized the transfer
-
-    when permitted_cred is {
-      VerificationKey(pkh) ->
-        // Check that the transaction is signed by this public key
-        list.has(self.extra_signatories, pkh)
-      Script(script_hash) -> {
-        // For script credentials, check that the script is invoked via withdrawals
-        let script_cred = Script(script_hash)
-        list.any(
-          self.withdrawals,
-          fn(wdrl) {
-            let Pair(cred, _amount) = wdrl
-            cred == script_cred
-          },
-        )
-      }
-    }
-  }
-
-  else(_) {
-    fail
-  }
-}
-
-/// Extract credential hashes from inputs with the programmable logic base credential
-/// This builds the list of "witnesses" that need to be validated against the blacklist
-fn extract_required_witnesses(
-  inputs: List<Input>,
-  prog_base_cred: Credential,
-) -> List<ByteArray> {
-  list.foldr(
-    inputs,
-    [],
-    fn(input, acc) {
-      if input.output.address.payment_credential == prog_base_cred {
-        // Extract the staking credential hash
-        when input.output.address.stake_credential is {
-          Some(Inline(cred)) ->
-            when cred is {
-              VerificationKey(pkh) -> [pkh, ..acc]
-              Script(script_hash) -> [script_hash, ..acc]
-            }
-          _ -> acc
-        }
-      } else {
-        acc
-      }
-    },
-  )
-}
-
-/// Validate that none of the witnesses are in the blacklist
-/// For each witness, we check the corresponding proof which points to a covering node
-/// in the blacklist. The proof is valid if: nodeKey < witnessKey < nodeNext
-fn validate_witnesses(
-  blacklist_node_cs: PolicyId,
-  proofs: List<BlacklistProof>,
-  reference_inputs: List<Input>,
-  witnesses: List<ByteArray>,
-) -> Bool {
-  // Convert reference inputs to an indexed lookup (using list index)
-  let validate_pair =
-    fn(witness: ByteArray, proof: BlacklistProof) -> Bool {
-      let NonmembershipProof { node_idx } = proof
-      // Get the reference input at the specified index
-      expect Some(ref_input) = list.at(reference_inputs, node_idx)
-
-      // Extract and validate the blacklist node
-      let node_output = ref_input.output
-
-      // Verify the node has the blacklist currency symbol (authenticity check)
-      expect
-        quantity_of(node_output.value, blacklist_node_cs, "") > 0 || // Check for any token from this policy (some implementations use token names)
-        list.any(
-          assets.flatten(node_output.value),
-          fn(asset) {
-            let (cs, _tn, _qty) = asset
-            cs == blacklist_node_cs
-          },
-        )
-
-      // Extract the datum which should be a BlacklistNode
-      let datum_data = utils.expect_inline_datum(node_output)
-      expect node: types.BlacklistNode = datum_data
-
-      // Verify non-membership: nodeKey < witnessKey < nodeNext
-      // This proves the witness is NOT in the blacklist
-      builtin.less_than_bytearray(node.key, witness) && builtin.less_than_bytearray(
-        witness,
-        node.next,
-      )
-    }
-
-  // Zip witnesses with proofs and validate each pair
-  list.map2(witnesses, proofs, validate_pair) |> list.all(fn(x) { x })
-}
-
-/// Check if this is a rewarding script (withdraw-zero trick)
-fn is_rewarding_script(
-  redeemers: Pairs<transaction.ScriptPurpose, transaction.Redeemer>,
-  account: Credential,
-) -> Bool {
-  list.any(
-    redeemers,
-    fn(pair) {
-      let Pair(purpose, _redeemer) = pair
-      when purpose is {
-        Withdraw(cred) -> cred == account
-        _ -> False
-      }
-    },
-  )
-}
-
-// Freeze-and-seize transfer logic validator
-// This validates transfers against a blacklist
-validator transfer(
-  programmable_logic_base_cred: Credential,
-  blacklist_node_cs: PolicyId,
+validator issuer_admin_contract(
+  permitted_cred: Credential,
+  asset_name: ByteArray,
+  issuance_cbor_hex_cs: PolicyId,
+  //  Only need the NFT policy
+  programmable_base_hash: ByteArray,
 ) {
-  withdraw(proofs: List<BlacklistProof>, account: Credential, self: Transaction) {
-    // 2. Extract all credential hashes from programmable logic base inputs
-    let witnesses =
-      extract_required_witnesses(self.inputs, programmable_logic_base_cred)
+  withdraw(
+    withdraw_script_hash: ByteArray,
+    _account: Credential,
+    self: Transaction,
+  ) {
+    // ============================================================
+    // OPTIMIZATION 1: Authorization check with early exit
+    // ============================================================
+    // Check authorization first - if fails, exit immediately
+    let authorized =
+      when permitted_cred is {
+        VerificationKey(pkh) ->
+          // Fast path: direct signature check
+          list.has(self.extra_signatories, pkh)
+        Script(script_hash) ->
+          // Use any() for early exit when match found
+          list.any(
+            self.withdrawals,
+            fn(wdrl) {
+              // Direct pattern match in lambda
+              when wdrl is {
+                Pair(Script(hash), _) -> hash == script_hash
+                _ -> False
+              }
+            },
+          )
+      }
+    // Early exit if not authorized
+    expect authorized
 
-    and {
-      // 1. Verify this is invoked as a rewarding script (withdraw-zero trick)
-      is_rewarding_script(self.redeemers, account),
-      // 3. Validate that all witnesses are NOT in the blacklist
-      validate_witnesses(
-        blacklist_node_cs,
-        proofs,
+    // ============================================================
+    // OPTIMIZATION 2: Withdraw script check with early exit
+    // ============================================================
+    let withdraw_ok =
+      list.any(
+        self.redeemers,
+        fn(pair) {
+          when pair is {
+            Pair(Withdraw(Script(hash)), _) -> hash == withdraw_script_hash
+            _ -> False
+          }
+        },
+      )
+    // Early exit if withdraw not executed
+    expect withdraw_ok
+
+    // ============================================================
+    // OPTIMIZATION 3: Fetch IssuanceCborHex (aligned with registry_mint.ak)
+    // ============================================================
+    // Find reference input with issuance NFT
+    // Following exact pattern from registry_mint.ak line 25
+    expect Some(issuance_ref_input) =
+      list.find(
         self.reference_inputs,
-        witnesses,
-      ),
+        fn(input) {
+          // Check if this input has the issuance NFT
+          let tokens = assets.tokens(input.output.value, issuance_cbor_hex_cs)
+          !dict.is_empty(tokens)
+        },
+      )
+
+    // Extract datum - same pattern as registry_mint.ak
+    let issuance_datum = expect_inline_datum(issuance_ref_input.output)
+    expect issuance_cbor: IssuanceCborHex = issuance_datum
+
+    //  Now we have TRUSTED prefix/postfix from on-chain
+    //  No need for parameter validation - removed issuance_prefix/postfix params
+    // ============================================================
+    // OPTIMIZATION 4: Inline policy calculation
+    // ============================================================
+    // Concatenate hashes inline
+    let hashed_param =
+      builtin.append_bytearray(programmable_base_hash, withdraw_script_hash)
+
+    // Derive expected policy ID with trusted values
+    let derived_policy_id =
+      apply_hashed_parameter(
+        issuance_cbor.prefix_cbor_hex,
+        issuance_cbor.postfix_cbor_hex,
+        hashed_param,
+      )
+
+    // ============================================================
+    // OPTIMIZATION 5: Efficient mint validation
+    // ============================================================
+    // Flatten once and reuse
+    let mint = assets.flatten(self.mint)
+    let mint_length = list.length(mint)
+
+    // Fast path: no minting (seize operation)
+    if mint_length == 0 {
+      True
+    } else {
+      // Minting path: validate single entry
+      // OPTIMIZATION: Combine length check with head extraction
+      expect mint_length == 1
+      // Get the single minted asset
+      expect Some((policy_id, token_name, qty)) = list.head(mint)
+      // All conditions must match
+      and {
+        policy_id == derived_policy_id,
+        token_name == asset_name,
+        qty > 0,
+      }
     }
   }
 

@@ -59,8 +59,25 @@ export async function apiGet<T>(endpoint: string, options?: FetchOptions): Promi
 
     if (!response.ok) {
       const errorText = await response.text();
+      
+      // Try to parse as JSON to extract error message from TransactionContext
+      let errorMessage = errorText;
+      try {
+        const errorJson = JSON.parse(errorText);
+        // Check if it's a TransactionContext error response
+        if (errorJson.error) {
+          errorMessage = errorJson.error;
+        } else if (errorJson.message) {
+          errorMessage = errorJson.message;
+        } else if (typeof errorJson === 'string') {
+          errorMessage = errorJson;
+        }
+      } catch {
+        // Not JSON, use text as-is
+      }
+      
       throw new ApiException(
-        errorText || `API request failed: ${response.statusText}`,
+        errorMessage || `API request failed: ${response.statusText}`,
         response.status
       );
     }
@@ -97,8 +114,25 @@ export async function apiPost<T, R = unknown>(
 
     if (!response.ok) {
       const errorText = await response.text();
+      
+      // Try to parse as JSON to extract error message from TransactionContext
+      let errorMessage = errorText;
+      try {
+        const errorJson = JSON.parse(errorText);
+        // Check if it's a TransactionContext error response
+        if (errorJson.error) {
+          errorMessage = errorJson.error;
+        } else if (errorJson.message) {
+          errorMessage = errorJson.message;
+        } else if (typeof errorJson === 'string') {
+          errorMessage = errorJson;
+        }
+      } catch {
+        // Not JSON, use text as-is
+      }
+      
       throw new ApiException(
-        errorText || `API request failed: ${response.statusText}`,
+        errorMessage || `API request failed: ${response.statusText}`,
         response.status
       );
     }

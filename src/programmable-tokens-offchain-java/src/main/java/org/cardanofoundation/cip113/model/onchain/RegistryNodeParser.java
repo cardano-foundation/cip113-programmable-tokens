@@ -20,7 +20,7 @@ public class RegistryNodeParser {
         try {
             var data = PlutusData.deserialize(HexUtil.decodeHexString(inlineDatum));
             var jsonData = objectMapper.readTree(objectMapper.writeValueAsString(data));
-            log.debug("Parsing registry node jsonData: {}", jsonData);
+            System.out.println("Parsing registry node jsonData: " + jsonData);
 
             String rootName;
             if (jsonData.has("constructor")) {
@@ -28,7 +28,7 @@ public class RegistryNodeParser {
             } else {
                 rootName = "list";
             }
-            
+
             var key = jsonData.path(rootName).get(0).path("bytes").asText();
             var next = jsonData.path(rootName).get(1).path("bytes").asText();
             var transferLogicScript = jsonData.path(rootName).get(2)
@@ -37,7 +37,7 @@ public class RegistryNodeParser {
                     .path("fields").get(0).path("bytes").asText();
             String globalStatePolicyId;
             if (jsonData.path(rootName).has(4)) {
-                globalStatePolicyId =jsonData.path(rootName).get(4).path("bytes").asText();
+                globalStatePolicyId = jsonData.path(rootName).get(4).path("bytes").asText();
             } else {
                 globalStatePolicyId = "";
             }
@@ -50,10 +50,10 @@ public class RegistryNodeParser {
                     .globalStatePolicyId(globalStatePolicyId)
                     .build());
         } catch (Exception e) {
-            log.error("Failed to parse registry node from inline datum", e);
+            System.out.println("Failed to parse registry node: " + e.getMessage());
+            e.printStackTrace(System.out);
             return Optional.empty();
         }
     }
-
 
 }

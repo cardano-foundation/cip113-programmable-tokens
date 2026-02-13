@@ -8,15 +8,17 @@ import { MintSection } from "./MintSection";
 import { BurnSection } from "./BurnSection";
 import { BlacklistSection } from "./BlacklistSection";
 import { SeizeSection } from "./SeizeSection";
+import { SpentUtxosSection } from "./SpentUtxosSection";
 import { AdminTokenInfo } from "@/lib/api/admin";
 import { cn } from "@/lib/utils";
+import { AlertCircle } from "lucide-react";
 
 interface AdminPanelProps {
   tokens: AdminTokenInfo[];
   adminAddress: string;
 }
 
-type AdminTab = "mint" | "burn" | "blacklist" | "seize";
+type AdminTab = "mint" | "burn" | "blacklist" | "seize" | "spent-utxos";
 
 interface TabInfo {
   id: AdminTab;
@@ -55,6 +57,13 @@ const tabs: TabInfo[] = [
     description: "Seize tokens from blacklisted addresses",
     requiredRole: "ISSUER_ADMIN",
   },
+  {
+    id: "spent-utxos",
+    label: "Spent UTXOs",
+    icon: <AlertCircle className="h-4 w-4" />,
+    description: "View already spent UTXOs to debug transaction errors",
+    requiredRole: "ISSUER_ADMIN", // Show for any admin
+  },
 ];
 
 export function AdminPanel({ tokens, adminAddress }: AdminPanelProps) {
@@ -65,7 +74,12 @@ export function AdminPanel({ tokens, adminAddress }: AdminPanelProps) {
     return tokens.some((token) => token.roles.includes(role));
   };
 
-  const availableTabs = tabs.filter((tab) => hasRole(tab.requiredRole));
+  // Spent UTXOs tab is always available if user has any admin role
+  const availableTabs = tabs.filter((tab) => 
+    tab.id === "spent-utxos" 
+      ? (hasRole("ISSUER_ADMIN") || hasRole("BLACKLIST_MANAGER"))
+      : hasRole(tab.requiredRole)
+  );
 
   // If no tabs are available, show empty state
   if (availableTabs.length === 0) {
@@ -138,6 +152,9 @@ export function AdminPanel({ tokens, adminAddress }: AdminPanelProps) {
         )}
         {activeTab === "seize" && (
           <SeizeSection tokens={tokens} adminAddress={adminAddress} />
+        )}
+        {activeTab === "spent-utxos" && (
+          <SpentUtxosSection adminPkh={adminAddress} />
         )}
       </CardContent>
     </Card>

@@ -88,9 +88,12 @@ export function BlacklistSection({ tokens, adminAddress }: BlacklistSectionProps
       let unsignedCborTx: string;
       if (action === "add") {
         const response = await addToBlacklist(request, selectedVersion?.txHash);
+        console.log(response,"response")
         unsignedCborTx = response.unsignedCborTx;
       } else {
         const response = await removeFromBlacklist(request, selectedVersion?.txHash);
+        console.log(response,"response")
+
         unsignedCborTx = response.unsignedCborTx;
       }
 
@@ -99,7 +102,9 @@ export function BlacklistSection({ tokens, adminAddress }: BlacklistSectionProps
       setIsSigning(true);
 
       // Sign and submit
-      const signedTx = await wallet.signTx(unsignedCborTx);
+      // Use partial signing (true) because the transaction may include UTXOs or certificates
+      // that don't belong to the connected wallet (e.g., blacklist script UTXOs)
+      const signedTx = await wallet.signTx(unsignedCborTx, true);
       const submittedTxHash = await wallet.submitTx(signedTx);
 
       setTxHash(submittedTxHash);

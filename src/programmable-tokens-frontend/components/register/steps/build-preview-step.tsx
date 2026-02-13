@@ -81,9 +81,32 @@ export function BuildPreviewStep({
     return preRegState?.status === 'completed';
   }, [wizardState.stepStates]);
 
+  // Check if we're coming back from a failed sign-submit step (UTXO error)
+  const signSubmitError = useMemo(() => {
+    const signSubmitState = wizardState.stepStates['sign-submit'];
+    if (signSubmitState?.status === 'error') {
+      const error = signSubmitState.error || '';
+      const isUtxoError = error.toLowerCase().includes('utxo') || 
+                         error.toLowerCase().includes('already been spent') ||
+                         error.toLowerCase().includes('badinputsutxo');
+      return isUtxoError;
+    }
+    return false;
+  }, [wizardState.stepStates]);
+
   // Initialize phase - skip polling if pre-registration was completed
   // The pre-registration step already handles tx confirmation and cooldown
   useEffect(() => {
+    // If coming back from UTXO error, reset and rebuild
+    if (signSubmitError) {
+      console.log('[BuildPreviewStep] Detected UTXO error from sign-submit step, resetting to rebuild');
+      setPhase('ready-to-build');
+      setPolicyId('');
+      setUnsignedCborTx('');
+      setErrorMessage('');
+      return;
+    }
+
     // If pre-registration was completed, go directly to ready-to-build
     if (preRegistrationCompleted) {
       console.log('[BuildPreviewStep] Pre-registration completed, skipping tx polling');
@@ -115,7 +138,7 @@ export function BuildPreviewStep({
       }
       hasStartedPollingRef.current = false;
     };
-  }, [isFreezeAndSeize, preRegistrationCompleted]);
+  }, [isFreezeAndSeize, preRegistrationCompleted, signSubmitError]);
 
   // Build transaction - only called on button click
   const handleBuildAndContinue = useCallback(async () => {
@@ -198,10 +221,24 @@ export function BuildPreviewStep({
       setPhase('error');
       const message = error instanceof Error ? error.message : 'Failed to build transaction';
       setErrorMessage(message);
+      
+      // Check if this is a "token already exists" error
+      const isTokenExistsError = message.toLowerCase().includes('already exists') || 
+                                 message.toLowerCase().includes('already been registered');
+      
+      // Check if this is a "Directory UTXO spent" error - backend will retry automatically,
+      // but we should show a helpful message
+      const isUtxoSpentError = message.toLowerCase().includes('directory utxo') ||
+                                message.toLowerCase().includes('registry may have been updated') ||
+                                message.toLowerCase().includes('already been spent');
+      
       showToast({
-        title: 'Build Failed',
-        description: message,
-        variant: 'error',
+        title: isTokenExistsError ? 'Token Already Exists' : 
+               isUtxoSpentError ? 'Registry Updated' : 'Build Failed',
+        description: isUtxoSpentError 
+          ? 'The registry was updated. The backend will automatically retry. Please try building again.'
+          : message,
+        variant: isUtxoSpentError ? 'default' : 'error',
       });
       onError(message);
     } finally {
