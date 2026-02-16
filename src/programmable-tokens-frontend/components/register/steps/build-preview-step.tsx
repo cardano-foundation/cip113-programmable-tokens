@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
+import { useState, useCallback, useMemo, useRef } from 'react';
 import { useWallet } from '@meshsdk/react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -54,11 +54,6 @@ export function BuildPreviewStep({
 
   // Prevent double API calls
   const isCallingApiRef = useRef(false);
-  const hasStartedPollingRef = useRef(false);
-
-  // Abort controller ref (kept for cleanup compatibility)
-  const abortControllerRef = useRef<AbortController | null>(null);
-  const cooldownIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   // Get token details from wizard state
   const tokenDetails = useMemo(() => {
@@ -74,48 +69,6 @@ export function BuildPreviewStep({
 
   // Check if this is F&S flow
   const isFreezeAndSeize = flowId === 'freeze-and-seize';
-
-  // Check if pre-registration step was completed (means we can skip blacklist tx polling)
-  const preRegistrationCompleted = useMemo(() => {
-    const preRegState = wizardState.stepStates['pre-registration'];
-    return preRegState?.status === 'completed';
-  }, [wizardState.stepStates]);
-
-  // Initialize phase - skip polling if pre-registration was completed
-  // The pre-registration step already handles tx confirmation and cooldown
-  useEffect(() => {
-    // If pre-registration was completed, go directly to ready-to-build
-    if (preRegistrationCompleted) {
-      console.log('[BuildPreviewStep] Pre-registration completed, skipping tx polling');
-      setPhase('ready-to-build');
-      return;
-    }
-
-    // For non-F&S flow without pre-registration, go to ready-to-build
-    if (!isFreezeAndSeize) {
-      setPhase('ready-to-build');
-      return;
-    }
-
-    // Legacy flow: F&S without pre-registration step (shouldn't happen with new flow)
-    // Go to ready-to-build as a fallback
-    console.log('[BuildPreviewStep] Fallback: going to ready-to-build');
-    setPhase('ready-to-build');
-
-    // Cleanup
-    return () => {
-      console.log('[BuildPreviewStep] Cleanup running');
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
-        abortControllerRef.current = null;
-      }
-      if (cooldownIntervalRef.current) {
-        clearInterval(cooldownIntervalRef.current);
-        cooldownIntervalRef.current = null;
-      }
-      hasStartedPollingRef.current = false;
-    };
-  }, [isFreezeAndSeize, preRegistrationCompleted]);
 
   // Build transaction - only called on button click
   const handleBuildAndContinue = useCallback(async () => {

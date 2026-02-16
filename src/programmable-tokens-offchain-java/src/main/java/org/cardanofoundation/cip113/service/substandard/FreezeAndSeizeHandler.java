@@ -11,6 +11,7 @@ import com.bloxbean.cardano.client.plutus.spec.BigIntPlutusData;
 import com.bloxbean.cardano.client.plutus.spec.BytesPlutusData;
 import com.bloxbean.cardano.client.plutus.spec.ConstrPlutusData;
 import com.bloxbean.cardano.client.plutus.spec.ListPlutusData;
+import com.bloxbean.cardano.client.quicktx.AbstractTx;
 import com.bloxbean.cardano.client.quicktx.QuickTxBuilder;
 import com.bloxbean.cardano.client.quicktx.ScriptTx;
 import com.bloxbean.cardano.client.quicktx.Tx;
@@ -58,6 +59,7 @@ import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import static java.math.BigInteger.ONE;
@@ -556,9 +558,6 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
             var assetTypeToBurn = new AssetType(request.tokenPolicyId(), request.assetName());
             log.info("assetTypeToBurn: {}", assetTypeToBurn);
 
-            var amountToBurn = new BigInteger(request.quantity());
-            log.info("amountToBurn: {}", amountToBurn);
-
             var adminUtxos = accountService.findAdaOnlyUtxo(request.feePayerAddress(), 10_000_000L);
 
             var utxoToBurnOpt = utxoProvider.findUtxo(request.utxoTxHash(), request.utxoOutputIndex());
@@ -571,10 +570,11 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
 
             var utxoTokenAmount = utxoToBurn.toValue().amountOf(assetTypeToBurn.policyId(), "0x" + assetTypeToBurn.assetName());
             log.info("utxoTokenAmount: {}", utxoTokenAmount);
-            log.info("amountToBurn.compareTo(utxoTokenAmount): {}", amountToBurn.compareTo(utxoTokenAmount));
-            if (amountToBurn.compareTo(utxoTokenAmount) > 0) {
-                return TransactionContext.error("not enough burn amount");
-            }
+
+            // FES on-chain validator requires entire policy to be removed from output (dict.delete),
+            // so always burn the full UTxO token amount regardless of request.quantity()
+            var amountToBurn = utxoTokenAmount;
+            log.info("amountToBurn (full UTxO amount): {}", amountToBurn);
 
             /// Getting Substandard Contracts and parameterize
             // Issuer to be used for minting/burning/sieze
@@ -666,10 +666,18 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
             var programmableLogicBase = protocolScriptBuilderService.getParameterizedProgrammableLogicBaseScript(protocolParams);
             log.info("programmableLogicBase policy: {}", programmableLogicBase.getPolicyId());
 
-            var valueToBurn = Value.from(assetTypeToBurn.policyId(), "0x" + assetTypeToBurn.assetName(), amountToBurn);
-            log.info("valueToBurn: {}", valueToBurn);
-            var returningValue = utxoToBurn.toValue().subtract(valueToBurn);
-            log.info("returningValue: {}", returningValue);
+            // Remove the entire policy from the UTxO value (matches on-chain dict.delete behavior)
+            var utxoValue = utxoToBurn.toValue();
+            var filteredMultiAssets = utxoValue.getMultiAssets() == null
+                    ? List.<MultiAsset>of()
+                    : utxoValue.getMultiAssets().stream()
+                    .filter(ma -> !ma.getPolicyId().equals(assetTypeToBurn.policyId()))
+                    .collect(Collectors.toList());
+            var returningValue = Value.builder()
+                    .coin(utxoValue.getCoin())
+                    .multiAssets(filteredMultiAssets)
+                    .build();
+            log.info("returningValue (policy removed): {}", returningValue);
 
             var tx = new ScriptTx()
                     .collectFrom(adminUtxos)
@@ -983,10 +991,10 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
                     .build();
 
             var adminPkhBytes = adminAddress.getPaymentCredentialHash().get();
-            var adminPks = HexUtil.encodeHexString(adminPkhBytes);
+            var adminPkh = HexUtil.encodeHexString(adminPkhBytes);
 
             // Build both blacklist scripts at once
-            var blacklistScripts = fesScriptBuilder.buildBlacklistScripts(bootstrapTxInput, adminPks);
+            var blacklistScripts = fesScriptBuilder.buildBlacklistScripts(bootstrapTxInput, adminPkh);
             var parameterisedBlacklistMintingScript = blacklistScripts.first();
             var parameterisedBlacklistSpendingScript = blacklistScripts.second();
 
@@ -1020,8 +1028,48 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
                     .payToContract(blacklistSpendAddress.getAddress(), ValueUtil.toAmountList(blacklistValue), blacklistInitDatum.toPlutusData())
                     .withChangeAddress(request.feePayerAddress());
 
+            // Stake Address Registration
+            var substandardIssueContract = fesScriptBuilder.buildIssuerAdminScript(Credential.fromKey(adminPkh));
+            var substandardIssueAddress = AddressProvider.getRewardAddress(substandardIssueContract, network.getCardanoNetwork());
+            log.info("substandardIssueAddress: {}", substandardIssueAddress.getAddress());
 
-            var transaction = quickTxBuilder.compose(tx)
+            var substandardTransferContract = fesScriptBuilder.buildTransferScript(
+                    protocolParams.programmableLogicBaseParams().scriptHash(),
+                    parameterisedBlacklistMintingScript.getPolicyId()
+            );
+            var substandardTransferAddress = AddressProvider.getRewardAddress(substandardTransferContract, network.getCardanoNetwork());
+            log.info("substandardTransferAddress: {}", substandardTransferAddress.getAddress());
+
+
+            var requiredStakeAddresses = Stream.of(substandardIssueAddress, substandardTransferAddress)
+                    .map(Address::getAddress)
+                    .toList();
+            log.info("requiredStakeAddresses: {}", String.join(", ", requiredStakeAddresses));
+
+            var registeredStakeAddresses = requiredStakeAddresses.stream()
+                    .filter(stakeAddress -> stakeRegistrationRepository.findRegistrationsByStakeAddress(stakeAddress)
+                            .map(stakeRegistration -> stakeRegistration.getType().equals(CertificateType.STAKE_REGISTRATION)).orElse(false))
+                    .toList();
+            log.info("registeredStakeAddresses: {}", String.join(", ", registeredStakeAddresses));
+
+            var stakeAddressesToRegister = requiredStakeAddresses.stream()
+                    .filter(stakeAddress -> !registeredStakeAddresses.contains(stakeAddress))
+                    .toList();
+            log.info("stakeAddressesToRegister: {}", String.join(", ", stakeAddressesToRegister));
+
+            var transactions = new ArrayList<AbstractTx>();
+            transactions.add(tx);
+
+            if (!stakeAddressesToRegister.isEmpty()) {
+                var registerAddressTx = new Tx()
+                        .from(request.feePayerAddress())
+                        .withChangeAddress(request.feePayerAddress());
+
+                stakeAddressesToRegister.forEach(registerAddressTx::registerStakeAddress);
+                transactions.add(registerAddressTx);
+            }
+
+            var transaction = quickTxBuilder.compose(transactions.toArray(new AbstractTx[0]))
                     .feePayer(request.feePayerAddress())
                     .mergeOutputs(false)
                     .build();
@@ -1029,7 +1077,7 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
             log.info("transaction: {}", transaction.serializeToHex());
             log.info("transaction: {}", objectMapper.writeValueAsString(transaction));
 
-            var mintBootstrap = new BlacklistMintBootstrap(TxInput.from(bootstrapUtxo), adminPks, parameterisedBlacklistMintingScript.getPolicyId());
+            var mintBootstrap = new BlacklistMintBootstrap(TxInput.from(bootstrapUtxo), adminPkh, parameterisedBlacklistMintingScript.getPolicyId());
             var spendBootstrap = new BlacklistSpendBootstrap(parameterisedBlacklistMintingScript.getPolicyId(), parameterisedBlacklistSpendingScript.getPolicyId());
             var bootstrap = new BlacklistBootstrap(mintBootstrap, spendBootstrap);
 
@@ -1038,7 +1086,7 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
 
             blacklistInitRepository.save(BlacklistInitEntity.builder()
                     .blacklistNodePolicyId(parameterisedBlacklistMintingScript.getPolicyId())
-                    .adminPkh(adminPks)
+                    .adminPkh(adminPkh)
                     .txHash(bootstrapUtxo.getTxHash())
                     .outputIndex(bootstrapUtxo.getOutputIndex())
                     .build());

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useWallet } from '@meshsdk/react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -8,11 +8,16 @@ import { CopyButton } from '@/components/ui/copy-button';
 import { useToast } from '@/components/ui/use-toast';
 import { useProtocolVersion } from '@/contexts/protocol-version-context';
 import { initBlacklist } from '@/lib/api/compliance';
+import { waitForTxConfirmation } from '@/lib/utils/tx-confirmation';
 import type { StepComponentProps, BlacklistInitResult, TokenDetailsData } from '@/types/registration';
 
 interface InitBlacklistStepProps extends StepComponentProps<Record<string, unknown>, BlacklistInitResult> {}
 
-type InitStatus = 'idle' | 'building' | 'signing' | 'submitting' | 'success' | 'error';
+type InitStatus = 'idle' | 'building' | 'signing' | 'submitting' | 'polling' | 'cooldown' | 'complete' | 'success' | 'error';
+
+const TX_POLL_INTERVAL = 10000; // 10 seconds
+const TX_POLL_TIMEOUT = 300000; // 5 minutes
+const COOLDOWN_SECONDS = 10;
 
 export function InitBlacklistStep({
   onComplete,
@@ -30,9 +35,71 @@ export function InitBlacklistStep({
   const [errorMessage, setErrorMessage] = useState('');
   const [blacklistNodePolicyId, setBlacklistNodePolicyId] = useState('');
   const [txHash, setTxHash] = useState('');
+  const [pollAttempt, setPollAttempt] = useState(0);
+  const [cooldownRemaining, setCooldownRemaining] = useState(0);
+
+  // Refs for cleanup
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const cooldownIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const showToastRef = useRef(showToast);
+  const completionDataRef = useRef<{ policyId: string; txHash: string } | null>(null);
+
+  // Keep showToast ref updated
+  useEffect(() => {
+    showToastRef.current = showToast;
+  }, [showToast]);
 
   // Get token details from previous step
   const tokenDetails = wizardState.stepStates['token-details']?.data as Partial<TokenDetailsData> | undefined;
+
+  // Start cooldown timer
+  const startCooldown = useCallback(() => {
+    setCooldownRemaining(COOLDOWN_SECONDS);
+
+    cooldownIntervalRef.current = setInterval(() => {
+      setCooldownRemaining(prev => {
+        if (prev <= 1) {
+          if (cooldownIntervalRef.current) {
+            clearInterval(cooldownIntervalRef.current);
+            cooldownIntervalRef.current = null;
+          }
+          setStatus('complete');
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+  }, []);
+
+  // Auto-complete when status reaches 'complete'
+  useEffect(() => {
+    if (status === 'complete' && completionDataRef.current) {
+      const { policyId, txHash: hash } = completionDataRef.current;
+      onComplete({
+        stepId: 'init-blacklist',
+        data: {
+          blacklistNodePolicyId: policyId,
+          txHash: hash,
+        },
+        txHash: hash,
+        completedAt: Date.now(),
+      });
+    }
+  }, [status, onComplete]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+        abortControllerRef.current = null;
+      }
+      if (cooldownIntervalRef.current) {
+        clearInterval(cooldownIntervalRef.current);
+        cooldownIntervalRef.current = null;
+      }
+    };
+  }, []);
 
   const handleInitBlacklist = useCallback(async () => {
     if (!connected || !wallet) {
@@ -52,20 +119,18 @@ export function InitBlacklistStep({
       }
       const adminAddress = addresses[0];
 
-      showToast({
+      showToastRef.current({
         title: 'Building Transaction',
         description: 'Preparing blacklist initialization...',
         variant: 'default',
       });
 
       // Call the blacklist init API with substandardId
-      // The blacklist is initialized before the token is registered,
-      // so we pass the substandard ID instead of a policy ID
       const response = await initBlacklist(
         {
           substandardId: 'freeze-and-seize',
           adminAddress,
-          feePayerAddress: adminAddress, // Same wallet pays for tx and manages blacklist
+          feePayerAddress: adminAddress,
         },
         selectedVersion?.txHash
       );
@@ -74,7 +139,7 @@ export function InitBlacklistStep({
       setBlacklistNodePolicyId(response.policyId);
 
       setStatus('signing');
-      showToast({
+      showToastRef.current({
         title: 'Sign Transaction',
         description: 'Please sign the blacklist initialization transaction',
         variant: 'default',
@@ -89,37 +154,60 @@ export function InitBlacklistStep({
       const hash = await wallet.submitTx(signedTx);
       setTxHash(hash);
 
+      // Store completion data for when polling + cooldown finish
+      completionDataRef.current = { policyId: response.policyId, txHash: hash };
+
       setStatus('success');
-      showToast({
-        title: 'Blacklist Initialized',
-        description: 'Blacklist node created successfully',
-        variant: 'success',
+      showToastRef.current({
+        title: 'Transaction Submitted',
+        description: 'Waiting for on-chain confirmation...',
+        variant: 'default',
       });
 
-      // Complete the step with the blacklist node policy ID
-      onComplete({
-        stepId: 'init-blacklist',
-        data: {
-          blacklistNodePolicyId: response.policyId,
-          txHash: hash,
+      // Start polling for tx confirmation
+      setStatus('polling');
+      setPollAttempt(0);
+
+      abortControllerRef.current = new AbortController();
+
+      await waitForTxConfirmation(hash, {
+        pollInterval: TX_POLL_INTERVAL,
+        timeout: TX_POLL_TIMEOUT,
+        signal: abortControllerRef.current.signal,
+        onPoll: (attempt) => {
+          setPollAttempt(attempt);
         },
-        txHash: hash,
-        completedAt: Date.now(),
+        onConfirmed: () => {
+          showToastRef.current({
+            title: 'Transaction Confirmed',
+            description: 'Blacklist initialized on-chain. Waiting for indexer...',
+            variant: 'success',
+          });
+        },
       });
+
+      // Start cooldown after confirmation
+      setStatus('cooldown');
+      startCooldown();
+
     } catch (error) {
+      if (error instanceof Error && error.message === 'Aborted') {
+        return; // Ignore abort errors
+      }
+
       setStatus('error');
       const message = error instanceof Error ? error.message : 'Failed to initialize blacklist';
       setErrorMessage(message);
 
       if (message.toLowerCase().includes('user declined') ||
           message.toLowerCase().includes('user rejected')) {
-        showToast({
+        showToastRef.current({
           title: 'Transaction Cancelled',
           description: 'You cancelled the transaction',
           variant: 'default',
         });
       } else {
-        showToast({
+        showToastRef.current({
           title: 'Initialization Failed',
           description: message,
           variant: 'error',
@@ -129,7 +217,7 @@ export function InitBlacklistStep({
     } finally {
       setProcessing(false);
     }
-  }, [connected, wallet, selectedVersion, onComplete, onError, setProcessing, showToast]);
+  }, [connected, wallet, selectedVersion, onError, setProcessing, startCooldown]);
 
   const getStatusMessage = () => {
     switch (status) {
@@ -139,7 +227,12 @@ export function InitBlacklistStep({
         return 'Waiting for wallet signature...';
       case 'submitting':
         return 'Submitting transaction to blockchain...';
+      case 'polling':
+        return 'Waiting for on-chain confirmation...';
+      case 'cooldown':
+        return 'Transaction confirmed! Waiting for indexer...';
       case 'success':
+      case 'complete':
         return 'Blacklist initialized successfully!';
       case 'error':
         return errorMessage || 'Initialization failed';
@@ -197,9 +290,15 @@ export function InitBlacklistStep({
         <Card className="p-6 text-center space-y-4">
           {/* Spinner or Icon */}
           <div className="flex justify-center">
-            {status === 'building' || status === 'signing' || status === 'submitting' ? (
+            {['building', 'signing', 'submitting', 'polling'].includes(status) ? (
               <div className="w-12 h-12 border-4 border-primary-500 border-t-transparent rounded-full animate-spin" />
-            ) : status === 'success' ? (
+            ) : status === 'cooldown' ? (
+              <div className="w-12 h-12 rounded-full bg-green-500/20 flex items-center justify-center">
+                <svg className="w-6 h-6 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+              </div>
+            ) : status === 'success' || status === 'complete' ? (
               <div className="w-12 h-12 rounded-full bg-green-500/20 flex items-center justify-center">
                 <svg className="w-6 h-6 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
@@ -216,15 +315,29 @@ export function InitBlacklistStep({
 
           {/* Status Message */}
           <p className={`font-medium ${
-            status === 'success' ? 'text-green-400' :
+            ['success', 'complete', 'cooldown'].includes(status) ? 'text-green-400' :
             status === 'error' ? 'text-red-400' :
             'text-dark-300'
           }`}>
             {getStatusMessage()}
           </p>
 
+          {/* Polling Info */}
+          {status === 'polling' && (
+            <div className="text-sm text-dark-500">
+              Poll attempt: {pollAttempt} (checking every 10s)
+            </div>
+          )}
+
+          {/* Cooldown Timer */}
+          {status === 'cooldown' && (
+            <div className="text-2xl font-bold text-white">
+              {cooldownRemaining}s
+            </div>
+          )}
+
           {/* Success Details */}
-          {status === 'success' && blacklistNodePolicyId && (
+          {['success', 'complete', 'polling', 'cooldown'].includes(status) && blacklistNodePolicyId && (
             <div className="mt-4 space-y-3">
               <div className="p-3 bg-dark-800 rounded text-left">
                 <div className="flex items-center justify-between mb-1">
@@ -250,7 +363,7 @@ export function InitBlacklistStep({
 
       {/* Actions */}
       <div className="flex gap-3">
-        {onBack && status !== 'success' && (
+        {onBack && !['success', 'complete', 'polling', 'cooldown'].includes(status) && (
           <Button
             variant="outline"
             onClick={onBack}
@@ -282,16 +395,15 @@ export function InitBlacklistStep({
           </Button>
         )}
 
-        {status === 'success' && (
+        {['polling', 'cooldown', 'success', 'complete'].includes(status) && (
           <Button
             variant="primary"
             className="flex-1"
-            onClick={() => {
-              // Already completed via onComplete, this is just for UX
-            }}
             disabled
           >
-            Continuing...
+            {status === 'polling' && 'Confirming...'}
+            {status === 'cooldown' && `Processing... (${cooldownRemaining}s)`}
+            {(status === 'success' || status === 'complete') && 'Continuing...'}
           </Button>
         )}
       </div>

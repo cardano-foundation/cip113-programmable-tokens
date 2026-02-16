@@ -85,29 +85,34 @@ export function BurnSection({ adminTokens, feePayerAddress }: BurnSectionProps) 
     }
   };
 
+  const isFes = selectedToken?.substandardId === "freeze-and-seize";
+
   const handleBurnUtxo = async (utxo: UtxoInfo) => {
     if (!selectedToken) return;
 
     const utxoKey = `${utxo.txHash}#${utxo.outputIndex}`;
-    const burnAmount = burnAmounts[utxoKey];
+    // FES always wipes the full UTxO amount; other substandards use user-entered amount
+    const burnAmount = isFes ? utxo.tokenAmount : burnAmounts[utxoKey];
 
-    // Validate burn amount
-    if (!burnAmount || parseFloat(burnAmount) <= 0) {
-      showToast({
-        title: "Invalid Amount",
-        description: "Please enter a valid burn amount",
-        variant: "error",
-      });
-      return;
-    }
+    // Validate burn amount (skip for FES since it's always the full amount)
+    if (!isFes) {
+      if (!burnAmount || parseFloat(burnAmount) <= 0) {
+        showToast({
+          title: "Invalid Amount",
+          description: "Please enter a valid burn amount",
+          variant: "error",
+        });
+        return;
+      }
 
-    if (parseFloat(burnAmount) > parseFloat(utxo.tokenAmount)) {
-      showToast({
-        title: "Invalid Amount",
-        description: "Burn amount exceeds available amount",
-        variant: "error",
-      });
-      return;
+      if (parseFloat(burnAmount) > parseFloat(utxo.tokenAmount)) {
+        showToast({
+          title: "Invalid Amount",
+          description: "Burn amount exceeds available amount",
+          variant: "error",
+        });
+        return;
+      }
     }
 
     setIsBurning(utxoKey);
@@ -296,72 +301,79 @@ export function BurnSection({ adminTokens, feePayerAddress }: BurnSectionProps) 
                     </div>
 
                     <div className="space-y-2">
-                      {/* Amount input with Half/Max buttons */}
                       <div className="flex gap-2">
-                        <div className="flex-1 relative">
-                          <input
-                            type="number"
-                            placeholder="Amount to burn"
-                            value={burnAmounts[utxoKey] || ""}
-                            onChange={(e) => setBurnAmounts({
-                              ...burnAmounts,
-                              [utxoKey]: e.target.value
-                            })}
-                            className="w-full px-3 py-2 bg-dark-800 border border-dark-700 rounded
-                              text-white text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
-                            disabled={step === "signing"}
-                          />
-                          {/* Half/Max buttons - DEX style */}
-                          <div className="absolute right-2 top-1/2 -translate-y-1/2 flex gap-1">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const halfAmount = (parseFloat(utxo.tokenAmount) / 2).toString();
-                                setBurnAmounts({
-                                  ...burnAmounts,
-                                  [utxoKey]: halfAmount
-                                });
-                              }}
-                              disabled={step === "signing"}
-                              className="px-2 py-0.5 text-xs font-medium bg-dark-700 hover:bg-dark-600
-                                text-primary-400 rounded border border-dark-600 hover:border-primary-500
-                                transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                            >
-                              HALF
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setBurnAmounts({
-                                  ...burnAmounts,
-                                  [utxoKey]: utxo.tokenAmount
-                                });
-                              }}
-                              disabled={step === "signing"}
-                              className="px-2 py-0.5 text-xs font-medium bg-dark-700 hover:bg-dark-600
-                                text-primary-400 rounded border border-dark-600 hover:border-primary-500
-                                transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                            >
-                              MAX
-                            </button>
+                        {isFes ? (
+                          /* FES: full-amount wipe indicator (no partial burns allowed) */
+                          <div className="flex-1 px-3 py-2 bg-dark-800 border border-dark-700 rounded
+                            text-sm text-orange-300 flex items-center">
+                            Will wipe: <span className="font-bold ml-1">{utxo.tokenAmount}</span> tokens
                           </div>
-                        </div>
+                        ) : (
+                          /* Other substandards: partial amount input with Half/Max buttons */
+                          <div className="flex-1 relative">
+                            <input
+                              type="number"
+                              placeholder="Amount to burn"
+                              value={burnAmounts[utxoKey] || ""}
+                              onChange={(e) => setBurnAmounts({
+                                ...burnAmounts,
+                                [utxoKey]: e.target.value
+                              })}
+                              className="w-full px-3 py-2 bg-dark-800 border border-dark-700 rounded
+                                text-white text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                              disabled={step === "signing"}
+                            />
+                            <div className="absolute right-2 top-1/2 -translate-y-1/2 flex gap-1">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const halfAmount = (parseFloat(utxo.tokenAmount) / 2).toString();
+                                  setBurnAmounts({
+                                    ...burnAmounts,
+                                    [utxoKey]: halfAmount
+                                  });
+                                }}
+                                disabled={step === "signing"}
+                                className="px-2 py-0.5 text-xs font-medium bg-dark-700 hover:bg-dark-600
+                                  text-primary-400 rounded border border-dark-600 hover:border-primary-500
+                                  transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                              >
+                                HALF
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setBurnAmounts({
+                                    ...burnAmounts,
+                                    [utxoKey]: utxo.tokenAmount
+                                  });
+                                }}
+                                disabled={step === "signing"}
+                                className="px-2 py-0.5 text-xs font-medium bg-dark-700 hover:bg-dark-600
+                                  text-primary-400 rounded border border-dark-600 hover:border-primary-500
+                                  transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                              >
+                                MAX
+                              </button>
+                            </div>
+                          </div>
+                        )}
                         <Button
                           onClick={() => handleBurnUtxo(utxo)}
                           variant="danger"
                           size="sm"
-                          disabled={step === "signing" || !burnAmounts[utxoKey]}
+                          disabled={step === "signing" || (!isFes && !burnAmounts[utxoKey])}
                           className="flex items-center gap-2"
                         >
                           {isBurningThis ? (
                             <>
                               <Loader2 className="h-4 w-4 animate-spin" />
-                              Burning...
+                              {isFes ? "Wiping..." : "Burning..."}
                             </>
                           ) : (
                             <>
                               <Flame className="h-4 w-4" />
-                              Burn
+                              {isFes ? "Wipe" : "Burn"}
                             </>
                           )}
                         </Button>
