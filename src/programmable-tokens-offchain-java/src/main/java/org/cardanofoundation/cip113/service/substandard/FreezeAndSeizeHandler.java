@@ -386,35 +386,7 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
                     .attachRewardValidator(substandardIssueContract)
                     .withChangeAddress(request.getFeePayerAddress());
 
-            var requiredStakeAddresses = Stream.of(substandardIssueAddress, substandardTransferAddress)
-                    .map(Address::getAddress)
-                    .toList();
-            log.info("requiredStakeAddresses: {}", String.join(", ", requiredStakeAddresses));
-
-            var registeredStakeAddresses = requiredStakeAddresses.stream()
-                    .filter(stakeAddress -> stakeRegistrationRepository.findRegistrationsByStakeAddress(stakeAddress)
-                            .map(stakeRegistration -> stakeRegistration.getType().equals(CertificateType.STAKE_REGISTRATION)).orElse(false))
-                    .toList();
-            log.info("registeredStakeAddresses: {}", String.join(", ", registeredStakeAddresses));
-
-            var stakeAddressesToRegister = requiredStakeAddresses.stream()
-                    .filter(stakeAddress -> !registeredStakeAddresses.contains(stakeAddress))
-                    .toList();
-            log.info("stakeAddressesToRegister: {}", String.join(", ", stakeAddressesToRegister));
-
-
-            var txs = new ArrayList<AbstractTx>();
-            txs.add(tx);
-            if (!stakeAddressesToRegister.isEmpty()) {
-                var registerAddressTx = new Tx()
-                        .from(request.getFeePayerAddress())
-                        .withChangeAddress(request.getFeePayerAddress());
-
-                stakeAddressesToRegister.forEach(registerAddressTx::registerStakeAddress);
-                txs.add(registerAddressTx);
-            }
-
-            var transaction = quickTxBuilder.compose(txs.toArray(new AbstractTx[0]))
+            var transaction = quickTxBuilder.compose(tx)
                     .withRequiredSigners(adminPkh.getBytes())
                     .feePayer(request.getFeePayerAddress())
 //                .withTxEvaluator(new AikenTransactionEvaluator(bfBackendService))
@@ -1019,10 +991,10 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
                     .build();
 
             var adminPkhBytes = adminAddress.getPaymentCredentialHash().get();
-            var adminPks = HexUtil.encodeHexString(adminPkhBytes);
+            var adminPkh = HexUtil.encodeHexString(adminPkhBytes);
 
             // Build both blacklist scripts at once
-            var blacklistScripts = fesScriptBuilder.buildBlacklistScripts(bootstrapTxInput, adminPks);
+            var blacklistScripts = fesScriptBuilder.buildBlacklistScripts(bootstrapTxInput, adminPkh);
             var parameterisedBlacklistMintingScript = blacklistScripts.first();
             var parameterisedBlacklistSpendingScript = blacklistScripts.second();
 
@@ -1056,8 +1028,48 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
                     .payToContract(blacklistSpendAddress.getAddress(), ValueUtil.toAmountList(blacklistValue), blacklistInitDatum.toPlutusData())
                     .withChangeAddress(request.feePayerAddress());
 
+            // Stake Address Registration
+            var substandardIssueContract = fesScriptBuilder.buildIssuerAdminScript(Credential.fromKey(adminPkh));
+            var substandardIssueAddress = AddressProvider.getRewardAddress(substandardIssueContract, network.getCardanoNetwork());
+            log.info("substandardIssueAddress: {}", substandardIssueAddress.getAddress());
 
-            var transaction = quickTxBuilder.compose(tx)
+            var substandardTransferContract = fesScriptBuilder.buildTransferScript(
+                    protocolParams.programmableLogicBaseParams().scriptHash(),
+                    parameterisedBlacklistMintingScript.getPolicyId()
+            );
+            var substandardTransferAddress = AddressProvider.getRewardAddress(substandardTransferContract, network.getCardanoNetwork());
+            log.info("substandardTransferAddress: {}", substandardTransferAddress.getAddress());
+
+
+            var requiredStakeAddresses = Stream.of(substandardIssueAddress, substandardTransferAddress)
+                    .map(Address::getAddress)
+                    .toList();
+            log.info("requiredStakeAddresses: {}", String.join(", ", requiredStakeAddresses));
+
+            var registeredStakeAddresses = requiredStakeAddresses.stream()
+                    .filter(stakeAddress -> stakeRegistrationRepository.findRegistrationsByStakeAddress(stakeAddress)
+                            .map(stakeRegistration -> stakeRegistration.getType().equals(CertificateType.STAKE_REGISTRATION)).orElse(false))
+                    .toList();
+            log.info("registeredStakeAddresses: {}", String.join(", ", registeredStakeAddresses));
+
+            var stakeAddressesToRegister = requiredStakeAddresses.stream()
+                    .filter(stakeAddress -> !registeredStakeAddresses.contains(stakeAddress))
+                    .toList();
+            log.info("stakeAddressesToRegister: {}", String.join(", ", stakeAddressesToRegister));
+
+            var transactions = new ArrayList<AbstractTx>();
+            transactions.add(tx);
+
+            if (!stakeAddressesToRegister.isEmpty()) {
+                var registerAddressTx = new Tx()
+                        .from(request.feePayerAddress())
+                        .withChangeAddress(request.feePayerAddress());
+
+                stakeAddressesToRegister.forEach(registerAddressTx::registerStakeAddress);
+                transactions.add(registerAddressTx);
+            }
+
+            var transaction = quickTxBuilder.compose(transactions.toArray(new AbstractTx[0]))
                     .feePayer(request.feePayerAddress())
                     .mergeOutputs(false)
                     .build();
@@ -1065,7 +1077,7 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
             log.info("transaction: {}", transaction.serializeToHex());
             log.info("transaction: {}", objectMapper.writeValueAsString(transaction));
 
-            var mintBootstrap = new BlacklistMintBootstrap(TxInput.from(bootstrapUtxo), adminPks, parameterisedBlacklistMintingScript.getPolicyId());
+            var mintBootstrap = new BlacklistMintBootstrap(TxInput.from(bootstrapUtxo), adminPkh, parameterisedBlacklistMintingScript.getPolicyId());
             var spendBootstrap = new BlacklistSpendBootstrap(parameterisedBlacklistMintingScript.getPolicyId(), parameterisedBlacklistSpendingScript.getPolicyId());
             var bootstrap = new BlacklistBootstrap(mintBootstrap, spendBootstrap);
 
@@ -1074,7 +1086,7 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
 
             blacklistInitRepository.save(BlacklistInitEntity.builder()
                     .blacklistNodePolicyId(parameterisedBlacklistMintingScript.getPolicyId())
-                    .adminPkh(adminPks)
+                    .adminPkh(adminPkh)
                     .txHash(bootstrapUtxo.getTxHash())
                     .outputIndex(bootstrapUtxo.getOutputIndex())
                     .build());
