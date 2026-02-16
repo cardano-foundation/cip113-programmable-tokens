@@ -12,15 +12,9 @@ import type {
 } from '@/types/registration';
 import { TokenDetailsStep } from '@/components/register/steps/token-details-step';
 import { InitBlacklistStep } from '@/components/register/steps/freeze-and-seize';
-import { PreRegistrationStep } from '@/components/register/steps/pre-registration-step';
 import { BuildPreviewStep } from '@/components/register/steps/build-preview-step';
 import { SignSubmitStep } from '@/components/register/steps/sign-submit-step';
 import { SuccessStep } from '@/components/register/steps/success-step';
-
-// Wrapper for PreRegistrationStep with flowId
-function FreezeSeizePreRegistrationStep(props: StepComponentProps) {
-  return <PreRegistrationStep {...props} flowId="freeze-and-seize" />;
-}
 
 // Wrapper for BuildPreviewStep with flowId
 function FreezeSeizeBuildPreviewStep(props: StepComponentProps) {
@@ -90,13 +84,6 @@ const freezeAndSeizeFlow: RegistrationFlow = {
       description: 'Create the on-chain blacklist for compliance',
       requiresWalletSign: true,
       component: InitBlacklistStep as React.ComponentType<StepComponentProps<unknown, unknown>>,
-    },
-    {
-      id: 'pre-registration',
-      title: 'Pre-Register',
-      description: 'Register required stake addresses',
-      requiresWalletSign: true,
-      component: FreezeSeizePreRegistrationStep as React.ComponentType<StepComponentProps<unknown, unknown>>,
     },
     {
       id: 'build-preview',
