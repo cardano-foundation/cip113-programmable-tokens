@@ -11,6 +11,7 @@ import com.bloxbean.cardano.client.plutus.spec.BigIntPlutusData;
 import com.bloxbean.cardano.client.plutus.spec.BytesPlutusData;
 import com.bloxbean.cardano.client.plutus.spec.ConstrPlutusData;
 import com.bloxbean.cardano.client.plutus.spec.ListPlutusData;
+import com.bloxbean.cardano.client.quicktx.AbstractTx;
 import com.bloxbean.cardano.client.quicktx.QuickTxBuilder;
 import com.bloxbean.cardano.client.quicktx.ScriptTx;
 import com.bloxbean.cardano.client.quicktx.Tx;
@@ -58,6 +59,7 @@ import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import static java.math.BigInteger.ONE;
@@ -384,7 +386,35 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
                     .attachRewardValidator(substandardIssueContract)
                     .withChangeAddress(request.getFeePayerAddress());
 
-            var transaction = quickTxBuilder.compose(tx)
+            var requiredStakeAddresses = Stream.of(substandardIssueAddress, substandardTransferAddress)
+                    .map(Address::getAddress)
+                    .toList();
+            log.info("requiredStakeAddresses: {}", String.join(", ", requiredStakeAddresses));
+
+            var registeredStakeAddresses = requiredStakeAddresses.stream()
+                    .filter(stakeAddress -> stakeRegistrationRepository.findRegistrationsByStakeAddress(stakeAddress)
+                            .map(stakeRegistration -> stakeRegistration.getType().equals(CertificateType.STAKE_REGISTRATION)).orElse(false))
+                    .toList();
+            log.info("registeredStakeAddresses: {}", String.join(", ", registeredStakeAddresses));
+
+            var stakeAddressesToRegister = requiredStakeAddresses.stream()
+                    .filter(stakeAddress -> !registeredStakeAddresses.contains(stakeAddress))
+                    .toList();
+            log.info("stakeAddressesToRegister: {}", String.join(", ", stakeAddressesToRegister));
+
+
+            var txs = new ArrayList<AbstractTx>();
+            txs.add(tx);
+            if (!stakeAddressesToRegister.isEmpty()) {
+                var registerAddressTx = new Tx()
+                        .from(request.getFeePayerAddress())
+                        .withChangeAddress(request.getFeePayerAddress());
+
+                stakeAddressesToRegister.forEach(registerAddressTx::registerStakeAddress);
+                txs.add(registerAddressTx);
+            }
+
+            var transaction = quickTxBuilder.compose(txs.toArray(new AbstractTx[0]))
                     .withRequiredSigners(adminPkh.getBytes())
                     .feePayer(request.getFeePayerAddress())
 //                .withTxEvaluator(new AikenTransactionEvaluator(bfBackendService))
@@ -556,9 +586,6 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
             var assetTypeToBurn = new AssetType(request.tokenPolicyId(), request.assetName());
             log.info("assetTypeToBurn: {}", assetTypeToBurn);
 
-            var amountToBurn = new BigInteger(request.quantity());
-            log.info("amountToBurn: {}", amountToBurn);
-
             var adminUtxos = accountService.findAdaOnlyUtxo(request.feePayerAddress(), 10_000_000L);
 
             var utxoToBurnOpt = utxoProvider.findUtxo(request.utxoTxHash(), request.utxoOutputIndex());
@@ -571,10 +598,11 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
 
             var utxoTokenAmount = utxoToBurn.toValue().amountOf(assetTypeToBurn.policyId(), "0x" + assetTypeToBurn.assetName());
             log.info("utxoTokenAmount: {}", utxoTokenAmount);
-            log.info("amountToBurn.compareTo(utxoTokenAmount): {}", amountToBurn.compareTo(utxoTokenAmount));
-            if (amountToBurn.compareTo(utxoTokenAmount) > 0) {
-                return TransactionContext.error("not enough burn amount");
-            }
+
+            // FES on-chain validator requires entire policy to be removed from output (dict.delete),
+            // so always burn the full UTxO token amount regardless of request.quantity()
+            var amountToBurn = utxoTokenAmount;
+            log.info("amountToBurn (full UTxO amount): {}", amountToBurn);
 
             /// Getting Substandard Contracts and parameterize
             // Issuer to be used for minting/burning/sieze
@@ -666,10 +694,18 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
             var programmableLogicBase = protocolScriptBuilderService.getParameterizedProgrammableLogicBaseScript(protocolParams);
             log.info("programmableLogicBase policy: {}", programmableLogicBase.getPolicyId());
 
-            var valueToBurn = Value.from(assetTypeToBurn.policyId(), "0x" + assetTypeToBurn.assetName(), amountToBurn);
-            log.info("valueToBurn: {}", valueToBurn);
-            var returningValue = utxoToBurn.toValue().subtract(valueToBurn);
-            log.info("returningValue: {}", returningValue);
+            // Remove the entire policy from the UTxO value (matches on-chain dict.delete behavior)
+            var utxoValue = utxoToBurn.toValue();
+            var filteredMultiAssets = utxoValue.getMultiAssets() == null
+                    ? List.<MultiAsset>of()
+                    : utxoValue.getMultiAssets().stream()
+                    .filter(ma -> !ma.getPolicyId().equals(assetTypeToBurn.policyId()))
+                    .collect(Collectors.toList());
+            var returningValue = Value.builder()
+                    .coin(utxoValue.getCoin())
+                    .multiAssets(filteredMultiAssets)
+                    .build();
+            log.info("returningValue (policy removed): {}", returningValue);
 
             var tx = new ScriptTx()
                     .collectFrom(adminUtxos)
