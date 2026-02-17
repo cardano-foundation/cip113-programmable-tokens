@@ -11,20 +11,17 @@ import com.bloxbean.cardano.client.plutus.spec.BigIntPlutusData;
 import com.bloxbean.cardano.client.plutus.spec.BytesPlutusData;
 import com.bloxbean.cardano.client.plutus.spec.ConstrPlutusData;
 import com.bloxbean.cardano.client.plutus.spec.ListPlutusData;
-import com.bloxbean.cardano.client.quicktx.AbstractTx;
 import com.bloxbean.cardano.client.quicktx.QuickTxBuilder;
 import com.bloxbean.cardano.client.quicktx.ScriptTx;
-import com.bloxbean.cardano.client.quicktx.Tx;
-import com.bloxbean.cardano.client.transaction.spec.Asset;
-import com.bloxbean.cardano.client.transaction.spec.MultiAsset;
-import com.bloxbean.cardano.client.transaction.spec.TransactionInput;
-import com.bloxbean.cardano.client.transaction.spec.Value;
+import com.bloxbean.cardano.client.transaction.spec.*;
+import com.bloxbean.cardano.client.transaction.util.TransactionUtil;
 import com.bloxbean.cardano.client.util.HexUtil;
 import com.bloxbean.cardano.yaci.core.model.certs.CertificateType;
 import com.bloxbean.cardano.yaci.store.utxo.storage.impl.repository.UtxoRepository;
 import com.easy1staking.cardano.comparator.TransactionInputComparator;
 import com.easy1staking.cardano.comparator.UtxoComparator;
 import com.easy1staking.cardano.model.AssetType;
+import com.easy1staking.cardano.util.AmountUtil;
 import com.easy1staking.util.Pair;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -101,6 +98,8 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
     private final LinkedListService linkedListService;
     private final QuickTxBuilder quickTxBuilder;
 
+    private final HybridUtxoSupplier hybridUtxoSupplier;
+
     private final FreezeAndSeizeTokenRegistrationRepository freezeAndSeizeTokenRegistrationRepository;
 
     private final BlacklistInitRepository blacklistInitRepository;
@@ -131,62 +130,7 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
     public TransactionContext<List<String>> buildPreRegistrationTransaction(
             FreezeAndSeizeRegisterRequest request,
             ProtocolBootstrapParams protocolParams) {
-
-        try {
-            var adminPkh = request.getAdminPubKeyHash();
-            var blacklistNodePolicyId = request.getBlacklistNodePolicyId();
-
-            /// Getting Substandard Contracts and parameterize
-            // Issuer to be used for minting/burning/sieze
-            var substandardIssueContract = fesScriptBuilder.buildIssuerAdminScript(Credential.fromKey(adminPkh));
-            var substandardIssueAddress = AddressProvider.getRewardAddress(substandardIssueContract, network.getCardanoNetwork());
-            log.info("substandardIssueAddress: {}", substandardIssueAddress.getAddress());
-
-            // Transfer contract
-            var substandardTransferContract = fesScriptBuilder.buildTransferScript(
-                    protocolParams.programmableLogicBaseParams().scriptHash(),
-                    blacklistNodePolicyId
-            );
-            var substandardTransferAddress = AddressProvider.getRewardAddress(substandardTransferContract, network.getCardanoNetwork());
-            log.info("substandardTransferAddress: {}", substandardTransferAddress.getAddress());
-
-            var requiredStakeAddresses = Stream.of(substandardIssueAddress, substandardTransferAddress)
-                    .map(Address::getAddress)
-                    .toList();
-            log.info("requiredStakeAddresses: {}", String.join(", ", requiredStakeAddresses));
-
-            var registeredStakeAddresses = requiredStakeAddresses.stream()
-                    .filter(stakeAddress -> stakeRegistrationRepository.findRegistrationsByStakeAddress(stakeAddress)
-                            .map(stakeRegistration -> stakeRegistration.getType().equals(CertificateType.STAKE_REGISTRATION)).orElse(false))
-                    .toList();
-            log.info("registeredStakeAddresses: {}", String.join(", ", registeredStakeAddresses));
-
-            var stakeAddressesToRegister = requiredStakeAddresses.stream()
-                    .filter(stakeAddress -> !registeredStakeAddresses.contains(stakeAddress))
-                    .toList();
-            log.info("stakeAddressesToRegister: {}", String.join(", ", stakeAddressesToRegister));
-
-            if (stakeAddressesToRegister.isEmpty()) {
-                return TransactionContext.ok(null, registeredStakeAddresses);
-            } else {
-
-                var registerAddressTx = new Tx()
-                        .from(request.getFeePayerAddress())
-                        .withChangeAddress(request.getFeePayerAddress());
-
-                stakeAddressesToRegister.forEach(registerAddressTx::registerStakeAddress);
-
-                var transaction = quickTxBuilder.compose(registerAddressTx)
-                        .feePayer(request.getFeePayerAddress())
-                        .build();
-
-                return TransactionContext.ok(transaction.serializeToHex(), registeredStakeAddresses);
-            }
-
-        } catch (Exception e) {
-            log.error("error", e);
-            return TransactionContext.typedError("error: " + e.getMessage());
-        }
+        return TransactionContext.typedError("Unexpected call. Use DenyList Init instead");
     }
 
     @Override
@@ -198,7 +142,39 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
             var adminPkh = Credential.fromKey(request.getAdminPubKeyHash());
             var blacklistNodePolicyId = request.getBlacklistNodePolicyId();
 
-            var feePayerUtxos = accountService.findAdaOnlyUtxo(request.getFeePayerAddress(), 10_000_000L);
+            List<Utxo> feePayerUtxos;
+            if (request.getChainingTransactionCborHex() != null) {
+                var chainingTxBytes = HexUtil.decodeHexString(request.getChainingTransactionCborHex());
+                var chainingTxHash = TransactionUtil.getTxHash(chainingTxBytes);
+                log.info("Chaining Tx Hash: " + chainingTxHash);
+                var chainingTx = Transaction.deserialize(chainingTxBytes);
+
+                var chainingTxOuputs = chainingTx.getBody().getOutputs();
+                Utxo inputUtxo = null;
+                for (int i = 0; i < chainingTxOuputs.size(); i++) {
+                    var output = chainingTxOuputs.get(i);
+                    if (output.getAddress().equals(request.getFeePayerAddress()) &&
+                            output.getValue().getCoin().compareTo(BigInteger.valueOf(10_000_000L)) > 0) {
+                        inputUtxo = Utxo.builder()
+                                .address(output.getAddress())
+                                .txHash(chainingTxHash)
+                                .outputIndex(i)
+                                .amount(ValueUtil.toAmountList(output.getValue()))
+                                .build();
+                    }
+                }
+
+                if (inputUtxo == null) {
+                    return TransactionContext.typedError("could not chain tx");
+                }
+
+                log.info("inputUtxo: {}", inputUtxo);
+
+                feePayerUtxos = List.of(inputUtxo);
+                feePayerUtxos.forEach(hybridUtxoSupplier::add);
+            } else {
+                feePayerUtxos = accountService.findAdaOnlyUtxo(request.getFeePayerAddress(), 10_000_000L);
+            }
 
             var bootstrapTxHash = protocolParams.txHash();
 
@@ -386,11 +362,15 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
                     .attachRewardValidator(substandardIssueContract)
                     .withChangeAddress(request.getFeePayerAddress());
 
+            var firstUtxo = feePayerUtxos.getFirst();
             var transaction = quickTxBuilder.compose(tx)
                     .withRequiredSigners(adminPkh.getBytes())
                     .feePayer(request.getFeePayerAddress())
-//                .withTxEvaluator(new AikenTransactionEvaluator(bfBackendService))
                     .mergeOutputs(false) //<-- this is important! or directory tokens will go to same address
+                    .withCollateralInputs(TransactionInput.builder()
+                            .transactionId(firstUtxo.getTxHash())
+                            .index(firstUtxo.getOutputIndex())
+                            .build())
                     .preBalanceTx((txBuilderContext, transaction1) -> {
                         var outputs = transaction1.getBody().getOutputs();
                         if (outputs.getFirst().getAddress().equals(request.getFeePayerAddress())) {
@@ -411,6 +391,7 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
                             throw new RuntimeException(e);
                         }
                     })
+                    .ignoreScriptCostEvaluationError(false)
                     .build();
 
             log.info("tx: {}", transaction.serializeToHex());
@@ -434,6 +415,8 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
                     .substandardId(SUBSTANDARD_ID)
                     .assetName(request.getAssetName())
                     .build());
+
+            hybridUtxoSupplier.clear();
 
             return TransactionContext.ok(transaction.serializeToHex(), new RegistrationResult(progTokenPolicyId));
 
@@ -1054,13 +1037,16 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
             var tx = new ScriptTx()
                     .collectFrom(utilityUtxos)
                     .mintAsset(parameterisedBlacklistMintingScript, blacklistAsset, ConstrPlutusData.of(0))
+                    // Can be used to chain tx
+                    .payToAddress(request.feePayerAddress(), Amount.ada(40L))
                     .payToContract(blacklistSpendAddress.getAddress(), ValueUtil.toAmountList(blacklistValue), blacklistInitDatum.toPlutusData())
                     .withChangeAddress(request.feePayerAddress());
 
             stakeAddressesToRegister.forEach(tx::registerStakeAddress);
 
-            var transaction = quickTxBuilder.compose(tx)
+            var transaction = new QuickTxBuilder(bfBackendService).compose(tx)
                     .feePayer(request.feePayerAddress())
+                    .ignoreScriptCostEvaluationError(false)
                     .mergeOutputs(false)
                     .build();
 
