@@ -6,8 +6,6 @@ import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
 import lombok.experimental.SuperBuilder;
 
-import java.math.BigInteger;
-
 /**
  * Registration request for the "freeze-and-seize" substandard.
  * Includes additional fields for admin management and blacklist configuration.
