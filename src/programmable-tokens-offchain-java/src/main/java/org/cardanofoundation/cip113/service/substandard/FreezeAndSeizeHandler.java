@@ -1022,12 +1022,6 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
                     ))
                     .build();
 
-            var tx = new ScriptTx()
-                    .collectFrom(utilityUtxos)
-                    .mintAsset(parameterisedBlacklistMintingScript, blacklistAsset, ConstrPlutusData.of(0))
-                    .payToContract(blacklistSpendAddress.getAddress(), ValueUtil.toAmountList(blacklistValue), blacklistInitDatum.toPlutusData())
-                    .withChangeAddress(request.feePayerAddress());
-
             // Stake Address Registration
             var substandardIssueContract = fesScriptBuilder.buildIssuerAdminScript(Credential.fromKey(adminPkh));
             var substandardIssueAddress = AddressProvider.getRewardAddress(substandardIssueContract, network.getCardanoNetwork());
@@ -1057,19 +1051,15 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
                     .toList();
             log.info("stakeAddressesToRegister: {}", String.join(", ", stakeAddressesToRegister));
 
-            var transactions = new ArrayList<AbstractTx>();
-            transactions.add(tx);
+            var tx = new ScriptTx()
+                    .collectFrom(utilityUtxos)
+                    .mintAsset(parameterisedBlacklistMintingScript, blacklistAsset, ConstrPlutusData.of(0))
+                    .payToContract(blacklistSpendAddress.getAddress(), ValueUtil.toAmountList(blacklistValue), blacklistInitDatum.toPlutusData())
+                    .withChangeAddress(request.feePayerAddress());
 
-            if (!stakeAddressesToRegister.isEmpty()) {
-                var registerAddressTx = new Tx()
-                        .from(request.feePayerAddress())
-                        .withChangeAddress(request.feePayerAddress());
+            stakeAddressesToRegister.forEach(tx::registerStakeAddress);
 
-                stakeAddressesToRegister.forEach(registerAddressTx::registerStakeAddress);
-                transactions.add(registerAddressTx);
-            }
-
-            var transaction = quickTxBuilder.compose(transactions.toArray(new AbstractTx[0]))
+            var transaction = quickTxBuilder.compose(tx)
                     .feePayer(request.feePayerAddress())
                     .mergeOutputs(false)
                     .build();
