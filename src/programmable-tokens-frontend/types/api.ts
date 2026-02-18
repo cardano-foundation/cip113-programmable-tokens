@@ -30,6 +30,7 @@ export interface BaseRegisterTokenRequest {
   assetName: string;           // HEX ENCODED token name
   quantity: string;            // Amount to register/mint
   recipientAddress: string;    // Recipient address (can be empty string)
+  chainingTransactionCborHex?: string;  // Full CBOR hex of a preceding tx (for mempool chaining)
 }
 
 /** Dummy substandard - no extra fields needed */

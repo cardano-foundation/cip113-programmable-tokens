@@ -17,7 +17,8 @@ README.md (Main entry point - Progressive disclosure)
 │   ├── 04-DATA-STRUCTURES.md (Technical reference)
 │   ├── 05-TRANSACTION-FLOWS.md (Technical - practical)
 │   ├── 06-USAGE.md (Practical guide)
-│   └── 07-MIGRATION-NOTES.md (For Plutarch developers)
+│   ├── 07-MIGRATION-NOTES.md (For Plutarch developers)
+│   └── 08-INTEGRATION-GUIDES.md (Audience-specific: wallets, indexers/explorers, dApps)
 ```
 
 ---
@@ -61,6 +62,7 @@ README.md (Main entry point - Progressive disclosure)
 3. ✅ `docs/05-TRANSACTION-FLOWS.md` - Practical transaction building
 4. ✅ `docs/06-USAGE.md` - Build, test, deploy guide
 5. ✅ `docs/07-MIGRATION-NOTES.md` - Plutarch → Aiken notes
+6. ✅ `docs/08-INTEGRATION-GUIDES.md` - Audience-specific integration guidance (wallets, indexers/explorers, dApps)
 
 **Verification Sources**:
 - Aiken source code (ground truth: "code is law")
@@ -356,6 +358,47 @@ Each with:
 #### 3. CIP-143 Implementation Notes
 - Where we deviate
 - Why we deviate
+
+---
+
+### **docs/08-INTEGRATION-GUIDES.md**
+**Length**: ~500-600 lines
+**Tone**: Practical, audience-specific
+**Purpose**: Tell each integration audience exactly what they need to know
+
+**Contents**:
+
+#### 0. Understanding Programmable Addresses (~60 lines)
+- Address structure: shared payment credential + unique stake credential
+- Credential flexibility: stake key, payment key, or script hash in stake slot
+- On-chain validators are credential-agnostic (VerificationKey vs Script only)
+- Choice of credential type is a protocol/off-chain design decision
+
+#### 1. For Wallet Developers (~150 lines)
+- **Balance Resolution**: Query by full address (payment + stake credential), handle both payment-key and stake-key conventions
+- **Building Transfers**: Authorization method (stake vs payment key), withdraw-zero invocations, reference inputs, registry proofs, output construction
+- **Transaction Skeleton**: Complete example of a transfer transaction
+- **Token Discovery**: How to query the on-chain registry
+- **Stake Delegation**: Implications for each credential type (minimal ADA, but technically possible)
+- **Common Pitfalls**: Table of frequent integration mistakes
+
+#### 2. For Indexers and Explorers (~150 lines)
+- **Balance Tracking**: Group UTxOs by stake credential at `programmable_logic_base`, handle script owners
+- **Credential Type Ambiguity**: Payment key vs stake key hashes are indistinguishable on-chain
+- **TX History by Stake Address**: Standard case (straightforward)
+- **TX History by Payment Key in Stake Slot**: Enterprise/CEX pattern — query payment key hash as a stake credential
+- **Transfer vs Seizure Detection**: `TransferAct` vs `ThirdPartyAct` redeemers
+- **Registry State Tracking**: Token registrations, transfer logic, compliance events
+- **Common Pitfalls**: Table of frequent integration mistakes
+
+#### 3. For dApp Developers (~200 lines)
+- **Script as Owner**: dApp script hash in stake slot, withdraw-zero authorization
+- **Transaction Building**: Multiple simultaneous withdraw-zero invocations, composing with dApp logic
+- **Script Requirements**: Must implement `withdraw` purpose, stake address registration
+- **Delegation and Withdrawal**: Distinguishing zero-ADA (authorization) from real withdrawals
+- **Execution Budget**: Multiple validator invocations, profiling guidance
+- **Composability Patterns**: Receiving, releasing, and holding mixed assets
+- **Common Pitfalls**: Table of frequent integration mistakes
 
 ---
 

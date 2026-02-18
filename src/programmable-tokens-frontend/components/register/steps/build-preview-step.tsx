@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
+import { useState, useCallback, useMemo, useRef } from 'react';
 import { useWallet } from '@meshsdk/react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -54,11 +54,6 @@ export function BuildPreviewStep({
 
   // Prevent double API calls
   const isCallingApiRef = useRef(false);
-  const hasStartedPollingRef = useRef(false);
-
-  // Abort controller ref (kept for cleanup compatibility)
-  const abortControllerRef = useRef<AbortController | null>(null);
-  const cooldownIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   // Get token details from wizard state
   const tokenDetails = useMemo(() => {

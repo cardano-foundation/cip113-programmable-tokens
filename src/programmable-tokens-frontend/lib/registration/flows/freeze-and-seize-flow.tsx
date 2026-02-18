@@ -1,6 +1,9 @@
 /**
  * Freeze-and-Seize Substandard Flow
  * Token registration with compliance features (freeze addresses, seize tokens)
+ *
+ * Uses combined build-sign-submit step: builds init + registration txs together,
+ * signs via CIP-103 signTxs (single wallet popup), submits sequentially.
  */
 
 import { registerFlow, isFlowEnabled } from '../flow-registry';
@@ -11,60 +14,28 @@ import type {
   StepComponentProps,
 } from '@/types/registration';
 import { TokenDetailsStep } from '@/components/register/steps/token-details-step';
-import { InitBlacklistStep } from '@/components/register/steps/freeze-and-seize';
-import { PreRegistrationStep } from '@/components/register/steps/pre-registration-step';
-import { BuildPreviewStep } from '@/components/register/steps/build-preview-step';
-import { SignSubmitStep } from '@/components/register/steps/sign-submit-step';
+import { CombinedBuildSignSubmitStep } from '@/components/register/steps/freeze-and-seize';
 import { SuccessStep } from '@/components/register/steps/success-step';
 
-// Wrapper for PreRegistrationStep with flowId
-function FreezeSeizePreRegistrationStep(props: StepComponentProps) {
-  return <PreRegistrationStep {...props} flowId="freeze-and-seize" />;
-}
-
-// Wrapper for BuildPreviewStep with flowId
-function FreezeSeizeBuildPreviewStep(props: StepComponentProps) {
-  return <BuildPreviewStep {...props} flowId="freeze-and-seize" />;
-}
-
-// Wrapper for SignSubmitStep that gets tx data from previous step
-function FreezeSeizeSignSubmitStep(props: StepComponentProps) {
-  const buildResult = props.wizardState.stepStates['build-preview']?.result?.data as {
-    policyId?: string;
-    unsignedCborTx?: string;
-  } | undefined;
-
-  return (
-    <SignSubmitStep
-      {...props}
-      unsignedCborTx={buildResult?.unsignedCborTx || ''}
-      policyId={buildResult?.policyId || ''}
-    />
-  );
-}
-
-// Custom success step that includes blacklist info
+// Custom success step that reads from the combined step's result
 function FreezeSeizeSuccessStep(props: StepComponentProps) {
-  const blacklistResult = props.wizardState.stepStates['init-blacklist']?.result?.data as {
+  const combinedResult = props.wizardState.stepStates['combined-build-sign']?.result?.data as {
     blacklistNodePolicyId?: string;
-    txHash?: string;
-  } | undefined;
-
-  const signSubmitResult = props.wizardState.stepStates['sign-submit']?.result?.data as {
-    policyId?: string;
-    txHash?: string;
+    initTxHash?: string;
+    tokenPolicyId?: string;
+    regTxHash?: string;
   } | undefined;
 
   // Build enhanced result with blacklist info
   const enhancedResult = props.wizardState.finalResult || {
-    policyId: signSubmitResult?.policyId || '',
-    txHash: signSubmitResult?.txHash || '',
+    policyId: combinedResult?.tokenPolicyId || '',
+    txHash: combinedResult?.regTxHash || '',
     substandardId: 'freeze-and-seize',
     assetName: '',
     quantity: '',
     metadata: {
-      blacklistNodePolicyId: blacklistResult?.blacklistNodePolicyId,
-      blacklistInitTxHash: blacklistResult?.txHash,
+      blacklistNodePolicyId: combinedResult?.blacklistNodePolicyId,
+      blacklistInitTxHash: combinedResult?.initTxHash,
     },
   };
 
@@ -85,32 +56,11 @@ const freezeAndSeizeFlow: RegistrationFlow = {
       component: TokenDetailsStep as React.ComponentType<StepComponentProps<unknown, unknown>>,
     },
     {
-      id: 'init-blacklist',
-      title: 'Init Blacklist',
-      description: 'Create the on-chain blacklist for compliance',
+      id: 'combined-build-sign',
+      title: 'Build & Sign',
+      description: 'Build, sign, and submit both transactions',
       requiresWalletSign: true,
-      component: InitBlacklistStep as React.ComponentType<StepComponentProps<unknown, unknown>>,
-    },
-    {
-      id: 'pre-registration',
-      title: 'Pre-Register',
-      description: 'Register required stake addresses',
-      requiresWalletSign: true,
-      component: FreezeSeizePreRegistrationStep as React.ComponentType<StepComponentProps<unknown, unknown>>,
-    },
-    {
-      id: 'build-preview',
-      title: 'Preview',
-      description: 'Review your registration details',
-      requiresWalletSign: false,
-      component: FreezeSeizeBuildPreviewStep as React.ComponentType<StepComponentProps<unknown, unknown>>,
-    },
-    {
-      id: 'sign-submit',
-      title: 'Sign & Submit',
-      description: 'Sign and submit the registration transaction',
-      requiresWalletSign: true,
-      component: FreezeSeizeSignSubmitStep as React.ComponentType<StepComponentProps<unknown, unknown>>,
+      component: CombinedBuildSignSubmitStep as React.ComponentType<StepComponentProps<unknown, unknown>>,
     },
     {
       id: 'success',
@@ -128,7 +78,7 @@ const freezeAndSeizeFlow: RegistrationFlow = {
       recipientAddress?: string;
     } | undefined;
 
-    const blacklistResult = state.stepStates['init-blacklist']?.result?.data as {
+    const combinedResult = state.stepStates['combined-build-sign']?.result?.data as {
       blacklistNodePolicyId?: string;
     } | undefined;
 
@@ -139,7 +89,7 @@ const freezeAndSeizeFlow: RegistrationFlow = {
       quantity: tokenDetails?.quantity || '',
       recipientAddress: tokenDetails?.recipientAddress,
       adminPubKeyHash: '', // Will be derived from feePayerAddress by backend
-      blacklistNodePolicyId: blacklistResult?.blacklistNodePolicyId || '',
+      blacklistNodePolicyId: combinedResult?.blacklistNodePolicyId || '',
     };
   },
 };

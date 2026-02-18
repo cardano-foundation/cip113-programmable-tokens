@@ -57,4 +57,10 @@ public abstract class RegisterTokenRequest {
      * The recipient address for the minted tokens.
      */
     private String recipientAddress;
+
+    /**
+     * Optional tx hash that can be used to mempool chaining tx, it's assumed to have a few ada (10 ada+)
+     */
+    private String chainingTransactionCborHex;
+
 }
