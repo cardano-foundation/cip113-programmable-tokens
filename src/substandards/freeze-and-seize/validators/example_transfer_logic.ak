@@ -85,9 +85,14 @@ validator issuer_admin_contract(
     // OPTIMIZATION 4: Inline policy calculation
     // ============================================================
     // Concatenate hashes inline
+    // let hashed_param =
+    //   builtin.append_bytearray(programmable_base_hash, withdraw_script_hash)
     let hashed_param =
-      builtin.append_bytearray(programmable_base_hash, withdraw_script_hash)
-
+      builtin.append_bytearray(
+        builtin.append_bytearray(programmable_base_hash, withdraw_script_hash),
+        asset_name,
+      )
+    // ✅ ADD asset_name here!
     // Derive expected policy ID with trusted values
     let derived_policy_id =
       apply_hashed_parameter(

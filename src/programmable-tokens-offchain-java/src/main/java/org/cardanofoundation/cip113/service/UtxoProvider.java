@@ -68,25 +68,32 @@ public class UtxoProvider {
         log.debug("Finding UTXOs for address: {}", address);
 
         // Always try Blockfrost first to avoid stale data from local DB
-        try {
-            log.debug("Prioritizing Blockfrost for UTXOs at address: {}", address);
-            return getBlockfrostUtxos(address);
-        } catch (Exception e) {
-            log.warn("Failed to fetch UTXOs from Blockfrost: {}", e.getMessage());
+        List<Utxo> blockfrostUtxos = getBlockfrostUtxos(address);
+        if (!blockfrostUtxos.isEmpty()) {
+            log.info("Found {} UTXOs via Blockfrost for address: {}", blockfrostUtxos.size(), address);
+            return blockfrostUtxos;
         }
 
+        // Fallback to Yaci Store if Blockfrost failed or returned empty
         if (utxoRepository != null) {
-            log.debug("Falling back to local DB for address: {}", address);
-            var utxos = utxoRepository.findUnspentByOwnerAddr(address, Pageable.unpaged())
-                    .stream()
-                    .flatMap(Collection::stream)
-                    .map(UtxoUtil::toUtxo)
-                    .toList();
+            log.info("Blockfrost returned no UTXOs. Falling back to Yaci Store for address: {}", address);
+            try {
+                var utxos = utxoRepository.findUnspentByOwnerAddr(address, Pageable.unpaged())
+                        .stream()
+                        .flatMap(Collection::stream)
+                        .map(UtxoUtil::toUtxo)
+                        .toList();
 
-            log.debug("Found {} UTXOs in local DB for address: {}", utxos.size(), address);
-            return utxos;
+                log.info("Yaci Store returned {} UTXOs for address: {}", utxos.size(), address);
+                return utxos;
+            } catch (Exception e) {
+                log.warn("Error querying Yaci Store for address {}: {}", address, e.getMessage());
+            }
+        } else {
+            log.warn("Yaci Store UTXO repository not available. Cannot fallback from Blockfrost.");
         }
 
+        log.warn("No UTXOs found for address {} via Blockfrost or Yaci Store", address);
         return List.of();
     }
 
@@ -99,15 +106,20 @@ public class UtxoProvider {
                 log.info("Blockfrost returned {} UTXOs for address: {}", utxos.size(), address);
                 return utxos;
             } else {
-                log.error("Blockfrost query failed for address {}: {}", address, utxoResult.getResponse());
+                log.warn("Blockfrost query failed for address {}: {}", address, utxoResult.getResponse());
+                // Return empty list to allow fallback to Yaci Store
                 return List.of();
             }
         } catch (ApiException e) {
-            log.error("ApiException while querying Blockfrost for address {}: {}", address, e.getMessage(), e);
-            throw new RuntimeException(e);
+            // Blockfrost API errors (403, 404, etc.) - fallback to Yaci Store
+            log.warn("Blockfrost API error for address {}: {}. Falling back to Yaci Store.", 
+                    address, e.getMessage());
+            return List.of();
         } catch (Exception e) {
-            log.error("Unexpected exception while querying Blockfrost for address {}: {}", address, e.getMessage(), e);
-            throw new RuntimeException(e);
+            // Any other exception - log and fallback to Yaci Store
+            log.warn("Unexpected exception while querying Blockfrost for address {}: {}. Falling back to Yaci Store.", 
+                    address, e.getMessage());
+            return List.of();
         }
     }
 

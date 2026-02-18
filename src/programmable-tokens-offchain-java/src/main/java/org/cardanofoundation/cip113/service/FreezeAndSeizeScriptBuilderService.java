@@ -45,15 +45,27 @@ public class FreezeAndSeizeScriptBuilderService {
      * Build Issuer Admin Contract (withdraw)
      * <p>
      * Contract: example_transfer_logic.issuer_admin_contract.withdraw
-     * Parameters: [admin_pkh]
+     * Parameters: [admin_pkh, asset_name, issuance_cbor_hex_cs, programmable_base_hash]
      *
-     * @param adminPubKeyHash Admin's payment credential hash (hex string)
+     * @param adminPubKeyHash Admin's payment credential hash
+     * @param assetName Asset name as hex string
+     * @param issuanceCborHexPolicyId Issuance CBOR hex policy ID (hex string)
+     * @param programmableBaseHash Programmable base hash (hex string)
      * @return Parameterized PlutusScript v3
      */
-    public PlutusScript buildIssuerAdminScript(Credential adminPubKeyHash) {
+    public PlutusScript buildIssuerAdminScript(
+            Credential adminPubKeyHash,
+            String assetName,
+            String issuanceCborHexPolicyId,
+            String programmableBaseHash) {
         var contract = getContract("example_transfer_logic.issuer_admin_contract.withdraw");
 
-        var params = ListPlutusData.of(serialize(adminPubKeyHash));
+        var params = ListPlutusData.of(
+                serialize(adminPubKeyHash),
+                BytesPlutusData.of(HexUtil.decodeHexString(assetName)),
+                BytesPlutusData.of(HexUtil.decodeHexString(issuanceCborHexPolicyId)),
+                BytesPlutusData.of(HexUtil.decodeHexString(programmableBaseHash))
+        );
 
         return applyParameters(contract, params, "issuer_admin");
     }

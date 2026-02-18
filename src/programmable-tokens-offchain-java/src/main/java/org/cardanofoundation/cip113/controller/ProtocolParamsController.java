@@ -4,8 +4,10 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.cardanofoundation.cip113.entity.ProtocolParamsEntity;
 import org.cardanofoundation.cip113.model.ProtocolVersionInfo;
+import org.cardanofoundation.cip113.model.bootstrap.ProtocolBootstrapParams;
 import org.cardanofoundation.cip113.service.ProtocolBootstrapService;
 import org.cardanofoundation.cip113.service.ProtocolParamsService;
+import org.cardanofoundation.cip113.service.ProtocolScriptBuilderService;
 import org.cardanofoundation.conversions.CardanoConverters;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -24,6 +26,8 @@ public class ProtocolParamsController {
     private final ProtocolParamsService protocolParamsService;
 
     private final ProtocolBootstrapService protocolBootstrapService;
+
+    private final ProtocolScriptBuilderService protocolScriptBuilderService;
 
     private final CardanoConverters cardanoConverters;
 
@@ -107,28 +111,49 @@ public class ProtocolParamsController {
 
         try {
             // Get default txHash from protocol-bootstraps-preview.json
-            String defaultTxHash = protocolBootstrapService.getProtocolBootstrapParams().txHash();
+            ProtocolBootstrapParams bootstrapParams = protocolBootstrapService.getProtocolBootstrapParams();
+            String defaultTxHash = bootstrapParams.txHash();
             log.debug("Default protocol version txHash: {}", defaultTxHash);
 
             // Get all protocol params (already ordered by slot ascending)
             List<ProtocolParamsEntity> allParams = protocolParamsService.getAll();
 
-            // Convert to DTOs with isDefault flag and timestamp conversion
-            List<ProtocolVersionInfo> versions = allParams.stream()
-                    .map(entity -> {
-                        var timestamp = cardanoConverters.slot()
-                                .slotToTime(entity.getSlot())
-                                .toEpochSecond(ZoneOffset.UTC);
-                        return ProtocolVersionInfo.builder()
-                                .registryNodePolicyId(entity.getRegistryNodePolicyId())
-                                .progLogicScriptHash(entity.getProgLogicScriptHash())
-                                .txHash(entity.getTxHash())
-                                .slot(entity.getSlot())
-                                .timestamp(timestamp)
-                                .isDefault(entity.getTxHash().equals(defaultTxHash))
-                                .build();
-                    })
-                    .collect(Collectors.toList());
+            List<ProtocolVersionInfo> versions;
+
+            // If database is empty, return bootstrap version from JSON file
+            if (allParams.isEmpty()) {
+                log.info("No protocol params in database, returning bootstrap version from JSON");
+                // Build directory mint script to get its policy ID (registry node policy ID)
+                var directoryMintScript = protocolScriptBuilderService.getParameterizedDirectoryMintScript(bootstrapParams);
+                var registryNodePolicyId = directoryMintScript.getPolicyId();
+                
+                var bootstrapVersion = ProtocolVersionInfo.builder()
+                        .registryNodePolicyId(registryNodePolicyId)
+                        .progLogicScriptHash(bootstrapParams.programmableLogicBaseParams().scriptHash())
+                        .txHash(defaultTxHash)
+                        .slot(0L) // Placeholder - will be updated when detected on-chain
+                        .timestamp(System.currentTimeMillis() / 1000) // Current timestamp
+                        .isDefault(true)
+                        .build();
+                versions = List.of(bootstrapVersion);
+            } else {
+                // Convert to DTOs with isDefault flag and timestamp conversion
+                versions = allParams.stream()
+                        .map(entity -> {
+                            var timestamp = cardanoConverters.slot()
+                                    .slotToTime(entity.getSlot())
+                                    .toEpochSecond(ZoneOffset.UTC);
+                            return ProtocolVersionInfo.builder()
+                                    .registryNodePolicyId(entity.getRegistryNodePolicyId())
+                                    .progLogicScriptHash(entity.getProgLogicScriptHash())
+                                    .txHash(entity.getTxHash())
+                                    .slot(entity.getSlot())
+                                    .timestamp(timestamp)
+                                    .isDefault(entity.getTxHash().equals(defaultTxHash))
+                                    .build();
+                        })
+                        .collect(Collectors.toList());
+            }
 
             log.debug("Returning {} protocol versions", versions.size());
             return ResponseEntity.ok(versions);

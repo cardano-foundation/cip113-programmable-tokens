@@ -190,6 +190,39 @@ public class ProtocolScriptBuilderService {
     }
 
     /**
+     * Get parameterized Issuance CBOR Hex Mint script
+     * Parameters: UTXO reference (tx hash + output index)
+     */
+    public PlutusScript getParameterizedIssuanceCborHexMintScript(ProtocolBootstrapParams protocolParams) {
+        return getCachedOrBuild(protocolParams.txHash(), "issuance_cbor_hex_mint", () -> {
+            var utxoRef = protocolParams.issuanceParams().txInput();
+
+            var parameters = ListPlutusData.of(
+                    ConstrPlutusData.of(0,
+                            BytesPlutusData.of(HexUtil.decodeHexString(utxoRef.txHash())),
+                            BigIntPlutusData.of(utxoRef.outputIndex()))
+            );
+
+            var contractOpt = protocolBootstrapService.getProtocolContract("issuance_cbor_hex_mint.issuance_cbor_hex_mint.mint");
+            if (contractOpt.isEmpty()) {
+                throw new IllegalStateException("Issuance CBOR hex mint contract not found");
+            }
+
+            var script = PlutusBlueprintUtil.getPlutusScriptFromCompiledCode(
+                    AikenScriptUtil.applyParamToScript(parameters, contractOpt.get()),
+                    PlutusVersion.v3
+            );
+
+            try {
+                log.debug("Built issuance CBOR hex mint script with policy ID: {}", script.getPolicyId());
+            } catch (Exception e) {
+                log.debug("Built issuance CBOR hex mint script (could not compute policy ID)");
+            }
+            return script;
+        });
+    }
+
+    /**
      * Clear cache for a specific protocol version
      */
     public void clearCache(String protocolTxHash) {

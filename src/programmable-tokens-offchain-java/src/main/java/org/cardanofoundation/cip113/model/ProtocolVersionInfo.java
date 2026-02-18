@@ -1,5 +1,6 @@
 package org.cardanofoundation.cip113.model;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -47,5 +48,6 @@ public class ProtocolVersionInfo {
      * Whether this is the current/default protocol version
      * (matches txHash from protocol-bootstraps-preview.json)
      */
+    @JsonProperty("default")
     private boolean isDefault;
 }

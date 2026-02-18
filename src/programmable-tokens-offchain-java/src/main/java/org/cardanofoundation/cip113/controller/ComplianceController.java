@@ -453,8 +453,12 @@ public class ComplianceController {
 
             var progToken = AssetType.fromUnit(request.unit());
 
-            // Resolve substandard from policyId via unified registry
-            var substandardId = resolveSubstandardId(progToken.policyId());
+            // Resolve substandard: try programmable_token_registry first, then fall back to
+            // freeze_and_seize_token_registration and backfill registry so seize works when
+            // registration data exists but registry entry was missing (e.g. DB reset or older flow).
+            var substandardId = resolveSubstandardIdOrBackfillFromFreezeAndSeize(
+                    progToken.policyId(),
+                    progToken.assetName());
 
             var context = switch (substandardId) {
                 case "freeze-and-seize" -> {
@@ -521,8 +525,8 @@ public class ComplianceController {
                 request.policyId(), request.utxoReferences().size(), request.destinationAddress());
 
         try {
-            // Resolve substandard from policyId via unified registry
-            var substandardId = resolveSubstandardId(request.policyId());
+            // Resolve substandard (with fallback from freeze_and_seize_token_registration if needed)
+            var substandardId = resolveSubstandardIdOrBackfillFromFreezeAndSeize(request.policyId(), "");
 
             var txContext = complianceOperationsService.multiSeize(
                     substandardId, request, protocolTxHash, null);
@@ -559,5 +563,35 @@ public class ComplianceController {
                 .map(ProgrammableTokenRegistryEntity::getSubstandardId)
                 .orElseThrow(() -> new IllegalArgumentException(
                         "Token not registered in programmable token registry: " + policyId));
+    }
+
+    /**
+     * Resolve substandard for seize: use programmable_token_registry if present; otherwise
+     * if the token exists in freeze_and_seize_token_registration, backfill the registry
+     * and return "freeze-and-seize" so seize works when only registration/blacklist data exists.
+     *
+     * @param policyId  The programmable token policy ID
+     * @param assetName The asset name (hex) for backfill if needed
+     * @return The substandard ID
+     * @throws IllegalArgumentException if the token is not in registry nor in freeze-and-seize registration
+     */
+    private String resolveSubstandardIdOrBackfillFromFreezeAndSeize(String policyId, String assetName) {
+        var registryOpt = programmableTokenRegistryRepository.findByPolicyId(policyId);
+        if (registryOpt.isPresent()) {
+            return registryOpt.get().getSubstandardId();
+        }
+        var fasRegistrationOpt = freezeAndSeizeTokenRegistrationRepository.findByProgrammableTokenPolicyId(policyId);
+        if (fasRegistrationOpt.isPresent()) {
+            log.info("Token {} not in programmable_token_registry but found in freeze_and_seize_token_registration; backfilling registry",
+                    policyId);
+            programmableTokenRegistryRepository.save(ProgrammableTokenRegistryEntity.builder()
+                    .policyId(policyId)
+                    .substandardId("freeze-and-seize")
+                    .assetName(assetName != null ? assetName : "")
+                    .build());
+            return "freeze-and-seize";
+        }
+        throw new IllegalArgumentException(
+                "Token not registered in programmable token registry: " + policyId);
     }
 }
