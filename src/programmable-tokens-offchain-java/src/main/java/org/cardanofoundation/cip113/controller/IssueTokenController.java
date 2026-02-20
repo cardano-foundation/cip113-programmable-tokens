@@ -57,8 +57,8 @@ public class IssueTokenController {
             }
 
         } catch (Exception e) {
-            log.warn("error", e);
-            return ResponseEntity.internalServerError().build();
+            log.error("Error registering token", e);
+            return ResponseEntity.internalServerError().body("Failed to build transaction: " + (e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName()));
         }
     }
 

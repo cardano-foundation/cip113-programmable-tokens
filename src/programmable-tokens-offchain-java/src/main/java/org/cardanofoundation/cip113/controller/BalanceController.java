@@ -9,6 +9,7 @@ import org.cardanofoundation.cip113.entity.ProtocolParamsEntity;
 import org.cardanofoundation.cip113.model.WalletBalanceResponse;
 import org.cardanofoundation.cip113.service.BalanceService;
 import org.cardanofoundation.cip113.service.BlacklistQueryService;
+import org.cardanofoundation.cip113.service.ProtocolBootstrapService;
 import org.cardanofoundation.cip113.service.ProtocolParamsService;
 import org.cardanofoundation.cip113.service.RegistryService;
 import org.cardanofoundation.cip113.util.AddressUtil;
@@ -29,6 +30,7 @@ public class BalanceController {
 
     private final BalanceService balanceService;
     private final ProtocolParamsService protocolParamsService;
+    private final ProtocolBootstrapService protocolBootstrapService;
     private final RegistryService registryService;
     private final BlacklistQueryService blacklistQueryService;
 
@@ -303,12 +305,30 @@ public class BalanceController {
             List<BalanceLogEntity> filteredBalances;
             if (protocolTxHash != null && !protocolTxHash.isEmpty()) {
                 Optional<ProtocolParamsEntity> protocolOpt = protocolParamsService.getByTxHash(protocolTxHash);
-                if (protocolOpt.isEmpty()) {
-                    log.warn("Invalid protocol txHash: {}", protocolTxHash);
-                    return ResponseEntity.badRequest().build();
+                
+                // If not in database, try to get from bootstrap params (for bootstrap protocol version)
+                String progLogicScriptHash;
+                if (protocolOpt.isPresent()) {
+                    progLogicScriptHash = protocolOpt.get().getProgLogicScriptHash();
+                } else {
+                    // Check if this is the bootstrap protocol txHash
+                    try {
+                        var bootstrapParams = protocolBootstrapService.getProtocolBootstrapParams();
+                        if (protocolTxHash.equals(bootstrapParams.txHash())) {
+                            progLogicScriptHash = bootstrapParams.programmableLogicBaseParams().scriptHash();
+                            log.debug("Using bootstrap protocol params for txHash: {}", protocolTxHash);
+                        } else {
+                            log.warn("Invalid protocol txHash: {}", protocolTxHash);
+                            // Return empty response for invalid protocol txHash
+                            return ResponseEntity.badRequest().build();
+                        }
+                    } catch (Exception e) {
+                        log.warn("Failed to get bootstrap params for protocol txHash: {}", protocolTxHash, e);
+                        // Return empty response for invalid protocol txHash
+                        return ResponseEntity.badRequest().build();
+                    }
                 }
 
-                String progLogicScriptHash = protocolOpt.get().getProgLogicScriptHash();
                 log.debug("Filtering balances by progLogicScriptHash: {}", progLogicScriptHash);
 
                 filteredBalances = mergedBalances.stream()

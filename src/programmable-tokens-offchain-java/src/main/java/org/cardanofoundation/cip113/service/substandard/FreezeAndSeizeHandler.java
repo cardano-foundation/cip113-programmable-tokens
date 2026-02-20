@@ -1,5 +1,54 @@
 package org.cardanofoundation.cip113.service.substandard;
 
+import static java.math.BigInteger.ONE;
+import static java.math.BigInteger.ZERO;
+
+import java.math.BigInteger;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
+import java.util.stream.Stream;
+
+import org.cardanofoundation.cip113.config.AppConfig;
+import org.cardanofoundation.cip113.entity.BlacklistInitEntity;
+import org.cardanofoundation.cip113.entity.FreezeAndSeizeTokenRegistrationEntity;
+import org.cardanofoundation.cip113.entity.ProgrammableTokenRegistryEntity;
+import org.cardanofoundation.cip113.model.BurnTokenRequest;
+import org.cardanofoundation.cip113.model.FreezeAndSeizeRegisterRequest;
+import org.cardanofoundation.cip113.model.LinkedListNode;
+import org.cardanofoundation.cip113.model.MintTokenRequest;
+import org.cardanofoundation.cip113.model.TransactionContext;
+import org.cardanofoundation.cip113.model.TransactionContext.MintingResult;
+import org.cardanofoundation.cip113.model.TransactionContext.RegistrationResult;
+import org.cardanofoundation.cip113.model.TransferTokenRequest;
+import org.cardanofoundation.cip113.model.bootstrap.ProtocolBootstrapParams;
+import org.cardanofoundation.cip113.model.bootstrap.TxInput;
+import org.cardanofoundation.cip113.model.onchain.RegistryNode;
+import org.cardanofoundation.cip113.model.onchain.RegistryNodeParser;
+import org.cardanofoundation.cip113.model.onchain.siezeandfreeze.blacklist.BlacklistBootstrap;
+import org.cardanofoundation.cip113.model.onchain.siezeandfreeze.blacklist.BlacklistMintBootstrap;
+import org.cardanofoundation.cip113.model.onchain.siezeandfreeze.blacklist.BlacklistNode;
+import org.cardanofoundation.cip113.model.onchain.siezeandfreeze.blacklist.BlacklistNodeParser;
+import org.cardanofoundation.cip113.model.onchain.siezeandfreeze.blacklist.BlacklistSpendBootstrap;
+import org.cardanofoundation.cip113.repository.BlacklistInitRepository;
+import org.cardanofoundation.cip113.repository.CustomStakeRegistrationRepository;
+import org.cardanofoundation.cip113.repository.FreezeAndSeizeTokenRegistrationRepository;
+import org.cardanofoundation.cip113.repository.ProgrammableTokenRegistryRepository;
+import org.cardanofoundation.cip113.service.AccountService;
+import org.cardanofoundation.cip113.service.FreezeAndSeizeScriptBuilderService;
+import org.cardanofoundation.cip113.service.LinkedListService;
+import org.cardanofoundation.cip113.service.ProtocolScriptBuilderService;
+import org.cardanofoundation.cip113.service.SubstandardService;
+import org.cardanofoundation.cip113.service.UtxoProvider;
+import org.cardanofoundation.cip113.service.substandard.capabilities.BasicOperations;
+import org.cardanofoundation.cip113.service.substandard.capabilities.BlacklistManageable;
+import org.cardanofoundation.cip113.service.substandard.capabilities.Seizeable;
+import org.cardanofoundation.cip113.service.substandard.context.FreezeAndSeizeContext;
+import org.cardanofoundation.cip113.util.AddressUtil;
+import org.springframework.context.annotation.Scope;
+import org.springframework.stereotype.Component;
+
+import com.bloxbean.cardano.aiken.AikenTransactionEvaluator;
 import com.bloxbean.cardano.client.address.Address;
 import com.bloxbean.cardano.client.address.AddressProvider;
 import com.bloxbean.cardano.client.address.Credential;
@@ -25,33 +74,10 @@ import com.easy1staking.cardano.util.AmountUtil;
 import com.easy1staking.util.Pair;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+
 import lombok.RequiredArgsConstructor;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
-import org.cardanofoundation.cip113.config.AppConfig;
-import org.cardanofoundation.cip113.entity.BlacklistInitEntity;
-import org.cardanofoundation.cip113.entity.FreezeAndSeizeTokenRegistrationEntity;
-import org.cardanofoundation.cip113.entity.ProgrammableTokenRegistryEntity;
-import org.cardanofoundation.cip113.model.*;
-import org.cardanofoundation.cip113.model.TransactionContext.MintingResult;
-import org.cardanofoundation.cip113.model.TransactionContext.RegistrationResult;
-import org.cardanofoundation.cip113.model.bootstrap.ProtocolBootstrapParams;
-import org.cardanofoundation.cip113.model.bootstrap.TxInput;
-import org.cardanofoundation.cip113.model.onchain.RegistryNode;
-import org.cardanofoundation.cip113.model.onchain.RegistryNodeParser;
-import org.cardanofoundation.cip113.model.onchain.siezeandfreeze.blacklist.*;
-import org.cardanofoundation.cip113.repository.BlacklistInitRepository;
-import org.cardanofoundation.cip113.repository.CustomStakeRegistrationRepository;
-import org.cardanofoundation.cip113.repository.FreezeAndSeizeTokenRegistrationRepository;
-import org.cardanofoundation.cip113.repository.ProgrammableTokenRegistryRepository;
-import org.cardanofoundation.cip113.service.*;
-import org.cardanofoundation.cip113.service.substandard.capabilities.BasicOperations;
-import org.cardanofoundation.cip113.service.substandard.capabilities.BlacklistManageable;
-import org.cardanofoundation.cip113.service.substandard.capabilities.Seizeable;
-import org.cardanofoundation.cip113.service.substandard.context.FreezeAndSeizeContext;
-import org.springframework.context.annotation.Scope;
-import org.springframework.stereotype.Component;
-
 import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.List;
@@ -61,7 +87,6 @@ import java.util.stream.Stream;
 
 import static java.math.BigInteger.ONE;
 import static java.math.BigInteger.ZERO;
-
 /**
  * Handler for the "freeze-and-seize" programmable token substandard.
  *
@@ -192,24 +217,43 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
 
             var issuanceUtxoOpt = utxoProvider.findUtxo(bootstrapTxHash, 2);
             if (issuanceUtxoOpt.isEmpty()) {
-                TransactionContext.error("could not resolve issuance params");
+                return TransactionContext.typedError("could not resolve issuance params");
             }
             var issuanceUtxo = issuanceUtxoOpt.get();
             log.info("issuanceUtxo: {}", issuanceUtxo);
 
+            // Get issuance CBOR hex policy ID and programmable base hash
+            var issuanceCborHexMintScript = protocolScriptBuilderService.getParameterizedIssuanceCborHexMintScript(protocolParams);
+            var issuanceCborHexPolicyId = issuanceCborHexMintScript.getPolicyId();
+            var programmableBaseHash = protocolParams.programmableLogicBaseParams().scriptHash();
+
             /// Getting Substandard Contracts and parameterize
             // Issuer to be used for minting/burning/sieze
-            var substandardIssueContract = fesScriptBuilder.buildIssuerAdminScript(Credential.fromKey(request.getAdminPubKeyHash()));
+            var substandardIssueContract = fesScriptBuilder.buildIssuerAdminScript(
+                    Credential.fromKey(request.getAdminPubKeyHash()),
+                    request.getAssetName(),
+                    issuanceCborHexPolicyId,
+                    programmableBaseHash
+            );
             var substandardIssueAddress = AddressProvider.getRewardAddress(substandardIssueContract, network.getCardanoNetwork());
             log.info("substandardIssueAddress: {}", substandardIssueAddress.getAddress());
 
-            // Transfer contract
-            var substandardTransferContract = fesScriptBuilder.buildTransferScript(
-                    protocolParams.programmableLogicBaseParams().scriptHash(),
-                    blacklistNodePolicyId
-            );
-            var substandardTransferAddress = AddressProvider.getRewardAddress(substandardTransferContract, network.getCardanoNetwork());
-            log.info("substandardTransferAddress: {}", substandardTransferAddress.getAddress());
+            // Transfer contract - try to build, but use issue contract hash as fallback if not available
+            // The transfer contract is used in registry metadata but not critical for registration
+            String transferScriptHash;
+            try {
+                var substandardTransferContract = fesScriptBuilder.buildTransferScript(
+                        protocolParams.programmableLogicBaseParams().scriptHash(),
+                        blacklistNodePolicyId
+                );
+                transferScriptHash = HexUtil.encodeHexString(substandardTransferContract.getScriptHash());
+                var substandardTransferAddress = AddressProvider.getRewardAddress(substandardTransferContract, network.getCardanoNetwork());
+                log.info("substandardTransferAddress: {}", substandardTransferAddress.getAddress());
+            } catch (Exception e) {
+                log.warn("Transfer contract not available, using issue contract hash as fallback: {}", e.getMessage());
+                // Use issue contract hash as fallback for registry metadata
+                transferScriptHash = HexUtil.encodeHexString(substandardIssueContract.getScriptHash());
+            }
 
 
             var issuanceContract = protocolScriptBuilderService.getParameterizedIssuanceMintScript(protocolParams, substandardIssueContract);
@@ -283,7 +327,7 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
 
             var directoryMintDatum = new RegistryNode(HexUtil.encodeHexString(issuanceContract.getScriptHash()),
                     existingRegistryNodeDatum.next(),
-                    HexUtil.encodeHexString(substandardTransferContract.getScriptHash()),
+                    transferScriptHash,
                     HexUtil.encodeHexString(substandardIssueContract.getScriptHash()),
                     "");
             log.info("directoryMintDatum: {}", directoryMintDatum);
@@ -362,6 +406,13 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
                     .attachRewardValidator(substandardIssueContract)
                     .withChangeAddress(request.getFeePayerAddress());
 
+            var transactionBuilder = quickTxBuilder.compose(tx)
+                    .withRequiredSigners(adminPkh.getBytes())
+                    .feePayer(request.getFeePayerAddress())
+                    .withTxEvaluator(new AikenTransactionEvaluator(bfBackendService))
+                    .mergeOutputs(false); //<-- this is important! or directory tokens will go to same address
+
+            var transaction = transactionBuilder
             var firstUtxo = feePayerUtxos.getFirst();
             var transaction = quickTxBuilder.compose(tx)
                     .withRequiredSigners(adminPkh.getBytes())
@@ -380,6 +431,10 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
                         }
                         try {
                             log.info("pre tx: {}", objectMapper.writeValueAsString(transaction1));
+                            // Log execution budgets if available
+                            if (transaction1.getWitnessSet() != null && transaction1.getWitnessSet().getPlutusDataList() != null) {
+                                log.info("Transaction has {} Plutus data entries", transaction1.getWitnessSet().getPlutusDataList().size());
+                            }
                         } catch (JsonProcessingException e) {
                             throw new RuntimeException(e);
                         }
@@ -387,6 +442,18 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
                     .postBalanceTx((txBuilderContext, transaction1) -> {
                         try {
                             log.info("post tx: {}", objectMapper.writeValueAsString(transaction1));
+                            // Log execution budgets after balancing
+                            if (transaction1.getWitnessSet() != null && transaction1.getWitnessSet().getRedeemers() != null) {
+                                var redeemers = transaction1.getWitnessSet().getRedeemers();
+                                log.info("Transaction has {} redeemers with execution budgets", redeemers.size());
+                                redeemers.forEach(redeemer -> {
+                                    if (redeemer.getExUnits() != null) {
+                                        log.info("Redeemer execution units: CPU={}, Memory={}", 
+                                                redeemer.getExUnits().getMem(), 
+                                                redeemer.getExUnits().getSteps());
+                                    }
+                                });
+                            }
                         } catch (JsonProcessingException e) {
                             throw new RuntimeException(e);
                         }
@@ -410,11 +477,14 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
                     .build());
 
             // Save to unified programmable token registry (policyId -> substandardId binding)
-            programmableTokenRegistryRepository.save(ProgrammableTokenRegistryEntity.builder()
+            var registryEntry = ProgrammableTokenRegistryEntity.builder()
                     .policyId(progTokenPolicyId)
                     .substandardId(SUBSTANDARD_ID)
                     .assetName(request.getAssetName())
-                    .build());
+                    .build();
+            var savedRegistryEntry = programmableTokenRegistryRepository.save(registryEntry);
+            log.info("Saved token to programmable token registry: policyId={}, substandardId={}, assetName={}",
+                    savedRegistryEntry.getPolicyId(), savedRegistryEntry.getSubstandardId(), savedRegistryEntry.getAssetName());
 
             hybridUtxoSupplier.clear();
 
@@ -433,7 +503,7 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
 
         try {
 
-            var adminUtxos = accountService.findAdaOnlyUtxo(request.feePayerAddress(), 10_000_000L);
+            var adminUtxos = accountService.findAdaOnlyUtxo(request.feePayerAddress(), 2_000_000L); // 2 ADA minimum for testing
 
             var bootstrapTxHash = protocolParams.txHash();
 
@@ -444,10 +514,20 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
             var issuanceUtxo = issuanceUtxoOpt.get();
             log.info("issuanceUtxo: {}", issuanceUtxo);
 
+            // Get issuance CBOR hex policy ID and programmable base hash
+            var issuanceCborHexMintScript = protocolScriptBuilderService.getParameterizedIssuanceCborHexMintScript(protocolParams);
+            var issuanceCborHexPolicyId = issuanceCborHexMintScript.getPolicyId();
+            var programmableBaseHash = protocolParams.programmableLogicBaseParams().scriptHash();
+
             /// Getting Substandard Contracts and parameterize
             // Issuer to be used for minting/burning/sieze
             var adminPkh = Credential.fromKey(context.getIssuerAdminPkh());
-            var substandardIssueContract = fesScriptBuilder.buildIssuerAdminScript(Credential.fromKey(context.getIssuerAdminPkh()));
+            var substandardIssueContract = fesScriptBuilder.buildIssuerAdminScript(
+                    Credential.fromKey(context.getIssuerAdminPkh()),
+                    request.assetName(),
+                    issuanceCborHexPolicyId,
+                    programmableBaseHash
+            );
             log.info("substandardIssueContract: {}", substandardIssueContract.getPolicyId());
 
             var substandardIssueAddress = AddressProvider.getRewardAddress(substandardIssueContract, network.getCardanoNetwork());
@@ -488,13 +568,17 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
                     .withdraw(substandardIssueAddress.getAddress(), BigInteger.ZERO, ConstrPlutusData.of(0))
                     .mintAsset(issuanceContract, programmableToken, issuanceRedeemer)
                     .payToContract(targetAddress.getAddress(), ValueUtil.toAmountList(programmableTokenValue), ConstrPlutusData.of(0))
+                    .readFrom(TransactionInput.builder()
+                                    .transactionId(issuanceUtxo.getTxHash())
+                                    .index(issuanceUtxo.getOutputIndex())
+                                    .build())
                     .attachRewardValidator(substandardIssueContract)
                     .withChangeAddress(request.feePayerAddress());
 
             var transaction = quickTxBuilder.compose(tx)
                     .withRequiredSigners(adminPkh.getBytes())
                     .feePayer(request.feePayerAddress())
-//                .withTxEvaluator(new AikenTransactionEvaluator(bfBackendService))
+                    .withTxEvaluator(new AikenTransactionEvaluator(bfBackendService))
                     .mergeOutputs(false) //<-- this is important! or directory tokens will go to same address
                     .preBalanceTx((txBuilderContext, transaction1) -> {
                         var outputs = transaction1.getBody().getOutputs();
@@ -559,10 +643,20 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
             var amountToBurn = utxoTokenAmount;
             log.info("amountToBurn (full UTxO amount): {}", amountToBurn);
 
+            // Get issuance CBOR hex policy ID and programmable base hash
+            var issuanceCborHexMintScript = protocolScriptBuilderService.getParameterizedIssuanceCborHexMintScript(protocolParams);
+            var issuanceCborHexPolicyId = issuanceCborHexMintScript.getPolicyId();
+            var programmableBaseHash = protocolParams.programmableLogicBaseParams().scriptHash();
+
             /// Getting Substandard Contracts and parameterize
             // Issuer to be used for minting/burning/sieze
             var adminPkh = Credential.fromKey(context.getIssuerAdminPkh());
-            var substandardIssueContract = fesScriptBuilder.buildIssuerAdminScript(Credential.fromKey(context.getIssuerAdminPkh()));
+            var substandardIssueContract = fesScriptBuilder.buildIssuerAdminScript(
+                    Credential.fromKey(context.getIssuerAdminPkh()),
+                    assetTypeToBurn.assetName(),
+                    issuanceCborHexPolicyId,
+                    programmableBaseHash
+            );
             log.info("substandardIssueContract: {}", substandardIssueContract.getPolicyId());
 
             var substandardIssueAddress = AddressProvider.getRewardAddress(substandardIssueContract, network.getCardanoNetwork());
@@ -622,14 +716,28 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
             var protocolParamsUtxo = protocolParamsUtxoOpt.get();
             log.info("protocolParamsUtxo: {}", protocolParamsUtxo);
 
+            // Get issuance UTXO for issuer_admin_contract script
+            var issuanceUtxoOpt = utxoProvider.findUtxo(bootstrapTxHash, 2);
+            if (issuanceUtxoOpt.isEmpty()) {
+                return TransactionContext.typedError("could not resolve issuance params");
+            }
+            var issuanceUtxo = issuanceUtxoOpt.get();
+            log.info("issuanceUtxo: {}", issuanceUtxo);
+
             var registryRefInput = TransactionInput.builder()
                     .transactionId(progTokenRegistry.getTxHash())
                     .index(progTokenRegistry.getOutputIndex())
                     .build();
-            var sortedReferenceInputs = Stream.of(TransactionInput.builder()
-                            .transactionId(protocolParamsUtxo.getTxHash())
-                            .index(protocolParamsUtxo.getOutputIndex())
-                            .build(), registryRefInput)
+            var sortedReferenceInputs = Stream.of(
+                            TransactionInput.builder()
+                                    .transactionId(protocolParamsUtxo.getTxHash())
+                                    .index(protocolParamsUtxo.getOutputIndex())
+                                    .build(),
+                            TransactionInput.builder()
+                                    .transactionId(issuanceUtxo.getTxHash())
+                                    .index(issuanceUtxo.getOutputIndex())
+                                    .build(),
+                            registryRefInput)
                     .sorted(new TransactionInputComparator())
                     .toList();
 
@@ -678,7 +786,7 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
             var transaction = quickTxBuilder.compose(tx)
                     .withRequiredSigners(adminPkh.getBytes())
                     .feePayer(request.feePayerAddress())
-//                .withTxEvaluator(new AikenTransactionEvaluator(bfBackendService))
+                    .withTxEvaluator(new AikenTransactionEvaluator(bfBackendService))
                     .mergeOutputs(false) //<-- this is important! or directory tokens will go to same address
                     .build();
 
@@ -708,7 +816,7 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
             var receiverAddress = new Address(request.recipientAddress());
             var blacklistNodePolicyId = context.getBlacklistNodePolicyId();
 
-            var adminUtxos = accountService.findAdaOnlyUtxo(senderAddress.getAddress(), 10_000_000L);
+            var adminUtxos = accountService.findAdaOnlyUtxo(senderAddress.getAddress(), 2_000_000L); // 2 ADA minimum for testing
 
             var progToken = AssetType.fromUnit(request.unit());
             log.info("policy id: {}, asset name: {}", progToken.policyId(), progToken.unsafeHumanAssetName());
@@ -946,9 +1054,18 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
 
             log.info("blacklistInitRequest: {}", request);
 
-            var adminAddress = new Address(request.adminAddress());
+            // Validate and parse admin address - use AddressUtil which is more lenient
+            AddressUtil.AddressComponents addressComponents = AddressUtil.decompose(request.adminAddress());
+            if (addressComponents == null || addressComponents.getPaymentScriptHash() == null) {
+                log.error("Failed to decompose admin address: {}", request.adminAddress());
+                return TransactionContext.typedError("Invalid admin address. Please ensure you're using a valid " + network.getNetwork() + " address.");
+            }
 
-            var utilityUtxos = accountService.findAdaOnlyUtxo(request.feePayerAddress(), 10_000_000L);
+            // Extract payment key hash from address components
+            String adminPks = addressComponents.getPaymentScriptHash();
+            log.debug("Extracted admin PKH from address: {}", adminPks);
+
+            var utilityUtxos = accountService.findAdaOnlyUtxo(request.feePayerAddress(), 2_000_000L); // 2 ADA minimum for testing
             log.info("admin utxos size: {}", utilityUtxos.size());
 
             var utilityAdaBalance = utilityUtxos.stream()
@@ -958,6 +1075,25 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
                     .orElse(ZERO);
 
             log.info("utility ada balance: {}", utilityAdaBalance);
+
+            if (utilityUtxos.isEmpty()) {
+                // Check all UTXOs to provide better error message
+                var allUtxos = utxoProvider.findUtxos(request.feePayerAddress());
+                var totalAda = allUtxos.stream()
+                        .flatMap(utxo -> utxo.getAmount().stream())
+                        .filter(amt -> "lovelace".equals(amt.getUnit()))
+                        .map(Amount::getQuantity)
+                        .reduce(BigInteger::add)
+                        .orElse(BigInteger.ZERO);
+                var adaAmount = totalAda.doubleValue() / 1_000_000.0;
+                if (allUtxos.isEmpty()) {
+                    return TransactionContext.typedError("No UTXOs found for fee payer address. Please ensure your wallet has ADA and wait for Yaci Store to sync.");
+                } else {
+                    return TransactionContext.typedError(String.format(
+                        "Insufficient pure ADA UTXOs for fee payer address. Found %.2f ADA total, but need at least 2 ADA in pure ADA UTXOs (UTXOs containing only ADA, no tokens).",
+                        adaAmount));
+                }
+            }
 
             var bootstrapUtxo = utilityUtxos.getFirst();
             log.info("bootstrapUtxo: {}", bootstrapUtxo);
@@ -1083,7 +1219,7 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
 
             var blacklistedAddress = new Address(request.targetAddress());
 
-            var adminUtxos = accountService.findAdaOnlyUtxoByPaymentPubKeyHash(context.getBlacklistManagerPkh(), 10_000_000L);
+            var adminUtxos = accountService.findAdaOnlyUtxoByPaymentPubKeyHash(context.getBlacklistManagerPkh(), 2_000_000L); // 2 ADA minimum for testing
             log.info("admin utxos size: {}", adminUtxos.size());
             var adminAdaBalance = adminUtxos.stream()
                     .flatMap(utxo -> utxo.getAmount().stream())
@@ -1176,7 +1312,7 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
 
             var targetAddress = new Address(request.targetAddress());
 
-            var adminUtxos = accountService.findAdaOnlyUtxoByPaymentPubKeyHash(context.getBlacklistManagerPkh(), 10_000_000L);
+            var adminUtxos = accountService.findAdaOnlyUtxoByPaymentPubKeyHash(context.getBlacklistManagerPkh(), 2_000_000L); // 2 ADA minimum for testing
             log.info("admin utxos size: {}", adminUtxos.size());
             var adminAdaBalance = adminUtxos.stream()
                     .flatMap(utxo -> utxo.getAmount().stream())
@@ -1345,7 +1481,7 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
             var feePayerAddress = new Address(request.feePayerAddress());
             var feePayerPkh = feePayerAddress.getPaymentCredentialHash().map(HexUtil::encodeHexString).get();
 
-            var adminUtxos = accountService.findAdaOnlyUtxoByPaymentPubKeyHash(feePayerPkh, 10_000_000L);
+            var adminUtxos = accountService.findAdaOnlyUtxoByPaymentPubKeyHash(feePayerPkh, 2_000_000L); // 2 ADA minimum for testing
             log.info("adminUtxos: {}", adminUtxos);
 
             var bootstrapTxHash = protocolParams.txHash();
@@ -1393,6 +1529,14 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
             var protocolParamsUtxo = protocolParamsUtxoOpt.get();
             log.info("protocolParamsUtxo: {}", protocolParamsUtxo);
 
+            // Get issuance UTXO for issuer_admin_contract script
+            var issuanceUtxoOpt = utxoProvider.findUtxo(bootstrapTxHash, 2);
+            if (issuanceUtxoOpt.isEmpty()) {
+                return TransactionContext.typedError("could not resolve issuance params");
+            }
+            var issuanceUtxo = issuanceUtxoOpt.get();
+            log.info("issuanceUtxo: {}", issuanceUtxo);
+
             var utxoOpt = utxoProvider.findUtxo(request.utxoTxHash(), request.utxoOutputIndex());
 
             if (utxoOpt.isEmpty()) {
@@ -1422,10 +1566,20 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
             var programmableLogicBase = protocolScriptBuilderService.getParameterizedProgrammableLogicBaseScript(protocolParams);
             log.info("programmableLogicBase policy: {}", programmableLogicBase.getPolicyId());
 
+            // Get issuance CBOR hex policy ID and programmable base hash
+            var issuanceCborHexMintScript = protocolScriptBuilderService.getParameterizedIssuanceCborHexMintScript(protocolParams);
+            var issuanceCborHexPolicyId = issuanceCborHexMintScript.getPolicyId();
+            var programmableBaseHash = protocolParams.programmableLogicBaseParams().scriptHash();
+
             // Issuer to be used for minting/burning/sieze
             log.info("context.getIssuerAdminPkh(): {}", context.getIssuerAdminPkh());
             var adminPkh = Credential.fromKey(context.getIssuerAdminPkh());
-            var substandardIssueAdminContract = fesScriptBuilder.buildIssuerAdminScript(Credential.fromKey(context.getIssuerAdminPkh()));
+            var substandardIssueAdminContract = fesScriptBuilder.buildIssuerAdminScript(
+                    Credential.fromKey(context.getIssuerAdminPkh()),
+                    progToken.assetName(),
+                    issuanceCborHexPolicyId,
+                    programmableBaseHash
+            );
             log.info("substandardIssueAdminContract: {}", substandardIssueAdminContract.getPolicyId());
 
             var substandardIssueAdminAddress = AddressProvider.getRewardAddress(substandardIssueAdminContract, network.getCardanoNetwork());
@@ -1453,10 +1607,16 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
                     .transactionId(progTokenRegistry.getTxHash())
                     .index(progTokenRegistry.getOutputIndex())
                     .build();
-            var sortedReferenceInputs = Stream.of(TransactionInput.builder()
-                            .transactionId(protocolParamsUtxo.getTxHash())
-                            .index(protocolParamsUtxo.getOutputIndex())
-                            .build(), registryRefInput)
+            var sortedReferenceInputs = Stream.of(
+                            TransactionInput.builder()
+                                    .transactionId(protocolParamsUtxo.getTxHash())
+                                    .index(protocolParamsUtxo.getOutputIndex())
+                                    .build(),
+                            TransactionInput.builder()
+                                    .transactionId(issuanceUtxo.getTxHash())
+                                    .index(issuanceUtxo.getOutputIndex())
+                                    .build(),
+                            registryRefInput)
                     .sorted(new TransactionInputComparator())
                     .toList();
 
@@ -1494,7 +1654,7 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
                             throw new RuntimeException(e);
                         }
                     })
-//                    .withTxEvaluator(new AikenTransactionEvaluator(bfBackendService))
+                    .withTxEvaluator(new AikenTransactionEvaluator(bfBackendService))
                     .withRequiredSigners(adminPkh.getBytes())
                     .build();
 

@@ -70,6 +70,71 @@ export function BuildPreviewStep({
   // Check if this is F&S flow
   const isFreezeAndSeize = flowId === 'freeze-and-seize';
 
+  // Check if pre-registration step was completed (means we can skip blacklist tx polling)
+  const preRegistrationCompleted = useMemo(() => {
+    const preRegState = wizardState.stepStates['pre-registration'];
+    return preRegState?.status === 'completed';
+  }, [wizardState.stepStates]);
+
+  // Check if we're coming back from a failed sign-submit step (UTXO error)
+  const signSubmitError = useMemo(() => {
+    const signSubmitState = wizardState.stepStates['sign-submit'];
+    if (signSubmitState?.status === 'error') {
+      const error = signSubmitState.error || '';
+      const isUtxoError = error.toLowerCase().includes('utxo') || 
+                         error.toLowerCase().includes('already been spent') ||
+                         error.toLowerCase().includes('badinputsutxo');
+      return isUtxoError;
+    }
+    return false;
+  }, [wizardState.stepStates]);
+
+  // Initialize phase - skip polling if pre-registration was completed
+  // The pre-registration step already handles tx confirmation and cooldown
+  useEffect(() => {
+    // If coming back from UTXO error, reset and rebuild
+    if (signSubmitError) {
+      console.log('[BuildPreviewStep] Detected UTXO error from sign-submit step, resetting to rebuild');
+      setPhase('ready-to-build');
+      setPolicyId('');
+      setUnsignedCborTx('');
+      setErrorMessage('');
+      return;
+    }
+
+    // If pre-registration was completed, go directly to ready-to-build
+    if (preRegistrationCompleted) {
+      console.log('[BuildPreviewStep] Pre-registration completed, skipping tx polling');
+      setPhase('ready-to-build');
+      return;
+    }
+
+    // For non-F&S flow without pre-registration, go to ready-to-build
+    if (!isFreezeAndSeize) {
+      setPhase('ready-to-build');
+      return;
+    }
+
+    // Legacy flow: F&S without pre-registration step (shouldn't happen with new flow)
+    // Go to ready-to-build as a fallback
+    console.log('[BuildPreviewStep] Fallback: going to ready-to-build');
+    setPhase('ready-to-build');
+
+    // Cleanup
+    return () => {
+      console.log('[BuildPreviewStep] Cleanup running');
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+        abortControllerRef.current = null;
+      }
+      if (cooldownIntervalRef.current) {
+        clearInterval(cooldownIntervalRef.current);
+        cooldownIntervalRef.current = null;
+      }
+      hasStartedPollingRef.current = false;
+    };
+  }, [isFreezeAndSeize, preRegistrationCompleted, signSubmitError]);
+
   // Build transaction - only called on button click
   const handleBuildAndContinue = useCallback(async () => {
     // Prevent double calls
@@ -151,10 +216,24 @@ export function BuildPreviewStep({
       setPhase('error');
       const message = error instanceof Error ? error.message : 'Failed to build transaction';
       setErrorMessage(message);
+      
+      // Check if this is a "token already exists" error
+      const isTokenExistsError = message.toLowerCase().includes('already exists') || 
+                                 message.toLowerCase().includes('already been registered');
+      
+      // Check if this is a "Directory UTXO spent" error - backend will retry automatically,
+      // but we should show a helpful message
+      const isUtxoSpentError = message.toLowerCase().includes('directory utxo') ||
+                                message.toLowerCase().includes('registry may have been updated') ||
+                                message.toLowerCase().includes('already been spent');
+      
       showToast({
-        title: 'Build Failed',
-        description: message,
-        variant: 'error',
+        title: isTokenExistsError ? 'Token Already Exists' : 
+               isUtxoSpentError ? 'Registry Updated' : 'Build Failed',
+        description: isUtxoSpentError 
+          ? 'The registry was updated. The backend will automatically retry. Please try building again.'
+          : message,
+        variant: isUtxoSpentError ? 'default' : 'error',
       });
       onError(message);
     } finally {

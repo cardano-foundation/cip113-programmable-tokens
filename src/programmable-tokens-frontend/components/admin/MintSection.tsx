@@ -99,7 +99,8 @@ export function MintSection({ tokens, feePayerAddress }: MintSectionProps) {
       setIsSigning(true);
 
       // Sign and submit
-      const signedTx = await wallet.signTx(unsignedCborTx);
+      // Pass true as second parameter to allow partial signing (for reference inputs)
+      const signedTx = await wallet.signTx(unsignedCborTx, true);
       const submittedTxHash = await wallet.submitTx(signedTx);
 
       setTxHash(submittedTxHash);
@@ -114,10 +115,19 @@ export function MintSection({ tokens, feePayerAddress }: MintSectionProps) {
       console.error("Mint error:", error);
 
       let errorMessage = "Failed to mint tokens";
-      if (error instanceof Error) {
+
+      // Handle wallet TxSendError with BAD_REQUEST + TxSubmitFail payload.
+      // To avoid fragile JSON parsing issues, we surface the raw `info`
+      // string, which already contains the full submit error from the node.
+      const anyError = error as any;
+      const info = anyError?.info as string | undefined;
+
+      if (info && typeof info === "string") {
+        errorMessage = info;
+      } else if (error instanceof Error) {
         if (error.message.includes("User declined")) {
           errorMessage = "Transaction was cancelled";
-        } else {
+        } else if (error.message) {
           errorMessage = error.message;
         }
       }

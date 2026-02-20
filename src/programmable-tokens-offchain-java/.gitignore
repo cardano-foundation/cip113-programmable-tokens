@@ -13,3 +13,4 @@ backend-run.log
 
 # Build artifacts
 bin/
+*.class
