@@ -168,8 +168,8 @@ fn validate_third_party(
       input_idxs,
       (-1, 0),
       fn(idx, input_idx, (prev_idx, acc)) {
+        // Ensures inputs are sorted with no duplicates
         expect prev_idx > input_idx || prev_idx == -1
-        // TODO: improvements Check if the inputs are ordered
         // Get the input being processed
         let input = elem_at(tx.inputs, input_idx)
 
