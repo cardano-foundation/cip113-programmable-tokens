@@ -6,8 +6,8 @@ use aiken/collection/list
 
 use cardano/address
 use cardano/assets.{PolicyId, flatten}
-use cardano/transaction.{OutputReference, Transaction}
-use types.{issuance_cbor_hex_token_name}
+use cardano/transaction.{InlineDatum, OutputReference, Transaction}
+use types.{IssuanceCborHex, issuance_cbor_hex_token_name}
 
 validator issuance_cbor_hex_mint(
   utxo_ref: OutputReference,
@@ -44,6 +44,8 @@ validator issuance_cbor_hex_mint(
         own_policy,
         issuance_cbor_hex_token_name,
       )
+    expect InlineDatum(datum) = nft_output.datum
+    expect _issuance_datum: IssuanceCborHex = datum
     // 
     and {
       // One-shot: the specified UTxO must be consumed
