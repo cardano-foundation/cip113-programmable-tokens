@@ -135,11 +135,22 @@ fn is_valid_credential_length(hash: ByteArray) -> Bool {
   length == 28 || length == 0
 }
 
-/// Check if a registry node represents the covering node after insertion
+/// Check if a registry node represents the covering node after insertion.
+/// Validates ALL datum fields are preserved (not just key/next).
+/// This prevents an attacker from swapping transfer_logic_script,
+/// third_party_transfer_logic_script, or global_state_cs during a
+/// RegistryInsert operation.
+/// Fix for NEW-1 — matches Plutarch's pisInsertedOnNode strict equality.
 pub fn is_updated_directory_node(
   node: RegistryNode,
-  original_key: ByteArray,
+  original: RegistryNode,
   insert_key: ByteArray,
 ) -> Bool {
-  node.key == original_key && node.next == insert_key
+  and {
+    (node.key == original.key)?,
+    (node.next == insert_key)?,
+    (node.transfer_logic_script == original.transfer_logic_script)?,
+    (node.third_party_transfer_logic_script == original.third_party_transfer_logic_script)?,
+    (node.global_state_cs == original.global_state_cs)?,
+  }
 }

@@ -9,13 +9,25 @@ use utils.{bytearray_lt}
 //   Address { payment_credential: Script(#"aabbccdd"), stake_credential: None }
 // }
 
-// Test is_updated_directory_node
+// ========================================================================
+// is_updated_directory_node — positive tests
+// ========================================================================
+
+// Test is_updated_directory_node: all fields match original, next updated to insert_key
 test is_updated_directory_node_works() {
   let original_key = #"aa"
   let insert_key = #"bb"
 
-  // let next_key = #"cc"
-  let node =
+  let original =
+    RegistryNode {
+      key: original_key,
+      next: #"cc",
+      transfer_logic_script: Script(#"11"),
+      third_party_transfer_logic_script: Script(#"22"),
+      global_state_cs: #"",
+    }
+
+  let updated_node =
     RegistryNode {
       key: original_key,
       next: insert_key,
@@ -24,14 +36,23 @@ test is_updated_directory_node_works() {
       global_state_cs: #"",
     }
 
-  is_updated_directory_node(node, original_key, insert_key)
+  is_updated_directory_node(updated_node, original, insert_key)
 }
 
-// Test is_updated_directory_node negative
+// Test is_updated_directory_node negative — wrong next key
 test is_updated_directory_node_negative() {
   let original_key = #"aa"
   let insert_key = #"bb"
   let wrong_key = #"dd"
+
+  let original =
+    RegistryNode {
+      key: original_key,
+      next: #"cc",
+      transfer_logic_script: Script(#"11"),
+      third_party_transfer_logic_script: Script(#"22"),
+      global_state_cs: #"",
+    }
 
   let node =
     RegistryNode {
@@ -42,7 +63,7 @@ test is_updated_directory_node_negative() {
       global_state_cs: #"",
     }
 
-  !is_updated_directory_node(node, original_key, insert_key)
+  !is_updated_directory_node(node, original, insert_key)
 }
 
 // Test is_inserted_directory_node
@@ -95,75 +116,85 @@ test origin_node_empty_keys() {
 }
 
 // ========================================================================
-// NEW-1: is_updated_directory_node does NOT preserve datum fields
+// NEW-1 FIX: is_updated_directory_node now REJECTS tampered datum fields
 //
-// During a RegistryInsert, the covering node's output is validated by
-// is_updated_directory_node, which only checks key and next.
-// transfer_logic_script, third_party_transfer_logic_script, and
-// global_state_cs can be SILENTLY MODIFIED.
-//
-// Attack scenario: attacker performs a RegistryInsert to register a new
-// (worthless) token. In the covering node output, the attacker changes
-// transfer_logic_script to a permissive script they control. All tokens
-// of the pre-existing registered policy (under the covering node) can
-// then be transferred without proper authorization.
+// Previously these tests PASSED (demonstrating the vulnerability).
+// After the fix, is_updated_directory_node compares ALL five fields of the
+// RegistryNode against the original, matching Plutarch's pisInsertedOnNode.
+// Tampered nodes are now correctly rejected.
 // ========================================================================
 
-/// Demonstrates that transfer_logic_script can be swapped during insert.
-/// The attacker replaces the original transfer logic with their own script.
-test is_updated_directory_node_allows_transfer_logic_swap() {
-  let original_key = #"aa"
-  let insert_key = #"bb"
+/// transfer_logic_script swap is now REJECTED.
+/// Attacker cannot replace the original transfer logic with their own script.
+test is_updated_directory_node_rejects_transfer_logic_swap() fail {
+  let original =
+    RegistryNode {
+      key: #"aa",
+      next: #"cc",
+      transfer_logic_script: Script(#"11"),
+      third_party_transfer_logic_script: Script(#"22"),
+      global_state_cs: #"",
+    }
 
-  // The "updated" covering node has a COMPLETELY DIFFERENT transfer_logic_script.
-  // is_updated_directory_node PASSES because it only checks key and next.
   let tampered_node =
     RegistryNode {
-      key: original_key,
-      next: insert_key,
+      key: #"aa",
+      next: #"bb",
       transfer_logic_script: Script(#"deadbeef"),
       // ^^^ ATTACKER'S SCRIPT — original was Script(#"11")
       third_party_transfer_logic_script: Script(#"22"),
       global_state_cs: #"",
     }
 
-  // This SHOULD fail but PASSES — the vulnerability
-  is_updated_directory_node(tampered_node, original_key, insert_key)
+  is_updated_directory_node(tampered_node, original, #"bb")
 }
 
-/// Demonstrates that third_party_transfer_logic_script can be swapped.
-/// The attacker replaces the seize/freeze logic with their own script.
-test is_updated_directory_node_allows_third_party_logic_swap() {
-  let original_key = #"aa"
-  let insert_key = #"bb"
+/// third_party_transfer_logic_script swap is now REJECTED.
+/// Attacker cannot replace the seize/freeze logic with their own script.
+test is_updated_directory_node_rejects_third_party_logic_swap() fail {
+  let original =
+    RegistryNode {
+      key: #"aa",
+      next: #"cc",
+      transfer_logic_script: Script(#"11"),
+      third_party_transfer_logic_script: Script(#"22"),
+      global_state_cs: #"",
+    }
 
   let tampered_node =
     RegistryNode {
-      key: original_key,
-      next: insert_key,
+      key: #"aa",
+      next: #"bb",
       transfer_logic_script: Script(#"11"),
       third_party_transfer_logic_script: Script(#"deadbeef"),
       // ^^^ ATTACKER'S SCRIPT — original was Script(#"22")
       global_state_cs: #"",
     }
 
-  is_updated_directory_node(tampered_node, original_key, insert_key)
+  is_updated_directory_node(tampered_node, original, #"bb")
 }
 
-/// Demonstrates that global_state_cs can be tampered during insert.
-test is_updated_directory_node_allows_global_state_swap() {
-  let original_key = #"aa"
-  let insert_key = #"bb"
+/// global_state_cs tampering is now REJECTED.
+/// Attacker cannot swap the global state currency symbol during insert.
+test is_updated_directory_node_rejects_global_state_swap() fail {
+  let original =
+    RegistryNode {
+      key: #"aa",
+      next: #"cc",
+      transfer_logic_script: Script(#"11"),
+      third_party_transfer_logic_script: Script(#"22"),
+      global_state_cs: #"",
+    }
 
   let tampered_node =
     RegistryNode {
-      key: original_key,
-      next: insert_key,
+      key: #"aa",
+      next: #"bb",
       transfer_logic_script: Script(#"11"),
       third_party_transfer_logic_script: Script(#"22"),
       global_state_cs: #"deaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddead",
       // ^^^ TAMPERED — original was #""
     }
 
-  is_updated_directory_node(tampered_node, original_key, insert_key)
+  is_updated_directory_node(tampered_node, original, #"bb")
 }

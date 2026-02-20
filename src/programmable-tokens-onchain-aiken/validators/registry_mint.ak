@@ -97,7 +97,7 @@ validator registry_mint(
         let registry_node_updated =
           list.any(
             output_nodes,
-            fn(node) { is_updated_directory_node(node, covering_node.key, key) },
+            fn(node) { is_updated_directory_node(node, covering_node, key) },
           )
 
         // One output must be the new inserted node (insert_key -> next)
