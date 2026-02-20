@@ -1,9 +1,6 @@
 // Unit tests for linked list validation logic
 use cardano/address.{Script}
-use linked_list.{
-  is_inserted_directory_node,
-  is_updated_directory_node,
-}
+use linked_list.{is_inserted_directory_node, is_updated_directory_node}
 use types.{RegistryNode}
 use utils.{bytearray_lt}
 
@@ -52,8 +49,10 @@ test is_updated_directory_node_negative() {
 test is_inserted_directory_node_works() {
   let insert_key = #"bb"
   let next_key = #"cc"
-  let transfer_logic = Script(#"11")
-  let third_party_transfer_logic = Script(#"22")
+  let transfer_logic =
+    Script(#"11111111111111111111111111111111111111111111111111111111")
+  let third_party_transfer_logic =
+    Script(#"22222222222222222222222222222222222222222222222222222222")
   let global_state = #"33333333333333333333333333333333333333333333333333333333"
 
   let node =

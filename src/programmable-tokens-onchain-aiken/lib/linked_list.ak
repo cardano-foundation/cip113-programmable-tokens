@@ -125,9 +125,14 @@ pub fn is_inserted_directory_node(
 /// Allows empty credentials (for origin node) or valid 28-byte hashes
 pub fn is_valid_credential(cred: Credential) -> Bool {
   when cred is {
-    VerificationKey(hash) -> bytearray.length(hash) <= 28
-    Script(hash) -> bytearray.length(hash) <= 28
+    VerificationKey(hash) -> is_valid_credential_length(hash)
+    Script(hash) -> is_valid_credential_length(hash)
   }
+}
+
+fn is_valid_credential_length(hash: ByteArray) -> Bool {
+  let length = bytearray.length(hash)
+  length == 28 || length == 0
 }
 
 /// Check if a registry node represents the covering node after insertion
