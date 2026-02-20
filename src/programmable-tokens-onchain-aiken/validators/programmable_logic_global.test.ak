@@ -7,7 +7,7 @@ use types.{
   ProgrammableLogicGlobalParams, RegistryNode, TokenDoesNotExist, TokenExists,
   TransferAct,
 }
-use utils.{bytearray_lt}
+use utils.{bytearray_lt, is_strictly_increasing}
 
 // Test data
 // const test_protocol_params_cs: PolicyId =
@@ -264,4 +264,97 @@ test invoked_scripts_via_withdrawals() {
     invoked_scripts,
     test_third_party_transfer_logic_cred,
   )
+}
+
+// Test: Empty list should return True
+test is_strictly_increasing_empty_list() {
+  is_strictly_increasing([])
+}
+
+// Test: Single element should return True
+test is_strictly_increasing_single_element() {
+  is_strictly_increasing([5])
+}
+
+// Test: Valid strictly increasing list should return True
+test is_strictly_increasing_valid_increasing() {
+  is_strictly_increasing([1, 2, 3, 4, 5])
+}
+
+// Test: Valid strictly increasing with gaps should return True
+test is_strictly_increasing_valid_with_gaps() {
+  is_strictly_increasing([0, 2, 5, 10, 100])
+}
+
+// Test: Duplicates should return False
+test is_strictly_increasing_duplicates_fails() {
+  !is_strictly_increasing([1, 2, 2, 3])
+}
+
+// Test: Duplicates at start should return False
+test is_strictly_increasing_duplicates_at_start_fails() {
+  !is_strictly_increasing([1, 1, 2, 3])
+}
+
+// Test: Duplicates at end should return False
+test is_strictly_increasing_duplicates_at_end_fails() {
+  !is_strictly_increasing([1, 2, 3, 3])
+}
+
+// Test: All same values should return False
+test is_strictly_increasing_all_same_fails() {
+  !is_strictly_increasing([5, 5, 5, 5])
+}
+
+// Test: Descending order should return False
+test is_strictly_increasing_descending_fails() {
+  !is_strictly_increasing([5, 4, 3, 2, 1])
+}
+
+// Test: Partially descending should return False
+test is_strictly_increasing_partially_descending_fails() {
+  !is_strictly_increasing([1, 2, 5, 3, 6])
+}
+
+// Test: Two elements valid should return True
+test is_strictly_increasing_two_elements_valid() {
+  is_strictly_increasing([0, 1])
+}
+
+// Test: Two elements invalid (equal) should return False
+test is_strictly_increasing_two_elements_equal_fails() {
+  !is_strictly_increasing([1, 1])
+}
+
+// Test: Two elements invalid (descending) should return False
+test is_strictly_increasing_two_elements_descending_fails() {
+  !is_strictly_increasing([2, 1])
+}
+
+// ============================================================================
+// Tests for ThirdPartyAct with invalid indexes (security validation)
+// ============================================================================
+
+// Test: ThirdPartyAct index validation - valid indexes structure
+test third_party_act_valid_indexes_structure() {
+  let input_idxs = [0, 2, 5]
+  is_strictly_increasing(input_idxs)
+}
+
+// Test: ThirdPartyAct index validation - duplicate indexes would be rejected
+test third_party_act_duplicate_indexes_rejected() {
+  let input_idxs = [0, 2, 2, 5]
+  !is_strictly_increasing(input_idxs)
+}
+
+// Test: ThirdPartyAct index validation - unordered indexes would be rejected
+test third_party_act_unordered_indexes_rejected() {
+  let input_idxs = [5, 2, 0]
+  !is_strictly_increasing(input_idxs)
+}
+
+// Test: ThirdPartyAct index validation - single input is valid
+test third_party_act_single_input_valid() {
+  let input_idxs = [3]
+  is_strictly_increasing(input_idxs)
 }

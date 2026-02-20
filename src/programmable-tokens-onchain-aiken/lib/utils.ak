@@ -189,3 +189,19 @@ pub fn is_programmable_token_registration(
 
   has_minting? && cs_matches?
 }
+
+/// Check if a list of integers is strictly increasing (each element > previous)
+/// This guarantees both uniqueness and sorted order
+/// Used for security validation of index lists in ThirdPartyAct
+pub fn is_strictly_increasing(idxs: List<Int>) -> Bool {
+  when idxs is {
+    [] -> True
+    [_] -> True
+    [first, second, ..rest] ->
+      if first < second {
+        is_strictly_increasing([second, ..rest])
+      } else {
+        False
+      }
+  }
+}

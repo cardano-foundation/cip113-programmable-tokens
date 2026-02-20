@@ -14,7 +14,7 @@ use types.{
 }
 use utils.{
   bytearray_lt, elem_at, expect_inline_datum, expect_value_contains_v3,
-  has_currency_symbol, is_script_invoked, is_signed_by,
+  has_currency_symbol, is_script_invoked, is_signed_by, is_strictly_increasing,
 }
 
 validator programmable_logic_global(protocol_params_cs: PolicyId) {
@@ -159,6 +159,10 @@ fn validate_third_party(
 
   // Verify length parameter matches actual list length
   // expect list.length(input_idxs) == length_input_idxs
+
+  // SECURITY: indexes must be strictly increasing to prevent duplicate
+  // input processing and output misalignment attacks
+  expect is_strictly_increasing(input_idxs)
   // Get the registry node for this token policy
   let registry_ref_input = elem_at(tx.reference_inputs, registry_node_idx)
   let registry_datum = expect_inline_datum(registry_ref_input.output)
@@ -174,7 +178,7 @@ fn validate_third_party(
       input_idxs,
       0,
       fn(idx, input_idx, acc) {
-        // TODO: improvements Check if the inputs are ordered
+     
         // Get the input being processed
         let input = elem_at(tx.inputs, input_idx)
 
@@ -218,7 +222,8 @@ fn validate_third_party(
   // Validate registry node is authentic
   expect has_currency_symbol(registry_ref_input.output.value, registry_node_cs)
   // The third party transfer logic script must be invoked
-  expect list.has(invoked_scripts, registry_node.third_party_transfer_logic_script)
+  expect
+    list.has(invoked_scripts, registry_node.third_party_transfer_logic_script)
   // Must match the number of inputs we're processing
   expect prog_input_count == length_input_idxs
 
