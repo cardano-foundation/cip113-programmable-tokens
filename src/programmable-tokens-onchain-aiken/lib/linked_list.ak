@@ -138,4 +138,3 @@ pub fn is_updated_directory_node(
 ) -> Bool {
   node.key == original_key && node.next == insert_key
 }
-
