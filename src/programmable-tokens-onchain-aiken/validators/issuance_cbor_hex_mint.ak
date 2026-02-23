@@ -37,12 +37,15 @@ validator issuance_cbor_hex_mint(
     let expected_address = address.from_script(always_fail_hash)
     // Find the output with address equal to the always-fail address and containing the minted NFT
     expect Some(nft_output) =
-      list.find(self.outputs, fn(output) { output.address == expected_address })
-    expect
-      assets.has_nft_strict(
-        nft_output.value,
-        own_policy,
-        issuance_cbor_hex_token_name,
+      list.find(
+        self.outputs,
+        fn(output) {
+          assets.has_nft_strict(
+            output.value,
+            own_policy,
+            issuance_cbor_hex_token_name,
+          )
+        },
       )
     expect InlineDatum(datum) = nft_output.datum
     expect _issuance_datum: IssuanceCborHex = datum
