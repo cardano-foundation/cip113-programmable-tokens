@@ -189,19 +189,25 @@ fn do_sum_output_values(
           fn(output) {
             output.value
               |> assets.to_dict
-              |> dict.union_with(
-                  sum,
-                  _,
-                  fn(_, left, right, keep, _discard) {
-                    keep(dict.union_with(left, right, dict_strategy.sum()))
-                  },
-                )
+              |> merge_raw_values(sum, _)
           },
           // Output is discarded
           fn() { sum },
         ),
       )
   }
+}
+
+/// Merge two RawValues by summing token quantities.
+/// Used to combine validated input prog value with validated mint prog value.
+pub fn merge_raw_values(left: RawValue, right: RawValue) -> RawValue {
+  dict.union_with(
+    left,
+    right,
+    fn(_policy, left, right, keep, _discard) {
+      keep(dict.union_with(left, right, dict_strategy.sum()))
+    },
+  )
 }
 
 /// Compare two 'RawValue' to check if they have matchings assets.
