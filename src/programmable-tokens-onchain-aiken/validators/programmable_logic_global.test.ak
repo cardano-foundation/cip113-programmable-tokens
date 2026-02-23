@@ -776,6 +776,226 @@ test transfer_act_mint_without_proofs_must_fail() fail {
   )
 }
 
+// ---------------------------------------------------------------------------
+// ThirdPartyAct Wipe (Burn) Support Tests
+//
+// These tests verify that ThirdPartyAct supports burning tokens via tx.mint,
+// enabling a compliance "wipe" feature: seize AND burn in one transaction.
+// The mint-aware balance invariant adjusts input expectations by tx.mint.
+// ---------------------------------------------------------------------------
+
+// Positive: full wipe — seize all 100 FOO and burn all 100.
+// Input has 100 FOO, mint has -100 FOO, paired output has 0 FOO.
+// Adjusted input = 100 + (-100) = 0, filtered to empty → check trivially passes.
+test third_party_act_wipe_full_burn_succeeds() {
+  let tx =
+    Transaction {
+      ..transaction.placeholder,
+      inputs: [
+        fixture.some_input_with_programmable_tokens(
+          [(test_third_party_policy, "FOO", 100)],
+          "wipe_full_burn_input",
+        ),
+      ],
+      mint: from_asset(test_third_party_policy, "FOO", -100),
+      outputs: [
+        // Paired output: all FOO removed
+        fixture.some_output_with_programmable_tokens([]),
+      ],
+      reference_inputs: [
+        fixture.some_reference_input_protocol_params(
+          fixture.protocol_params,
+          "protocol params",
+        ),
+        third_party_registry_node_ref_input(
+          test_third_party_policy,
+          test_third_party_cred,
+        ),
+      ],
+      withdrawals: [
+        Pair(fixture.credential_validator_logic_global, 0),
+        Pair(test_third_party_cred, 0),
+      ],
+    }
+
+  let redeemer =
+    ThirdPartyAct {
+      registry_node_idx: 1,
+      input_idxs: [0],
+      outputs_start_idx: 0,
+      length_input_idxs: 1,
+    }
+
+  programmable_logic_global.programmable_logic_global.withdraw(
+    fixture.policy_protocol_params,
+    redeemer,
+    fixture.credential_validator_logic_global,
+    tx,
+  )
+}
+
+// Positive: partial burn — seize all 100 FOO, burn 60, 40 remaining at prog_cred.
+// Adjusted input = 100 + (-60) = 40, output has 40 → passes.
+test third_party_act_wipe_partial_burn_succeeds() {
+  let tx =
+    Transaction {
+      ..transaction.placeholder,
+      inputs: [
+        fixture.some_input_with_programmable_tokens(
+          [(test_third_party_policy, "FOO", 100)],
+          "wipe_partial_burn_input",
+        ),
+      ],
+      mint: from_asset(test_third_party_policy, "FOO", -60),
+      outputs: [
+        // Paired output: all FOO removed from owner
+        fixture.some_output_with_programmable_tokens([]),
+        // Remaining output: 40 FOO stays at prog_logic_cred
+        fixture.some_output_with_programmable_tokens(
+          [(test_third_party_policy, "FOO", 40)],
+        ),
+      ],
+      reference_inputs: [
+        fixture.some_reference_input_protocol_params(
+          fixture.protocol_params,
+          "protocol params",
+        ),
+        third_party_registry_node_ref_input(
+          test_third_party_policy,
+          test_third_party_cred,
+        ),
+      ],
+      withdrawals: [
+        Pair(fixture.credential_validator_logic_global, 0),
+        Pair(test_third_party_cred, 0),
+      ],
+    }
+
+  let redeemer =
+    ThirdPartyAct {
+      registry_node_idx: 1,
+      input_idxs: [0],
+      outputs_start_idx: 0,
+      length_input_idxs: 1,
+    }
+
+  programmable_logic_global.programmable_logic_global.withdraw(
+    fixture.policy_protocol_params,
+    redeemer,
+    fixture.credential_validator_logic_global,
+    tx,
+  )
+}
+
+// Positive: seize + partial burn — seize 80 of 100, burn 50, 30 remaining.
+// Owner keeps 20, authority gets 30, 50 burned.
+// Adjusted input = 100 + (-50) = 50, output = 20 + 30 = 50 → passes.
+test third_party_act_wipe_seize_and_partial_burn() {
+  let tx =
+    Transaction {
+      ..transaction.placeholder,
+      inputs: [
+        fixture.some_input_with_programmable_tokens(
+          [(test_third_party_policy, "FOO", 100)],
+          "wipe_seize_partial_input",
+        ),
+      ],
+      mint: from_asset(test_third_party_policy, "FOO", -50),
+      outputs: [
+        // Paired output: owner keeps 20 FOO
+        fixture.some_output_with_programmable_tokens(
+          [(test_third_party_policy, "FOO", 20)],
+        ),
+        // Remaining output: authority receives 30 seized FOO
+        fixture.some_output_with_programmable_tokens(
+          [(test_third_party_policy, "FOO", 30)],
+        ),
+      ],
+      reference_inputs: [
+        fixture.some_reference_input_protocol_params(
+          fixture.protocol_params,
+          "protocol params",
+        ),
+        third_party_registry_node_ref_input(
+          test_third_party_policy,
+          test_third_party_cred,
+        ),
+      ],
+      withdrawals: [
+        Pair(fixture.credential_validator_logic_global, 0),
+        Pair(test_third_party_cred, 0),
+      ],
+    }
+
+  let redeemer =
+    ThirdPartyAct {
+      registry_node_idx: 1,
+      input_idxs: [0],
+      outputs_start_idx: 0,
+      length_input_idxs: 1,
+    }
+
+  programmable_logic_global.programmable_logic_global.withdraw(
+    fixture.policy_protocol_params,
+    redeemer,
+    fixture.credential_validator_logic_global,
+    tx,
+  )
+}
+
+// Negative: burn 30, but remaining output only 50 — need 70.
+// Adjusted input = 100 + (-30) = 70, output = 0 + 50 = 50 < 70 → fails.
+test third_party_act_wipe_insufficient_after_burn_fails() fail {
+  let tx =
+    Transaction {
+      ..transaction.placeholder,
+      inputs: [
+        fixture.some_input_with_programmable_tokens(
+          [(test_third_party_policy, "FOO", 100)],
+          "wipe_insufficient_input",
+        ),
+      ],
+      mint: from_asset(test_third_party_policy, "FOO", -30),
+      outputs: [
+        // Paired output: all FOO removed
+        fixture.some_output_with_programmable_tokens([]),
+        // Remaining output: only 50 FOO, but adjusted input expects 70
+        fixture.some_output_with_programmable_tokens(
+          [(test_third_party_policy, "FOO", 50)],
+        ),
+      ],
+      reference_inputs: [
+        fixture.some_reference_input_protocol_params(
+          fixture.protocol_params,
+          "protocol params",
+        ),
+        third_party_registry_node_ref_input(
+          test_third_party_policy,
+          test_third_party_cred,
+        ),
+      ],
+      withdrawals: [
+        Pair(fixture.credential_validator_logic_global, 0),
+        Pair(test_third_party_cred, 0),
+      ],
+    }
+
+  let redeemer =
+    ThirdPartyAct {
+      registry_node_idx: 1,
+      input_idxs: [0],
+      outputs_start_idx: 0,
+      length_input_idxs: 1,
+    }
+
+  programmable_logic_global.programmable_logic_global.withdraw(
+    fixture.policy_protocol_params,
+    redeemer,
+    fixture.credential_validator_logic_global,
+    tx,
+  )
+}
+
 // Negative: minting without enough output — mints 50 FOO but output only has 100.
 // Expected output is 100 (input) + 50 (mint) = 150, but output only has 100.
 test transfer_act_mint_insufficient_output_fails() fail {

@@ -223,15 +223,23 @@ fn validate_third_party(
   expect prog_input_count == length_input_idxs
 
   // Balance invariant: total output policy tokens at prog_logic_cred
-  // must be >= total input policy tokens.
+  // must be >= total input policy tokens (adjusted for mints/burns).
   // This ensures seized tokens stay within the programmable system.
   let total_output_policy_tokens =
     sum_policy_tokens_at_cred(tx.outputs, prog_logic_cred, policy_id)
 
-  // Check: for each token name, output >= input
+  // Account for minted/burned tokens in the balance invariant.
+  // Burns (negative qty) reduce the expected output; mints increase it.
+  // Authorization: issuance_mint validator + Cardano ledger enforce burn legitimacy.
+  let mint_policy_tokens = get_policy_tokens(assets.to_dict(tx.mint), policy_id)
+  let adjusted_input_policy_tokens =
+    union_tokens(total_input_policy_tokens, mint_policy_tokens)
+      |> dict.filter(fn(_name, qty) { qty > 0 })
+
+  // Check: for each token name, output >= adjusted input
   check_balance_invariant(
     dict.to_pairs(total_output_policy_tokens),
-    dict.to_pairs(total_input_policy_tokens),
+    dict.to_pairs(adjusted_input_policy_tokens),
   )
 }
 
