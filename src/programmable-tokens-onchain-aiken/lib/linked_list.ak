@@ -125,17 +125,32 @@ pub fn is_inserted_directory_node(
 /// Allows empty credentials (for origin node) or valid 28-byte hashes
 pub fn is_valid_credential(cred: Credential) -> Bool {
   when cred is {
-    VerificationKey(hash) -> bytearray.length(hash) <= 28
-    Script(hash) -> bytearray.length(hash) <= 28
+    VerificationKey(hash) -> is_valid_credential_length(hash)
+    Script(hash) -> is_valid_credential_length(hash)
   }
 }
 
-/// Check if a registry node represents the covering node after insertion
-pub fn is_updated_directory_node(
-  node: RegistryNode,
-  original_key: ByteArray,
-  insert_key: ByteArray,
-) -> Bool {
-  node.key == original_key && node.next == insert_key
+fn is_valid_credential_length(hash: ByteArray) -> Bool {
+  let length = bytearray.length(hash)
+  length == 28 || length == 0
 }
 
+/// Check if a registry node represents the covering node after insertion.
+/// Validates ALL datum fields are preserved (not just key/next).
+/// This prevents an attacker from swapping transfer_logic_script,
+/// third_party_transfer_logic_script, or global_state_cs during a
+/// RegistryInsert operation.
+/// Fix for NEW-1 — matches Plutarch's pisInsertedOnNode strict equality.
+pub fn is_updated_directory_node(
+  node: RegistryNode,
+  original: RegistryNode,
+  insert_key: ByteArray,
+) -> Bool {
+  and {
+    (node.key == original.key)?,
+    (node.next == insert_key)?,
+    (node.transfer_logic_script == original.transfer_logic_script)?,
+    (node.third_party_transfer_logic_script == original.third_party_transfer_logic_script)?,
+    (node.global_state_cs == original.global_state_cs)?,
+  }
+}

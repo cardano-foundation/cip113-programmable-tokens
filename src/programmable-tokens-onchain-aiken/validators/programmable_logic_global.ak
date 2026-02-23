@@ -151,8 +151,6 @@ fn validate_third_party(
 ) -> Bool {
   trace @"validate_third_party: processing multiple inputs"
 
-  // Verify length parameter matches actual list length
-  // expect list.length(input_idxs) == length_input_idxs
   // Get the registry node for this token policy
   let registry_ref_input = elem_at(tx.reference_inputs, registry_node_idx)
   let registry_datum = expect_inline_datum(registry_ref_input.output)
@@ -163,12 +161,13 @@ fn validate_third_party(
 
   // Process each input-output pair
   // For each input at input_idxs[i], there should be a corresponding output at outputs_start_idx + i
-  let input_size =
+  let (_last_index, input_size) =
     list.indexed_foldr(
       input_idxs,
-      0,
-      fn(idx, input_idx, acc) {
-        // TODO: improvements Check if the inputs are ordered
+      (-1, 0),
+      fn(idx, input_idx, (prev_idx, acc)) {
+        // Ensures inputs are sorted with no duplicates
+        expect prev_idx > input_idx || prev_idx == -1
         // Get the input being processed
         let input = elem_at(tx.inputs, input_idx)
 
@@ -195,10 +194,11 @@ fn validate_third_party(
         expect output.datum == input.output.datum
         // Prevent DDOS: must actually remove some tokens
         expect assets.to_dict(input.output.value) != expected_output_dict
-        acc + 1
+        (input_idx, acc + 1)
       },
     )
 
+  // Verify length parameter matches actual list length
   expect input_size == length_input_idxs
   // Verify that ONLY the specified inputs from prog_logic_cred are consumed
   // Count how many inputs from prog_logic_cred are in the transaction

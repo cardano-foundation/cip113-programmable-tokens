@@ -6,36 +6,59 @@ use aiken/collection/list
 // This validator ensures:
 // 1. The specified UTXO is consumed (one-shot minting)
 // 2. Exactly one token is minted with the correct token name
-// 3. The token is sent to an output with an inline datum containing ProgrammableLogicGlobalParams
+// 3. The token is sent to an always-fail address with an inline datum containing ProgrammableLogicGlobalParams
 
-use cardano/assets.{PolicyId}
-use cardano/transaction.{InlineDatum, Output, OutputReference, Transaction}
+use cardano/address
+use cardano/assets.{PolicyId, flatten}
+use cardano/transaction.{InlineDatum, OutputReference, Transaction}
 use types.{ProgrammableLogicGlobalParams, protocol_params_token}
 
-validator protocol_params_mint(utxo_ref: OutputReference) {
-  mint(_redeemer: Data, policy_id: PolicyId, self: Transaction) {
+validator protocol_params_mint(
+  utxo_ref: OutputReference,
+  always_fail_hash: ByteArray,
+) {
+  mint(_redeemer: Data, own_policy: PolicyId, self: Transaction) {
+    trace @"Starting protocol_params_mint validation"
     // Check 1: This is a one-shot minting policy - must spend the specified UTXO
-    let input_spent =
+    let consumed =
       list.any(self.inputs, fn(input) { input.output_reference == utxo_ref })
 
-    // Check 2: Validate minted tokens - exactly 1 token with correct name
-    let amount_minted =
-      self.mint |> assets.quantity_of(policy_id, protocol_params_token)
+    // Check 2: Get all minted tokens from this policy
+    let minted_tokens = flatten(self.mint)
+    let own_minted =
+      list.filter(
+        minted_tokens,
+        fn(token) {
+          let (cs, _tn, _qty) = token
+          cs == own_policy
+        },
+      )
 
-    // Check 3: Ensure an output exists with the protocol params NFT and valid inline datum
-    expect Some(output) =
+    // Must mint exactly one token with the correct name and quantity
+    expect [(_, tn, qty)] = own_minted
+
+    // The always-fail address where the NFT must be locked
+    let expected_address = address.from_script(always_fail_hash)
+    // Find the output at the always-fail address
+    expect Some(nft_output) =
       list.find(
         self.outputs,
         fn(output) {
-          assets.quantity_of(output.value, policy_id, protocol_params_token) > 0
+          assets.has_nft_strict(output.value, own_policy, protocol_params_token)
         },
       )
-    expect InlineDatum(datum) = output.datum
+    expect InlineDatum(datum) = nft_output.datum
     expect _params: ProgrammableLogicGlobalParams = datum
 
     and {
-      input_spent?,
-      (amount_minted == 1)?,
+      // One-shot: the specified UTxO must be consumed
+      consumed?,
+      // Token name must be "ProtocolParams"
+      (tn == protocol_params_token)?,
+      // Exactly 1 token minted
+      (qty == 1)?,
+      // NFT must be locked at the always-fail address
+      (nft_output.address == expected_address)?,
     }
   }
 
