@@ -51,7 +51,11 @@ pub type RegistryProof {
 /// Redeemer for the global programmable logic stake validator
 pub type ProgrammableLogicGlobalRedeemer {
   /// Transfer action with proofs for each token type
-  TransferAct { proofs: List<RegistryProof> }
+  TransferAct {
+    proofs: List<RegistryProof>,
+    /// Proofs for minted/burned programmable tokens (validates mint against directory)
+    mint_proofs: List<RegistryProof>,
+  }
   /// Third party action for admin operations (seizure, freeze, etc.)
   /// Supports multiple UTxOs in a single transaction
   ThirdPartyAct {

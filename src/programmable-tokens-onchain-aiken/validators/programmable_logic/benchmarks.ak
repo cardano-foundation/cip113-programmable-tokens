@@ -102,7 +102,7 @@ const fixture_plutarch_baseline: Transaction = {
 /// Corresponding redeemer with a single proof of a token in the registry,
 /// located at position #2 in reference inputs
 const fixture_redeemer_plutarch_baseline: ProgrammableLogicGlobalRedeemer =
-  TransferAct { proofs: [TokenExists { node_idx: 2 }] }
+  TransferAct { proofs: [TokenExists { node_idx: 2 }], mint_proofs: [] }
 
 test plutarch_baseline() {
   programmable_logic(
