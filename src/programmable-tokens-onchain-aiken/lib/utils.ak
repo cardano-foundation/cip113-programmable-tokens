@@ -250,43 +250,13 @@ pub fn match_assets(left: RawValue, right: RawValue) -> Bool {
   left_assets == right_assets
 }
 
-/// A fast check for inclusion of a value inside another. It checks if the
-/// first value contains all the tokens of the second value and the quantities
-/// of the tokens in the first value are greater than or equal to the quantities
-/// of the tokens in the second value.
-///
 /// /!\ PRE-CONDITION /!\
 /// Given pairs are assumed to be well-formed and semantically 'correct'. That
 /// is, keys contain no duplicates and are in ascending order.
 ///
 /// In practice, this means we suppose both values have been constructed from
 /// existing well-formed Values.
-pub fn value_contains(
-  superset: Pairs<PolicyId, Dict<AssetName, Int>>,
-  subset: Pairs<PolicyId, Dict<AssetName, Int>>,
-) -> Bool {
-  when subset is {
-    [] -> True
-    [head_subset, ..tail_subset] -> {
-      let head_superset, tail_superset <- drop_until(superset, head_subset.1st)
-      and {
-        token_contains(
-          dict.to_pairs(head_superset),
-          dict.to_pairs(head_subset.2nd),
-        ),
-        value_contains(tail_subset, tail_superset),
-      }
-    }
-  }
-}
-
-/// /!\ PRE-CONDITION /!\
-/// Given pairs are assumed to be well-formed and semantically 'correct'. That
-/// is, keys contain no duplicates and are in ascending order.
-///
-/// In practice, this means we suppose both values have been constructed from
-/// existing well-formed Values.
-pub fn token_contains(
+pub fn tokens_contains(
   superset: Pairs<AssetName, Int>,
   subset: Pairs<AssetName, Int>,
 ) -> Bool {
@@ -296,13 +266,13 @@ pub fn token_contains(
       let head_superset, tail_superset <- drop_until(superset, head_subset.1st)
       and {
         head_superset >= head_subset.2nd,
-        token_contains(tail_superset, tail_subset),
+        tokens_contains(tail_superset, tail_subset),
       }
     }
   }
 }
 
-fn drop_until(
+pub fn drop_until(
   self: Pairs<ByteArray, v>,
   until: ByteArray,
   return: fn(v, Pairs<ByteArray, v>) -> result,

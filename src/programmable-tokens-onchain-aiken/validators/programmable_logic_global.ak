@@ -13,8 +13,9 @@ use types.{
   TokenDoesNotExist, TokenExists, TransferAct,
 }
 use utils.{
-  RawValue, Tokens, bytearray_lt, elem_at, has_currency_symbol, has_key,
-  has_signatory, skip_assert, split_at, sum_output_assets, union_tokens,
+  RawValue, Tokens, bytearray_lt, drop_until, elem_at, has_currency_symbol,
+  has_key, has_signatory, skip_assert, split_at, sum_output_assets,
+  tokens_contains, union_tokens,
 }
 
 validator programmable_logic_global(protocol_params_cs: PolicyId) {
@@ -79,16 +80,10 @@ fn validate_transfer(
   proofs: List<RegistryProof>,
 ) -> Bool {
   // Collect all programmable tokens across inputs and minted/burned values.
-  let total_input_value: RawValue = get_signed_prog_value(self, prog_logic_cred)
+  let input_prog_value: RawValue = get_signed_prog_value(self, prog_logic_cred)
 
-  // Check transfer logic for each programmable token type and filter to only programmable tokens.
-  let input_prog_value =
-    check_transfer_and_compute_prog_value(
-      total_input_value,
-      proofs,
-      validate_single_cs(self, _, _, registry_node_cs),
-    )
-
+  // Collect all outputs that carry programmable tokens. We use them to ensure that
+  // prog tokens cannot escape their fate.
   let output_prog_value: RawValue =
     sum_output_assets(
       self.outputs,
@@ -103,11 +98,13 @@ fn validate_transfer(
       },
     )
 
-  // The output must contain all the expected programmable tokens (inputs + mints)
-  // Pre-condition of 'value_contains' is guaranteed since both pairs
-  // come from 'Dict', thus guaranteeing key uniqueness and ordering.
-  dict.to_pairs(output_prog_value)
-    |> utils.value_contains(dict.to_pairs(input_prog_value))
+  // Check transfer logic for each programmable token type and filter to only programmable tokens.
+  check_transfer_and_compute_prog_value(
+    input_prog_value,
+    output_prog_value,
+    proofs,
+    validate_single_cs(self, _, _, registry_node_cs),
+  )
 }
 
 fn validate_3rd_party(
@@ -284,7 +281,7 @@ fn check_seized_tokens(
     // logic validator. This is checked by ensuring all collected tokens are
     // contained within all programmable outputs, while allowing those outputs
     // to contain other things.
-    utils.token_contains(
+    utils.tokens_contains(
       dict.to_pairs(total_output_tokens),
       dict.to_pairs(input_tokens),
     )?
@@ -413,59 +410,57 @@ fn get_signed_prog_value(
 /// Sum values from a list of inputs
 /// Check transfer logic for each currency symbol and filter to only programmable tokens
 fn check_transfer_and_compute_prog_value(
-  value: RawValue,
+  input_value: RawValue,
+  output_value: RawValue,
   proofs: List<RegistryProof>,
   check_policy: fn(PolicyId, RegistryProof) -> Bool,
-) -> RawValue {
-  let assets = dict.to_pairs(value)
+) -> Bool {
+  let input_assets = dict.to_pairs(input_value)
+  let output_assets = dict.to_pairs(output_value)
 
-  let
-    remaining_proofs,
-    acc_value,
-  <- do_check_transfer(assets, proofs, check_policy, dict.empty)
+  let remaining_proofs =
+    do_check_transfer(proofs, check_policy, input_assets, output_assets)
 
-  expect [] == remaining_proofs
-
-  acc_value
+  [] == remaining_proofs
 }
 
 fn do_check_transfer(
-  assets: Pairs<PolicyId, Dict<AssetName, Int>>,
   proofs: List<RegistryProof>,
   check_policy: fn(PolicyId, RegistryProof) -> Bool,
-  acc: RawValue,
-  return: fn(List<RegistryProof>, RawValue) -> result,
-) -> result {
-  when assets is {
-    [] -> return(proofs, acc)
-    [Pair(cs, tokens), ..rest] -> {
+  input_assets: Pairs<PolicyId, Dict<AssetName, Int>>,
+  output_assets: Pairs<PolicyId, Dict<AssetName, Int>>,
+) -> List<RegistryProof> {
+  when input_assets is {
+    [] -> proofs
+    [Pair(cs, head_input_tokens), ..tail_input_assets] -> {
+      // We expect one proof per policy, if not, this blows up and halts the validation.
       let proof = head_list(proofs)
 
-      // TODO: Failing-fast when finding non-validated programmable tokens?
-      //
-      // This seems a little suspicious but I do not want to alter the logic
-      // without diving more into the spec and what's the expected behaviour
-      // here.
-      //
-      // What is "suspicious" here is that we are already iterating over an
-      // asset list that was obtained from looping over the inputs, and
-      // selecting only tokens that were locked by the programmable logic
-      // script, and with a matching transfer logic as stake script.
-      //
-      // Couldn't we simply fail if any such token found in inputs appear to be
-      // unauthenticated? It would save quite some cost, as we are otherwise
-      // forced to re-create a whole new value object, which in the nominal
-      // case end up being the same as the original object.
-      let new_acc =
-        if check_policy(cs, proof) {
-          // Validated programmable token, keep it.
-          dict.insert(acc, cs, tokens)
-        } else {
-          // Not a programmable token, skip it
-          acc
-        }
+      let loop =
+        do_check_transfer(tail_list(proofs), check_policy, tail_input_assets, _)
 
-      do_check_transfer(rest, tail_list(proofs), check_policy, new_acc, return)
+      if check_policy(cs, proof) {
+        // Existing programmable token, must be in output.
+
+        // Outputs must be a superset of inputs, so they may contain extra
+        // policies not found in validated inputs. Yet, both input assets and
+        // output assets are in ascending policy order.
+        let
+          head_output_tokens,
+          tail_output_assets,
+        <- drop_until(output_assets, cs)
+
+        expect
+          tokens_contains(
+            dict.to_pairs(head_output_tokens),
+            dict.to_pairs(head_input_tokens),
+          )
+
+        loop(tail_output_assets)
+      } else {
+        // Not a programmable token, skip it
+        loop(output_assets)
+      }
     }
   }
 }

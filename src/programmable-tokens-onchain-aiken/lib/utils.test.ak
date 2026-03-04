@@ -1,14 +1,14 @@
 //// Unit tests for utility functions
 
-use aiken/collection/dict.{Dict}
+use aiken/collection/dict
 use cardano/address.{from_verification_key}
 use cardano/assets.{
-  AssetName, PolicyId, ada_asset_name, ada_policy_id, add, from_asset, zero,
+  AssetName, ada_asset_name, ada_policy_id, add, from_asset, zero,
 }
 use cardano/transaction.{NoDatum, Output}
 use utils.{
   bytearray_lt, count_unique_tokens, has_currency_symbol, has_signatory,
-  sum_output_assets, value_contains,
+  sum_output_assets, tokens_contains,
 }
 
 // Test bytearray_lt with different bytearrays
@@ -64,69 +64,50 @@ test has_currency_symbol_absent() fail {
   has_currency_symbol(value, cs2)
 }
 
-const fixture_value_contains_policy_id: PolicyId =
-  #"0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c"
+const fixture_tokens_contains_asset_name: AssetName = #"746f6b656e"
 
-const fixture_value_contains_asset_name: AssetName = #"746f6b656e"
-
-const fixture_value_contains_superset: Pairs<PolicyId, Dict<AssetName, Int>> =
-  from_asset(
-    fixture_value_contains_policy_id,
-    fixture_value_contains_asset_name,
-    100,
-  )
-    |> assets.to_dict
+const fixture_tokens_contains_superset: Pairs<AssetName, Int> =
+  dict.empty
+    |> dict.insert(fixture_tokens_contains_asset_name, 100)
     |> dict.to_pairs
 
-const fixture_value_contains_superset_with_ada: Pairs<
-    PolicyId,
-    Dict<AssetName, Int>,
-  > =
-  from_asset(
-    fixture_value_contains_policy_id,
-    fixture_value_contains_asset_name,
-    100,
-  )
-    |> assets.add(ada_policy_id, ada_asset_name, 1234)
-    |> assets.to_dict
+const fixture_tokens_contains_superset_with_ada: Pairs<AssetName, Int> =
+  dict.empty
+    |> dict.insert(fixture_tokens_contains_asset_name, 100)
     |> dict.to_pairs
 
-const fixture_value_contains_subset: Pairs<PolicyId, Dict<AssetName, Int>> =
-  from_asset(
-    fixture_value_contains_policy_id,
-    fixture_value_contains_asset_name,
-    50,
-  )
-    |> assets.to_dict
+const fixture_tokens_contains_subset: Pairs<AssetName, Int> =
+  dict.empty
+    |> dict.insert(fixture_tokens_contains_asset_name, 50)
     |> dict.to_pairs
 
-// Test 'value_contains' with exact match
-test value_contains_exact_match() {
-  value_contains(
-    fixture_value_contains_superset,
-    fixture_value_contains_superset,
+// Test 'tokens_contains' with exact match
+test tokens_contains_exact_match() {
+  tokens_contains(
+    fixture_tokens_contains_superset,
+    fixture_tokens_contains_superset,
   )
 }
 
-// Test 'value_contains' with subset
-test value_contains_subset() {
+// Test 'tokens_contains' with subset
+test tokens_contains_subset() {
   and {
-    value_contains(
-      fixture_value_contains_superset,
-      fixture_value_contains_subset,
+    tokens_contains(
+      fixture_tokens_contains_superset,
+      fixture_tokens_contains_subset,
     )?,
-    value_contains(
-      fixture_value_contains_superset_with_ada,
-      fixture_value_contains_subset,
+    tokens_contains(
+      fixture_tokens_contains_superset_with_ada,
+      fixture_tokens_contains_subset,
     )?,
   }
 }
 
-// Test 'value_contains' with insufficient funds
-test value_contains_insufficient() {
-  !value_contains(
-    fixture_value_contains_subset,
-    fixture_value_contains_superset,
+// Test 'tokens_contains' with insufficient funds
+test tokens_contains_insufficient() {
+  !tokens_contains(
+    fixture_tokens_contains_subset,
+    fixture_tokens_contains_superset,
   )
 }
 
