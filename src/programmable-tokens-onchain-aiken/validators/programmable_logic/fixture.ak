@@ -297,7 +297,7 @@ pub fn some_transfer(
 // --------------------------------------------------------------------- helpers
 
 /// Some value with a non-zero ADA amount. Embodies typical values found on-chain.
-const min_ada_value: Value =
+pub const min_ada_value: Value =
   assets.zero |> assets.add(ada_policy_id, ada_asset_name, 1000000)
 
 /// Run a 'Fuzzer' in-place, using a label as a seed. This can be used to

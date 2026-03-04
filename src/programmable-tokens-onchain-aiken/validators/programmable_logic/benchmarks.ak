@@ -9,7 +9,8 @@ use programmable_logic/fixture
 use programmable_logic_base
 use programmable_logic_global
 use types.{
-  ProgrammableLogicGlobalRedeemer, ThirdPartyAct, TokenExists, TransferAct,
+  ProgrammableLogicGlobalRedeemer, ThirdPartyAct, TokenDoesNotExist, TokenExists,
+  TransferAct,
 }
 
 fn programmable_logic(
@@ -354,6 +355,122 @@ test plutarch_baseline_transfer() {
   programmable_logic(
     fixture_plutarch_baseline_transfer,
     fixture_redeemer_plutarch_baseline_transfer,
+  )
+}
+
+/// --- Plutarch baseline 2 (transfer) ---------------------------------------------------------------
+///
+/// Another baseline from the transfer act that is obtained by making the first one slightly more complexe,
+/// although still plausible, having multiple policies and minting and collecting tokens over several
+/// inputs.
+/// ------------------------------------------------------------------------------------------------
+const fixture_plutarch_baseline_transfer_2: Transaction = {
+    let policy_programmable_token_1: PolicyId =
+      #"00000000000000000000000000000000000000000000000000000f00"
+
+    let asset_name_programmable_token_1: AssetName = "FOO"
+
+    let policy_programmable_token_2: PolicyId =
+      #"00000000000000000000000000000000000000000000000000000ba5"
+
+    let asset_name_programmable_token_2: AssetName = "BAR"
+
+    let policy_unexisting_token: PolicyId =
+      #"000000000000000000000000000000000000000000000000aaaaffff"
+
+    let asset_name_unexisting_token: PolicyId = "e_e"
+
+    Transaction {
+      ..transaction.placeholder,
+      inputs: [
+        // An input holding programmable tokens being spent, as well as some unregistered token
+        fixture.some_input_with_programmable_tokens(
+          [
+            (policy_programmable_token_1, asset_name_programmable_token_1, 42),
+            (policy_programmable_token_2, asset_name_programmable_token_2, 1),
+            (policy_unexisting_token, asset_name_unexisting_token, 1),
+          ],
+          "programmable tokens input",
+        ),
+        // Some input to pay for fuel
+        fixture.some_input_fuel("fuel input"),
+      ],
+      outputs: [
+        // A first output with (still trapped) programmable tokens to some recipient
+        fixture.some_output_with_programmable_tokens(
+          [
+            (policy_programmable_token_1, asset_name_programmable_token_1, 28),
+            (policy_programmable_token_2, asset_name_programmable_token_2, 1),
+          ],
+        ),
+        // A second output with (still trapped) programmable tokens to some recipient
+        fixture.some_output_with_programmable_tokens(
+          [(policy_programmable_token_1, asset_name_programmable_token_1, 113)],
+        ),
+        // Unregistered programmable tokens moved out of a programmable output
+        Output {
+          ..fixture.some_output_change("fake prog tokens"),
+          value: fixture.min_ada_value
+            |> assets.add(
+                policy_unexisting_token,
+                asset_name_unexisting_token,
+                1,
+              ),
+        },
+        // Some change output
+        fixture.some_output_change("change output"),
+      ],
+      mint: assets.zero
+        |> assets.add(
+            policy_programmable_token_1,
+            asset_name_programmable_token_1,
+            99,
+          ),
+      reference_inputs: [
+        // Reference inputs with the protocol params. Identified by a specific NFT.
+        // Holds a ProtocolParams inline datum with configuration.
+        fixture.some_reference_input_protocol_params(
+          fixture.protocol_params,
+          "protocol params",
+        ),
+        // Token registry node ancestor, for inclusion validation
+        fixture.some_reference_input_tokens_registry_node(
+          "",
+          policy_programmable_token_2,
+          "ancestor",
+        ),
+        // Token registry node holding the programmable policy being spent.
+        fixture.some_reference_input_tokens_registry_node(
+          policy_programmable_token_2,
+          policy_programmable_token_1,
+          "token_2",
+        ),
+        // Token registry node holding the programmable policy being spent.
+        fixture.some_reference_input_tokens_registry_node(
+          policy_programmable_token_1,
+          #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "token_1",
+        ),
+      ],
+      withdrawals: fixture.withdrawals_transfer,
+    }
+  }
+
+/// Corresponding redeemer with a single proof of a token in the registry,
+/// located at position #2 in reference inputs
+const fixture_redeemer_plutarch_baseline_transfer_2: ProgrammableLogicGlobalRedeemer =
+  TransferAct {
+    proofs: [
+      TokenExists { node_idx: 2 },
+      TokenExists { node_idx: 3 },
+      TokenDoesNotExist { node_idx: 3 },
+    ],
+  }
+
+test plutarch_baseline_transfer_2() {
+  programmable_logic(
+    fixture_plutarch_baseline_transfer_2,
+    fixture_redeemer_plutarch_baseline_transfer_2,
   )
 }
 
