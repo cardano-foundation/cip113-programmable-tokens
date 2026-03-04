@@ -4,11 +4,13 @@ use aiken/collection/list
 use aiken/fuzz
 use cardano/assets.{AssetName, PolicyId}
 use cardano/fuzz as cardano
-use cardano/transaction.{Output, Transaction}
+use cardano/transaction.{Input, Output, OutputReference, Transaction}
 use programmable_logic/fixture
 use programmable_logic_base
 use programmable_logic_global
-use types.{ProgrammableLogicGlobalRedeemer, TokenExists, TransferAct}
+use types.{
+  ProgrammableLogicGlobalRedeemer, ThirdPartyAct, TokenExists, TransferAct,
+}
 
 fn programmable_logic(
   self: Transaction,
@@ -32,10 +34,254 @@ fn programmable_logic(
   }
 }
 
-/// --- Plutarch baseline --------------------------------------------------------------------------
+/// --- Plutarch baseline (3rd party) ---------------------------------------------------------------
 ///
-/// Replicate a Preview transaction based on the Plutarch version of the
+/// Replicate a Preview 3rd-party transaction based on the Plutarch version of the
 /// programmable logic validators. This transaction has been used as a benchmark
+/// for optimisation and improvements over the Aiken version.
+///
+/// Characteristics:
+/// - seize all tokens from 1 UTxO
+/// - sends them to a single output
+/// - no minting and burning
+/// - no other tokens
+///
+/// Source: https://preview.cexplorer.io/tx/d29a977a55ed54ef0f5c9d5c15f85a63e915349890f1952934809070430ef33a
+const fixture_plutarch_baseline_3rd_party: Transaction = {
+    let policy_programmable_token: PolicyId =
+      #"76658c4afd597ba7524f85bf32ac59d9e58856593a2e8399326f853a"
+
+    let asset_name_programmable_token: AssetName = "tUSDT"
+
+    Transaction {
+      ..transaction.placeholder,
+      inputs: [
+        // Some input to pay for fuel, which has to be 1st input in this scenario, so we enforce the id
+        // to be lexicographically before the second.
+        Input {
+          output_reference: OutputReference {
+            transaction_id: #"6ef7ec1c8b5dc017042fed2eff90c3f6e4742e8a686099f95eaf73a1d403c402",
+            output_index: 3,
+          },
+          output: fixture.some_input_fuel("fuel input").output,
+        },
+        // An input holding programmable tokens being spent.
+        Input {
+          output_reference: OutputReference {
+            transaction_id: #"c5972f88da7442689b281d8a85c43321d0fbf32b8f41d4e9a968e0d3edda9a71",
+            output_index: 1,
+          },
+          output: fixture.some_input_with_programmable_tokens(
+            [
+              (
+                policy_programmable_token,
+                asset_name_programmable_token,
+                999999999999,
+              ),
+            ],
+            "programmable tokens",
+          ).output,
+        },
+      ],
+      outputs: [
+        // Some dust/noise
+        fixture.some_output_change("noise output"),
+        // All unburned seized tokens sent to a single output
+        fixture.some_output_with_seized_tokens(
+          [
+            (
+              policy_programmable_token,
+              asset_name_programmable_token,
+              999999999999,
+            ),
+          ],
+        ),
+        // The first seized input, minus the (partially) seized tokens
+        fixture.some_output_with_programmable_tokens([]),
+        // Some change output
+        fixture.some_output_change("change output"),
+      ],
+      reference_inputs: [
+        // Reference inputs with the protocol params. Identified by a specific NFT.
+        // Holds a ProtocolParams inline datum with configuration.
+        fixture.some_reference_input_protocol_params(
+          fixture.protocol_params,
+          "protocol params",
+        ),
+        // Token registry node holding the programmable policy being spent.
+        fixture.some_reference_input_tokens_registry_node(
+          policy_programmable_token,
+          #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "current",
+        ),
+      ],
+      withdrawals: fixture.withdrawals_3rd_party,
+    }
+  }
+
+const fixture_redeemer_plutarch_baseline_3rd_party: ProgrammableLogicGlobalRedeemer =
+  ThirdPartyAct {
+    registry_node_idx: 1,
+    input_idxs: [1],
+    outputs_start_idx: 2,
+    length_input_idxs: 1,
+  }
+
+// Plutarch => [mem: 228.09K cpu: 85.23M]
+test plutarch_baseline_3rd_party() {
+  programmable_logic(
+    fixture_plutarch_baseline_3rd_party,
+    fixture_redeemer_plutarch_baseline_3rd_party,
+  )
+}
+
+/// -------------------------------------------------------------------------------------------------
+/// --- Plutarch baseline 2 (3rd party) -------------------------------------------------------------
+///
+/// A slightly more interesting scenario than the baseline #1, which mostly adds "noise":
+///
+/// - inputs contain other tokens
+/// - seizing from multiple inputs
+/// - one partial and one total seizing
+/// - burning tokens
+/// -------------------------------------------------------------------------------------------------
+const fixture_plutarch_baseline_3rd_party_2: Transaction = {
+    let policy_programmable_token: PolicyId =
+      #"76658c4afd597ba7524f85bf32ac59d9e58856593a2e8399326f853a"
+
+    let asset_name_programmable_token: AssetName = "tUSDT"
+
+    let other_prog_tokens_1 =
+      (#"00000000000000000000000000000000000000000000000000000000", "foo", 14)
+
+    let other_prog_tokens_2 =
+      (#"11111111111111111111111111111111111111111111111111111111", "bar", 42)
+
+    let other_prog_tokens_3 =
+      (#"99999999999999999999999999999999999999999999999999999999", "baz", 1)
+
+    Transaction {
+      ..transaction.placeholder,
+      inputs: [
+        // An input holding programmable tokens being spent.
+        Input {
+          output_reference: OutputReference {
+            transaction_id: #"00072f88da7442689b281d8a85c43321d0fbf32b8f41d4e9a968e0d3edda9a71",
+            output_index: 1,
+          },
+          output: fixture.some_input_with_programmable_tokens(
+            [
+              other_prog_tokens_1,
+              (
+                policy_programmable_token,
+                asset_name_programmable_token,
+                999999999999,
+              ),
+            ],
+            "programmable tokens",
+          ).output,
+        },
+        // Some input to pay for fuel
+        Input {
+          output_reference: OutputReference {
+            transaction_id: #"6ef7ec1c8b5dc017042fed2eff90c3f6e4742e8a686099f95eaf73a1d403c402",
+            output_index: 3,
+          },
+          output: fixture.some_input_fuel("fuel input").output,
+        },
+        // An input holding programmable tokens being spent.
+        Input {
+          output_reference: OutputReference {
+            transaction_id: #"c5972f88da7442689b281d8a85c43321d0fbf32b8f41d4e9a968e0d3edda9a71",
+            output_index: 1,
+          },
+          output: fixture.some_input_with_programmable_tokens(
+            [
+              other_prog_tokens_2,
+              (
+                policy_programmable_token,
+                asset_name_programmable_token,
+                999999999999,
+              ), other_prog_tokens_3,
+            ],
+            "programmable tokens",
+          ).output,
+        },
+      ],
+      outputs: [
+        // Some dust/noise
+        fixture.some_output_change("noise output"),
+        // All unburned seized tokens sent to a single output
+        fixture.some_output_with_seized_tokens(
+          [
+            (
+              policy_programmable_token,
+              asset_name_programmable_token,
+              500000000000,
+            ),
+          ],
+        ),
+        // The first seized input, minus the (partially) seized tokens
+        fixture.some_output_with_programmable_tokens(
+          [
+            other_prog_tokens_1,
+            (
+              policy_programmable_token,
+              asset_name_programmable_token,
+              999999999998,
+            ),
+          ],
+        ),
+        // The second seized input, minus the (integrally) seized tokens
+        fixture.some_output_with_programmable_tokens(
+          [other_prog_tokens_2, other_prog_tokens_3],
+        ),
+        // Some change output
+        fixture.some_output_change("change output"),
+      ],
+      mint: assets.zero
+        |> assets.add(
+            policy_programmable_token,
+            asset_name_programmable_token,
+            -500000000000,
+          ),
+      reference_inputs: [
+        // Reference inputs with the protocol params. Identified by a specific NFT.
+        // Holds a ProtocolParams inline datum with configuration.
+        fixture.some_reference_input_protocol_params(
+          fixture.protocol_params,
+          "protocol params",
+        ),
+        // Token registry node holding the programmable policy being spent.
+        fixture.some_reference_input_tokens_registry_node(
+          policy_programmable_token,
+          #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "current",
+        ),
+      ],
+      withdrawals: fixture.withdrawals_3rd_party,
+    }
+  }
+
+const fixture_redeemer_plutarch_baseline_3rd_party_2: ProgrammableLogicGlobalRedeemer =
+  ThirdPartyAct {
+    registry_node_idx: 1,
+    input_idxs: [0, 2],
+    outputs_start_idx: 2,
+    length_input_idxs: 2,
+  }
+
+test plutarch_baseline_3rd_party_2() {
+  programmable_logic(
+    fixture_plutarch_baseline_3rd_party_2,
+    fixture_redeemer_plutarch_baseline_3rd_party_2,
+  )
+}
+
+/// --- Plutarch baseline (transfer) ---------------------------------------------------------------
+///
+/// Replicate a Preview transfer transaction based on the Plutarch version of the
+/// programmable logic validator. This transaction has been used as a benchmark
 /// for optimisation and improvements over the Aiken version.
 ///
 /// Characteristics:
@@ -44,9 +290,9 @@ fn programmable_logic(
 /// - one programmable token kind (i.e. two nodes from the registry referenced)
 /// - transfer logic is script-based, provided as withdrawal
 ///
-/// Source: https://preview.cexplorer.io/tx/d29ce2a9f79a70a91d83a40e0e1cf346ab94979b6f0ba001de8a89895aa518df?tab=contracts
+/// Source: https://preview.cexplorer.io/tx/d29ce2a9f79a70a91d83a40e0e1cf346ab94979b6f0ba001de8a89895aa518df
 /// ------------------------------------------------------------------------------------------------
-const fixture_plutarch_baseline: Transaction = {
+const fixture_plutarch_baseline_transfer: Transaction = {
     let policy_programmable_token: PolicyId =
       #"00000000000000000000000000000000000000000000000000000f00"
 
@@ -95,19 +341,19 @@ const fixture_plutarch_baseline: Transaction = {
           "current",
         ),
       ],
-      withdrawals: fixture.withdrawals,
+      withdrawals: fixture.withdrawals_transfer,
     }
   }
 
 /// Corresponding redeemer with a single proof of a token in the registry,
 /// located at position #2 in reference inputs
-const fixture_redeemer_plutarch_baseline: ProgrammableLogicGlobalRedeemer =
+const fixture_redeemer_plutarch_baseline_transfer: ProgrammableLogicGlobalRedeemer =
   TransferAct { proofs: [TokenExists { node_idx: 2 }], mint_proofs: [] }
 
-test plutarch_baseline() {
+test plutarch_baseline_transfer() {
   programmable_logic(
-    fixture_plutarch_baseline,
-    fixture_redeemer_plutarch_baseline,
+    fixture_plutarch_baseline_transfer,
+    fixture_redeemer_plutarch_baseline_transfer,
   )
 }
 
@@ -136,7 +382,7 @@ fn sample_many_tokens(
       ),
     )
 
-  fixture.some_transaction(tokens)
+  fixture.some_transfer(tokens)
 }
 
 bench many_tokens((self, redeemer) via sample_many_tokens) {
@@ -171,7 +417,7 @@ fn sample_many_inputs(
     )
 
   let (transaction, redeemer) =
-    fixture.some_transaction(
+    fixture.some_transfer(
       [(policy_programmable_token, asset_name_programmable_token, size + 1)],
     )
 
@@ -201,7 +447,7 @@ fn sample_many_policies(
       ),
     )
 
-  fixture.some_transaction(tokens)
+  fixture.some_transfer(tokens)
 }
 
 bench many_policies((self, redeemer) via sample_many_policies) {
@@ -230,7 +476,7 @@ fn sample_many_outputs(
     )
 
   let (transaction, redeemer) =
-    fixture.some_transaction(
+    fixture.some_transfer(
       [(policy_programmable_token, asset_name_programmable_token, size + 1)],
     )
 

@@ -10,8 +10,11 @@ use cardano/address.{Credential}
 use cardano/assets.{AssetName, PolicyId, Value, ada_policy_id, flatten}
 use cardano/transaction.{InlineDatum, Input, Output}
 
+pub type Tokens =
+  Dict<AssetName, Int>
+
 pub type RawValue =
-  Dict<PolicyId, Dict<AssetName, Int>>
+  Dict<PolicyId, Tokens>
 
 /// Get the datum from an output, expecting an inline datum
 pub fn expect_inline_datum(output: Output) -> Data {
@@ -257,7 +260,13 @@ pub fn value_contains(
   }
 }
 
-fn token_contains(
+/// /!\ PRE-CONDITION /!\
+/// Given pairs are assumed to be well-formed and semantically 'correct'. That
+/// is, keys contain no duplicates and are in ascending order.
+///
+/// In practice, this means we suppose both values have been constructed from
+/// existing well-formed Values.
+pub fn token_contains(
   superset: Pairs<AssetName, Int>,
   subset: Pairs<AssetName, Int>,
 ) -> Bool {
@@ -283,5 +292,69 @@ fn drop_until(
     return(head.2nd, tail_list(self))
   } else {
     drop_until(tail_list(self), until, return)
+  }
+}
+
+/// Merge two token maps by summing quantities per token name.
+pub fn union_tokens(
+  left: Dict<AssetName, Int>,
+  right: Dict<AssetName, Int>,
+) -> Dict<AssetName, Int> {
+  dict.union_with(left, right, dict_strategy.sum_if_non_zero())
+}
+
+/// Drop n elements from a list, fast.
+pub fn drop(xs: List<a>, n: Int) -> List<a> {
+  if n >= 2 {
+    drop(tail_list(tail_list(xs)), n - 2)
+  } else if n >= 1 {
+    drop(tail_list(xs), n - 1)
+  } else {
+    xs
+  }
+}
+
+/// Drop n element from a list while enforcing that any dropped element satisfies
+/// a given predicate.
+pub fn skip_assert(xs: List<a>, n: Int, assert: fn(a) -> Bool) -> List<a> {
+  if n > 0 {
+    expect assert(head_list(xs))
+    skip_assert(tail_list(xs), n - 1, assert)
+  } else {
+    xs
+  }
+}
+
+/// Split an dictionnary at the given key. Returning the elements before (in reverse key order), the
+/// value at the key, and the elements after (in same key order).
+pub fn split_at(
+  kvs: Dict<PolicyId, Tokens>,
+  at: PolicyId,
+  return: fn(Pairs<PolicyId, Tokens>, Tokens, Pairs<PolicyId, Tokens>) -> result,
+) -> result {
+  do_split_at(at, return, dict.to_pairs(kvs), [])
+}
+
+fn do_split_at(
+  at: PolicyId,
+  return: fn(Pairs<PolicyId, Tokens>, Tokens, Pairs<PolicyId, Tokens>) -> result,
+  kvs: Pairs<PolicyId, Tokens>,
+  before: Pairs<PolicyId, Tokens>,
+) -> result {
+  when kvs is {
+    [head, ..tail] -> {
+      let k = head.1st
+      if builtin.less_than_bytearray(k, at) {
+        // Skip while keys are smaller (strictly) than searched key
+        do_split_at(at, return, tail, [head, ..before])
+      } else if k == at {
+        // Done searching, get the value and return the tail after
+        return(before, head.2nd, tail)
+      } else {
+        // The head and tail are all after the key; no need to continue searching.
+        return(before, dict.empty, kvs)
+      }
+    }
+    [] -> return(before, dict.empty, [])
   }
 }
