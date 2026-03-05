@@ -12,6 +12,14 @@ import type {
   BlacklistOperationResponse,
   SeizeTokensRequest,
   SeizeTokensResponse,
+  AddToWhitelistRequest,
+  RemoveFromWhitelistRequest,
+  WhitelistOperationResponse,
+  GovernanceInitRequest,
+  GovernanceInitResponse,
+  GovernanceAddRequest,
+  GovernanceRemoveRequest,
+  GovernanceOperationResponse,
 } from '@/types/compliance';
 
 // Re-export types
@@ -23,6 +31,14 @@ export type {
   BlacklistOperationResponse,
   SeizeTokensRequest,
   SeizeTokensResponse,
+  AddToWhitelistRequest,
+  RemoveFromWhitelistRequest,
+  WhitelistOperationResponse,
+  GovernanceInitRequest,
+  GovernanceInitResponse,
+  GovernanceAddRequest,
+  GovernanceRemoveRequest,
+  GovernanceOperationResponse,
 };
 
 /**
@@ -111,6 +127,105 @@ export async function seizeTokens(
     : '/compliance/seize';
 
   return apiPost<SeizeTokensRequest, SeizeTokensResponse>(
+    endpoint,
+    request,
+    { timeout: 60000 }
+  );
+}
+
+// ============================================================================
+// Whitelist Operations
+// ============================================================================
+
+/**
+ * Add an address to the whitelist (KYC approval)
+ */
+export async function addToWhitelist(
+  request: AddToWhitelistRequest,
+  protocolTxHash?: string
+): Promise<WhitelistOperationResponse> {
+  const endpoint = protocolTxHash
+    ? `/compliance/whitelist/add?protocolTxHash=${protocolTxHash}`
+    : '/compliance/whitelist/add';
+
+  return apiPost<AddToWhitelistRequest, WhitelistOperationResponse>(
+    endpoint,
+    request,
+    { timeout: 60000 }
+  );
+}
+
+/**
+ * Remove an address from the whitelist (revoke KYC approval)
+ */
+export async function removeFromWhitelist(
+  request: RemoveFromWhitelistRequest,
+  protocolTxHash?: string
+): Promise<WhitelistOperationResponse> {
+  const endpoint = protocolTxHash
+    ? `/compliance/whitelist/remove?protocolTxHash=${protocolTxHash}`
+    : '/compliance/whitelist/remove';
+
+  return apiPost<RemoveFromWhitelistRequest, WhitelistOperationResponse>(
+    endpoint,
+    request,
+    { timeout: 60000 }
+  );
+}
+
+// ============================================================================
+// Governance Operations
+// ============================================================================
+
+/**
+ * Initialize governance for a whitelist-multiadmin token.
+ * Creates manager_signatures, manager_list, and whitelist linked lists.
+ */
+export async function initGovernance(
+  request: GovernanceInitRequest,
+  substandardId: string = 'whitelist-send-receive-multiadmin',
+  protocolTxHash?: string
+): Promise<GovernanceInitResponse> {
+  const params = new URLSearchParams({ substandardId });
+  if (protocolTxHash) params.set('protocolTxHash', protocolTxHash);
+
+  return apiPost<GovernanceInitRequest, GovernanceInitResponse>(
+    `/compliance/governance/init?${params.toString()}`,
+    request,
+    { timeout: 90000 }
+  );
+}
+
+/**
+ * Add a manager credential to the governance list
+ */
+export async function addAdmin(
+  request: GovernanceAddRequest,
+  protocolTxHash?: string
+): Promise<GovernanceOperationResponse> {
+  const endpoint = protocolTxHash
+    ? `/compliance/governance/add?protocolTxHash=${protocolTxHash}`
+    : '/compliance/governance/add';
+
+  return apiPost<GovernanceAddRequest, GovernanceOperationResponse>(
+    endpoint,
+    request,
+    { timeout: 60000 }
+  );
+}
+
+/**
+ * Remove a manager credential from the governance list
+ */
+export async function removeAdmin(
+  request: GovernanceRemoveRequest,
+  protocolTxHash?: string
+): Promise<GovernanceOperationResponse> {
+  const endpoint = protocolTxHash
+    ? `/compliance/governance/remove?protocolTxHash=${protocolTxHash}`
+    : '/compliance/governance/remove';
+
+  return apiPost<GovernanceRemoveRequest, GovernanceOperationResponse>(
     endpoint,
     request,
     { timeout: 60000 }

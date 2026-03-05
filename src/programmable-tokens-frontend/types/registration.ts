@@ -178,9 +178,20 @@ export interface FreezeAndSeizeRegistrationData extends BaseRegistrationData {
 }
 
 /**
+ * Whitelist-send-receive-multiadmin substandard registration data
+ */
+export interface WhitelistMultiAdminRegistrationData extends BaseRegistrationData {
+  substandardId: 'whitelist-send-receive-multiadmin';
+  adminPubKeyHash: string;
+  whitelistPolicyId: string;
+  managerListPolicyId: string;
+  managerSigsPolicyId: string;
+}
+
+/**
  * Union type for all registration requests
  */
-export type RegistrationRequest = DummyRegistrationData | FreezeAndSeizeRegistrationData;
+export type RegistrationRequest = DummyRegistrationData | FreezeAndSeizeRegistrationData | WhitelistMultiAdminRegistrationData;
 
 // ============================================================================
 // Step-Specific Data Types

@@ -1,14 +1,16 @@
 "use client";
 
 import { useState } from "react";
-import { Coins, Shield, AlertTriangle, Flame } from "lucide-react";
+import { Coins, Shield, AlertTriangle, Flame, CheckCircle, Users } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { MintSection } from "./MintSection";
 import { BurnSection } from "./BurnSection";
 import { BlacklistSection } from "./BlacklistSection";
 import { SeizeSection } from "./SeizeSection";
-import { AdminTokenInfo } from "@/lib/api/admin";
+import { WhitelistSection } from "./WhitelistSection";
+import { ManagerSection } from "./ManagerSection";
+import { AdminTokenInfo, AdminRole } from "@/lib/api/admin";
 import { cn } from "@/lib/utils";
 
 interface AdminPanelProps {
@@ -16,14 +18,14 @@ interface AdminPanelProps {
   adminAddress: string;
 }
 
-type AdminTab = "mint" | "burn" | "blacklist" | "seize";
+type AdminTab = "mint" | "burn" | "blacklist" | "seize" | "whitelist" | "managers";
 
 interface TabInfo {
   id: AdminTab;
   label: string;
   icon: React.ReactNode;
   description: string;
-  requiredRole: "ISSUER_ADMIN" | "BLACKLIST_MANAGER";
+  requiredRole: AdminRole;
 }
 
 const tabs: TabInfo[] = [
@@ -55,17 +57,56 @@ const tabs: TabInfo[] = [
     description: "Seize tokens from blacklisted addresses",
     requiredRole: "ISSUER_ADMIN",
   },
+  {
+    id: "whitelist",
+    label: "Whitelist",
+    icon: <CheckCircle className="h-4 w-4" />,
+    description: "Manage KYC-approved addresses",
+    requiredRole: "WHITELIST_MANAGER",
+  },
+  {
+    id: "managers",
+    label: "Managers",
+    icon: <Users className="h-4 w-4" />,
+    description: "Manage whitelist managers (super-admin only)",
+    requiredRole: "ISSUER_ADMIN",
+  },
 ];
 
 export function AdminPanel({ tokens, adminAddress }: AdminPanelProps) {
   const [activeTab, setActiveTab] = useState<AdminTab>("mint");
 
-  // Determine which tabs are available based on user's roles
-  const hasRole = (role: "ISSUER_ADMIN" | "BLACKLIST_MANAGER") => {
+  // Determine which tabs are available based on user's roles and substandards
+  const hasRole = (role: AdminRole) => {
     return tokens.some((token) => token.roles.includes(role));
   };
 
-  const availableTabs = tabs.filter((tab) => hasRole(tab.requiredRole));
+  const hasWhitelistTokens = tokens.some(
+    (t) => t.substandardId === "whitelist-send-receive-multiadmin"
+  );
+
+  const availableTabs = tabs.filter((tab) => {
+    // Managers tab: only show if user has whitelist-substandard tokens with ISSUER_ADMIN
+    if (tab.id === "managers") {
+      return tokens.some(
+        (t) =>
+          t.substandardId === "whitelist-send-receive-multiadmin" &&
+          t.roles.includes("ISSUER_ADMIN")
+      );
+    }
+    // Whitelist tab: show for WHITELIST_MANAGER OR ISSUER_ADMIN of whitelist tokens
+    if (tab.id === "whitelist") {
+      return (
+        hasRole("WHITELIST_MANAGER") ||
+        tokens.some(
+          (t) =>
+            t.substandardId === "whitelist-send-receive-multiadmin" &&
+            t.roles.includes("ISSUER_ADMIN")
+        )
+      );
+    }
+    return hasRole(tab.requiredRole);
+  });
 
   // If no tabs are available, show empty state
   if (availableTabs.length === 0) {
@@ -138,6 +179,12 @@ export function AdminPanel({ tokens, adminAddress }: AdminPanelProps) {
         )}
         {activeTab === "seize" && (
           <SeizeSection tokens={tokens} adminAddress={adminAddress} />
+        )}
+        {activeTab === "whitelist" && (
+          <WhitelistSection tokens={tokens} adminAddress={adminAddress} />
+        )}
+        {activeTab === "managers" && (
+          <ManagerSection tokens={tokens} adminAddress={adminAddress} />
         )}
       </CardContent>
     </Card>

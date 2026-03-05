@@ -223,6 +223,7 @@ export function TransferForm({ onTransactionBuilt }: TransferFormProps) {
           networkId: getNetworkId(),
           context: {
             blacklistNodePolicyId: tokenContext.blacklistNodePolicyId,
+            whitelistPolicyId: tokenContext.whitelistPolicyId,
           },
         };
 

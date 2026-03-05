@@ -4,6 +4,7 @@ import com.bloxbean.cardano.client.plutus.spec.PlutusScript;
 import org.cardanofoundation.cip113.service.substandard.capabilities.BasicOperations;
 import org.cardanofoundation.cip113.service.substandard.capabilities.BlacklistManageable;
 import org.cardanofoundation.cip113.service.substandard.capabilities.Seizeable;
+import org.cardanofoundation.cip113.service.substandard.capabilities.SubstandardGovernance;
 import org.cardanofoundation.cip113.service.substandard.capabilities.WhitelistManageable;
 
 import java.util.Optional;
@@ -22,6 +23,7 @@ import java.util.Set;
  *   <li>{@link BlacklistManageable} - Blacklist init/add/remove (freeze functionality)</li>
  *   <li>{@link WhitelistManageable} - Whitelist init/add/remove (KYC/securities)</li>
  *   <li>{@link Seizeable} - Seize assets from blacklisted addresses</li>
+ *   <li>{@link SubstandardGovernance} - Multi-admin credential list management</li>
  * </ul>
  *
  * <h2>Example Handler Implementations:</h2>
@@ -96,5 +98,19 @@ public interface SubstandardHandler {
      */
     default Optional<Seizeable> asSeizeable() {
         return this instanceof Seizeable s ? Optional.of(s) : Optional.empty();
+    }
+
+    /**
+     * Check if this handler supports governance (multi-admin management).
+     */
+    default boolean supportsGovernance() {
+        return this instanceof SubstandardGovernance;
+    }
+
+    /**
+     * Get this handler as SubstandardGovernance if supported.
+     */
+    default Optional<SubstandardGovernance> asGovernance() {
+        return this instanceof SubstandardGovernance g ? Optional.of(g) : Optional.empty();
     }
 }

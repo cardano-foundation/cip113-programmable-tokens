@@ -33,6 +33,8 @@ function getFlowEnvVar(flowId: string): string | undefined {
       return process.env.NEXT_PUBLIC_FLOW_DUMMY_ENABLED;
     case 'freeze-and-seize':
       return process.env.NEXT_PUBLIC_FLOW_FREEZE_AND_SEIZE_ENABLED;
+    case 'whitelist-send-receive-multiadmin':
+      return process.env.NEXT_PUBLIC_FLOW_WHITELIST_SEND_RECEIVE_MULTIADMIN_ENABLED;
     default:
       return undefined;
   }

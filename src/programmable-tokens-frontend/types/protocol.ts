@@ -78,4 +78,7 @@ export interface TokenContext {
   policyId: string;
   substandardId: string;
   blacklistNodePolicyId?: string;
+  whitelistPolicyId?: string;
+  managerListPolicyId?: string;
+  managerSigsPolicyId?: string;
 }

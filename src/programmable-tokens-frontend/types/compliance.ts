@@ -59,6 +59,58 @@ export interface SeizeTokensRequest {
 export type SeizeTokensResponse = TransactionContextResponse<void>;
 
 // ============================================================================
+// Whitelist Operations
+// ============================================================================
+
+export interface AddToWhitelistRequest {
+  policyId: string;                // Policy ID of the token
+  targetCredential: string;        // Credential (PKH) to whitelist
+  feePayerAddress: string;         // Address that pays for the transaction
+}
+
+export interface RemoveFromWhitelistRequest {
+  policyId: string;                // Policy ID of the token
+  targetCredential: string;        // Credential (PKH) to remove from whitelist
+  feePayerAddress: string;         // Address that pays for the transaction
+}
+
+export type WhitelistOperationResponse = TransactionContextResponse<void>;
+
+// ============================================================================
+// Governance Operations
+// ============================================================================
+
+export interface GovernanceInitRequest {
+  adminAddress: string;            // Super-admin address
+  bootstrapTxHash: string;         // Seed UTXO tx hash
+  bootstrapOutputIndex: number;    // Seed UTXO output index
+}
+
+export interface GovernanceInitResponse {
+  managerSigsPolicyId: string;
+  managerListPolicyId: string;
+  managerAuthHash: string;
+  whitelistPolicyId: string;
+  unsignedCborTx: string;
+}
+
+export interface GovernanceAddRequest {
+  adminAddress: string;            // Super-admin address (fee payer)
+  targetCredential: string;        // Manager credential to add
+  policyId: string;                // Token policy ID for context lookup
+  role: string;                    // Role (e.g., "WHITELIST_MANAGER")
+}
+
+export interface GovernanceRemoveRequest {
+  adminAddress: string;            // Super-admin address (fee payer)
+  targetCredential: string;        // Manager credential to remove
+  policyId: string;                // Token policy ID for context lookup
+  role: string;                    // Role (e.g., "WHITELIST_MANAGER")
+}
+
+export type GovernanceOperationResponse = TransactionContextResponse<void>;
+
+// ============================================================================
 // Shared Types
 // ============================================================================
 
