@@ -20,6 +20,7 @@ import com.bloxbean.cardano.client.transaction.spec.Asset;
 import com.bloxbean.cardano.client.transaction.spec.MultiAsset;
 import com.bloxbean.cardano.client.transaction.spec.Value;
 import com.bloxbean.cardano.client.util.HexUtil;
+import com.easy1staking.util.HashUtil;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.cardanofoundation.cip113.AbstractPreviewTest;
@@ -37,6 +38,12 @@ public class ProtocolDeploymentMintTest extends AbstractPreviewTest {
 
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+
+    private static final String AWLAYS_FAIL_BOOTSTRAP_HASH_1 = "daa1e3ec7f567c31a48598407ba1503810bd824a4a01a83e7cef7015bced1339";
+
+    private static final String AWLAYS_FAIL_BOOTSTRAP_HASH_2 = "fa5b084bbdc0336c1e3c086617d99cf6ecff1a190116784a0dd54aeca948e8fe";
+
+    private String ALWAYS_FAIL_CONTRACT;
 
     private String PROGRAMMABLE_LOGIC_GLOBAL_CONTRACT;
 
@@ -56,6 +63,7 @@ public class ProtocolDeploymentMintTest extends AbstractPreviewTest {
     public void loadContracts() throws Exception {
         var plutus = OBJECT_MAPPER.readValue(this.getClass().getClassLoader().getResourceAsStream("plutus.json"), Plutus.class);
         var validators = plutus.validators();
+        ALWAYS_FAIL_CONTRACT = getCompiledCodeFor("always_fail.always_fail.spend", validators);
         PROGRAMMABLE_LOGIC_GLOBAL_CONTRACT = getCompiledCodeFor("programmable_logic_global.programmable_logic_global.withdraw", validators);
         PROGRAMMABLE_LOGIC_BASE_CONTRACT = getCompiledCodeFor("programmable_logic_base.programmable_logic_base.spend", validators);
         PROTOCOL_PARAMS_CONTRACT = getCompiledCodeFor("protocol_params_mint.protocol_params_mint.mint", validators);
@@ -110,15 +118,27 @@ public class ProtocolDeploymentMintTest extends AbstractPreviewTest {
                 BytesPlutusData.of(HexUtil.decodeHexString(utxo2.getTxHash())),
                 BigIntPlutusData.of(utxo2.getOutputIndex()));
 
+        // Parameterising always fail
+        var parametersAlwaysFailScript = PlutusBlueprintUtil.getPlutusScriptFromCompiledCode(
+                AikenScriptUtil.applyParamToScript(ListPlutusData.of(BytesPlutusData.of(HexUtil.decodeHexString(AWLAYS_FAIL_BOOTSTRAP_HASH_1))), ALWAYS_FAIL_CONTRACT),
+                PlutusVersion.v3
+        );
+        var parametersAlwaysFailAddress = AddressProvider.getEntAddress(parametersAlwaysFailScript, network);
+
+        var issuanceAlwaysFailScript = PlutusBlueprintUtil.getPlutusScriptFromCompiledCode(
+                AikenScriptUtil.applyParamToScript(ListPlutusData.of(BytesPlutusData.of(HexUtil.decodeHexString(AWLAYS_FAIL_BOOTSTRAP_HASH_2))), ALWAYS_FAIL_CONTRACT),
+                PlutusVersion.v3
+        );
+        var issuanceAlwaysFailAddress = AddressProvider.getEntAddress(issuanceAlwaysFailScript, network);
+
         // Protocol Params contract parameterization
-        var protocolParamsParameters = ListPlutusData.of(utxo1OutputReference);
+        var protocolParamsParameters = ListPlutusData.of(utxo1OutputReference, BytesPlutusData.of(parametersAlwaysFailScript.getScriptHash()));
         var protocolParamsContract = PlutusBlueprintUtil.getPlutusScriptFromCompiledCode(AikenScriptUtil.applyParamToScript(protocolParamsParameters, PROTOCOL_PARAMS_CONTRACT), PlutusVersion.v3);
         log.info("protocolParamsContract, policy: {}", protocolParamsContract.getPolicyId());
         log.info("protocolParamsContract, hash: {}", HexUtil.encodeHexString(protocolParamsContract.getScriptHash()));
 
         // Programmable Logic Global parameterization
-//        var programmableLogicGlobalParameters = ListPlutusData.of(ConstrPlutusData.of(0, BytesPlutusData.of(protocolParamsContract.getScriptHash())));
-        var programmableLogicGlobalParameters = ListPlutusData.of(BytesPlutusData.of(protocolParamsContract.getScriptHash()));
+        var programmableLogicGlobalParameters = ListPlutusData.of(BytesPlutusData.of(protocolParamsContract.getScriptHash()), BytesPlutusData.of(parametersAlwaysFailScript.getScriptHash()));
         var programmableLogicGlobalContract = PlutusBlueprintUtil.getPlutusScriptFromCompiledCode(AikenScriptUtil.applyParamToScript(programmableLogicGlobalParameters, PROGRAMMABLE_LOGIC_GLOBAL_CONTRACT), PlutusVersion.v3);
         var programmableLogicGlobalAddress = AddressProvider.getRewardAddress(programmableLogicGlobalContract, network);
         log.info("programmableLogicGlobalAddress policy: {}", programmableLogicGlobalAddress.getAddress());
@@ -135,7 +155,7 @@ public class ProtocolDeploymentMintTest extends AbstractPreviewTest {
 
         // Issuance Mint parameterization
         // Protocol Params contract parameterization
-        var issuanceParameters = ListPlutusData.of(utxo2OutputReference);
+        var issuanceParameters = ListPlutusData.of(utxo2OutputReference, BytesPlutusData.of(issuanceAlwaysFailScript.getScriptHash()));
         var issuanceContract = PlutusBlueprintUtil.getPlutusScriptFromCompiledCode(AikenScriptUtil.applyParamToScript(issuanceParameters, ISSUANCE_CBOR_HEX_CONTRACT), PlutusVersion.v3);
 
         // Directory MINT parameterization
@@ -161,9 +181,6 @@ public class ProtocolDeploymentMintTest extends AbstractPreviewTest {
                 .name(HexUtil.encodeHexString("ProtocolParams".getBytes(), true))
                 .value(BigInteger.ONE)
                 .build();
-
-        var protocolParamsContractAddress = AddressProvider.getEntAddress(Credential.fromScript(protocolParamsContract.getScriptHash()), network);
-        log.info("protocolParamsContractAddress: {}", protocolParamsContractAddress.getAddress());
 
         var protocolParamsDatum = ConstrPlutusData.of(0,
                 BytesPlutusData.of(directoryContract.getScriptHash()),
@@ -210,9 +227,6 @@ public class ProtocolDeploymentMintTest extends AbstractPreviewTest {
                 .value(BigInteger.ONE)
                 .build();
 
-        var issuanceAddress = AddressProvider.getEntAddress(Credential.fromScript(issuanceContract.getScriptHash()), network);
-        log.info("issuanceAddress: {}", issuanceAddress.getAddress());
-
         Value issuanceValue = Value.builder()
                 .coin(Amount.ada(1).getQuantity())
                 .multiAssets(List.of(
@@ -241,7 +255,7 @@ public class ProtocolDeploymentMintTest extends AbstractPreviewTest {
                 BytesPlutusData.of(HexUtil.decodeHexString(contractParts[0])),
                 BytesPlutusData.of(HexUtil.decodeHexString(contractParts[1])));
 
-        var tx = new ScriptTx()
+        var tx = new Tx()
                 //spend all wallets (coz we need to burn the bootstrap utxo)
                 .collectFrom(walletUtxos)
                 // Redeemer is DirectoryInit (constr(0))
@@ -251,11 +265,11 @@ public class ProtocolDeploymentMintTest extends AbstractPreviewTest {
                 // Redeemer unused
                 .mintAsset(issuanceContract, issuanceNft, ConstrPlutusData.of(2))
                 // Protocol Params
-                .payToContract(protocolParamsContractAddress.getAddress(), ValueUtil.toAmountList(protocolParamsValue), protocolParamsDatum)
+                .payToContract(parametersAlwaysFailAddress.getAddress(), ValueUtil.toAmountList(protocolParamsValue), protocolParamsDatum)
                 // Directory Params
                 .payToContract(directorySpendContractAddress.getAddress(), ValueUtil.toAmountList(directoryValue), directoryDatum)
                 // Protocol Params
-                .payToContract(issuanceAddress.getAddress(), ValueUtil.toAmountList(issuanceValue), issuanceDatum)
+                .payToContract(issuanceAlwaysFailAddress.getAddress(), ValueUtil.toAmountList(issuanceValue), issuanceDatum)
                 .payToAddress(refInputAccount.baseAddress(), Amount.ada(1), programmableLogicBaseContract)
                 .payToAddress(refInputAccount.baseAddress(), Amount.ada(1), programmableLogicGlobalContract)
                 .payToAddress(adminAccount.baseAddress(), Amount.ada(50))
@@ -311,284 +325,21 @@ public class ProtocolDeploymentMintTest extends AbstractPreviewTest {
                 programmableGlobalRefInput,
                 txHash);
 
-        var stakeRegistrationTx = new Tx()
-                .from(adminAccount.baseAddress())
-                .collectFrom(List.of(allWalletUtxos.get(2)))
-                .registerStakeAddress(programmableLogicGlobalAddress.getAddress())
-                .withChangeAddress(adminAccount.baseAddress());
-
-        new QuickTxBuilder(bfBackendService).compose(stakeRegistrationTx)
-                .feePayer(adminAccount.baseAddress())
-                .withSigner(SignerProviders.signerFrom(adminAccount))
-                .completeAndWait();
-
-        log.info("BootstrapParams: {}", OBJECT_MAPPER.writeValueAsString(protocolBootstrapParams));
-
-    }
-
-
-
-    @Test
-    public void deployOneShot() throws Exception {
-
-        var dryRun = false;
-
-        var utxosOpt = bfBackendService.getUtxoService().getUtxos(adminAccount.baseAddress(), 100, 1);
-        if (!utxosOpt.isSuccessful() || utxosOpt.getValue().size() < 3) {
-            log.warn("not enough utxos, splitting wallet");
-
-            var splitTx = new Tx()
-                    .from(adminAccount.baseAddress())
-                    .payToAddress(adminAccount.baseAddress(), Amount.ada(5))
-                    .payToAddress(adminAccount.baseAddress(), Amount.ada(5))
-                    .payToAddress(adminAccount.baseAddress(), Amount.ada(5))
-                    .withChangeAddress(adminAccount.baseAddress());
-
-            var response = quickTxBuilder.compose(splitTx)
-                    .withSigner(SignerProviders.signerFrom(adminAccount))
-                    .mergeOutputs(false)
-                    .completeAndWait();
-
-            log.info("Completed: {}", response);
-
-            Thread.sleep(30000L);
-
-            utxosOpt = bfBackendService.getUtxoService().getUtxos(adminAccount.baseAddress(), 100, 1);
-        }
-        var allWalletUtxos = utxosOpt.getValue();
-        var walletUtxos = utxosOpt.getValue().stream().limit(2).toList();
-
-        var utxo1 = walletUtxos.getFirst();
-        var utxo2 = walletUtxos.getLast();
-
-        Assertions.assertNotEquals(utxo1, utxo2);
-
-        // Output Reference - utxo1
-        var utxo1OutputReference = ConstrPlutusData.of(0,
-                BytesPlutusData.of(HexUtil.decodeHexString(utxo1.getTxHash())),
-                BigIntPlutusData.of(utxo1.getOutputIndex()));
-
-        // Output Reference - utxo2
-        var utxo2OutputReference = ConstrPlutusData.of(0,
-                BytesPlutusData.of(HexUtil.decodeHexString(utxo2.getTxHash())),
-                BigIntPlutusData.of(utxo2.getOutputIndex()));
-
-        // Protocol Params contract parameterization
-        var protocolParamsParameters = ListPlutusData.of(utxo1OutputReference);
-        var protocolParamsContract = PlutusBlueprintUtil.getPlutusScriptFromCompiledCode(AikenScriptUtil.applyParamToScript(protocolParamsParameters, PROTOCOL_PARAMS_CONTRACT), PlutusVersion.v3);
-        log.info("protocolParamsContract, policy: {}", protocolParamsContract.getPolicyId());
-        log.info("protocolParamsContract, hash: {}", HexUtil.encodeHexString(protocolParamsContract.getScriptHash()));
-
-        // Programmable Logic Global parameterization
-//        var programmableLogicGlobalParameters = ListPlutusData.of(ConstrPlutusData.of(0, BytesPlutusData.of(protocolParamsContract.getScriptHash())));
-        var programmableLogicGlobalParameters = ListPlutusData.of(BytesPlutusData.of(protocolParamsContract.getScriptHash()));
-        var programmableLogicGlobalContract = PlutusBlueprintUtil.getPlutusScriptFromCompiledCode(AikenScriptUtil.applyParamToScript(programmableLogicGlobalParameters, PROGRAMMABLE_LOGIC_GLOBAL_CONTRACT), PlutusVersion.v3);
-        var programmableLogicGlobalAddress = AddressProvider.getRewardAddress(programmableLogicGlobalContract, network);
-        log.info("programmableLogicGlobalAddress policy: {}", programmableLogicGlobalAddress.getAddress());
-
-        // Programmable Logic Base parameterization
-        var programmableLogicBaseParameters = ListPlutusData.of(ConstrPlutusData.of(1, BytesPlutusData.of(programmableLogicGlobalContract.getScriptHash())));
-        var programmableLogicBaseContract = PlutusBlueprintUtil.getPlutusScriptFromCompiledCode(AikenScriptUtil.applyParamToScript(programmableLogicBaseParameters, PROGRAMMABLE_LOGIC_BASE_CONTRACT), PlutusVersion.v3);
-
-
-        // The payment credentials where all prog tokens live
-        var baseProgrammableLogicPaymentCredential = ConstrPlutusData.of(1,
-                BytesPlutusData.of(programmableLogicBaseContract.getScriptHash())
-        );
-
-        // Issuance Mint parameterization
-        // Protocol Params contract parameterization
-        var issuanceParameters = ListPlutusData.of(utxo2OutputReference);
-        var issuanceContract = PlutusBlueprintUtil.getPlutusScriptFromCompiledCode(AikenScriptUtil.applyParamToScript(issuanceParameters, ISSUANCE_CBOR_HEX_CONTRACT), PlutusVersion.v3);
-
-        // Directory MINT parameterization
-        var directoryParameters = ListPlutusData.of(
-                ConstrPlutusData.of(0,
-                        BytesPlutusData.of(HexUtil.decodeHexString(utxo1.getTxHash())),
-                        BigIntPlutusData.of(utxo1.getOutputIndex())),
-                BytesPlutusData.of(issuanceContract.getScriptHash())
-        );
-        var directoryContract = PlutusBlueprintUtil.getPlutusScriptFromCompiledCode(AikenScriptUtil.applyParamToScript(directoryParameters, DIRECTORY_MINT_CONTRACT), PlutusVersion.v3);
-
-        // Directory SPEND parameterization
-        var directorySpendParameters = ListPlutusData.of(
-                BytesPlutusData.of(protocolParamsContract.getScriptHash())
-        );
-        var directorySpendContract = PlutusBlueprintUtil.getPlutusScriptFromCompiledCode(AikenScriptUtil.applyParamToScript(directorySpendParameters, DIRECTORY_SPEND_CONTRACT), PlutusVersion.v3);
-        var directorySpendContractAddress = AddressProvider.getEntAddress(Credential.fromScript(directorySpendContract.getScriptHash()), network);
-        log.info("directorySpendContractAddress: {}", directorySpendContractAddress.getAddress());
-
-
-        // Protocol Params MINT - NFT, address, datum and value
-        var protocolParamNft = Asset.builder()
-                .name(HexUtil.encodeHexString("ProtocolParams".getBytes(), true))
-                .value(BigInteger.ONE)
-                .build();
-
-        var protocolParamsContractAddress = AddressProvider.getEntAddress(Credential.fromScript(protocolParamsContract.getScriptHash()), network);
-        log.info("protocolParamsContractAddress: {}", protocolParamsContractAddress.getAddress());
-
-        var protocolParamsDatum = ConstrPlutusData.of(0,
-                BytesPlutusData.of(directoryContract.getScriptHash()),
-                // This is the payment credential for ALL permissioned tokens
-                baseProgrammableLogicPaymentCredential
-        );
-
-        Value protocolParamsValue = Value.builder()
-                .coin(Amount.ada(1).getQuantity())
-                .multiAssets(List.of(
-                        MultiAsset.builder()
-                                .policyId(protocolParamsContract.getPolicyId())
-                                .assets(List.of(protocolParamNft))
-                                .build()
-                ))
-                .build();
-
-        // Directory MINT - NFT, address, datum and value
-        var directoryNft = Asset.builder()
-                .name("0x")
-                .value(BigInteger.ONE)
-                .build();
-
-        var directoryDatum = ConstrPlutusData.of(0,
-                BytesPlutusData.of(""),
-                BytesPlutusData.of(HexUtil.decodeHexString("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")),
-                ConstrPlutusData.of(0, BytesPlutusData.of("")),
-                ConstrPlutusData.of(0, BytesPlutusData.of("")),
-                BytesPlutusData.of(""));
-
-        Value directoryValue = Value.builder()
-                .coin(Amount.ada(1).getQuantity())
-                .multiAssets(List.of(
-                        MultiAsset.builder()
-                                .policyId(directoryContract.getPolicyId())
-                                .assets(List.of(directoryNft))
-                                .build()
-                ))
-                .build();
-
-        // Issuance MINT - NFT, address, datum and value
-        var issuanceNft = Asset.builder()
-                .name(HexUtil.encodeHexString("IssuanceCborHex".getBytes(), true))
-                .value(BigInteger.ONE)
-                .build();
-
-        var issuanceAddress = AddressProvider.getEntAddress(Credential.fromScript(issuanceContract.getScriptHash()), network);
-        log.info("issuanceAddress: {}", issuanceAddress.getAddress());
-
-        Value issuanceValue = Value.builder()
-                .coin(Amount.ada(1).getQuantity())
-                .multiAssets(List.of(
-                        MultiAsset.builder()
-                                .policyId(issuanceContract.getPolicyId())
-                                .assets(List.of(issuanceNft))
-                                .build()
-                ))
-                .build();
-
-        // Issuance Contract Parameterization
-        var dummyPolicyId = "deadbeefcafebabedeadbeefcafebabedeadbeefcafebabedeadbeef";
-        var issuanceDummyParameters = ListPlutusData.of(
-                ConstrPlutusData.of(1,
-                        BytesPlutusData.of(programmableLogicBaseContract.getScriptHash())
-                ),
-                ConstrPlutusData.of(1,
-                        BytesPlutusData.of(HexUtil.decodeHexString(dummyPolicyId))
-                )
-        );
-        var issuanceDummyContract = PlutusBlueprintUtil.getPlutusScriptFromCompiledCode(AikenScriptUtil.applyParamToScript(issuanceDummyParameters, ISSUANCE_CONTRACT), PlutusVersion.v3);
-        var encodedIssuanceDummyContract = HexUtil.encodeHexString(issuanceDummyContract.serializeScriptBody());
-        var contractParts = encodedIssuanceDummyContract.split(dummyPolicyId);
-
-        var issuanceDatum = ConstrPlutusData.of(0,
-                BytesPlutusData.of(HexUtil.decodeHexString(contractParts[0])),
-                BytesPlutusData.of(HexUtil.decodeHexString(contractParts[1])));
-
-        var tx = new ScriptTx()
-                //spend all wallets (coz we need to burn the bootstrap utxo)
-                .collectFrom(walletUtxos)
-                // Redeemer is DirectoryInit (constr(0))
-                .mintAsset(directoryContract, directoryNft, ConstrPlutusData.of(0))
-                // Redeemer unused
-                .mintAsset(protocolParamsContract, protocolParamNft, ConstrPlutusData.of(1))
-                // Redeemer unused
-                .mintAsset(issuanceContract, issuanceNft, ConstrPlutusData.of(2))
-                // Protocol Params
-                .payToContract(protocolParamsContractAddress.getAddress(), ValueUtil.toAmountList(protocolParamsValue), protocolParamsDatum)
-                // Directory Params
-                .payToContract(directorySpendContractAddress.getAddress(), ValueUtil.toAmountList(directoryValue), directoryDatum)
-                // Protocol Params
-                .payToContract(issuanceAddress.getAddress(), ValueUtil.toAmountList(issuanceValue), issuanceDatum)
-                .payToAddress(refInputAccount.baseAddress(), Amount.ada(1), programmableLogicBaseContract)
-                .payToAddress(refInputAccount.baseAddress(), Amount.ada(1), programmableLogicGlobalContract)
-                .payToAddress(adminAccount.baseAddress(), Amount.ada(50))
-                .payToAddress(adminAccount.baseAddress(), Amount.ada(50))
-                .withChangeAddress(adminAccount.baseAddress());
-
-//                    .attachRewardValidator(programmableLogicGlobalContract) // global
-//                .attachRewardValidator(substandardTransferContract)
-//                .attachSpendingValidator(programmableLogicBaseContract) // base
-
-        var stakeRegistrationTx = new Tx()
-                .from(adminAccount.baseAddress())
-                .collectFrom(List.of(allWalletUtxos.get(2)))
-                .registerStakeAddress(programmableLogicGlobalAddress.getAddress())
-                .withChangeAddress(adminAccount.baseAddress());
-
+//        var stakeRegistrationTx = new Tx()
+//                .from(adminAccount.baseAddress())
+//                .collectFrom(List.of(allWalletUtxos.get(2)))
+//                .registerStakeAddress(programmableLogicGlobalAddress.getAddress())
+//                .withChangeAddress(adminAccount.baseAddress());
+//
 //        new QuickTxBuilder(bfBackendService).compose(stakeRegistrationTx)
 //                .feePayer(adminAccount.baseAddress())
 //                .withSigner(SignerProviders.signerFrom(adminAccount))
 //                .completeAndWait();
 
-        var transaction = quickTxBuilder.compose(tx, stakeRegistrationTx)
-                .withSigner(SignerProviders.signerFrom(adminAccount))
-                .withTxEvaluator(new AikenTransactionEvaluator(bfBackendService))
-                .feePayer(adminAccount.baseAddress())
-                .mergeOutputs(false)
-                .buildAndSign();
-
-
-        log.info("tx: {}", transaction.serializeToHex());
-        log.info("tx: {}", OBJECT_MAPPER.writeValueAsString(transaction));
-
-        String txHash;
-        if (!dryRun) {
-            var result = bfBackendService.getTransactionService().submitTransaction(transaction.serialize());
-            if (result.isSuccessful()) {
-                txHash = result.getValue();
-                log.info("submitted: {}", result.getValue());
-            } else {
-                txHash = "error";
-                log.warn("error: {}", result.getResponse());
-            }
-
-        } else {
-            txHash = "dummy";
-        }
-
-        var protocolParams = new ProtocolParams(new TxInput(utxo1.getTxHash(), utxo1.getOutputIndex()), protocolParamsContract.getPolicyId());
-        var programmableLogicGlobalParams = new ProgrammableLogicGlobalParams(protocolParamsContract.getPolicyId(), programmableLogicGlobalContract.getPolicyId());
-        var programmableLogicBaseParams = new ProgrammableLogicBaseParams(programmableLogicGlobalContract.getPolicyId(), programmableLogicBaseContract.getPolicyId());
-        var issuanceParams = new IssuanceParams(new TxInput(utxo2.getTxHash(), utxo2.getOutputIndex()), issuanceContract.getPolicyId());
-        var directoryParams = new DirectoryMintParams(new TxInput(utxo1.getTxHash(), utxo1.getOutputIndex()), issuanceContract.getPolicyId(), directoryContract.getPolicyId());
-        var directorySpendParams = new DirectorySpendParams(protocolParamsContract.getPolicyId(), directorySpendContract.getPolicyId());
-        var programmableBaseRefInput = new TxInput(txHash, 3);
-        var programmableGlobalRefInput = new TxInput(txHash, 4);
-
-        var protocolBootstrapParams = new ProtocolBootstrapParams(protocolParams,
-                programmableLogicGlobalParams,
-                programmableLogicBaseParams,
-                issuanceParams,
-                directoryParams,
-                directorySpendParams,
-                programmableBaseRefInput,
-                programmableGlobalRefInput,
-                txHash);
-
-
         log.info("BootstrapParams: {}", OBJECT_MAPPER.writeValueAsString(protocolBootstrapParams));
 
     }
+
 
 
 }
