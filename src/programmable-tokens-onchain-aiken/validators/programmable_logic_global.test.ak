@@ -3,8 +3,12 @@
 use aiken/collection/list
 use aiken/crypto.{blake2b_256}
 use cardano/address.{Address, Credential, Inline, Script, VerificationKey}
-use cardano/assets.{PolicyId, ada_asset_name, ada_policy_id, from_asset, merge, negate, zero}
-use cardano/transaction.{InlineDatum, Input, NoDatum, Output, OutputReference, Transaction}
+use cardano/assets.{
+  PolicyId, ada_asset_name, ada_policy_id, from_asset, merge, negate, zero,
+}
+use cardano/transaction.{
+  InlineDatum, Input, NoDatum, Output, OutputReference, Transaction,
+}
 use programmable_logic/fixture
 use programmable_logic_global
 use types.{
@@ -41,10 +45,10 @@ test transfer_act_redeemer() {
   let proof1 = TokenExists { node_idx: 0 }
   let proof2 = TokenDoesNotExist { node_idx: 1 }
 
-  let redeemer = TransferAct { proofs: [proof1, proof2], mint_proofs: [] }
+  let redeemer = TransferAct { proofs: [proof1, proof2] }
 
   when redeemer is {
-    TransferAct { proofs, .. } -> list.length(proofs) == 2
+    TransferAct { proofs } -> list.length(proofs) == 2
     _ -> False
   }
 }
@@ -369,22 +373,19 @@ fn validate_third_party_with_idxs(input_idxs: List<Int>) -> Bool {
 
 // Positive: unique, sorted indices [0, 1] — must always pass.
 test third_party_act_with_unique_sorted_indices() {
-  validate_third_party_with_idxs([0, 1])
-}
-
-// Negative (F-01): duplicate index [0, 0] — input 1 is consumed but never
-// validated, allowing its tokens to be stolen.  The validator SHOULD reject
-// this, so we mark the test `fail`.  Until the fix is applied, the validator
-// incorrectly accepts it and this test will report as FAILING.
-test third_party_act_duplicate_indices_must_fail() fail {
   validate_third_party_with_idxs([0, 0])
 }
 
-// Negative (F-01): unsorted indices [1, 0] — a strictly-increasing check
-// should reject this ordering.  Until the fix is applied this test will
-// report as FAILING because the validator currently accepts it.
+// input 1 is consumed but never validated, allowing its tokens to be stolen.
+// The validator SHOULD reject this, so we mark the test `fail`.
+test third_party_act_missing_indices() fail {
+  validate_third_party_with_idxs([0])
+}
+
+// Out of bounds indices, trying to skip more inputs that we have. Should reject,
+// so marked as `fail`
 test third_party_act_unsorted_indices_must_fail() fail {
-  validate_third_party_with_idxs([1, 0])
+  validate_third_party_with_idxs([0, 1])
 }
 
 // ---------------------------------------------------------------------------
@@ -626,9 +627,10 @@ test third_party_act_delta_insufficient_remaining_fails() fail {
 const test_mint_policy: PolicyId =
   #"3132333435363738393a3b3c3d3e3f404142434445464748494a4b4c"
 
-// Positive: partial burn via TransferAct with mint_proofs.
-// Input has 100 FOO, burns 30, output has 70. The mint_proofs validate the
-// burned tokens against the registry, adjusting the expected output down.
+// Positive: partial burn via TransferAct with mint.
+// Input has 100 FOO, burns 30, output has 70. The proof serves both for mint
+// and input to validate the burned and spent tokens against the registry,
+// adjusting the expected output down.
 test transfer_act_partial_burn_with_mint_proofs_succeeds() {
   let tx =
     Transaction {
@@ -662,11 +664,7 @@ test transfer_act_partial_burn_with_mint_proofs_succeeds() {
       ],
     }
 
-  let redeemer =
-    TransferAct {
-      proofs: [TokenExists { node_idx: 1 }],
-      mint_proofs: [TokenExists { node_idx: 1 }],
-    }
+  let redeemer = TransferAct { proofs: [TokenExists { node_idx: 1 }] }
 
   programmable_logic_global.programmable_logic_global.withdraw(
     fixture.policy_protocol_params,
@@ -711,11 +709,7 @@ test transfer_act_with_minting_succeeds() {
       ],
     }
 
-  let redeemer =
-    TransferAct {
-      proofs: [TokenExists { node_idx: 1 }],
-      mint_proofs: [TokenExists { node_idx: 1 }],
-    }
+  let redeemer = TransferAct { proofs: [TokenExists { node_idx: 1 }] }
 
   programmable_logic_global.programmable_logic_global.withdraw(
     fixture.policy_protocol_params,
@@ -729,15 +723,62 @@ test transfer_act_with_minting_succeeds() {
 // If tx.mint is non-empty but mint_proofs is [], the validator must reject.
 // This prevents unvalidated tokens from bypassing the directory check.
 test transfer_act_mint_without_proofs_must_fail() fail {
+  let test_input_policy = "input policy"
   let tx =
     Transaction {
       ..transaction.placeholder,
       inputs: [
         fixture.some_input_with_programmable_tokens(
-          [(test_mint_policy, "FOO", 100)],
-          "no proof input",
+          [(test_input_policy, "FOO", 100)],
+          "input",
         ),
       ],
+      mint: from_asset(test_mint_policy, "FOO", 50),
+      outputs: [
+        fixture.some_output_with_programmable_tokens(
+          [(test_input_policy, "FOO", 100), (test_mint_policy, "FOO", 50)],
+        ),
+      ],
+      reference_inputs: [
+        fixture.some_reference_input_protocol_params(
+          fixture.protocol_params,
+          "protocol params",
+        ),
+        fixture.some_reference_input_tokens_registry_node(
+          test_input_policy,
+          test_mint_policy,
+          "registry node #1",
+        ),
+        fixture.some_reference_input_tokens_registry_node(
+          test_mint_policy,
+          #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "registry node #2",
+        ),
+      ],
+      withdrawals: [
+        Pair(fixture.credential_validator_logic_global, 0),
+        Pair(fixture.credential_transfer_logic, 0),
+      ],
+    }
+
+  // No proof for idx 2, necessary for the mint but tx.mint is non-empty — must be rejected
+  let redeemer = TransferAct { proofs: [TokenExists { node_idx: 1 }] }
+
+  programmable_logic_global.programmable_logic_global.withdraw(
+    fixture.policy_protocol_params,
+    redeemer,
+    fixture.credential_validator_logic_global,
+    tx,
+  )
+}
+
+// Positive: transfer with ONLY minting — new tokens appear at prog_logic_cred.
+// Mints 50, no other prog input, output must have at least 50.
+test transfer_act_with_only_minting_succeeds() {
+  let tx =
+    Transaction {
+      ..transaction.placeholder,
+      inputs: [],
       mint: from_asset(test_mint_policy, "FOO", 50),
       outputs: [
         fixture.some_output_with_programmable_tokens(
@@ -761,12 +802,112 @@ test transfer_act_mint_without_proofs_must_fail() fail {
       ],
     }
 
-  // mint_proofs is empty but tx.mint is non-empty — must be rejected
-  let redeemer =
-    TransferAct {
-      proofs: [TokenExists { node_idx: 1 }],
-      mint_proofs: [],
+  let redeemer = TransferAct { proofs: [TokenExists { node_idx: 1 }] }
+
+  programmable_logic_global.programmable_logic_global.withdraw(
+    fixture.policy_protocol_params,
+    redeemer,
+    fixture.credential_validator_logic_global,
+    tx,
+  )
+}
+
+// Negative: transfer with only minting should not succeed if lacking proofs...
+test transfer_act_with_only_minting_no_proofs_fails() fail {
+  let tx =
+    Transaction {
+      ..transaction.placeholder,
+      inputs: [],
+      mint: from_asset(test_mint_policy, "FOO", 50),
+      outputs: [
+        fixture.some_output_with_programmable_tokens(
+          [(test_mint_policy, "FOO", 150)],
+        ),
+      ],
+      reference_inputs: [
+        fixture.some_reference_input_protocol_params(
+          fixture.protocol_params,
+          "protocol params",
+        ),
+      ],
+      withdrawals: [Pair(fixture.credential_validator_logic_global, 0)],
     }
+
+  let redeemer = TransferAct { proofs: [] }
+
+  programmable_logic_global.programmable_logic_global.withdraw(
+    fixture.policy_protocol_params,
+    redeemer,
+    fixture.credential_validator_logic_global,
+    tx,
+  )
+}
+
+// Negative: unauthenticated transfer & burn where spent tokens are entirely burned (so
+// mint & spend values balancing each other out)
+test transfer_act_unauthorized_burning_compensate_spending_fails() fail {
+  let tx =
+    Transaction {
+      ..transaction.placeholder,
+      inputs: [
+        fixture.some_input_with_programmable_tokens(
+          [(test_mint_policy, "FOO", 100)],
+          "mint input",
+        ),
+      ],
+      mint: from_asset(test_mint_policy, "FOO", -100),
+      outputs: [],
+      reference_inputs: [
+        fixture.some_reference_input_protocol_params(
+          fixture.protocol_params,
+          "protocol params",
+        ),
+        fixture.some_reference_input_tokens_registry_node(
+          test_mint_policy,
+          #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "registry node",
+        ),
+      ],
+      withdrawals: [Pair(fixture.credential_validator_logic_global, 0)],
+    }
+
+  let redeemer = TransferAct { proofs: [TokenExists { node_idx: 1 }] }
+
+  programmable_logic_global.programmable_logic_global.withdraw(
+    fixture.policy_protocol_params,
+    redeemer,
+    fixture.credential_validator_logic_global,
+    tx,
+  )
+}
+
+// Negative: unauthenticated transfer & burn where spent tokens are entirely burned (so
+// mint & spend values balancing each other out)
+test transfer_act_burning_compensate_spending_unproven_token_fails() fail {
+  let tx =
+    Transaction {
+      ..transaction.placeholder,
+      inputs: [
+        fixture.some_input_with_programmable_tokens(
+          [(test_mint_policy, "FOO", 100)],
+          "mint input",
+        ),
+      ],
+      mint: from_asset(test_mint_policy, "FOO", -100),
+      outputs: [],
+      reference_inputs: [
+        fixture.some_reference_input_protocol_params(
+          fixture.protocol_params,
+          "protocol params",
+        ),
+      ],
+      withdrawals: [
+        Pair(fixture.credential_validator_logic_global, 0),
+        Pair(fixture.credential_transfer_logic, 0),
+      ],
+    }
+
+  let redeemer = TransferAct { proofs: [] }
 
   programmable_logic_global.programmable_logic_global.withdraw(
     fixture.policy_protocol_params,
@@ -1274,11 +1415,7 @@ test transfer_act_mint_insufficient_output_fails() fail {
       ],
     }
 
-  let redeemer =
-    TransferAct {
-      proofs: [TokenExists { node_idx: 1 }],
-      mint_proofs: [TokenExists { node_idx: 1 }],
-    }
+  let redeemer = TransferAct { proofs: [TokenExists { node_idx: 1 }] }
 
   programmable_logic_global.programmable_logic_global.withdraw(
     fixture.policy_protocol_params,

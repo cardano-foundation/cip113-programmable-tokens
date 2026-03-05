@@ -9,9 +9,13 @@ use aiken/crypto.{VerificationKeyHash}
 use cardano/address.{Credential}
 use cardano/assets.{AssetName, PolicyId, Value, ada_policy_id, flatten}
 use cardano/transaction.{InlineDatum, Input, Output}
+use env
+
+pub type Tokens =
+  Dict<AssetName, Int>
 
 pub type RawValue =
-  Dict<PolicyId, Dict<AssetName, Int>>
+  Dict<PolicyId, Tokens>
 
 /// Get the datum from an output, expecting an inline datum
 pub fn expect_inline_datum(output: Output) -> Data {
@@ -143,11 +147,15 @@ pub fn has_key(haystack: List<Pair<Credential, a>>, needle: Credential) -> Bool 
   head_list(haystack).1st == needle || has_key(tail_list(haystack), needle)
 }
 
-/// A faster version of assets.merge that is specialized to positive values
-/// (typically found in outputs). This allows to bypass the null check on value
-/// since quantities can only ever increase.
+/// A faster version of assets.merge that preserves empty maps. This allows to
+/// bypass the null check on value since quantities can only ever increase.
+/// Importantly, it is also *necessary* to ensure that policies are retained in
+/// the map for later validations even if they result in no outputs (e.g. a burn
+/// fully compensate a spend).
 ///
-/// The function handles recurses over a list or input-like objects, and let the
+/// It also focuses on assets and completely ignores Ada.
+///
+/// The function recurses over a list or input-like objects, and let the
 /// caller select whether to add an output or not.
 ///
 /// ## Example
@@ -165,14 +173,22 @@ pub fn has_key(haystack: List<Pair<Credential, a>>, needle: Credential) -> Bool 
 ///   },
 /// )
 /// ```
-pub fn sum_output_values(
+///
+/// /!\ PRE-CONDITION /!\
+/// The given zero value is not expected to contain any Ada. This is enforced
+/// when assertions are enabled (`--env with_assertions`).
+///
+/// This is generally true when the initial zero is empty or coming from the
+/// mint value.
+pub fn sum_output_assets(
   elems: List<i>,
+  zero: RawValue,
   strategy: fn(i, fn(Output) -> RawValue, fn() -> RawValue) -> RawValue,
 ) -> RawValue {
-  do_sum_output_values(elems, strategy, dict.empty)
+  do_sum_output_assets(elems, strategy, env.assert_no_ada_policy(zero))
 }
 
-fn do_sum_output_values(
+fn do_sum_output_assets(
   elems: List<i>,
   strategy: fn(i, fn(Output) -> RawValue, fn() -> RawValue) -> RawValue,
   sum: RawValue,
@@ -180,7 +196,7 @@ fn do_sum_output_values(
   when elems is {
     [] -> sum
     [head, ..tail] ->
-      do_sum_output_values(
+      do_sum_output_assets(
         tail,
         strategy,
         strategy(
@@ -189,7 +205,8 @@ fn do_sum_output_values(
           fn(output) {
             output.value
               |> assets.to_dict
-              |> merge_raw_values(sum, _)
+              |> dict.delete(ada_policy_id)
+              |> merge_raw_values(sum)
           },
           // Output is discarded
           fn() { sum },
@@ -204,6 +221,12 @@ pub fn merge_raw_values(left: RawValue, right: RawValue) -> RawValue {
   dict.union_with(
     left,
     right,
+    // NOTE: Preserving null assets
+    // It is primordial here to not discard assets if even they result in an
+    // empty set. This is because the zero value may have negative quantities
+    // coming from burns. If a burn is fully cover by a spend, we must preserve
+    // the key in the map to ensure that validations necessary to that policy
+    // occur as expected.
     fn(_policy, left, right, keep, _discard) {
       keep(dict.union_with(left, right, dict_strategy.sum()))
     },
@@ -227,37 +250,13 @@ pub fn match_assets(left: RawValue, right: RawValue) -> Bool {
   left_assets == right_assets
 }
 
-/// A fast check for inclusion of a value inside another. It checks if the
-/// first value contains all the tokens of the second value and the quantities
-/// of the tokens in the first value are greater than or equal to the quantities
-/// of the tokens in the second value.
-///
 /// /!\ PRE-CONDITION /!\
 /// Given pairs are assumed to be well-formed and semantically 'correct'. That
 /// is, keys contain no duplicates and are in ascending order.
 ///
 /// In practice, this means we suppose both values have been constructed from
 /// existing well-formed Values.
-pub fn value_contains(
-  superset: Pairs<PolicyId, Dict<AssetName, Int>>,
-  subset: Pairs<PolicyId, Dict<AssetName, Int>>,
-) -> Bool {
-  when subset is {
-    [] -> True
-    [head_subset, ..tail_subset] -> {
-      let head_superset, tail_superset <- drop_until(superset, head_subset.1st)
-      and {
-        token_contains(
-          dict.to_pairs(head_superset),
-          dict.to_pairs(head_subset.2nd),
-        ),
-        value_contains(tail_subset, tail_superset),
-      }
-    }
-  }
-}
-
-fn token_contains(
+pub fn tokens_contains(
   superset: Pairs<AssetName, Int>,
   subset: Pairs<AssetName, Int>,
 ) -> Bool {
@@ -267,13 +266,13 @@ fn token_contains(
       let head_superset, tail_superset <- drop_until(superset, head_subset.1st)
       and {
         head_superset >= head_subset.2nd,
-        token_contains(tail_superset, tail_subset),
+        tokens_contains(tail_superset, tail_subset),
       }
     }
   }
 }
 
-fn drop_until(
+pub fn drop_until(
   self: Pairs<ByteArray, v>,
   until: ByteArray,
   return: fn(v, Pairs<ByteArray, v>) -> result,
@@ -283,5 +282,69 @@ fn drop_until(
     return(head.2nd, tail_list(self))
   } else {
     drop_until(tail_list(self), until, return)
+  }
+}
+
+/// Merge two token maps by summing quantities per token name.
+pub fn union_tokens(
+  left: Dict<AssetName, Int>,
+  right: Dict<AssetName, Int>,
+) -> Dict<AssetName, Int> {
+  dict.union_with(left, right, dict_strategy.sum_if_non_zero())
+}
+
+/// Drop n elements from a list, fast.
+pub fn drop(xs: List<a>, n: Int) -> List<a> {
+  if n >= 2 {
+    drop(tail_list(tail_list(xs)), n - 2)
+  } else if n >= 1 {
+    drop(tail_list(xs), n - 1)
+  } else {
+    xs
+  }
+}
+
+/// Drop n element from a list while enforcing that any dropped element satisfies
+/// a given predicate.
+pub fn skip_assert(xs: List<a>, n: Int, assert: fn(a) -> Bool) -> List<a> {
+  if n > 0 {
+    expect assert(head_list(xs))
+    skip_assert(tail_list(xs), n - 1, assert)
+  } else {
+    xs
+  }
+}
+
+/// Split an dictionnary at the given key. Returning the elements before (in reverse key order), the
+/// value at the key, and the elements after (in same key order).
+pub fn split_at(
+  kvs: Dict<PolicyId, Tokens>,
+  at: PolicyId,
+  return: fn(Pairs<PolicyId, Tokens>, Tokens, Pairs<PolicyId, Tokens>) -> result,
+) -> result {
+  do_split_at(at, return, dict.to_pairs(kvs), [])
+}
+
+fn do_split_at(
+  at: PolicyId,
+  return: fn(Pairs<PolicyId, Tokens>, Tokens, Pairs<PolicyId, Tokens>) -> result,
+  kvs: Pairs<PolicyId, Tokens>,
+  before: Pairs<PolicyId, Tokens>,
+) -> result {
+  when kvs is {
+    [head, ..tail] -> {
+      let k = head.1st
+      if builtin.less_than_bytearray(k, at) {
+        // Skip while keys are smaller (strictly) than searched key
+        do_split_at(at, return, tail, [head, ..before])
+      } else if k == at {
+        // Done searching, get the value and return the tail after
+        return(before, head.2nd, tail)
+      } else {
+        // The head and tail are all after the key; no need to continue searching.
+        return(before, dict.empty, kvs)
+      }
+    }
+    [] -> return(before, dict.empty, [])
   }
 }
