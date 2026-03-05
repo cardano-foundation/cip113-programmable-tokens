@@ -45,8 +45,18 @@ export interface FreezeAndSeizeRegisterRequest extends BaseRegisterTokenRequest 
   blacklistNodePolicyId: string;   // From blacklist initialization step
 }
 
+/** Whitelist-send-receive-multiadmin substandard - requires whitelist info */
+export interface WhitelistMultiAdminRegisterRequest extends BaseRegisterTokenRequest {
+  substandardId: 'whitelist-send-receive-multiadmin';
+  adminPubKeyHash: string;           // Payment key hash derived from feePayerAddress
+  superAdminPkhs?: string[];         // Optional additional super-admin PKHs
+  whitelistPolicyId: string;         // From whitelist initialization step
+  managerListPolicyId: string;       // From manager list initialization step
+  managerSigsPolicyId: string;       // From manager signatures initialization step
+}
+
 /** Discriminated union of all registration request types */
-export type RegisterTokenRequest = DummyRegisterRequest | FreezeAndSeizeRegisterRequest;
+export type RegisterTokenRequest = DummyRegisterRequest | FreezeAndSeizeRegisterRequest | WhitelistMultiAdminRegisterRequest;
 
 export interface RegisterTokenResponse {
   policyId: string;              // Generated policy ID

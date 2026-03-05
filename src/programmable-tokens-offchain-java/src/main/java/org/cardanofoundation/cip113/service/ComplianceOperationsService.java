@@ -10,6 +10,8 @@ import org.cardanofoundation.cip113.service.substandard.capabilities.BlacklistMa
 import org.cardanofoundation.cip113.service.substandard.capabilities.BlacklistManageable.*;
 import org.cardanofoundation.cip113.service.substandard.capabilities.Seizeable;
 import org.cardanofoundation.cip113.service.substandard.capabilities.Seizeable.*;
+import org.cardanofoundation.cip113.service.substandard.capabilities.SubstandardGovernance;
+import org.cardanofoundation.cip113.service.substandard.capabilities.SubstandardGovernance.*;
 import org.cardanofoundation.cip113.service.substandard.capabilities.WhitelistManageable;
 import org.cardanofoundation.cip113.service.substandard.capabilities.WhitelistManageable.*;
 import org.cardanofoundation.cip113.service.substandard.context.SubstandardContext;
@@ -257,6 +259,41 @@ public class ComplianceOperationsService {
         return txContext;
     }
 
+    // ========== Governance Operations ==========
+
+    public TransactionContext<GovernanceInitResult> initGovernance(
+            String substandardId,
+            GovernanceInitRequest request,
+            String protocolTxHash,
+            SubstandardContext context) {
+
+        var protocolParams = resolveProtocolParams(protocolTxHash);
+        var governance = getGovernance(substandardId, context);
+        return governance.buildGovernanceInitTransaction(request, protocolParams);
+    }
+
+    public TransactionContext<Void> addAdmin(
+            String substandardId,
+            AddAdminRequest request,
+            String protocolTxHash,
+            SubstandardContext context) {
+
+        var protocolParams = resolveProtocolParams(protocolTxHash);
+        var governance = getGovernance(substandardId, context);
+        return governance.buildAddAdminTransaction(request, protocolParams);
+    }
+
+    public TransactionContext<Void> removeAdmin(
+            String substandardId,
+            RemoveAdminRequest request,
+            String protocolTxHash,
+            SubstandardContext context) {
+
+        var protocolParams = resolveProtocolParams(protocolTxHash);
+        var governance = getGovernance(substandardId, context);
+        return governance.buildRemoveAdminTransaction(request, protocolParams);
+    }
+
     // ========== Helper Methods ==========
 
     /**
@@ -303,6 +340,23 @@ public class ComplianceOperationsService {
         return handler.asWhitelistManageable()
                 .orElseThrow(() -> new UnsupportedOperationException(
                         "Substandard '" + substandardId + "' does not support whitelist management"));
+    }
+
+    /**
+     * Get SubstandardGovernance capability from handler.
+     */
+    private SubstandardGovernance getGovernance(String substandardId, SubstandardContext context) {
+        var handler = context != null
+                ? handlerFactory.getHandler(substandardId, context)
+                : handlerFactory.getHandler(substandardId);
+
+        if (handler == null) {
+            throw new IllegalArgumentException("Unknown substandard: " + substandardId);
+        }
+
+        return handler.asGovernance()
+                .orElseThrow(() -> new UnsupportedOperationException(
+                        "Substandard '" + substandardId + "' does not support governance operations"));
     }
 
     /**

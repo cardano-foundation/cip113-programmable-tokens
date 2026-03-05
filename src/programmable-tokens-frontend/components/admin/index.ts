@@ -3,3 +3,5 @@ export { AdminTokenSelector } from "./AdminTokenSelector";
 export { MintSection } from "./MintSection";
 export { BlacklistSection } from "./BlacklistSection";
 export { SeizeSection } from "./SeizeSection";
+export { WhitelistSection } from "./WhitelistSection";
+export { ManagerSection } from "./ManagerSection";

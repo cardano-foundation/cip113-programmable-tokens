@@ -7,10 +7,11 @@ import type {
 import { register_programmable_tokens } from "../transactions/register";
 import { transfer_programmable_token } from "../transactions/transfer";
 import { transfer_freeze_and_seize_token } from "../transactions/transfer-fes";
+import { transfer_whitelist_token } from "../transactions/transfer-whitelist";
 import { mint_programmable_tokens } from "../transactions/mint";
 import { getNetworkId } from "../config";
 
-export type SubstandardId = "dummy" | "bafin" | "freeze-and-seize";
+export type SubstandardId = "dummy" | "bafin" | "freeze-and-seize" | "whitelist-send-receive-multiadmin";
 
 export interface MintTransactionParams {
   assetName: string;
@@ -40,6 +41,7 @@ export interface TransferTransactionParams {
   networkId?: 0 | 1;
   context?: {
     blacklistNodePolicyId?: string;
+    whitelistPolicyId?: string;
   };
 }
 
@@ -204,10 +206,53 @@ const freezeAndSeizeHandler: SubstandardHandler = {
   },
 };
 
+const whitelistMultiAdminHandler: SubstandardHandler = {
+  async buildMintTransaction() {
+    throw new Error(
+      "Whitelist multi-admin mint not yet implemented for client-side transaction building"
+    );
+  },
+
+  async buildRegisterTransaction() {
+    throw new Error(
+      "Whitelist multi-admin register not yet implemented for client-side transaction building"
+    );
+  },
+
+  async buildTransferTransaction(
+    params: TransferTransactionParams,
+    protocolParams: ProtocolBootstrapParams,
+    protocolBlueprint: ProtocolBlueprint,
+    substandardBlueprint: SubstandardBlueprint,
+    wallet: IWallet
+  ): Promise<string> {
+    if (!params.context?.whitelistPolicyId) {
+      throw new Error(
+        "whitelistPolicyId is required for whitelist-send-receive-multiadmin transfers"
+      );
+    }
+
+    const networkId = params.networkId ?? getNetworkId();
+
+    return transfer_whitelist_token(
+      params.unit,
+      params.quantity,
+      params.recipientAddress,
+      protocolParams,
+      networkId,
+      wallet,
+      protocolBlueprint,
+      substandardBlueprint,
+      params.context.whitelistPolicyId
+    );
+  },
+};
+
 const handlers: Record<string, SubstandardHandler> = {
   dummy: dummyHandler,
   bafin: bafinHandler,
   "freeze-and-seize": freezeAndSeizeHandler,
+  "whitelist-send-receive-multiadmin": whitelistMultiAdminHandler,
 };
 
 /**

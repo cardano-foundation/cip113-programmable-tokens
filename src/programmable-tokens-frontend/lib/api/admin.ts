@@ -12,7 +12,7 @@ import { apiGet } from './client';
 // Types
 // ============================================================================
 
-export type AdminRole = "ISSUER_ADMIN" | "BLACKLIST_MANAGER";
+export type AdminRole = "ISSUER_ADMIN" | "BLACKLIST_MANAGER" | "WHITELIST_MANAGER";
 
 export interface AdminTokenInfo {
   policyId: string;
@@ -24,6 +24,9 @@ export interface AdminTokenInfo {
     blacklistNodePolicyId?: string;
     issuerAdminPkh?: string;
     blacklistAdminPkh?: string;
+    whitelistPolicyId?: string;
+    managerListPolicyId?: string;
+    managerSigsPolicyId?: string;
   };
 }
 

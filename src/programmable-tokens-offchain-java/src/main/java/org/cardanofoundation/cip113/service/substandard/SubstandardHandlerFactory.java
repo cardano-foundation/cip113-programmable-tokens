@@ -4,9 +4,11 @@ import lombok.extern.slf4j.Slf4j;
 import org.cardanofoundation.cip113.service.substandard.capabilities.BasicOperations;
 import org.cardanofoundation.cip113.service.substandard.capabilities.BlacklistManageable;
 import org.cardanofoundation.cip113.service.substandard.capabilities.Seizeable;
+import org.cardanofoundation.cip113.service.substandard.capabilities.SubstandardGovernance;
 import org.cardanofoundation.cip113.service.substandard.capabilities.WhitelistManageable;
 import org.cardanofoundation.cip113.service.substandard.context.FreezeAndSeizeContext;
 import org.cardanofoundation.cip113.service.substandard.context.SubstandardContext;
+import org.cardanofoundation.cip113.service.substandard.context.WhitelistMultiAdminContext;
 import org.springframework.context.ApplicationContext;
 import org.springframework.stereotype.Service;
 
@@ -57,8 +59,8 @@ public class SubstandardHandlerFactory {
         for (SubstandardHandler handler : handlerList) {
             String id = handler.getSubstandardId().toLowerCase();
 
-            // FreezeAndSeizeHandler is prototype-scoped, needs context
-            if (handler instanceof FreezeAndSeizeHandler) {
+            // Prototype-scoped handlers need context
+            if (handler instanceof FreezeAndSeizeHandler || handler instanceof WhitelistSendReceiveMultiAdminHandler) {
                 contextAwareSubstandards.add(id);
                 log.info("Registered context-aware substandard: {}", id);
             } else {
@@ -124,10 +126,22 @@ public class SubstandardHandlerFactory {
                         (context != null ? context.getClass().getSimpleName() : "null"));
             }
 
-            // Get a new prototype instance from Spring
             FreezeAndSeizeHandler handler = applicationContext.getBean(FreezeAndSeizeHandler.class);
             handler.setContext(fasContext);
             log.debug("Created FreezeAndSeizeHandler with context: {}", fasContext);
+            return handler;
+        }
+
+        if ("whitelist-send-receive-multiadmin".equals(substandardId)) {
+            if (!(context instanceof WhitelistMultiAdminContext wlContext)) {
+                throw new IllegalArgumentException(
+                        "whitelist-send-receive-multiadmin handler requires WhitelistMultiAdminContext, got: " +
+                        (context != null ? context.getClass().getSimpleName() : "null"));
+            }
+
+            WhitelistSendReceiveMultiAdminHandler handler = applicationContext.getBean(WhitelistSendReceiveMultiAdminHandler.class);
+            handler.setContext(wlContext);
+            log.debug("Created WhitelistSendReceiveMultiAdminHandler with context: {}", wlContext);
             return handler;
         }
 
@@ -176,6 +190,7 @@ public class SubstandardHandlerFactory {
         if (handler instanceof BlacklistManageable) caps.add("BlacklistManageable");
         if (handler instanceof WhitelistManageable) caps.add("WhitelistManageable");
         if (handler instanceof Seizeable) caps.add("Seizeable");
+        if (handler instanceof SubstandardGovernance) caps.add("SubstandardGovernance");
         return String.join(", ", caps);
     }
 
@@ -213,5 +228,21 @@ public class SubstandardHandlerFactory {
     public Optional<Seizeable> getSeizeable(String substandardId, SubstandardContext context) {
         var handler = getHandler(substandardId, context);
         return handler != null ? handler.asSeizeable() : Optional.empty();
+    }
+
+    /**
+     * Get a handler's WhitelistManageable capability if supported.
+     */
+    public Optional<WhitelistManageable> getWhitelistManageable(String substandardId, SubstandardContext context) {
+        var handler = getHandler(substandardId, context);
+        return handler != null ? handler.asWhitelistManageable() : Optional.empty();
+    }
+
+    /**
+     * Get a handler's SubstandardGovernance capability if supported.
+     */
+    public Optional<SubstandardGovernance> getGovernance(String substandardId, SubstandardContext context) {
+        var handler = getHandler(substandardId, context);
+        return handler != null ? handler.asGovernance() : Optional.empty();
     }
 }

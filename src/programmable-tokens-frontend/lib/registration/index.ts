@@ -18,3 +18,4 @@ export {
 // These imports trigger the flow registration via side effects
 import './flows/dummy-flow.tsx';
 import './flows/freeze-and-seize-flow.tsx';
+import './flows/whitelist-send-receive-multiadmin-flow.tsx';

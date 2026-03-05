@@ -8,9 +8,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.cardanofoundation.cip113.entity.ProgrammableTokenRegistryEntity;
 import org.cardanofoundation.cip113.model.BlacklistInitResponse;
-import org.cardanofoundation.cip113.repository.BlacklistInitRepository;
-import org.cardanofoundation.cip113.repository.FreezeAndSeizeTokenRegistrationRepository;
-import org.cardanofoundation.cip113.repository.ProgrammableTokenRegistryRepository;
+import org.cardanofoundation.cip113.repository.*;;
 import org.cardanofoundation.cip113.service.BlacklistQueryService;
 import org.cardanofoundation.cip113.service.ComplianceOperationsService;
 import org.cardanofoundation.cip113.service.substandard.capabilities.BlacklistManageable.AddToBlacklistRequest;
@@ -18,10 +16,14 @@ import org.cardanofoundation.cip113.service.substandard.capabilities.BlacklistMa
 import org.cardanofoundation.cip113.service.substandard.capabilities.BlacklistManageable.RemoveFromBlacklistRequest;
 import org.cardanofoundation.cip113.service.substandard.capabilities.Seizeable.MultiSeizeRequest;
 import org.cardanofoundation.cip113.service.substandard.capabilities.Seizeable.SeizeRequest;
+import org.cardanofoundation.cip113.service.substandard.capabilities.SubstandardGovernance.AddAdminRequest;
+import org.cardanofoundation.cip113.service.substandard.capabilities.SubstandardGovernance.GovernanceInitRequest;
+import org.cardanofoundation.cip113.service.substandard.capabilities.SubstandardGovernance.RemoveAdminRequest;
 import org.cardanofoundation.cip113.service.substandard.capabilities.WhitelistManageable.AddToWhitelistRequest;
 import org.cardanofoundation.cip113.service.substandard.capabilities.WhitelistManageable.RemoveFromWhitelistRequest;
 import org.cardanofoundation.cip113.service.substandard.capabilities.WhitelistManageable.WhitelistInitRequest;
 import org.cardanofoundation.cip113.service.substandard.context.FreezeAndSeizeContext;
+import org.cardanofoundation.cip113.service.substandard.context.WhitelistMultiAdminContext;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -53,6 +55,11 @@ public class ComplianceController {
     private final FreezeAndSeizeTokenRegistrationRepository freezeAndSeizeTokenRegistrationRepository;
 
     private final ProgrammableTokenRegistryRepository programmableTokenRegistryRepository;
+
+    private final WhitelistTokenRegistrationRepository whitelistTokenRegistrationRepository;
+    private final WhitelistInitRepository whitelistInitRepository;
+    private final ManagerListInitRepository managerListInitRepository;
+    private final ManagerSignaturesInitRepository managerSignaturesInitRepository;
 
     // ========== Blacklist Endpoints ==========
 
@@ -346,11 +353,11 @@ public class ComplianceController {
                 request.policyId(), request.targetCredential());
 
         try {
-            // Resolve substandard from policyId via unified registry
             var substandardId = resolveSubstandardId(request.policyId());
+            var context = buildWhitelistContext(substandardId, request.policyId());
 
             var txContext = complianceOperationsService.addToWhitelist(
-                    substandardId, request, protocolTxHash, null);
+                    substandardId, request, protocolTxHash, context);
 
             if (txContext.isSuccessful()) {
                 return ResponseEntity.ok(txContext);
@@ -387,11 +394,11 @@ public class ComplianceController {
                 request.policyId(), request.targetCredential());
 
         try {
-            // Resolve substandard from policyId via unified registry
             var substandardId = resolveSubstandardId(request.policyId());
+            var context = buildWhitelistContext(substandardId, request.policyId());
 
             var txContext = complianceOperationsService.removeFromWhitelist(
-                    substandardId, request, protocolTxHash, null);
+                    substandardId, request, protocolTxHash, context);
 
             if (txContext.isSuccessful()) {
                 return ResponseEntity.ok(txContext);
@@ -525,19 +532,136 @@ public class ComplianceController {
         }
     }
 
+    // ========== Governance Endpoints ==========
+
+    @PostMapping("/governance/init")
+    public ResponseEntity<?> initGovernance(
+            @RequestBody GovernanceInitRequest request,
+            @RequestParam(required = false) String protocolTxHash,
+            @RequestParam String substandardId) {
+
+        log.info("POST /compliance/governance/init - substandardId: {}, admin: {}",
+                substandardId, request.adminAddress());
+
+        try {
+            var context = WhitelistMultiAdminContext.emptyContext();
+            var txContext = complianceOperationsService.initGovernance(
+                    substandardId, request, protocolTxHash, context);
+
+            if (txContext.isSuccessful()) {
+                return ResponseEntity.ok(txContext);
+            } else {
+                return ResponseEntity.badRequest().body(txContext.error());
+            }
+        } catch (UnsupportedOperationException e) {
+            log.warn("Capability not supported: {}", e.getMessage());
+            return ResponseEntity.badRequest().body(e.getMessage());
+        } catch (Exception e) {
+            log.error("Error initializing governance", e);
+            return ResponseEntity.internalServerError().body(e.getMessage());
+        }
+    }
+
+    @PostMapping("/governance/add")
+    public ResponseEntity<?> addAdmin(
+            @RequestBody AddAdminRequest request,
+            @RequestParam(required = false) String protocolTxHash) {
+
+        log.info("POST /compliance/governance/add - policyId: {}, target: {}",
+                request.policyId(), request.targetCredential());
+
+        try {
+            var substandardId = resolveSubstandardId(request.policyId());
+            var context = buildWhitelistContext(substandardId, request.policyId());
+
+            var txContext = complianceOperationsService.addAdmin(
+                    substandardId, request, protocolTxHash, context);
+
+            if (txContext.isSuccessful()) {
+                return ResponseEntity.ok(txContext);
+            } else {
+                return ResponseEntity.badRequest().body(txContext.error());
+            }
+        } catch (UnsupportedOperationException e) {
+            log.warn("Capability not supported: {}", e.getMessage());
+            return ResponseEntity.badRequest().body(e.getMessage());
+        } catch (Exception e) {
+            log.error("Error adding admin", e);
+            return ResponseEntity.internalServerError().body(e.getMessage());
+        }
+    }
+
+    @PostMapping("/governance/remove")
+    public ResponseEntity<?> removeAdmin(
+            @RequestBody RemoveAdminRequest request,
+            @RequestParam(required = false) String protocolTxHash) {
+
+        log.info("POST /compliance/governance/remove - policyId: {}, target: {}",
+                request.policyId(), request.targetCredential());
+
+        try {
+            var substandardId = resolveSubstandardId(request.policyId());
+            var context = buildWhitelistContext(substandardId, request.policyId());
+
+            var txContext = complianceOperationsService.removeAdmin(
+                    substandardId, request, protocolTxHash, context);
+
+            if (txContext.isSuccessful()) {
+                return ResponseEntity.ok(txContext);
+            } else {
+                return ResponseEntity.badRequest().body(txContext.error());
+            }
+        } catch (UnsupportedOperationException e) {
+            log.warn("Capability not supported: {}", e.getMessage());
+            return ResponseEntity.badRequest().body(e.getMessage());
+        } catch (Exception e) {
+            log.error("Error removing admin", e);
+            return ResponseEntity.internalServerError().body(e.getMessage());
+        }
+    }
+
     // ========== Helper Methods ==========
 
-    /**
-     * Resolve substandard ID from the unified programmable token registry.
-     *
-     * @param policyId The programmable token policy ID
-     * @return The substandard ID
-     * @throws IllegalArgumentException if the token is not registered
-     */
     private String resolveSubstandardId(String policyId) {
         return programmableTokenRegistryRepository.findByPolicyId(policyId)
                 .map(ProgrammableTokenRegistryEntity::getSubstandardId)
                 .orElseThrow(() -> new IllegalArgumentException(
                         "Token not registered in programmable token registry: " + policyId));
+    }
+
+    /**
+     * Build WhitelistMultiAdminContext from database for a given token policy ID.
+     */
+    private WhitelistMultiAdminContext buildWhitelistContext(String substandardId, String policyId) {
+        if (!"whitelist-send-receive-multiadmin".equals(substandardId)) {
+            return null;
+        }
+
+        var tokenReg = whitelistTokenRegistrationRepository.findByProgrammableTokenPolicyId(policyId)
+                .orElseThrow(() -> new RuntimeException("whitelist token registration not found for: " + policyId));
+
+        var whitelistInit = tokenReg.getWhitelistInit();
+        var managerListInit = tokenReg.getManagerListInit();
+        var managerSigsInit = tokenReg.getManagerSigsInit();
+
+        return WhitelistMultiAdminContext.builder()
+                .issuerAdminPkh(tokenReg.getIssuerAdminPkh())
+                .whitelistPolicyId(whitelistInit.getWhitelistPolicyId())
+                .managerAuthHash(whitelistInit.getManagerAuthHash())
+                .managerListPolicyId(managerListInit.getManagerListPolicyId())
+                .managerSigsPolicyId(managerSigsInit.getManagerSigsPolicyId())
+                .whitelistInitTxInput(TransactionInput.builder()
+                        .transactionId(whitelistInit.getTxHash())
+                        .index(whitelistInit.getOutputIndex())
+                        .build())
+                .managerListInitTxInput(TransactionInput.builder()
+                        .transactionId(managerListInit.getTxHash())
+                        .index(managerListInit.getOutputIndex())
+                        .build())
+                .managerSigsInitTxInput(TransactionInput.builder()
+                        .transactionId(managerSigsInit.getTxHash())
+                        .index(managerSigsInit.getOutputIndex())
+                        .build())
+                .build();
     }
 }

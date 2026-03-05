@@ -9,13 +9,9 @@ import com.easy1staking.cardano.model.AssetType;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.cardanofoundation.cip113.config.AppConfig;
-import org.cardanofoundation.cip113.entity.BlacklistInitEntity;
-import org.cardanofoundation.cip113.entity.FreezeAndSeizeTokenRegistrationEntity;
-import org.cardanofoundation.cip113.entity.ProgrammableTokenRegistryEntity;
+import org.cardanofoundation.cip113.entity.*;;
 import org.cardanofoundation.cip113.model.bootstrap.ProtocolBootstrapParams;
-import org.cardanofoundation.cip113.repository.BlacklistInitRepository;
-import org.cardanofoundation.cip113.repository.FreezeAndSeizeTokenRegistrationRepository;
-import org.cardanofoundation.cip113.repository.ProgrammableTokenRegistryRepository;
+import org.cardanofoundation.cip113.repository.*;
 import org.cardanofoundation.cip113.service.ProtocolBootstrapService;
 import org.cardanofoundation.cip113.service.UtxoProvider;
 import org.cardanofoundation.cip113.util.BalanceValueHelper;
@@ -39,6 +35,7 @@ public class AdminController {
 
     private final FreezeAndSeizeTokenRegistrationRepository freezeAndSeizeRepo;
     private final BlacklistInitRepository blacklistInitRepo;
+    private final WhitelistTokenRegistrationRepository whitelistTokenRepo;
     private final ProtocolBootstrapService protocolBootstrapService;
     private final ProgrammableTokenRegistryRepository programmableTokenRepo;
     private final UtxoProvider utxoProvider;
@@ -183,6 +180,45 @@ public class AdminController {
             }
         }
 
+        // 4. Query whitelist-send-receive-multiadmin tokens where user is issuer admin
+        List<WhitelistTokenRegistrationEntity> whitelistIssuerAdminTokens =
+                whitelistTokenRepo.findByIssuerAdminPkh(pkh);
+
+        for (WhitelistTokenRegistrationEntity token : whitelistIssuerAdminTokens) {
+            String policyId = token.getProgrammableTokenPolicyId();
+
+            if (!tokenMap.containsKey(policyId)) {
+                Optional<ProgrammableTokenRegistryEntity> registryEntry =
+                        programmableTokenRepo.findByPolicyId(policyId);
+
+                String assetName = registryEntry.map(ProgrammableTokenRegistryEntity::getAssetName).orElse("");
+                String assetNameDisplay = hexToString(assetName);
+                String substandardId = registryEntry.map(ProgrammableTokenRegistryEntity::getSubstandardId)
+                        .orElse("whitelist-send-receive-multiadmin");
+
+                AdminTokenDetails details = new AdminTokenDetails(
+                        null,
+                        token.getIssuerAdminPkh(),
+                        null,
+                        token.getWhitelistInit() != null ? token.getWhitelistInit().getWhitelistPolicyId() : null,
+                        token.getManagerListInit() != null ? token.getManagerListInit().getManagerListPolicyId() : null,
+                        token.getManagerSigsInit() != null ? token.getManagerSigsInit().getManagerSigsPolicyId() : null
+                );
+
+                List<String> roles = new ArrayList<>();
+                roles.add("ISSUER_ADMIN");
+
+                tokenMap.put(policyId, new AdminTokenInfo(
+                        policyId,
+                        assetName,
+                        assetNameDisplay,
+                        substandardId,
+                        roles,
+                        details
+                ));
+            }
+        }
+
         log.info("Found {} tokens for PKH {}", tokenMap.size(), pkh);
 
         return ResponseEntity.ok(new AdminTokensResponse(pkh, new ArrayList<>(tokenMap.values())));
@@ -310,8 +346,15 @@ public class AdminController {
     public record AdminTokenDetails(
             String blacklistNodePolicyId,   // For freeze-and-seize
             String issuerAdminPkh,
-            String blacklistAdminPkh
+            String blacklistAdminPkh,
+            String whitelistPolicyId,       // For whitelist-send-receive-multiadmin
+            String managerListPolicyId,     // For whitelist-send-receive-multiadmin
+            String managerSigsPolicyId      // For whitelist-send-receive-multiadmin
     ) {
+        // Backwards-compatible constructor for freeze-and-seize
+        public AdminTokenDetails(String blacklistNodePolicyId, String issuerAdminPkh, String blacklistAdminPkh) {
+            this(blacklistNodePolicyId, issuerAdminPkh, blacklistAdminPkh, null, null, null);
+        }
     }
 
     public record UtxoInfo(
