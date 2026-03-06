@@ -14,13 +14,11 @@ import com.bloxbean.cardano.client.plutus.spec.BytesPlutusData;
 import com.bloxbean.cardano.client.plutus.spec.ConstrPlutusData;
 import com.bloxbean.cardano.client.plutus.spec.ListPlutusData;
 import com.bloxbean.cardano.client.quicktx.QuickTxBuilder;
-import com.bloxbean.cardano.client.quicktx.ScriptTx;
 import com.bloxbean.cardano.client.quicktx.Tx;
 import com.bloxbean.cardano.client.transaction.spec.Asset;
 import com.bloxbean.cardano.client.transaction.spec.MultiAsset;
 import com.bloxbean.cardano.client.transaction.spec.Value;
 import com.bloxbean.cardano.client.util.HexUtil;
-import com.easy1staking.util.HashUtil;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.cardanofoundation.cip113.AbstractPreviewTest;
@@ -138,7 +136,7 @@ public class ProtocolDeploymentMintTest extends AbstractPreviewTest {
         log.info("protocolParamsContract, hash: {}", HexUtil.encodeHexString(protocolParamsContract.getScriptHash()));
 
         // Programmable Logic Global parameterization
-        var programmableLogicGlobalParameters = ListPlutusData.of(BytesPlutusData.of(protocolParamsContract.getScriptHash()), BytesPlutusData.of(parametersAlwaysFailScript.getScriptHash()));
+        var programmableLogicGlobalParameters = ListPlutusData.of(BytesPlutusData.of(protocolParamsContract.getScriptHash()));
         var programmableLogicGlobalContract = PlutusBlueprintUtil.getPlutusScriptFromCompiledCode(AikenScriptUtil.applyParamToScript(programmableLogicGlobalParameters, PROGRAMMABLE_LOGIC_GLOBAL_CONTRACT), PlutusVersion.v3);
         var programmableLogicGlobalAddress = AddressProvider.getRewardAddress(programmableLogicGlobalContract, network);
         log.info("programmableLogicGlobalAddress policy: {}", programmableLogicGlobalAddress.getAddress());
@@ -270,6 +268,7 @@ public class ProtocolDeploymentMintTest extends AbstractPreviewTest {
                 .payToContract(directorySpendContractAddress.getAddress(), ValueUtil.toAmountList(directoryValue), directoryDatum)
                 // Protocol Params
                 .payToContract(issuanceAlwaysFailAddress.getAddress(), ValueUtil.toAmountList(issuanceValue), issuanceDatum)
+                .registerStakeAddress(programmableLogicGlobalAddress.getAddress())
                 .payToAddress(refInputAccount.baseAddress(), Amount.ada(1), programmableLogicBaseContract)
                 .payToAddress(refInputAccount.baseAddress(), Amount.ada(1), programmableLogicGlobalContract)
                 .payToAddress(adminAccount.baseAddress(), Amount.ada(50))
@@ -306,10 +305,16 @@ public class ProtocolDeploymentMintTest extends AbstractPreviewTest {
             txHash = "dummy";
         }
 
-        var protocolParams = new ProtocolParams(new TxInput(utxo1.getTxHash(), utxo1.getOutputIndex()), protocolParamsContract.getPolicyId());
+        var protocolParams = new ProtocolParams(
+                new TxInput(utxo1.getTxHash(), utxo1.getOutputIndex()),
+                protocolParamsContract.getPolicyId(),
+                HexUtil.encodeHexString(parametersAlwaysFailScript.getScriptHash()));
         var programmableLogicGlobalParams = new ProgrammableLogicGlobalParams(protocolParamsContract.getPolicyId(), programmableLogicGlobalContract.getPolicyId());
         var programmableLogicBaseParams = new ProgrammableLogicBaseParams(programmableLogicGlobalContract.getPolicyId(), programmableLogicBaseContract.getPolicyId());
-        var issuanceParams = new IssuanceParams(new TxInput(utxo2.getTxHash(), utxo2.getOutputIndex()), issuanceContract.getPolicyId());
+        var issuanceParams = new IssuanceParams(
+                new TxInput(utxo2.getTxHash(), utxo2.getOutputIndex()),
+                issuanceContract.getPolicyId(),
+                HexUtil.encodeHexString(issuanceAlwaysFailScript.getScriptHash()));
         var directoryParams = new DirectoryMintParams(new TxInput(utxo1.getTxHash(), utxo1.getOutputIndex()), issuanceContract.getPolicyId(), directoryContract.getPolicyId());
         var directorySpendParams = new DirectorySpendParams(protocolParamsContract.getPolicyId(), directorySpendContract.getPolicyId());
         var programmableBaseRefInput = new TxInput(txHash, 3);
@@ -340,6 +345,23 @@ public class ProtocolDeploymentMintTest extends AbstractPreviewTest {
 
     }
 
+    @Test
+    public void registerAddress() throws Exception {
+        var utxosOpt = bfBackendService.getUtxoService().getUtxos(adminAccount.baseAddress(), 100, 1);
+
+        var allWalletUtxos = utxosOpt.getValue();
+
+        var stakeRegistrationTx = new Tx()
+                .from(adminAccount.baseAddress())
+                .collectFrom(List.of(allWalletUtxos.get(2)))
+                .registerStakeAddress("stake_test17qma20wkn4dwuweaudjqelpra78m2x5qyqd3psmwfa7lj4g5qmpkq")
+                .withChangeAddress(adminAccount.baseAddress());
+
+        new QuickTxBuilder(bfBackendService).compose(stakeRegistrationTx)
+                .feePayer(adminAccount.baseAddress())
+                .withSigner(SignerProviders.signerFrom(adminAccount))
+                .completeAndWait();
+    }
 
 
 }

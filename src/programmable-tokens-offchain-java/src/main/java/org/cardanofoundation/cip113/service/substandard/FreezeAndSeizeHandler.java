@@ -12,7 +12,7 @@ import com.bloxbean.cardano.client.plutus.spec.BytesPlutusData;
 import com.bloxbean.cardano.client.plutus.spec.ConstrPlutusData;
 import com.bloxbean.cardano.client.plutus.spec.ListPlutusData;
 import com.bloxbean.cardano.client.quicktx.QuickTxBuilder;
-import com.bloxbean.cardano.client.quicktx.ScriptTx;
+import com.bloxbean.cardano.client.quicktx.Tx;
 import com.bloxbean.cardano.client.transaction.spec.*;
 import com.bloxbean.cardano.client.transaction.util.TransactionUtil;
 import com.bloxbean.cardano.client.util.HexUtil;
@@ -336,7 +336,7 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
                     payeeAddress.getDelegationCredential().get(),
                     network.getCardanoNetwork());
 
-            var tx = new ScriptTx()
+            var tx = new Tx()
                     .collectFrom(feePayerUtxos)
                     .collectFrom(directoryUtxo, ConstrPlutusData.of(0))
                     // No redeemer for substandard
@@ -483,7 +483,7 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
                     network.getCardanoNetwork());
 
 
-            var tx = new ScriptTx()
+            var tx = new Tx()
                     .collectFrom(adminUtxos)
                     .withdraw(substandardIssueAddress.getAddress(), BigInteger.ZERO, ConstrPlutusData.of(0))
                     .mintAsset(issuanceContract, programmableToken, issuanceRedeemer)
@@ -662,7 +662,7 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
                     .build();
             log.info("returningValue (policy removed): {}", returningValue);
 
-            var tx = new ScriptTx()
+            var tx = new Tx()
                     .collectFrom(adminUtxos)
                     .collectFrom(utxoToBurn, ConstrPlutusData.of(0))
                     .withdraw(substandardIssueAddress.getAddress(), BigInteger.ZERO, ConstrPlutusData.of(0))
@@ -891,7 +891,7 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
                     ListPlutusData.of(ConstrPlutusData.of(0, BigIntPlutusData.of(registryIndex)))
             );
 
-            var tx = new ScriptTx()
+            var tx = new Tx()
                     .collectFrom(adminUtxos);
 
             inputUtxos.forEach(utxo -> {
@@ -1034,7 +1034,7 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
                     .toList();
             log.info("stakeAddressesToRegister: {}", String.join(", ", stakeAddressesToRegister));
 
-            var tx = new ScriptTx()
+            var tx = new Tx()
                     .collectFrom(utilityUtxos)
                     .mintAsset(parameterisedBlacklistMintingScript, blacklistAsset, ConstrPlutusData.of(0))
                     // Can be used to chain tx
@@ -1138,7 +1138,7 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
             // Next/minted
             var mintedAmount = Value.from(parameterisedBlacklistMintingScript.getPolicyId(), "0x" + aliceStakingPkh, ONE);
 
-            var tx = new ScriptTx()
+            var tx = new Tx()
                     .collectFrom(adminUtxos)
                     .collectFrom(blocklistNodeToReplace.first(), ConstrPlutusData.of(0))
                     .mintAsset(parameterisedBlacklistMintingScript, Asset.builder().name("0x" + aliceStakingPkh).value(ONE).build(), mintRedeemer)
@@ -1241,7 +1241,7 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
             // Before/Updated
             var preExistingAmount = blocklistNodeToUpdate.first().getAmount();
 
-            var tx = new ScriptTx()
+            var tx = new Tx()
                     .collectFrom(adminUtxos)
                     .collectFrom(blocklistNodeToRemove.first(), ConstrPlutusData.of(0))
                     .collectFrom(blocklistNodeToUpdate.first(), ConstrPlutusData.of(0))
@@ -1470,7 +1470,7 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
                     BigIntPlutusData.of(1)
             );
 
-            var tx = new ScriptTx()
+            var tx = new Tx()
                     .collectFrom(adminUtxos)
                     .collectFrom(utxoToSeize, ConstrPlutusData.of(0))
                     .withdraw(substandardIssueAdminAddress.getAddress(), BigInteger.ZERO, ConstrPlutusData.of(0))

@@ -190,6 +190,103 @@ public class ProtocolScriptBuilderService {
     }
 
     /**
+     * Get parameterized Always Fail script
+     * Parameters: nonce (ByteArray)
+     */
+    public PlutusScript getParameterizedAlwaysFailScript(String nonce) {
+        var parameters = ListPlutusData.of(
+                BytesPlutusData.of(HexUtil.decodeHexString(nonce))
+        );
+
+        var contractOpt = protocolBootstrapService.getProtocolContract("always_fail.always_fail.spend");
+        if (contractOpt.isEmpty()) {
+            throw new IllegalStateException("Always fail contract not found");
+        }
+
+        var script = PlutusBlueprintUtil.getPlutusScriptFromCompiledCode(
+                AikenScriptUtil.applyParamToScript(parameters, contractOpt.get()),
+                PlutusVersion.v3
+        );
+
+        try {
+            log.debug("Built always fail script with hash: {}", HexUtil.encodeHexString(script.getScriptHash()));
+        } catch (Exception e) {
+            log.debug("Built always fail script (could not compute hash)");
+        }
+        return script;
+    }
+
+    /**
+     * Get parameterized Protocol Params Mint script
+     * Parameters: utxo (tx hash + output index), always_fail script hash
+     */
+    public PlutusScript getParameterizedProtocolParamsMintScript(ProtocolBootstrapParams protocolParams) {
+        return getCachedOrBuild(protocolParams.txHash(), "protocol_params_mint", () -> {
+            var txInput = protocolParams.protocolParams().txInput();
+            var alwaysFailScriptHash = protocolParams.protocolParams().alwaysFailScriptHash();
+
+            var parameters = ListPlutusData.of(
+                    ConstrPlutusData.of(0,
+                            BytesPlutusData.of(HexUtil.decodeHexString(txInput.txHash())),
+                            BigIntPlutusData.of(txInput.outputIndex())),
+                    BytesPlutusData.of(HexUtil.decodeHexString(alwaysFailScriptHash))
+            );
+
+            var contractOpt = protocolBootstrapService.getProtocolContract("protocol_params_mint.protocol_params_mint.mint");
+            if (contractOpt.isEmpty()) {
+                throw new IllegalStateException("Protocol params mint contract not found");
+            }
+
+            var script = PlutusBlueprintUtil.getPlutusScriptFromCompiledCode(
+                    AikenScriptUtil.applyParamToScript(parameters, contractOpt.get()),
+                    PlutusVersion.v3
+            );
+
+            try {
+                log.debug("Built protocol params mint script with hash: {}", HexUtil.encodeHexString(script.getScriptHash()));
+            } catch (Exception e) {
+                log.debug("Built protocol params mint script (could not compute hash)");
+            }
+            return script;
+        });
+    }
+
+    /**
+     * Get parameterized Issuance CBOR Hex Mint script
+     * Parameters: utxo (tx hash + output index), always_fail script hash
+     */
+    public PlutusScript getParameterizedIssuanceCborHexMintScript(ProtocolBootstrapParams protocolParams) {
+        return getCachedOrBuild(protocolParams.txHash(), "issuance_cbor_hex_mint", () -> {
+            var txInput = protocolParams.issuanceParams().txInput();
+            var alwaysFailScriptHash = protocolParams.issuanceParams().alwaysFailScriptHash();
+
+            var parameters = ListPlutusData.of(
+                    ConstrPlutusData.of(0,
+                            BytesPlutusData.of(HexUtil.decodeHexString(txInput.txHash())),
+                            BigIntPlutusData.of(txInput.outputIndex())),
+                    BytesPlutusData.of(HexUtil.decodeHexString(alwaysFailScriptHash))
+            );
+
+            var contractOpt = protocolBootstrapService.getProtocolContract("issuance_cbor_hex_mint.issuance_cbor_hex_mint.mint");
+            if (contractOpt.isEmpty()) {
+                throw new IllegalStateException("Issuance CBOR hex mint contract not found");
+            }
+
+            var script = PlutusBlueprintUtil.getPlutusScriptFromCompiledCode(
+                    AikenScriptUtil.applyParamToScript(parameters, contractOpt.get()),
+                    PlutusVersion.v3
+            );
+
+            try {
+                log.debug("Built issuance CBOR hex mint script with hash: {}", HexUtil.encodeHexString(script.getScriptHash()));
+            } catch (Exception e) {
+                log.debug("Built issuance CBOR hex mint script (could not compute hash)");
+            }
+            return script;
+        });
+    }
+
+    /**
      * Clear cache for a specific protocol version
      */
     public void clearCache(String protocolTxHash) {

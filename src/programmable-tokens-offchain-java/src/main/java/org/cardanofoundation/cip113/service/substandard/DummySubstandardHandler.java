@@ -13,7 +13,6 @@ import com.bloxbean.cardano.client.plutus.spec.BytesPlutusData;
 import com.bloxbean.cardano.client.plutus.spec.ConstrPlutusData;
 import com.bloxbean.cardano.client.plutus.spec.ListPlutusData;
 import com.bloxbean.cardano.client.quicktx.QuickTxBuilder;
-import com.bloxbean.cardano.client.quicktx.ScriptTx;
 import com.bloxbean.cardano.client.quicktx.Tx;
 import com.bloxbean.cardano.client.transaction.spec.Asset;
 import com.bloxbean.cardano.client.transaction.spec.MultiAsset;
@@ -359,7 +358,7 @@ public class DummySubstandardHandler implements SubstandardHandler, BasicOperati
                         network.getCardanoNetwork());
 
 
-                var tx = new ScriptTx()
+                var tx = new Tx()
                         .collectFrom(registrarUtxos)
                         .collectFrom(directoryUtxo, ConstrPlutusData.of(0))
                         .withdraw(substandardIssueAddress.getAddress(), BigInteger.ZERO, BigIntPlutusData.of(100))
@@ -486,7 +485,7 @@ public class DummySubstandardHandler implements SubstandardHandler, BasicOperati
                     recipientAddress.getDelegationCredential().get(),
                     network.getCardanoNetwork());
 
-            var tx = new ScriptTx()
+            var tx = new Tx()
                     .collectFrom(feePayerUtxos)
                     .withdraw(substandardIssueAddress.getAddress(), BigInteger.ZERO, BigIntPlutusData.of(100))
                     // Redeemer is DirectoryInit (constr(0))
@@ -670,7 +669,7 @@ public class DummySubstandardHandler implements SubstandardHandler, BasicOperati
                             })
                     .first();
 
-            var tx = new ScriptTx()
+            var tx = new Tx()
                     .collectFrom(senderUtxos);
 
             inputUtxos.forEach(utxo -> {
