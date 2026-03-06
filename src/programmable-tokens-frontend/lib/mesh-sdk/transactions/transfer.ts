@@ -20,7 +20,7 @@ import { provider, getNetworkName } from "../config";
 import { Cip113_scripts_standard } from "../standard/deploy";
 import { cip113_scripts_subStandard } from "../substandard/dummy/deploy";
 import { ProtocolBootstrapParams, ProtocolBlueprint, SubstandardBlueprint } from "../../../types/protocol";
-import { parseRegistryDatum } from "../../utils/script-utils";
+import { parseRegistryDatum, sortTxInputRefs } from "../../utils/script-utils";
 
 const transfer_programmable_token = async (
   unit: string,
@@ -137,7 +137,26 @@ const transfer_programmable_token = async (
 
   const returningAmount = selectedAmount - transferAmount;
 
-  const registryProof = conStr0([integer(1)]);
+  // Sort reference inputs to compute correct registry index
+  const allRefInputs = [
+    {
+      txHash: protocolParamsUtxo.input.txHash,
+      outputIndex: protocolParamsUtxo.input.outputIndex,
+    },
+    {
+      txHash: progTokenRegistry.input.txHash,
+      outputIndex: progTokenRegistry.input.outputIndex,
+    },
+  ];
+  const sortedRefInputs = sortTxInputRefs(allRefInputs);
+
+  const registryIndex = sortedRefInputs.findIndex(
+    (ri) =>
+      ri.txHash === progTokenRegistry.input.txHash &&
+      ri.outputIndex === progTokenRegistry.input.outputIndex
+  );
+
+  const registryProof = conStr0([integer(registryIndex)]);
   const programmableLogicGlobalRedeemer = conStr0([list([registryProof])]);
   const substandardTransferRedeemer = integer(200);
   const spendingRedeemer = conStr0([]);
@@ -199,17 +218,14 @@ const transfer_programmable_token = async (
 
   txBuilder
     .txOut(targetAddress, recipientAssets)
-    .txOutInlineDatumValue(tokenDatum, "JSON")
+    .txOutInlineDatumValue(tokenDatum, "JSON");
 
-    .readOnlyTxInReference(
-      protocolParamsUtxo.input.txHash,
-      protocolParamsUtxo.input.outputIndex
-    )
-    .readOnlyTxInReference(
-      progTokenRegistry.input.txHash,
-      progTokenRegistry.input.outputIndex
-    )
+  // Add reference inputs in sorted order
+  for (const ref of sortedRefInputs) {
+    txBuilder.readOnlyTxInReference(ref.txHash, ref.outputIndex);
+  }
 
+  txBuilder
     .txInCollateral(collateral.input.txHash, collateral.input.outputIndex)
     .selectUtxosFrom(walletUtxos)
     .setNetwork(getNetworkName())
