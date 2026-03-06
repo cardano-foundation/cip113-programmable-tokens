@@ -642,7 +642,7 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
             var programmableGlobalRedeemer = ConstrPlutusData.of(1,
                     BigIntPlutusData.of(registryRefInputInex),
                     ListPlutusData.of(BigIntPlutusData.of(seizeInputIndex)),
-                    BigIntPlutusData.of(1), // Index of the first output
+                    BigIntPlutusData.of(0), // Index of the first output
                     BigIntPlutusData.of(1)
             );
 
@@ -680,6 +680,13 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
                     .feePayer(request.feePayerAddress())
 //                .withTxEvaluator(new AikenTransactionEvaluator(bfBackendService))
                     .mergeOutputs(false) //<-- this is important! or directory tokens will go to same address
+                    .preBalanceTx((txBuilderContext, transaction1) -> {
+                        try {
+                            log.info("tx: {}", objectMapper.writeValueAsString(transaction1));
+                        } catch (JsonProcessingException e) {
+                            throw new RuntimeException(e);
+                        }
+                    })
                     .build();
 
             log.info("tx: {}", transaction.serializeToHex());
@@ -1466,7 +1473,7 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
             var programmableGlobalRedeemer = ConstrPlutusData.of(1,
                     BigIntPlutusData.of(registryRefInputInex),
                     ListPlutusData.of(BigIntPlutusData.of(seizeInputIndex)),
-                    BigIntPlutusData.of(2), // Index of the first output
+                    BigIntPlutusData.of(1), // Index of the first output
                     BigIntPlutusData.of(1)
             );
 
