@@ -9,7 +9,7 @@ import com.easy1staking.cardano.model.AssetType;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.cardanofoundation.cip113.config.AppConfig;
-import org.cardanofoundation.cip113.entity.*;;
+import org.cardanofoundation.cip113.entity.*;
 import org.cardanofoundation.cip113.model.bootstrap.ProtocolBootstrapParams;
 import org.cardanofoundation.cip113.repository.*;
 import org.cardanofoundation.cip113.service.ProtocolBootstrapService;

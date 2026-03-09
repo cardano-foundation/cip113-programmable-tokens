@@ -21,6 +21,10 @@ public class AccountService {
 
     private final UtxoProvider utxoProvider;
 
+    public List<Utxo> findAdaOnlyUtxo(String address) {
+        return utxoProvider.findUtxos(address);
+    }
+
     public List<Utxo> findAdaOnlyUtxo(String address, Long minAdaBalance) {
         return this.findAdaOnlyUtxo(address, minAdaBalance, utxoProvider::findUtxos);
     }

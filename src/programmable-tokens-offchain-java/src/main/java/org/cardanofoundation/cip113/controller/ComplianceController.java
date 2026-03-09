@@ -8,7 +8,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.cardanofoundation.cip113.entity.ProgrammableTokenRegistryEntity;
 import org.cardanofoundation.cip113.model.BlacklistInitResponse;
-import org.cardanofoundation.cip113.repository.*;;
+import org.cardanofoundation.cip113.repository.*;
 import org.cardanofoundation.cip113.service.BlacklistQueryService;
 import org.cardanofoundation.cip113.service.ComplianceOperationsService;
 import org.cardanofoundation.cip113.service.substandard.capabilities.BlacklistManageable.AddToBlacklistRequest;

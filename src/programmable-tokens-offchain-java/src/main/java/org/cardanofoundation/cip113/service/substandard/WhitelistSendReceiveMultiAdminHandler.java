@@ -3,13 +3,14 @@ package org.cardanofoundation.cip113.service.substandard;
 import com.bloxbean.cardano.client.address.Address;
 import com.bloxbean.cardano.client.address.AddressProvider;
 import com.bloxbean.cardano.client.address.Credential;
+import com.bloxbean.cardano.client.address.CredentialType;
 import com.bloxbean.cardano.client.api.model.Amount;
 import com.bloxbean.cardano.client.api.model.Utxo;
 import com.bloxbean.cardano.client.api.util.ValueUtil;
 import com.bloxbean.cardano.client.backend.blockfrost.service.BFBackendService;
 import com.bloxbean.cardano.client.plutus.spec.*;
 import com.bloxbean.cardano.client.quicktx.QuickTxBuilder;
-import com.bloxbean.cardano.client.quicktx.ScriptTx;
+import com.bloxbean.cardano.client.quicktx.Tx;
 import com.bloxbean.cardano.client.transaction.spec.*;
 import com.bloxbean.cardano.client.transaction.util.TransactionUtil;
 import com.bloxbean.cardano.client.util.HexUtil;
@@ -18,7 +19,6 @@ import com.easy1staking.cardano.comparator.TransactionInputComparator;
 import com.easy1staking.cardano.comparator.UtxoComparator;
 import com.easy1staking.cardano.model.AssetType;
 import com.easy1staking.util.Pair;
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.Setter;
@@ -26,7 +26,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.cardanofoundation.cip113.config.AppConfig;
 import org.cardanofoundation.cip113.entity.*;
 import org.cardanofoundation.cip113.model.*;
-import org.cardanofoundation.cip113.model.TransactionContext.MintingResult;
 import org.cardanofoundation.cip113.model.TransactionContext.RegistrationResult;
 import org.cardanofoundation.cip113.model.bootstrap.ProtocolBootstrapParams;
 import org.cardanofoundation.cip113.model.onchain.RegistryNode;
@@ -48,7 +47,6 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import static java.math.BigInteger.ONE;
-import static java.math.BigInteger.ZERO;
 
 /**
  * Handler for the "whitelist-send-receive-multiadmin" programmable token substandard.
@@ -303,7 +301,7 @@ public class WhitelistSendReceiveMultiAdminHandler implements SubstandardHandler
                     payeeAddress.getDelegationCredential().get(),
                     network.getCardanoNetwork());
 
-            var tx = new ScriptTx()
+            var tx = new Tx()
                     .collectFrom(feePayerUtxos)
                     .collectFrom(directoryUtxo, ConstrPlutusData.of(0))
                     .withdraw(substandardIssueAddress.getAddress(), BigInteger.ZERO, ConstrPlutusData.of(0))
@@ -419,7 +417,7 @@ public class WhitelistSendReceiveMultiAdminHandler implements SubstandardHandler
                     payeeAddress.getDelegationCredential().get(),
                     network.getCardanoNetwork());
 
-            var tx = new ScriptTx()
+            var tx = new Tx()
                     .collectFrom(adminUtxos)
                     .withdraw(substandardIssueAddress.getAddress(), BigInteger.ZERO, ConstrPlutusData.of(0))
                     .mintAsset(issuanceContract, programmableToken, issuanceRedeemer)
@@ -539,7 +537,7 @@ public class WhitelistSendReceiveMultiAdminHandler implements SubstandardHandler
                     .multiAssets(filteredMultiAssets)
                     .build();
 
-            var tx = new ScriptTx()
+            var tx = new Tx()
                     .collectFrom(adminUtxos)
                     .collectFrom(utxoToBurn, ConstrPlutusData.of(0))
                     .withdraw(substandardIssueAddress.getAddress(), BigInteger.ZERO, ConstrPlutusData.of(0))
@@ -761,7 +759,7 @@ public class WhitelistSendReceiveMultiAdminHandler implements SubstandardHandler
                     ListPlutusData.of(ConstrPlutusData.of(0, BigIntPlutusData.of(registryIndex)))
             );
 
-            var tx = new ScriptTx()
+            var tx = new Tx()
                     .collectFrom(adminUtxos);
 
             inputUtxos.forEach(utxo -> tx.collectFrom(utxo, ConstrPlutusData.of(0)));
@@ -837,14 +835,18 @@ public class WhitelistSendReceiveMultiAdminHandler implements SubstandardHandler
                             .build()))
                     .build();
 
-            var tx = new ScriptTx()
+            var whitelistRedeemer = ConstrPlutusData.of(0,
+                    ListPlutusData.of(BytesPlutusData.of(adminAddress.getPaymentCredentialHash().get()))
+            );
+
+            var tx = new Tx()
                     .collectFrom(utilityUtxos)
-                    .mintAsset(whitelistMintScript, whitelistNft, ConstrPlutusData.of(0))
+                    .mintAsset(whitelistMintScript, whitelistNft, whitelistRedeemer)
                     .payToAddress(request.adminAddress(), Amount.ada(40L))
                     .payToContract(whitelistSpendAddress.getAddress(), ValueUtil.toAmountList(whitelistValue), initDatum)
                     .withChangeAddress(request.adminAddress());
 
-            var transaction = new QuickTxBuilder(bfBackendService).compose(tx)
+            var transaction = quickTxBuilder.compose(tx)
                     .feePayer(request.adminAddress())
                     .ignoreScriptCostEvaluationError(false)
                     .mergeOutputs(false)
@@ -955,7 +957,7 @@ public class WhitelistSendReceiveMultiAdminHandler implements SubstandardHandler
             }
             var managerNode = managerNodeOpt.get();
 
-            var tx = new ScriptTx()
+            var tx = new Tx()
                     .collectFrom(managerUtxos)
                     .collectFrom(coveringNode, ConstrPlutusData.of(0))
                     .withdraw(managerAuthAddress.getAddress(), BigInteger.ZERO, ConstrPlutusData.of(0))
@@ -1059,7 +1061,7 @@ public class WhitelistSendReceiveMultiAdminHandler implements SubstandardHandler
             }
             var managerNode = managerNodeOpt.get();
 
-            var tx = new ScriptTx()
+            var tx = new Tx()
                     .collectFrom(managerUtxos)
                     .collectFrom(predecessorNode, ConstrPlutusData.of(0))
                     .collectFrom(nodeToRemove, ConstrPlutusData.of(0))
@@ -1097,7 +1099,7 @@ public class WhitelistSendReceiveMultiAdminHandler implements SubstandardHandler
 
         try {
             var adminAddress = new Address(request.adminAddress());
-            var utilityUtxos = accountService.findAdaOnlyUtxo(request.adminAddress(), 10_000_000L);
+            var utilityUtxos = accountService.findAdaOnlyUtxo(request.adminAddress());
 
             // Use first 2 UTxOs as seeds for manager_sigs and manager_list
             if (utilityUtxos.size() < 2) {
@@ -1144,7 +1146,7 @@ public class WhitelistSendReceiveMultiAdminHandler implements SubstandardHandler
             );
 
             // Manager signatures config NFT (head node for manager config)
-            var managerSigsNft = Asset.builder().name("0x").value(ONE).build();
+            var managerSigsNft = Asset.builder().name("ManagerConfig").value(ONE).build();
             var managerListNft = Asset.builder().name("0x").value(ONE).build();
 
             Value managerListValue = Value.builder()
@@ -1166,9 +1168,14 @@ public class WhitelistSendReceiveMultiAdminHandler implements SubstandardHandler
                             .map(reg -> !reg.getType().equals(CertificateType.STAKE_REGISTRATION)).orElse(true))
                     .toList();
 
-            var tx = new ScriptTx()
+            var managersRedeemer = ConstrPlutusData.of(0,
+                    ListPlutusData.of(BytesPlutusData.of(adminAddress.getPaymentCredentialHash().get()))
+            );
+
+
+            var tx = new Tx()
                     .collectFrom(utilityUtxos)
-                    .mintAsset(managerSigsMintScript, managerSigsNft, ConstrPlutusData.of(0))
+                    .mintAsset(managerSigsMintScript, managerSigsNft, managersRedeemer)
                     .mintAsset(managerListMintScript, managerListNft, ConstrPlutusData.of(0))
                     .payToAddress(request.adminAddress(), Amount.ada(40L))
                     .payToContract(managerListSpendAddress.getAddress(), ValueUtil.toAmountList(managerListValue), managerListInitDatum)
@@ -1176,8 +1183,9 @@ public class WhitelistSendReceiveMultiAdminHandler implements SubstandardHandler
 
             stakeAddressesToRegister.forEach(tx::registerStakeAddress);
 
-            var transaction = new QuickTxBuilder(bfBackendService).compose(tx)
+            var transaction = quickTxBuilder.compose(tx)
                     .feePayer(request.adminAddress())
+                    .withRequiredSigners(adminAddress)
                     .ignoreScriptCostEvaluationError(false)
                     .mergeOutputs(false)
                     .build();
@@ -1201,8 +1209,14 @@ public class WhitelistSendReceiveMultiAdminHandler implements SubstandardHandler
                     .outputIndex(managerListSeedUtxo.getOutputIndex())
                     .build());
 
+            var managerAuthHash = HexUtil.encodeHexString(managerAuthScript.getScriptHash());
             return TransactionContext.ok(transaction.serializeToHex(),
-                    new GovernanceInitResult(managerListCs, managerSigsMintScript.getPolicyId()));
+                    new GovernanceInitResult(
+                            managerSigsMintScript.getPolicyId(),
+                            managerListCs,
+                            managerAuthHash,
+                            null,
+                            transaction.serializeToHex()));
 
         } catch (Exception e) {
             log.error("error building governance init tx", e);
@@ -1275,7 +1289,7 @@ public class WhitelistSendReceiveMultiAdminHandler implements SubstandardHandler
 
             var adminAddress = new Address(request.adminAddress());
 
-            var tx = new ScriptTx()
+            var tx = new Tx()
                     .collectFrom(adminUtxos)
                     .collectFrom(coveringNode, ConstrPlutusData.of(0))
                     .withdraw(managerSigsWithdrawAddress.getAddress(), BigInteger.ZERO, ConstrPlutusData.of(0))
@@ -1358,7 +1372,7 @@ public class WhitelistSendReceiveMultiAdminHandler implements SubstandardHandler
 
             var adminAddress = new Address(request.adminAddress());
 
-            var tx = new ScriptTx()
+            var tx = new Tx()
                     .collectFrom(adminUtxos)
                     .collectFrom(predecessorNode, ConstrPlutusData.of(0))
                     .collectFrom(nodeToRemove, ConstrPlutusData.of(0))
@@ -1396,7 +1410,7 @@ public class WhitelistSendReceiveMultiAdminHandler implements SubstandardHandler
 
         var params = ListPlutusData.of(
                 com.bloxbean.cardano.client.plutus.spec.ConstrPlutusData.of(
-                        adminPkh.getType() == Credential.CredentialType.Key ? 0 : 1,
+                        adminPkh.getType() == CredentialType.Key ? 0 : 1,
                         BytesPlutusData.of(adminPkh.getBytes())
                 )
         );
@@ -1455,14 +1469,7 @@ public class WhitelistSendReceiveMultiAdminHandler implements SubstandardHandler
             var inlineDatum = utxo.getInlineDatum();
             if (inlineDatum == null) return null;
 
-            PlutusData plutusData;
-            if (inlineDatum instanceof String datumStr) {
-                plutusData = PlutusData.deserialize(HexUtil.decodeHexString(datumStr));
-            } else if (inlineDatum instanceof PlutusData pd) {
-                plutusData = pd;
-            } else {
-                return null;
-            }
+            PlutusData plutusData = PlutusData.deserialize(HexUtil.decodeHexString(inlineDatum));
 
             if (plutusData instanceof ConstrPlutusData constr) {
                 var items = constr.getData().getPlutusDataList();
