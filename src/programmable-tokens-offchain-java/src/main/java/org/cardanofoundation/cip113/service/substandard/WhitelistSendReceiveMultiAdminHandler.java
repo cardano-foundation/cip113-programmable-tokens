@@ -19,6 +19,7 @@ import com.easy1staking.cardano.comparator.TransactionInputComparator;
 import com.easy1staking.cardano.comparator.UtxoComparator;
 import com.easy1staking.cardano.model.AssetType;
 import com.easy1staking.util.Pair;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.Setter;
@@ -809,10 +810,14 @@ public class WhitelistSendReceiveMultiAdminHandler implements SubstandardHandler
                     .index(bootstrapUtxo.getOutputIndex())
                     .build();
 
-            // Need manager_auth_hash from context
+            // Need manager_auth_hash from context, or derive from managerListPolicyId
             var managerAuthHash = context != null ? context.getManagerAuthHash() : null;
+            if (managerAuthHash == null && context != null && context.getManagerListPolicyId() != null) {
+                var managerAuthScript = wlScriptBuilder.buildManagerAuthScript(context.getManagerListPolicyId());
+                managerAuthHash = HexUtil.encodeHexString(managerAuthScript.getScriptHash());
+            }
             if (managerAuthHash == null) {
-                return TransactionContext.typedError("managerAuthHash required from context");
+                return TransactionContext.typedError("managerAuthHash required — run governance init first");
             }
 
             var whitelistMintScript = wlScriptBuilder.buildWhitelistMintScript(bootstrapTxInput, managerAuthHash);
@@ -1101,13 +1106,14 @@ public class WhitelistSendReceiveMultiAdminHandler implements SubstandardHandler
             var adminAddress = new Address(request.adminAddress());
             var utilityUtxos = accountService.findAdaOnlyUtxo(request.adminAddress());
 
-            // Use first 2 UTxOs as seeds for manager_sigs and manager_list
-            if (utilityUtxos.size() < 2) {
-                return TransactionContext.typedError("need at least 2 UTxOs for governance init");
+            // Use first 3 UTxOs as seeds for manager_sigs, manager_list, and whitelist
+            if (utilityUtxos.size() < 3) {
+                return TransactionContext.typedError("need at least 3 UTxOs for governance init");
             }
 
             var managerSigsSeedUtxo = utilityUtxos.get(0);
             var managerListSeedUtxo = utilityUtxos.get(1);
+            var whitelistSeedUtxo = utilityUtxos.get(2);
 
             var managerSigsSeedInput = TransactionInput.builder()
                     .transactionId(managerSigsSeedUtxo.getTxHash())
@@ -1119,8 +1125,14 @@ public class WhitelistSendReceiveMultiAdminHandler implements SubstandardHandler
                     .index(managerListSeedUtxo.getOutputIndex())
                     .build();
 
+            var whitelistSeedInput = TransactionInput.builder()
+                    .transactionId(whitelistSeedUtxo.getTxHash())
+                    .index(whitelistSeedUtxo.getOutputIndex())
+                    .build();
+
             // Build manager_signatures mint
             var managerSigsMintScript = wlScriptBuilder.buildManagerSignaturesMintScript(managerSigsSeedInput);
+            var managerSigsCs = managerSigsMintScript.getPolicyId();
             var managerSigsHash = HexUtil.encodeHexString(managerSigsMintScript.getScriptHash());
 
             // Build manager_list_mint
@@ -1133,20 +1145,42 @@ public class WhitelistSendReceiveMultiAdminHandler implements SubstandardHandler
 
             // Manager signatures withdraw (for stake address registration)
             var managerSigsWithdrawScript = wlScriptBuilder.buildManagerSignaturesWithdrawScript(managerSigsSeedInput);
-            var managerSigsWithdrawAddress = AddressProvider.getRewardAddress(managerSigsWithdrawScript, network.getCardanoNetwork());
+            var managerSigsWithdrawAddress = AddressProvider.getEntAddress(managerSigsWithdrawScript, network.getCardanoNetwork());
+            var managerSigsWithdrawStakeAddress = AddressProvider.getRewardAddress(managerSigsWithdrawScript, network.getCardanoNetwork());
 
             // Manager auth (for stake address registration)
             var managerAuthScript = wlScriptBuilder.buildManagerAuthScript(managerListCs);
+            var managerAuthHash = HexUtil.encodeHexString(managerAuthScript.getScriptHash());
             var managerAuthAddress = AddressProvider.getRewardAddress(managerAuthScript, network.getCardanoNetwork());
 
+            // Build whitelist mint + spend
+            var whitelistMintScript = wlScriptBuilder.buildWhitelistMintScript(whitelistSeedInput, managerAuthHash);
+            var whitelistCs = whitelistMintScript.getPolicyId();
+            var whitelistSpendScript = wlScriptBuilder.buildWhitelistSpendScript(whitelistCs);
+            var whitelistSpendAddress = AddressProvider.getEntAddress(whitelistSpendScript, network.getCardanoNetwork());
+
+            // Manager Sigs datum
+            var managerSigsInitDatum = ConstrPlutusData.of(0,
+                    ListPlutusData.of(BytesPlutusData.of(adminAddress.getPaymentCredentialHash().get()))
+            );
+
             // Init datums: head node with key="" and next="ff...ff"
-            var managerListInitDatum = ConstrPlutusData.of(0,
+            var linkedListHeadDatum = ConstrPlutusData.of(0,
                     BytesPlutusData.of(""),
                     BytesPlutusData.of(HexUtil.decodeHexString("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"))
             );
 
             // Manager signatures config NFT (head node for manager config)
             var managerSigsNft = Asset.builder().name("ManagerConfig").value(ONE).build();
+
+            Value managerSigValue = Value.builder()
+                    .coin(Amount.ada(1).getQuantity())
+                    .multiAssets(List.of(MultiAsset.builder()
+                            .policyId(managerSigsCs)
+                            .assets(List.of(managerSigsNft))
+                            .build()))
+                    .build();
+
             var managerListNft = Asset.builder().name("0x").value(ONE).build();
 
             Value managerListValue = Value.builder()
@@ -1157,9 +1191,19 @@ public class WhitelistSendReceiveMultiAdminHandler implements SubstandardHandler
                             .build()))
                     .build();
 
+            var whitelistNft = Asset.builder().name("0x").value(ONE).build();
+
+            Value whitelistValue = Value.builder()
+                    .coin(Amount.ada(1).getQuantity())
+                    .multiAssets(List.of(MultiAsset.builder()
+                            .policyId(whitelistCs)
+                            .assets(List.of(whitelistNft))
+                            .build()))
+                    .build();
+
             // Register stake addresses
             var requiredStakeAddresses = List.of(
-                    managerSigsWithdrawAddress.getAddress(),
+                    managerSigsWithdrawStakeAddress.getAddress(),
                     managerAuthAddress.getAddress()
             );
 
@@ -1172,13 +1216,14 @@ public class WhitelistSendReceiveMultiAdminHandler implements SubstandardHandler
                     ListPlutusData.of(BytesPlutusData.of(adminAddress.getPaymentCredentialHash().get()))
             );
 
-
             var tx = new Tx()
                     .collectFrom(utilityUtxos)
                     .mintAsset(managerSigsMintScript, managerSigsNft, managersRedeemer)
                     .mintAsset(managerListMintScript, managerListNft, ConstrPlutusData.of(0))
-                    .payToAddress(request.adminAddress(), Amount.ada(40L))
-                    .payToContract(managerListSpendAddress.getAddress(), ValueUtil.toAmountList(managerListValue), managerListInitDatum)
+                    .mintAsset(whitelistMintScript, whitelistNft, ConstrPlutusData.of(0))
+                    .payToContract(managerSigsWithdrawAddress.getAddress(), ValueUtil.toAmountList(managerSigValue), managerSigsInitDatum)
+                    .payToContract(managerListSpendAddress.getAddress(), ValueUtil.toAmountList(managerListValue), linkedListHeadDatum)
+                    .payToContract(whitelistSpendAddress.getAddress(), ValueUtil.toAmountList(whitelistValue), linkedListHeadDatum)
                     .withChangeAddress(request.adminAddress());
 
             stakeAddressesToRegister.forEach(tx::registerStakeAddress);
@@ -1186,6 +1231,13 @@ public class WhitelistSendReceiveMultiAdminHandler implements SubstandardHandler
             var transaction = quickTxBuilder.compose(tx)
                     .feePayer(request.adminAddress())
                     .withRequiredSigners(adminAddress)
+                    .preBalanceTx((txBuilderContext, transaction1) -> {
+                        try {
+                            log.info("tx: {}", objectMapper.writeValueAsString(transaction1));
+                        } catch (JsonProcessingException e) {
+                            throw new RuntimeException(e);
+                        }
+                    })
                     .ignoreScriptCostEvaluationError(false)
                     .mergeOutputs(false)
                     .build();
@@ -1209,13 +1261,19 @@ public class WhitelistSendReceiveMultiAdminHandler implements SubstandardHandler
                     .outputIndex(managerListSeedUtxo.getOutputIndex())
                     .build());
 
-            var managerAuthHash = HexUtil.encodeHexString(managerAuthScript.getScriptHash());
+            whitelistInitRepository.save(WhitelistInitEntity.builder()
+                    .whitelistPolicyId(whitelistCs)
+                    .managerAuthHash(managerAuthHash)
+                    .txHash(whitelistSeedUtxo.getTxHash())
+                    .outputIndex(whitelistSeedUtxo.getOutputIndex())
+                    .build());
+
             return TransactionContext.ok(transaction.serializeToHex(),
                     new GovernanceInitResult(
                             managerSigsMintScript.getPolicyId(),
                             managerListCs,
                             managerAuthHash,
-                            null,
+                            whitelistCs,
                             transaction.serializeToHex()));
 
         } catch (Exception e) {

@@ -9,15 +9,16 @@ import org.cardanofoundation.cip113.entity.ProgrammableTokenRegistryEntity;
 import org.cardanofoundation.cip113.model.*;
 import org.cardanofoundation.cip113.model.TransactionContext.RegistrationResult;
 import org.cardanofoundation.cip113.model.bootstrap.ProtocolBootstrapParams;
-import org.cardanofoundation.cip113.repository.BlacklistInitRepository;
-import org.cardanofoundation.cip113.repository.FreezeAndSeizeTokenRegistrationRepository;
-import org.cardanofoundation.cip113.repository.ProgrammableTokenRegistryRepository;
+import org.cardanofoundation.cip113.repository.*;
 import org.cardanofoundation.cip113.service.substandard.BafinSubstandardHandler;
 import org.cardanofoundation.cip113.service.substandard.DummySubstandardHandler;
 import org.cardanofoundation.cip113.service.substandard.FreezeAndSeizeHandler;
 import org.cardanofoundation.cip113.service.substandard.SubstandardHandlerFactory;
+import org.cardanofoundation.cip113.service.substandard.WhitelistSendReceiveMultiAdminHandler;
 import org.cardanofoundation.cip113.service.substandard.capabilities.BasicOperations;
 import org.cardanofoundation.cip113.service.substandard.context.FreezeAndSeizeContext;
+import org.cardanofoundation.cip113.service.substandard.context.SubstandardContext;
+import org.cardanofoundation.cip113.service.substandard.context.WhitelistMultiAdminContext;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -43,6 +44,14 @@ public class TokenOperationsService {
     private final FreezeAndSeizeTokenRegistrationRepository freezeAndSeizeTokenRegistrationRepository;
 
     private final ProgrammableTokenRegistryRepository programmableTokenRegistryRepository;
+
+    private final WhitelistTokenRegistrationRepository whitelistTokenRegistrationRepository;
+
+    private final ManagerSignaturesInitRepository managerSignaturesInitRepository;
+
+    private final ManagerListInitRepository managerListInitRepository;
+
+    private final WhitelistInitRepository whitelistInitRepository;
 
     /**
      * Pre-register a programmable token by registering required stake addresses.
@@ -73,6 +82,12 @@ public class TokenOperationsService {
                 var basicOps = (BasicOperations<FreezeAndSeizeRegisterRequest>) handler.asBasicOperations()
                         .orElseThrow(() -> new UnsupportedOperationException("freeze-and-seize does not support basic operations"));
                 yield basicOps.buildPreRegistrationTransaction(fasRequest, protocolParams);
+            }
+            case WhitelistMultiAdminRegisterRequest wlRequest -> {
+                var handler = handlerFactory.getHandler("whitelist-send-receive-multiadmin", WhitelistMultiAdminContext.emptyContext());
+                var basicOps = (BasicOperations<WhitelistMultiAdminRegisterRequest>) handler.asBasicOperations()
+                        .orElseThrow(() -> new UnsupportedOperationException("whitelist-send-receive-multiadmin does not support basic operations"));
+                yield basicOps.buildPreRegistrationTransaction(wlRequest, protocolParams);
             }
             default -> throw new UnsupportedOperationException(
                     "Unknown request type: " + request.getClass().getSimpleName());
@@ -114,6 +129,13 @@ public class TokenOperationsService {
                         .orElseThrow(() -> new UnsupportedOperationException("freeze-and-seize does not support basic operations"));
                 yield basicOps.buildRegistrationTransaction(fasRequest, protocolParams);
             }
+            case WhitelistMultiAdminRegisterRequest wlRequest -> {
+                var wlContext = buildWhitelistContext(wlRequest);
+                var handler = handlerFactory.getHandler("whitelist-send-receive-multiadmin", wlContext);
+                var basicOps = (BasicOperations<WhitelistMultiAdminRegisterRequest>) handler.asBasicOperations()
+                        .orElseThrow(() -> new UnsupportedOperationException("whitelist-send-receive-multiadmin does not support basic operations"));
+                yield basicOps.buildRegistrationTransaction(wlRequest, protocolParams);
+            }
             default -> throw new UnsupportedOperationException(
                     "Unknown request type: " + request.getClass().getSimpleName());
         };
@@ -140,32 +162,7 @@ public class TokenOperationsService {
         // Resolve substandard from policyId via unified registry
         String substandardId = resolveSubstandardId(request.tokenPolicyId());
 
-        var context = switch (substandardId) {
-            case "freeze-and-seize" -> {
-                var dataOpt = freezeAndSeizeTokenRegistrationRepository.findByProgrammableTokenPolicyId(request.tokenPolicyId())
-                        .flatMap(token -> blacklistInitRepository.findByBlacklistNodePolicyId(token.getBlacklistInit().getBlacklistNodePolicyId())
-                                .map(blacklistInitEntity -> new Pair<>(token, blacklistInitEntity)));
-
-                if (dataOpt.isEmpty()) {
-                    throw new RuntimeException("could not find programmable token or blacklist init data");
-                }
-
-                var data = dataOpt.get();
-                var tokenRegistration = data.first();
-                var blacklistInitEntity = data.second();
-                yield FreezeAndSeizeContext.builder()
-                        .issuerAdminPkh(tokenRegistration.getIssuerAdminPkh())
-                        .blacklistManagerPkh(blacklistInitEntity.getAdminPkh())
-                        .blacklistInitTxInput(TransactionInput.builder()
-                                .transactionId(blacklistInitEntity.getTxHash())
-                                .index(blacklistInitEntity.getOutputIndex())
-                                .build())
-                        .blacklistNodePolicyId(blacklistInitEntity.getBlacklistNodePolicyId())
-                        .build();
-            }
-
-            default -> null;
-        };
+        var context = resolveSubstandardContext(substandardId, request.tokenPolicyId());
 
         // Get substandard handler with BasicOperations capability
         var handler = context != null ? handlerFactory.getHandler(substandardId, context) : handlerFactory.getHandler(substandardId);
@@ -176,6 +173,8 @@ public class TokenOperationsService {
                     freezeAndSeizeHandler.buildMintTransaction(request, protocolParams);
             case BafinSubstandardHandler bafinSubstandardHandler ->
                     bafinSubstandardHandler.buildMintTransaction(request, protocolParams);
+            case WhitelistSendReceiveMultiAdminHandler wlHandler ->
+                    wlHandler.buildMintTransaction(request, protocolParams);
             default -> throw new UnsupportedOperationException();
         };
 
@@ -201,32 +200,7 @@ public class TokenOperationsService {
         // Resolve substandard from policyId via unified registry
         String substandardId = resolveSubstandardId(request.tokenPolicyId());
 
-        var context = switch (substandardId) {
-            case "freeze-and-seize" -> {
-                var dataOpt = freezeAndSeizeTokenRegistrationRepository.findByProgrammableTokenPolicyId(request.tokenPolicyId())
-                        .flatMap(token -> blacklistInitRepository.findByBlacklistNodePolicyId(token.getBlacklistInit().getBlacklistNodePolicyId())
-                                .map(blacklistInitEntity -> new Pair<>(token, blacklistInitEntity)));
-
-                if (dataOpt.isEmpty()) {
-                    throw new RuntimeException("could not find programmable token or blacklist init data");
-                }
-
-                var data = dataOpt.get();
-                var tokenRegistration = data.first();
-                var blacklistInitEntity = data.second();
-                yield FreezeAndSeizeContext.builder()
-                        .issuerAdminPkh(tokenRegistration.getIssuerAdminPkh())
-                        .blacklistManagerPkh(blacklistInitEntity.getAdminPkh())
-                        .blacklistInitTxInput(TransactionInput.builder()
-                                .transactionId(blacklistInitEntity.getTxHash())
-                                .index(blacklistInitEntity.getOutputIndex())
-                                .build())
-                        .blacklistNodePolicyId(blacklistInitEntity.getBlacklistNodePolicyId())
-                        .build();
-            }
-
-            default -> null;
-        };
+        var context = resolveSubstandardContext(substandardId, request.tokenPolicyId());
 
         // Get substandard handler with BasicOperations capability
         var handler = context != null ? handlerFactory.getHandler(substandardId, context) : handlerFactory.getHandler(substandardId);
@@ -237,6 +211,8 @@ public class TokenOperationsService {
                     freezeAndSeizeHandler.buildBurnTransaction(request, protocolParams);
             case BafinSubstandardHandler bafinSubstandardHandler ->
                     bafinSubstandardHandler.buildBurnTransaction(request, protocolParams);
+            case WhitelistSendReceiveMultiAdminHandler wlHandler ->
+                    wlHandler.buildBurnTransaction(request, protocolParams);
             default -> throw new UnsupportedOperationException();
         };
 
@@ -265,32 +241,7 @@ public class TokenOperationsService {
         // Resolve substandard from policyId via unified registry
         String substandardId = resolveSubstandardId(programmableToken.policyId());
 
-        var context = switch (substandardId) {
-            case "freeze-and-seize" -> {
-                var dataOpt = freezeAndSeizeTokenRegistrationRepository.findByProgrammableTokenPolicyId(programmableToken.policyId())
-                        .flatMap(token -> blacklistInitRepository.findByBlacklistNodePolicyId(token.getBlacklistInit().getBlacklistNodePolicyId())
-                                .map(blacklistInitEntity -> new Pair<>(token, blacklistInitEntity)));
-
-                if (dataOpt.isEmpty()) {
-                    throw new RuntimeException("could not find programmable token or blacklist init data");
-                }
-
-                var data = dataOpt.get();
-                var tokenRegistration = data.first();
-                var blacklistInitEntity = data.second();
-                yield FreezeAndSeizeContext.builder()
-                        .issuerAdminPkh(tokenRegistration.getIssuerAdminPkh())
-                        .blacklistManagerPkh(blacklistInitEntity.getAdminPkh())
-                        .blacklistInitTxInput(TransactionInput.builder()
-                                .transactionId(blacklistInitEntity.getTxHash())
-                                .index(blacklistInitEntity.getOutputIndex())
-                                .build())
-                        .blacklistNodePolicyId(blacklistInitEntity.getBlacklistNodePolicyId())
-                        .build();
-            }
-
-            default -> null;
-        };
+        var context = resolveSubstandardContext(substandardId, programmableToken.policyId());
 
         // Get substandard handler with BasicOperations capability
         var handler = context != null ? handlerFactory.getHandler(substandardId, context) : handlerFactory.getHandler(substandardId);
@@ -301,6 +252,8 @@ public class TokenOperationsService {
                     freezeAndSeizeHandler.buildTransferTransaction(request, protocolParams);
             case BafinSubstandardHandler bafinSubstandardHandler ->
                     bafinSubstandardHandler.buildTransferTransaction(request, protocolParams);
+            case WhitelistSendReceiveMultiAdminHandler wlHandler ->
+                    wlHandler.buildTransferTransaction(request, protocolParams);
             default -> throw new UnsupportedOperationException();
         };
 
@@ -336,6 +289,123 @@ public class TokenOperationsService {
                 .map(ProgrammableTokenRegistryEntity::getSubstandardId)
                 .orElseThrow(() -> new IllegalArgumentException(
                         "Token not registered in programmable token registry: " + policyId));
+    }
+
+    /**
+     * Resolve substandard context from DB for post-registration operations (mint, burn, transfer).
+     */
+    private SubstandardContext resolveSubstandardContext(String substandardId, String policyId) {
+        return switch (substandardId) {
+            case "freeze-and-seize" -> {
+                var dataOpt = freezeAndSeizeTokenRegistrationRepository.findByProgrammableTokenPolicyId(policyId)
+                        .flatMap(token -> blacklistInitRepository.findByBlacklistNodePolicyId(token.getBlacklistInit().getBlacklistNodePolicyId())
+                                .map(blacklistInitEntity -> new Pair<>(token, blacklistInitEntity)));
+
+                if (dataOpt.isEmpty()) {
+                    throw new RuntimeException("could not find programmable token or blacklist init data");
+                }
+
+                var data = dataOpt.get();
+                var tokenRegistration = data.first();
+                var blacklistInitEntity = data.second();
+                yield FreezeAndSeizeContext.builder()
+                        .issuerAdminPkh(tokenRegistration.getIssuerAdminPkh())
+                        .blacklistManagerPkh(blacklistInitEntity.getAdminPkh())
+                        .blacklistInitTxInput(TransactionInput.builder()
+                                .transactionId(blacklistInitEntity.getTxHash())
+                                .index(blacklistInitEntity.getOutputIndex())
+                                .build())
+                        .blacklistNodePolicyId(blacklistInitEntity.getBlacklistNodePolicyId())
+                        .build();
+            }
+            case "whitelist-send-receive-multiadmin" -> resolveWhitelistContext(policyId);
+            default -> null;
+        };
+    }
+
+    /**
+     * Build whitelist context from the register request (used during registration).
+     */
+    private WhitelistMultiAdminContext buildWhitelistContext(WhitelistMultiAdminRegisterRequest request) {
+        var builder = WhitelistMultiAdminContext.builder();
+
+        if (request.getManagerSigsPolicyId() != null) {
+            var managerSigsInit = managerSignaturesInitRepository.findByManagerSigsPolicyId(request.getManagerSigsPolicyId())
+                    .orElse(null);
+            if (managerSigsInit != null) {
+                builder.managerSigsPolicyId(managerSigsInit.getManagerSigsPolicyId())
+                        .managerSigsInitTxInput(TransactionInput.builder()
+                                .transactionId(managerSigsInit.getTxHash())
+                                .index(managerSigsInit.getOutputIndex())
+                                .build());
+            }
+        }
+
+        if (request.getManagerListPolicyId() != null) {
+            var managerListInit = managerListInitRepository.findByManagerListPolicyId(request.getManagerListPolicyId())
+                    .orElse(null);
+            if (managerListInit != null) {
+                builder.managerListPolicyId(managerListInit.getManagerListPolicyId())
+                        .managerListInitTxInput(TransactionInput.builder()
+                                .transactionId(managerListInit.getTxHash())
+                                .index(managerListInit.getOutputIndex())
+                                .build());
+            }
+        }
+
+        if (request.getWhitelistPolicyId() != null) {
+            var whitelistInit = whitelistInitRepository.findByWhitelistPolicyId(request.getWhitelistPolicyId())
+                    .orElse(null);
+            if (whitelistInit != null) {
+                builder.whitelistPolicyId(whitelistInit.getWhitelistPolicyId())
+                        .managerAuthHash(whitelistInit.getManagerAuthHash())
+                        .whitelistInitTxInput(TransactionInput.builder()
+                                .transactionId(whitelistInit.getTxHash())
+                                .index(whitelistInit.getOutputIndex())
+                                .build());
+            }
+        }
+
+        if (request.getAdminPubKeyHash() != null) {
+            builder.issuerAdminPkh(request.getAdminPubKeyHash());
+        }
+
+        return builder.build();
+    }
+
+    /**
+     * Resolve whitelist context from DB using a registered programmable token policy ID.
+     */
+    private WhitelistMultiAdminContext resolveWhitelistContext(String policyId) {
+        var tokenRegOpt = whitelistTokenRegistrationRepository.findByProgrammableTokenPolicyId(policyId);
+        if (tokenRegOpt.isEmpty()) {
+            throw new RuntimeException("could not find whitelist token registration for policy: " + policyId);
+        }
+        var tokenReg = tokenRegOpt.get();
+
+        var managerSigsInit = tokenReg.getManagerSigsInit();
+        var managerListInit = tokenReg.getManagerListInit();
+        var whitelistInit = tokenReg.getWhitelistInit();
+
+        return WhitelistMultiAdminContext.builder()
+                .issuerAdminPkh(tokenReg.getIssuerAdminPkh())
+                .managerSigsPolicyId(managerSigsInit.getManagerSigsPolicyId())
+                .managerSigsInitTxInput(TransactionInput.builder()
+                        .transactionId(managerSigsInit.getTxHash())
+                        .index(managerSigsInit.getOutputIndex())
+                        .build())
+                .managerListPolicyId(managerListInit.getManagerListPolicyId())
+                .managerListInitTxInput(TransactionInput.builder()
+                        .transactionId(managerListInit.getTxHash())
+                        .index(managerListInit.getOutputIndex())
+                        .build())
+                .whitelistPolicyId(whitelistInit.getWhitelistPolicyId())
+                .managerAuthHash(whitelistInit.getManagerAuthHash())
+                .whitelistInitTxInput(TransactionInput.builder()
+                        .transactionId(whitelistInit.getTxHash())
+                        .index(whitelistInit.getOutputIndex())
+                        .build())
+                .build();
     }
 
     /**

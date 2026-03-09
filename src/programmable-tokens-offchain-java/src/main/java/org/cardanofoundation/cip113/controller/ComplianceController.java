@@ -8,6 +8,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.cardanofoundation.cip113.entity.ProgrammableTokenRegistryEntity;
 import org.cardanofoundation.cip113.model.BlacklistInitResponse;
+import org.cardanofoundation.cip113.model.GovernanceInitResponse;
 import org.cardanofoundation.cip113.repository.*;
 import org.cardanofoundation.cip113.service.BlacklistQueryService;
 import org.cardanofoundation.cip113.service.ComplianceOperationsService;
@@ -23,6 +24,7 @@ import org.cardanofoundation.cip113.service.substandard.capabilities.WhitelistMa
 import org.cardanofoundation.cip113.service.substandard.capabilities.WhitelistManageable.RemoveFromWhitelistRequest;
 import org.cardanofoundation.cip113.service.substandard.capabilities.WhitelistManageable.WhitelistInitRequest;
 import org.cardanofoundation.cip113.service.substandard.context.FreezeAndSeizeContext;
+import org.cardanofoundation.cip113.service.substandard.context.SubstandardContext;
 import org.cardanofoundation.cip113.service.substandard.context.WhitelistMultiAdminContext;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -297,26 +299,55 @@ public class ComplianceController {
     /**
      * Initialize a whitelist for a programmable token (security token).
      * Creates the on-chain linked list structure for tracking KYC-approved addresses.
-     * Requires the token to be already registered in the programmable token registry.
      *
-     * @param request        The whitelist initialization request (contains tokenPolicyId)
+     * <p>Can be called either before or after token registration:</p>
+     * <ul>
+     *   <li>Before registration: provide {@code substandardId} and {@code managerSigsPolicyId} as query params</li>
+     *   <li>After registration: provide {@code tokenPolicyId} in the request body</li>
+     * </ul>
+     *
+     * @param request        The whitelist initialization request
      * @param protocolTxHash Optional protocol version tx hash
+     * @param substandardId  Optional substandard ID (required if token not yet registered)
+     * @param managerSigsPolicyId Optional manager sigs policy ID (to build context before registration)
      * @return Unsigned CBOR transaction hex
      */
     @PostMapping("/whitelist/init")
     public ResponseEntity<?> initWhitelist(
             @RequestBody WhitelistInitRequest request,
-            @RequestParam(required = false) String protocolTxHash) {
+            @RequestParam(required = false) String protocolTxHash,
+            @RequestParam(required = false) String substandardId,
+            @RequestParam(required = false) String managerSigsPolicyId) {
 
-        log.info("POST /compliance/whitelist/init - tokenPolicyId: {}, admin: {}",
-                request.tokenPolicyId(), request.adminAddress());
+        log.info("POST /compliance/whitelist/init - tokenPolicyId: {}, substandardId: {}, admin: {}",
+                request.tokenPolicyId(), substandardId, request.adminAddress());
 
         try {
-            // Resolve substandard from policyId via unified registry
-            var substandardId = resolveSubstandardId(request.tokenPolicyId());
+            // Resolve substandard: from param, or from tokenPolicyId if token already registered
+            if (substandardId == null || substandardId.isEmpty()) {
+                if (request.tokenPolicyId() == null || request.tokenPolicyId().isEmpty()) {
+                    return ResponseEntity.badRequest().body("Either substandardId param or tokenPolicyId in body is required");
+                }
+                substandardId = resolveSubstandardId(request.tokenPolicyId());
+            }
+
+            // Build context: from managerSigsPolicyId param, or from tokenPolicyId if registered
+            SubstandardContext context = null;
+            if (managerSigsPolicyId != null && !managerSigsPolicyId.isEmpty()) {
+                context = buildWhitelistContextFromManagerSigs(managerSigsPolicyId);
+            } else if (request.tokenPolicyId() != null && !request.tokenPolicyId().isEmpty()) {
+                try {
+                    context = buildWhitelistContext(substandardId, request.tokenPolicyId());
+                } catch (Exception e) {
+                    log.debug("Could not build context from tokenPolicyId, using empty context");
+                }
+            }
+            if (context == null) {
+                context = WhitelistMultiAdminContext.emptyContext();
+            }
 
             var txContext = complianceOperationsService.initWhitelist(
-                    substandardId, request, protocolTxHash, null);
+                    substandardId, request, protocolTxHash, context);
 
             if (txContext.isSuccessful()) {
                 return ResponseEntity.ok(txContext);
@@ -549,7 +580,13 @@ public class ComplianceController {
                     substandardId, request, protocolTxHash, context);
 
             if (txContext.isSuccessful()) {
-                return ResponseEntity.ok(txContext);
+                var result = txContext.metadata();
+                return ResponseEntity.ok(new GovernanceInitResponse(
+                        result.managerSigsPolicyId(),
+                        result.managerListPolicyId(),
+                        result.managerAuthHash(),
+                        result.whitelistPolicyId(),
+                        txContext.unsignedCborTx()));
             } else {
                 return ResponseEntity.badRequest().body(txContext.error());
             }
@@ -627,6 +664,40 @@ public class ComplianceController {
                 .map(ProgrammableTokenRegistryEntity::getSubstandardId)
                 .orElseThrow(() -> new IllegalArgumentException(
                         "Token not registered in programmable token registry: " + policyId));
+    }
+
+    /**
+     * Build WhitelistMultiAdminContext from managerSigsPolicyId (for pre-registration flows
+     * like whitelist init where the token doesn't exist yet).
+     */
+    private WhitelistMultiAdminContext buildWhitelistContextFromManagerSigs(String managerSigsPolicyId) {
+        var managerSigsInit = managerSignaturesInitRepository.findByManagerSigsPolicyId(managerSigsPolicyId)
+                .orElseThrow(() -> new RuntimeException("manager signatures init not found for: " + managerSigsPolicyId));
+
+        var managerListInits = managerListInitRepository.findByManagerSigsInit_ManagerSigsPolicyId(managerSigsPolicyId);
+
+        var builder = WhitelistMultiAdminContext.builder()
+                .issuerAdminPkh(managerSigsInit.getAdminPkh())
+                .managerSigsPolicyId(managerSigsInit.getManagerSigsPolicyId())
+                .managerSigsInitTxInput(TransactionInput.builder()
+                        .transactionId(managerSigsInit.getTxHash())
+                        .index(managerSigsInit.getOutputIndex())
+                        .build());
+
+        if (!managerListInits.isEmpty()) {
+            var managerListInit = managerListInits.getFirst();
+            builder.managerListPolicyId(managerListInit.getManagerListPolicyId())
+                    .managerListInitTxInput(TransactionInput.builder()
+                            .transactionId(managerListInit.getTxHash())
+                            .index(managerListInit.getOutputIndex())
+                            .build());
+
+            // Derive managerAuthHash from manager_list_cs
+            // The handler's wlScriptBuilder.buildManagerAuthScript(managerListCs) produces the hash,
+            // but we don't have that service here. Instead, check if a whitelist init already exists.
+        }
+
+        return builder.build();
     }
 
     /**
