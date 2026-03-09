@@ -46,9 +46,9 @@ RUN npm run build
 FROM node:20-alpine AS runner
 WORKDIR /app
 
-# Install only production dependencies
+# Install only production dependencies, plus typescript needed for next.config.ts
 COPY package.json package-lock.json ./
-RUN npm ci --only=production
+RUN npm ci --only=production && npm install typescript
 
 # Copy necessary files from builder
 COPY --from=builder /app/next.config.ts ./
