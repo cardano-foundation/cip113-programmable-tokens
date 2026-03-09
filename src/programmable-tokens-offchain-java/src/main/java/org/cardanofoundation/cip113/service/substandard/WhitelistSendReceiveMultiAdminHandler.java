@@ -110,8 +110,8 @@ public class WhitelistSendReceiveMultiAdminHandler implements SubstandardHandler
     public TransactionContext<List<String>> buildPreRegistrationTransaction(
             WhitelistMultiAdminRegisterRequest request,
             ProtocolBootstrapParams protocolParams) {
-        // Whitelist substandard handles stake registration during init/registration
-        return TransactionContext.typedError("Use combined registration flow instead");
+        // Stake registrations are handled inline in buildRegistrationTransaction
+        return TransactionContext.ok(null, List.of());
     }
 
     @Override
@@ -296,6 +296,22 @@ public class WhitelistSendReceiveMultiAdminHandler implements SubstandardHandler
                             .build()))
                     .build();
 
+            // PLG stake address
+            var programmableLogicGlobal = protocolScriptBuilderService.getParameterizedProgrammableLogicGlobalScript(protocolParams);
+            var programmableLogicGlobalAddress = AddressProvider.getRewardAddress(programmableLogicGlobal, network.getCardanoNetwork());
+
+            // Register stake addresses needed for transfer (withdraw-zero trick)
+            var requiredStakeAddresses = Stream.of(substandardIssueAddress, substandardTransferAddress, programmableLogicGlobalAddress)
+                    .map(Address::getAddress)
+                    .toList();
+            log.info("requiredStakeAddresses: {}", String.join(", ", requiredStakeAddresses));
+
+            var stakeAddressesToRegister = requiredStakeAddresses.stream()
+                    .filter(stakeAddress -> stakeRegistrationRepository.findRegistrationsByStakeAddress(stakeAddress)
+                            .map(reg -> !reg.getType().equals(CertificateType.STAKE_REGISTRATION)).orElse(true))
+                    .toList();
+            log.info("stakeAddressesToRegister: {}", String.join(", ", stakeAddressesToRegister));
+
             var payeeAddress = new Address(request.getRecipientAddress());
             var targetAddress = AddressProvider.getBaseAddress(
                     Credential.fromScript(protocolParams.programmableLogicBaseParams().scriptHash()),
@@ -322,6 +338,8 @@ public class WhitelistSendReceiveMultiAdminHandler implements SubstandardHandler
                     .attachSpendingValidator(directorySpendContract)
                     .attachRewardValidator(substandardIssueContract)
                     .withChangeAddress(request.getFeePayerAddress());
+
+            stakeAddressesToRegister.forEach(tx::registerStakeAddress);
 
             var firstUtxo = feePayerUtxos.getFirst();
             var transaction = quickTxBuilder.compose(tx)
@@ -694,7 +712,23 @@ public class WhitelistSendReceiveMultiAdminHandler implements SubstandardHandler
                 }
             }
 
-            // Receiver whitelist proof
+            // Receiver whitelist proofs — must match ALL outputs at programmable logic base address.
+            // The on-chain extract_receiver_witnesses collects staking creds from ALL such outputs,
+            // including the sender's return output, not just the recipient's output.
+            // Output order: [0] sender return, [1] recipient, [2+] change (non-prog-base)
+            var receiverProofPairs = new ArrayList<Pair<String, Utxo>>();
+
+            // Sender return output (at prog base address)
+            var senderStakingPkh = senderAddress.getDelegationCredentialHash()
+                    .map(HexUtil::encodeHexString)
+                    .orElseThrow(() -> new RuntimeException("sender has no delegation credential"));
+            var senderWhitelistNodeOpt = findWhitelistMembershipNode(whitelistUtxos, senderStakingPkh);
+            if (senderWhitelistNodeOpt.isEmpty()) {
+                return TransactionContext.typedError("sender address not whitelisted (receiver proof): " + senderStakingPkh);
+            }
+            receiverProofPairs.add(new Pair<>(senderStakingPkh, senderWhitelistNodeOpt.get()));
+
+            // Recipient output (at prog base address)
             var receiverStakingPkh = receiverAddress.getDelegationCredentialHash()
                     .map(HexUtil::encodeHexString)
                     .orElseThrow(() -> new RuntimeException("receiver has no delegation credential"));
@@ -702,12 +736,12 @@ public class WhitelistSendReceiveMultiAdminHandler implements SubstandardHandler
             if (receiverWhitelistNodeOpt.isEmpty()) {
                 return TransactionContext.typedError("receiver address not whitelisted: " + receiverStakingPkh);
             }
-            var receiverWhitelistNode = receiverWhitelistNodeOpt.get();
+            receiverProofPairs.add(new Pair<>(receiverStakingPkh, receiverWhitelistNodeOpt.get()));
 
             // Build sorted reference inputs
             var allWhitelistNodeUtxos = Stream.concat(
                     senderProofs.stream().map(Pair::second),
-                    Stream.of(receiverWhitelistNode)
+                    receiverProofPairs.stream().map(Pair::second)
             ).distinct().toList();
 
             var sortedReferenceInputs = Stream.concat(
@@ -737,12 +771,14 @@ public class WhitelistSendReceiveMultiAdminHandler implements SubstandardHandler
                 return ConstrPlutusData.of(0, BigIntPlutusData.of(index));
             }).toList();
 
-            // Build receiver proofs
-            var receiverProofIndex = sortedReferenceInputs.indexOf(TransactionInput.builder()
-                    .transactionId(receiverWhitelistNode.getTxHash())
-                    .index(receiverWhitelistNode.getOutputIndex())
-                    .build());
-            var receiverProofList = List.of(ConstrPlutusData.of(0, BigIntPlutusData.of(receiverProofIndex)));
+            // Build receiver proofs (one per output at prog base address, in output order)
+            var receiverProofList = receiverProofPairs.stream().map(pair -> {
+                var index = sortedReferenceInputs.indexOf(TransactionInput.builder()
+                        .transactionId(pair.second().getTxHash())
+                        .index(pair.second().getOutputIndex())
+                        .build());
+                return ConstrPlutusData.of(0, BigIntPlutusData.of(index));
+            }).toList();
 
             // TransferRedeemer { sender_proofs, receiver_proofs }
             var senderProofsPlutus = ListPlutusData.of();
