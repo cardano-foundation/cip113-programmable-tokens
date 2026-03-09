@@ -140,8 +140,7 @@ fn validate_3rd_party(
   // - mints (positive quantity) increases it
   //
   // At the end, all programmable tokens must be account for.
-  let minted_or_burned =
-    dict.get_or_else(assets.to_dict(tx.mint), policy_id, fn() { dict.empty })
+  let minted_or_burned = tx.mint |> assets.tokens(policy_id)
 
   let
     output_tokens,
@@ -190,16 +189,7 @@ fn drop_accum_tokens(
         return,
       )
     if output.address.payment_credential == prog_logic_cred {
-      loop(
-        union_tokens(
-          dict.get_or_else(
-            assets.to_dict(output.value),
-            policy_id,
-            fn() { dict.empty },
-          ),
-          tokens,
-        ),
-      )
+      loop(union_tokens(output.value |> assets.tokens(policy_id), tokens))
     } else {
       loop(tokens)
     }
@@ -256,11 +246,7 @@ fn check_seized_tokens(
               // also been filtered by policy id. So other tokens are irrelevant.
               //
               // If anything, it only makes the inclusion stronger by restricting the superset further.
-              dict.get_or_else(
-                assets.to_dict(output.value),
-                policy_id,
-                fn() { dict.empty },
-              ),
+              output.value |> assets.tokens(policy_id),
               acc,
             )
           } else {
