@@ -24,6 +24,8 @@ type CombinedStatus =
   | 'signing'
   | 'submitting-init'
   | 'polling-init'
+  | 'submitting-add-admin'
+  | 'polling-add-admin'
   | 'submitting-reg'
   | 'success'
   | 'error';
@@ -61,13 +63,17 @@ export function WhitelistCombinedBuildSignSubmitStep({
   const [managerListPolicyId, setManagerListPolicyId] = useState('');
   const [whitelistPolicyId, setWhitelistPolicyId] = useState('');
   const [initUnsignedCbor, setInitUnsignedCbor] = useState('');
+  const [addAdminUnsignedCbor, setAddAdminUnsignedCbor] = useState('');
   const [regUnsignedCbor, setRegUnsignedCbor] = useState('');
   const [tokenPolicyId, setTokenPolicyId] = useState('');
   const [initTxHash, setInitTxHash] = useState('');
+  const [addAdminTxHash, setAddAdminTxHash] = useState('');
   const [regTxHash, setRegTxHash] = useState('');
   const [derivedInitTxHash, setDerivedInitTxHash] = useState('');
+  const [derivedAddAdminTxHash, setDerivedAddAdminTxHash] = useState('');
   const [derivedRegTxHash, setDerivedRegTxHash] = useState('');
   const [signedInitTx, setSignedInitTx] = useState('');
+  const [signedAddAdminTx, setSignedAddAdminTx] = useState('');
   const [signedRegTx, setSignedRegTx] = useState('');
 
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -132,13 +138,25 @@ export function WhitelistCombinedBuildSignSubmitStep({
       setInitUnsignedCbor(initResponse.unsignedCborTx);
       setDerivedInitTxHash(resolveTxHash(initResponse.unsignedCborTx));
 
+      // Store add-admin tx if returned (auto-adds super-admin as whitelist manager)
+      const hasAddAdminTx = !!initResponse.addAdminUnsignedCborTx;
+      if (hasAddAdminTx) {
+        setAddAdminUnsignedCbor(initResponse.addAdminUnsignedCborTx!);
+        setDerivedAddAdminTxHash(resolveTxHash(initResponse.addAdminUnsignedCborTx!));
+      }
+
       // --- Step 2: Build registration tx with chaining ---
+      // Chain from the add-admin tx if available, otherwise from init tx
       setStatus('building-reg');
       showToastRef.current({
         title: 'Building Transactions',
         description: 'Building registration transaction...',
         variant: 'default',
       });
+
+      const chainingTx = hasAddAdminTx
+        ? initResponse.addAdminUnsignedCborTx!
+        : initResponse.unsignedCborTx;
 
       const adminPubKeyHash = getPaymentKeyHash(adminAddress);
       const regRequest: WhitelistMultiAdminRegisterRequest = {
@@ -151,7 +169,7 @@ export function WhitelistCombinedBuildSignSubmitStep({
         whitelistPolicyId: initResponse.whitelistPolicyId,
         managerListPolicyId: initResponse.managerListPolicyId,
         managerSigsPolicyId: initResponse.managerSigsPolicyId,
-        chainingTransactionCborHex: initResponse.unsignedCborTx,
+        chainingTransactionCborHex: chainingTx,
       };
 
       const regResponse = await registerToken(regRequest, selectedVersion?.txHash);
@@ -192,28 +210,42 @@ export function WhitelistCombinedBuildSignSubmitStep({
       setErrorMessage('');
 
       setStatus('signing');
+
+      // Build list of txs to sign: init + (optional add-admin) + registration
+      const txsToSign = [initUnsignedCbor];
+      if (addAdminUnsignedCbor) txsToSign.push(addAdminUnsignedCbor);
+      txsToSign.push(regUnsignedCbor);
+
       showToastRef.current({
         title: 'Sign Transactions',
-        description: 'Please sign both transactions in your wallet',
+        description: `Please sign ${txsToSign.length} transactions in your wallet`,
         variant: 'default',
       });
 
       let signedTxs: string[];
       try {
-        signedTxs = await wallet.signTxs([initUnsignedCbor, regUnsignedCbor], true);
+        signedTxs = await wallet.signTxs(txsToSign, true);
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err);
         if (errMsg.includes('signTxs') || errMsg.includes('not a function') || errMsg.includes('not supported')) {
-          const signed1 = await wallet.signTx(initUnsignedCbor, true);
-          const signed2 = await wallet.signTx(regUnsignedCbor, true);
-          signedTxs = [signed1, signed2];
+          signedTxs = [];
+          for (const tx of txsToSign) {
+            signedTxs.push(await wallet.signTx(tx, true));
+          }
         } else {
           throw err;
         }
       }
 
-      setSignedInitTx(signedTxs[0]);
-      setSignedRegTx(signedTxs[1]);
+      // Map signed txs back to their roles
+      let txIdx = 0;
+      const signedInit = signedTxs[txIdx++];
+      const signedAddAdmin = addAdminUnsignedCbor ? signedTxs[txIdx++] : '';
+      const signedReg = signedTxs[txIdx];
+
+      setSignedInitTx(signedInit);
+      if (signedAddAdmin) setSignedAddAdminTx(signedAddAdmin);
+      setSignedRegTx(signedReg);
 
       // Submit init tx
       setStatus('submitting-init');
@@ -223,7 +255,7 @@ export function WhitelistCombinedBuildSignSubmitStep({
         variant: 'default',
       });
 
-      const hash1 = await wallet.submitTx(signedTxs[0]);
+      const hash1 = await wallet.submitTx(signedInit);
       setInitTxHash(hash1);
 
       // Poll for init tx confirmation
@@ -245,11 +277,45 @@ export function WhitelistCombinedBuildSignSubmitStep({
         onConfirmed: () => {
           showToastRef.current({
             title: 'Init Confirmed',
-            description: 'Governance initialized. Submitting registration...',
+            description: addAdminUnsignedCbor
+              ? 'Governance initialized. Adding admin to manager list...'
+              : 'Governance initialized. Submitting registration...',
             variant: 'success',
           });
         },
       });
+
+      // Submit add-admin tx (if present)
+      if (signedAddAdmin) {
+        setStatus('submitting-add-admin');
+        showToastRef.current({
+          title: 'Submitting',
+          description: 'Adding admin to manager list...',
+          variant: 'default',
+        });
+
+        const addAdminHash = await wallet.submitTx(signedAddAdmin);
+        setAddAdminTxHash(addAdminHash);
+
+        // Poll for add-admin tx confirmation
+        setStatus('polling-add-admin');
+        setPollAttempt(0);
+        abortControllerRef.current = new AbortController();
+
+        await waitForTxConfirmation(addAdminHash, {
+          pollInterval: TX_POLL_INTERVAL,
+          timeout: TX_POLL_TIMEOUT,
+          signal: abortControllerRef.current.signal,
+          onPoll: (attempt) => setPollAttempt(attempt),
+          onConfirmed: () => {
+            showToastRef.current({
+              title: 'Admin Added',
+              description: 'Admin added to manager list. Submitting registration...',
+              variant: 'success',
+            });
+          },
+        });
+      }
 
       // Submit registration tx
       setStatus('submitting-reg');
@@ -259,7 +325,7 @@ export function WhitelistCombinedBuildSignSubmitStep({
         variant: 'default',
       });
 
-      const hash2 = await wallet.submitTx(signedTxs[1]);
+      const hash2 = await wallet.submitTx(signedReg);
       setRegTxHash(hash2);
 
       setStatus('success');
@@ -308,7 +374,7 @@ export function WhitelistCombinedBuildSignSubmitStep({
       setProcessing(false);
     }
   }, [
-    connected, wallet, initUnsignedCbor, regUnsignedCbor,
+    connected, wallet, initUnsignedCbor, addAdminUnsignedCbor, regUnsignedCbor,
     managerSigsPolicyId, managerListPolicyId, whitelistPolicyId, tokenPolicyId,
     onComplete, onError, setProcessing,
   ]);
@@ -376,13 +442,17 @@ export function WhitelistCombinedBuildSignSubmitStep({
     setManagerListPolicyId('');
     setWhitelistPolicyId('');
     setInitUnsignedCbor('');
+    setAddAdminUnsignedCbor('');
     setRegUnsignedCbor('');
     setTokenPolicyId('');
     setInitTxHash('');
+    setAddAdminTxHash('');
     setRegTxHash('');
     setSignedInitTx('');
+    setSignedAddAdminTx('');
     setSignedRegTx('');
     setDerivedInitTxHash('');
+    setDerivedAddAdminTxHash('');
     setDerivedRegTxHash('');
   }, []);
 
@@ -433,6 +503,8 @@ export function WhitelistCombinedBuildSignSubmitStep({
       case 'signing': return 'Waiting for wallet signature...';
       case 'submitting-init': return 'Submitting initialization...';
       case 'polling-init': return 'Waiting for init tx confirmation...';
+      case 'submitting-add-admin': return 'Adding admin to manager list...';
+      case 'polling-add-admin': return 'Waiting for add-admin tx confirmation...';
       case 'submitting-reg': return 'Submitting token registration...';
       case 'success': return 'Registration complete!';
       case 'error': return errorMessage || 'Operation failed';
@@ -441,7 +513,7 @@ export function WhitelistCombinedBuildSignSubmitStep({
   };
 
   const isBuilding = status === 'building-init' || status === 'building-reg';
-  const isSubmitting = status === 'submitting-init' || status === 'polling-init' || status === 'submitting-reg';
+  const isSubmitting = status === 'submitting-init' || status === 'polling-init' || status === 'submitting-add-admin' || status === 'polling-add-admin' || status === 'submitting-reg';
   const isActive = isBuilding || status === 'signing' || isSubmitting;
 
   return (
@@ -498,8 +570,8 @@ export function WhitelistCombinedBuildSignSubmitStep({
               <div>
                 <p className="text-blue-300 font-medium text-sm">Combined Registration</p>
                 <p className="text-blue-200/70 text-sm mt-1">
-                  This will initialize the manager hierarchy and whitelist, then register your token.
-                  Two transactions will be built, signed together, and submitted sequentially.
+                  This will initialize the manager hierarchy and whitelist, add you as a whitelist manager,
+                  then register your token. Three transactions will be built, signed together, and submitted sequentially.
                 </p>
               </div>
             </div>
@@ -514,7 +586,7 @@ export function WhitelistCombinedBuildSignSubmitStep({
             <div className="w-12 h-12 border-4 border-primary-500 border-t-transparent rounded-full animate-spin" />
           </div>
           <p className="text-dark-300 font-medium">{getStatusMessage()}</p>
-          {status === 'polling-init' && (
+          {(status === 'polling-init' || status === 'polling-add-admin') && (
             <div className="text-sm text-dark-500">
               Poll attempt: {pollAttempt} (checking every 10s)
             </div>
@@ -557,8 +629,11 @@ export function WhitelistCombinedBuildSignSubmitStep({
               {derivedInitTxHash && (
                 <TxHashRow label="1. Governance & Whitelist Init Tx" hash={derivedInitTxHash} />
               )}
+              {derivedAddAdminTxHash && (
+                <TxHashRow label="2. Add Admin to Manager List Tx" hash={derivedAddAdminTxHash} />
+              )}
               {derivedRegTxHash && (
-                <TxHashRow label="2. Registration Tx" hash={derivedRegTxHash} />
+                <TxHashRow label={derivedAddAdminTxHash ? "3. Registration Tx" : "2. Registration Tx"} hash={derivedRegTxHash} />
               )}
             </div>
           </Card>
@@ -581,6 +656,7 @@ export function WhitelistCombinedBuildSignSubmitStep({
             <PolicyIdRow label="Whitelist Policy ID" value={whitelistPolicyId} color="text-green-400" />
             <PolicyIdRow label="Manager List Policy ID" value={managerListPolicyId} color="text-orange-400" />
             {initTxHash && <TxHashRow label="Init Tx Hash" hash={initTxHash} />}
+            {addAdminTxHash && <TxHashRow label="Add Admin Tx Hash" hash={addAdminTxHash} />}
             {regTxHash && <TxHashRow label="Registration Tx Hash" hash={regTxHash} />}
           </div>
         </Card>

@@ -63,12 +63,14 @@ export type SeizeTokensResponse = TransactionContextResponse<void>;
 // ============================================================================
 
 export interface AddToWhitelistRequest {
+  adminAddress: string;            // Admin address performing the action
   policyId: string;                // Policy ID of the token
   targetCredential: string;        // Credential (PKH) to whitelist
   feePayerAddress: string;         // Address that pays for the transaction
 }
 
 export interface RemoveFromWhitelistRequest {
+  adminAddress: string;            // Admin address performing the action
   policyId: string;                // Policy ID of the token
   targetCredential: string;        // Credential (PKH) to remove from whitelist
   feePayerAddress: string;         // Address that pays for the transaction
@@ -92,6 +94,7 @@ export interface GovernanceInitResponse {
   managerAuthHash: string;
   whitelistPolicyId: string;
   unsignedCborTx: string;
+  addAdminUnsignedCborTx: string | null;
 }
 
 export interface GovernanceAddRequest {

@@ -896,9 +896,14 @@ public class WhitelistSendReceiveMultiAdminHandler implements SubstandardHandler
 
             // Find the covering node (node.key < targetCredential < node.next)
             var targetCredential = request.targetCredential();
+            log.info("Whitelist add - targetCredential: '{}', whitelistUtxos count: {}", targetCredential, whitelistUtxos.size());
+            for (var wlUtxo : whitelistUtxos) {
+                var d = parseLinkedListDatum(wlUtxo);
+                log.info("  Whitelist node: key='{}', next='{}', hasDatum={}", d != null ? d.first() : "NULL", d != null ? d.second() : "NULL", wlUtxo.getInlineDatum() != null);
+            }
             var nodeToReplaceOpt = findCoveringNode(whitelistUtxos, targetCredential);
             if (nodeToReplaceOpt.isEmpty()) {
-                return TransactionContext.typedError("could not find covering node for insertion");
+                return TransactionContext.typedError("could not find covering node for insertion. target='" + targetCredential + "', nodes=" + whitelistUtxos.size());
             }
             var coveringNode = nodeToReplaceOpt.get();
 
@@ -965,7 +970,7 @@ public class WhitelistSendReceiveMultiAdminHandler implements SubstandardHandler
             var tx = new Tx()
                     .collectFrom(managerUtxos)
                     .collectFrom(coveringNode, ConstrPlutusData.of(0))
-                    .withdraw(managerAuthAddress.getAddress(), BigInteger.ZERO, ConstrPlutusData.of(0))
+                    .withdraw(managerAuthAddress.getAddress(), BigInteger.ZERO, ConstrPlutusData.of(0, BigIntPlutusData.of(0)))
                     .mintAsset(whitelistMintScript, newNodeNft, mintRedeemer)
                     .payToContract(whitelistAddress.getAddress(), ValueUtil.toAmountList(coveringNodeValue), updatedCoveringDatum)
                     .payToContract(whitelistAddress.getAddress(), ValueUtil.toAmountList(newNodeValue), newNodeDatum)
@@ -1246,6 +1251,119 @@ public class WhitelistSendReceiveMultiAdminHandler implements SubstandardHandler
                     .map(HexUtil::encodeHexString)
                     .orElseThrow(() -> new RuntimeException("no payment credential"));
 
+            // --- Chain add-admin tx: add super-admin as whitelist manager ---
+            String addAdminTxHex = null;
+            try {
+                var initTxBytes = HexUtil.decodeHexString(transaction.serializeToHex());
+                var initTxHash = TransactionUtil.getTxHash(initTxBytes);
+                var initTx = Transaction.deserialize(initTxBytes);
+                var initTxOutputs = initTx.getBody().getOutputs();
+
+                // Find the manager_list head node, ManagerConfig NFT, and change output from init tx
+                Utxo headNodeUtxo = null;
+                Utxo managerConfigUtxo = null;
+                Utxo changeUtxo = null;
+                for (int i = 0; i < initTxOutputs.size(); i++) {
+                    var output = initTxOutputs.get(i);
+                    if (output.getAddress().equals(managerListSpendAddress.getAddress()) && headNodeUtxo == null) {
+                        headNodeUtxo = Utxo.builder()
+                                .address(output.getAddress())
+                                .txHash(initTxHash)
+                                .outputIndex(i)
+                                .amount(ValueUtil.toAmountList(output.getValue()))
+                                .inlineDatum(linkedListHeadDatum.serializeToHex())
+                                .build();
+                    }
+                    if (output.getAddress().equals(managerSigsWithdrawAddress.getAddress()) && managerConfigUtxo == null) {
+                        managerConfigUtxo = Utxo.builder()
+                                .address(output.getAddress())
+                                .txHash(initTxHash)
+                                .outputIndex(i)
+                                .amount(ValueUtil.toAmountList(output.getValue()))
+                                .inlineDatum(managerSigsInitDatum.serializeToHex())
+                                .build();
+                    }
+                    if (output.getAddress().equals(request.adminAddress()) &&
+                            output.getValue().getCoin().compareTo(BigInteger.valueOf(5_000_000L)) > 0 &&
+                            changeUtxo == null) {
+                        changeUtxo = Utxo.builder()
+                                .address(output.getAddress())
+                                .txHash(initTxHash)
+                                .outputIndex(i)
+                                .amount(ValueUtil.toAmountList(output.getValue()))
+                                .build();
+                    }
+                }
+
+                if (headNodeUtxo != null && managerConfigUtxo != null && changeUtxo != null) {
+                    // Add virtual UTxOs to hybrid supplier for QuickTxBuilder
+                    hybridUtxoSupplier.add(headNodeUtxo);
+                    hybridUtxoSupplier.add(managerConfigUtxo);
+                    hybridUtxoSupplier.add(changeUtxo);
+
+                    // Updated head datum: key="" → next=adminPkh
+                    var updatedHeadDatum = ConstrPlutusData.of(0,
+                            BytesPlutusData.of(""),
+                            BytesPlutusData.of(HexUtil.decodeHexString(adminPkh)));
+
+                    // New admin node datum: key=adminPkh → next=ff...ff
+                    var adminNodeDatum = ConstrPlutusData.of(0,
+                            BytesPlutusData.of(HexUtil.decodeHexString(adminPkh)),
+                            BytesPlutusData.of(HexUtil.decodeHexString("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")));
+
+                    var adminNodeNft = Asset.builder()
+                            .name("0x" + adminPkh)
+                            .value(ONE)
+                            .build();
+
+                    Value adminNodeValue = Value.builder()
+                            .coin(Amount.ada(1).getQuantity())
+                            .multiAssets(List.of(MultiAsset.builder()
+                                    .policyId(managerListCs)
+                                    .assets(List.of(adminNodeNft))
+                                    .build()))
+                            .build();
+
+                    var insertRedeemer = ConstrPlutusData.of(1,
+                            BytesPlutusData.of(HexUtil.decodeHexString(adminPkh)));
+
+                    // Rebuild the manager_list_mint script with the seed input from init tx
+                    var managerListMintScriptForInsert = wlScriptBuilder.buildManagerListMintScript(
+                            managerListSeedInput,
+                            HexUtil.encodeHexString(managerSigsWithdrawScript.getScriptHash()));
+
+                    var headNodeValue = headNodeUtxo.toValue();
+
+                    var addAdminTx = new Tx()
+                            .collectFrom(List.of(changeUtxo))
+                            .collectFrom(headNodeUtxo, ConstrPlutusData.of(0))
+                            .readFrom(TransactionInput.builder()
+                                    .transactionId(managerConfigUtxo.getTxHash())
+                                    .index(managerConfigUtxo.getOutputIndex())
+                                    .build())
+                            .withdraw(managerSigsWithdrawStakeAddress.getAddress(), BigInteger.ZERO, ConstrPlutusData.of(0))
+                            .mintAsset(managerListMintScriptForInsert, adminNodeNft, insertRedeemer)
+                            .payToContract(managerListSpendAddress.getAddress(), ValueUtil.toAmountList(headNodeValue), updatedHeadDatum)
+                            .payToContract(managerListSpendAddress.getAddress(), ValueUtil.toAmountList(adminNodeValue), adminNodeDatum)
+                            .attachSpendingValidator(managerListSpendScript)
+                            .attachRewardValidator(managerSigsWithdrawScript)
+                            .withChangeAddress(request.adminAddress());
+
+                    var addAdminTransaction = quickTxBuilder.compose(addAdminTx)
+                            .withRequiredSigners(adminAddress.getPaymentCredentialHash().get())
+                            .feePayer(request.adminAddress())
+                            .mergeOutputs(false)
+                            .build();
+
+                    addAdminTxHex = addAdminTransaction.serializeToHex();
+                    log.info("Chained add-admin tx built successfully");
+                } else {
+                    log.warn("Could not chain add-admin tx: headNode={}, managerConfig={}, change={}", headNodeUtxo != null, managerConfigUtxo != null, changeUtxo != null);
+                }
+            } catch (Exception e) {
+                log.warn("Failed to chain add-admin tx, admin will need to add themselves manually: {}", e.getMessage());
+            }
+
             // Persist
             managerSignaturesInitRepository.save(ManagerSignaturesInitEntity.builder()
                     .managerSigsPolicyId(managerSigsMintScript.getPolicyId())
@@ -1274,7 +1392,8 @@ public class WhitelistSendReceiveMultiAdminHandler implements SubstandardHandler
                             managerListCs,
                             managerAuthHash,
                             whitelistCs,
-                            transaction.serializeToHex()));
+                            transaction.serializeToHex(),
+                            addAdminTxHex));
 
         } catch (Exception e) {
             log.error("error building governance init tx", e);
@@ -1300,6 +1419,15 @@ public class WhitelistSendReceiveMultiAdminHandler implements SubstandardHandler
             var managerSigsWithdrawScript = wlScriptBuilder.buildManagerSignaturesWithdrawScript(
                     context.getManagerSigsInitTxInput());
             var managerSigsWithdrawAddress = AddressProvider.getRewardAddress(managerSigsWithdrawScript, network.getCardanoNetwork());
+
+            // Find the ManagerConfig NFT for reference input (required by manager_signatures.withdraw)
+            var managerSigsEntAddress = AddressProvider.getEntAddress(managerSigsWithdrawScript, network.getCardanoNetwork());
+            var managerSigsUtxos = utxoProvider.findUtxos(managerSigsEntAddress.getAddress());
+            var managerConfigUtxo = managerSigsUtxos.stream()
+                    .filter(utxo -> utxo.getAmount().stream()
+                            .anyMatch(amt -> amt.getUnit().startsWith(managerSigsPolicyId)))
+                    .findFirst()
+                    .orElseThrow(() -> new RuntimeException("ManagerConfig NFT not found"));
 
             var targetCredential = request.targetCredential();
 
@@ -1350,6 +1478,10 @@ public class WhitelistSendReceiveMultiAdminHandler implements SubstandardHandler
             var tx = new Tx()
                     .collectFrom(adminUtxos)
                     .collectFrom(coveringNode, ConstrPlutusData.of(0))
+                    .readFrom(TransactionInput.builder()
+                            .transactionId(managerConfigUtxo.getTxHash())
+                            .index(managerConfigUtxo.getOutputIndex())
+                            .build())
                     .withdraw(managerSigsWithdrawAddress.getAddress(), BigInteger.ZERO, ConstrPlutusData.of(0))
                     .mintAsset(managerListMintScript, newNodeNft, mintRedeemer)
                     .payToContract(managerListAddress.getAddress(), ValueUtil.toAmountList(coveringNodeValue), updatedCoveringDatum)
@@ -1389,6 +1521,16 @@ public class WhitelistSendReceiveMultiAdminHandler implements SubstandardHandler
             var managerSigsWithdrawScript = wlScriptBuilder.buildManagerSignaturesWithdrawScript(
                     context.getManagerSigsInitTxInput());
             var managerSigsWithdrawAddress = AddressProvider.getRewardAddress(managerSigsWithdrawScript, network.getCardanoNetwork());
+
+            // Find the ManagerConfig NFT for reference input (required by manager_signatures.withdraw)
+            var managerSigsPolicyId = context.getManagerSigsPolicyId();
+            var managerSigsEntAddress = AddressProvider.getEntAddress(managerSigsWithdrawScript, network.getCardanoNetwork());
+            var managerSigsUtxos = utxoProvider.findUtxos(managerSigsEntAddress.getAddress());
+            var managerConfigUtxo = managerSigsUtxos.stream()
+                    .filter(utxo -> utxo.getAmount().stream()
+                            .anyMatch(amt -> amt.getUnit().startsWith(managerSigsPolicyId)))
+                    .findFirst()
+                    .orElseThrow(() -> new RuntimeException("ManagerConfig NFT not found"));
 
             var targetCredential = request.targetCredential();
 
@@ -1434,6 +1576,10 @@ public class WhitelistSendReceiveMultiAdminHandler implements SubstandardHandler
                     .collectFrom(adminUtxos)
                     .collectFrom(predecessorNode, ConstrPlutusData.of(0))
                     .collectFrom(nodeToRemove, ConstrPlutusData.of(0))
+                    .readFrom(TransactionInput.builder()
+                            .transactionId(managerConfigUtxo.getTxHash())
+                            .index(managerConfigUtxo.getOutputIndex())
+                            .build())
                     .withdraw(managerSigsWithdrawAddress.getAddress(), BigInteger.ZERO, ConstrPlutusData.of(0))
                     .mintAsset(managerListMintScript, burnNft, mintRedeemer)
                     .payToContract(managerListAddress.getAddress(), ValueUtil.toAmountList(predecessorNodeValue), updatedPredecessorDatum)

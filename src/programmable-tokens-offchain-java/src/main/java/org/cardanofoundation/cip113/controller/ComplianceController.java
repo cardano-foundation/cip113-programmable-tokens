@@ -586,7 +586,8 @@ public class ComplianceController {
                         result.managerListPolicyId(),
                         result.managerAuthHash(),
                         result.whitelistPolicyId(),
-                        txContext.unsignedCborTx()));
+                        txContext.unsignedCborTx(),
+                        result.addAdminUnsignedCborTx()));
             } else {
                 return ResponseEntity.badRequest().body(txContext.error());
             }

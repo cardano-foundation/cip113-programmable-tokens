@@ -18,7 +18,8 @@ public interface SubstandardGovernance {
             String managerListPolicyId,
             String managerAuthHash,
             String whitelistPolicyId,
-            String unsignedCborTx
+            String unsignedCborTx,
+            String addAdminUnsignedCborTx
     ) {}
 
     record GovernanceInitRequest(

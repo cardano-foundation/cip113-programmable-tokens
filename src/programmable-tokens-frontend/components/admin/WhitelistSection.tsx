@@ -80,16 +80,18 @@ export function WhitelistSection({ tokens, adminAddress }: WhitelistSectionProps
         "@/lib/api/compliance"
       );
 
-      // Extract credential from address if needed
+      // Extract staking credential from address if needed.
+      // The on-chain transfer validator checks the STAKING credential of the
+      // programmable token address, so whitelist nodes must be keyed by staking cred.
       let targetCredential = targetAddress.trim();
       if (targetCredential.startsWith("addr")) {
-        // Extract payment key hash from address
         const { deserializeAddress } = await import("@meshsdk/core");
         const deserialized = deserializeAddress(targetCredential);
-        targetCredential = deserialized.pubKeyHash || targetCredential;
+        targetCredential = deserialized.stakeCredentialHash || deserialized.pubKeyHash || targetCredential;
       }
 
       const request = {
+        adminAddress,
         policyId: selectedToken.policyId,
         targetCredential,
         feePayerAddress: adminAddress,
