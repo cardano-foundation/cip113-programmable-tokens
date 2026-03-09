@@ -278,51 +278,33 @@ fn check_seized_tokens(
         },
       )
 
-    // Alleviate a bit the reading by pre-applying arguments for the next
-    // iteration. From there, we may or may not consume the next output.
-    let loop =
-      check_seized_tokens(
-        prog_logic_cred,
-        policy_id,
-        tail_inputs,
-        tail_idxs,
-        length_input_idxs - 1,
-        _,
-        _,
-        _,
-      )
+    // All inputs pointed by a proof must be programmable inputs.
+    expect input.address.payment_credential == prog_logic_cred
 
-    if input.address.payment_credential == prog_logic_cred {
-      let output = head_list(outputs)
+    // Extract the paired output and ensures it preserves address and datum
+    let output = head_list(outputs)
+    expect output.address == input.address
+    expect output.datum == input.datum
 
-      let input_value = assets.to_dict(input.value)
-      let output_value = assets.to_dict(output.value)
+    // Extract seized tokens as the delta between outputs and inputs for the
+    // given policy, ensuring all else is equal.
+    let input_value = assets.to_dict(input.value)
+    let output_value = assets.to_dict(output.value)
+    let
+      input_tokens_at,
+      output_tokens_at,
+    <- extract_seized_tokens(policy_id, input_value, output_value)
 
-      // Output must preserve address and datum
-      expect output.address == input.address
-      expect output.datum == input.datum
-
-      // Extract seized tokens as the delta between outputs and inputs for the
-      // given policy, ensuring all else is equal.
-      let
-        input_tokens_at,
-        output_tokens_at,
-      <- extract_seized_tokens(policy_id, input_value, output_value)
-
-      loop(
-        tail_list(outputs),
-        union_tokens(input_tokens_at, input_tokens),
-        union_tokens(output_tokens_at, output_tokens),
-      )
-    } else {
-      // NOTE: clarify this ?
-      // I am missing context to understand this but this is what the Plutarch implementation does; it allows
-      // script other than the programmable logic to be pointed by the index list? I don't see why this is a
-      // good (or even convenient) thing? Why can't one simply NOT target non-programmable input in their
-      // redeemer? Seems odd.
-      expect Script(..) = input.address.payment_credential
-      loop(outputs, input_tokens, output_tokens)
-    }
+    check_seized_tokens(
+      prog_logic_cred,
+      policy_id,
+      tail_inputs,
+      tail_idxs,
+      length_input_idxs - 1,
+      tail_list(outputs),
+      union_tokens(input_tokens_at, input_tokens),
+      union_tokens(output_tokens_at, output_tokens),
+    )
   }
 }
 
