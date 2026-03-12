@@ -180,10 +180,8 @@ fn validate_3rd_party(
   // Extract registry details from datum
   let
     policy_id,
-    _,
-    _,
     third_party_transfer_logic_script,
-  <- expect_registry_node(registry_node_data)
+  <- expect_registry_node_3rd_party(registry_node_data)
 
   // Validate registry node is authentic
   expect has_currency_symbol(registry_ref_input.value, registry_node_cs)
@@ -494,16 +492,12 @@ fn validate_single_cs(
   proof: RegistryProof,
 ) -> Bool {
   expect node_idx: Int = head_list(unconstr_fields(proof))
-
-  let
-    key,
-    next,
-    transfer_logic_script,
-    _,
-  <- expect_registry_node(get_registry_node(node_idx))
+  let node: Data = get_registry_node(node_idx)
 
   when proof is {
     TokenExists { .. } -> {
+      let key, transfer_logic_script <- expect_registry_node_exists(node)
+
       // Validate the node's key matches the currency symbol
       expect key == cs
 
@@ -512,6 +506,8 @@ fn validate_single_cs(
     }
 
     TokenDoesNotExist { .. } -> {
+      let key, next <- expect_registry_node_not_exists(node)
+
       // Validate the node covers the currency symbol (nodeKey < cs < nodeNext)
       expect bytearray_lt(key, cs)
       expect bytearray_lt(cs, next)
@@ -529,19 +525,37 @@ fn validate_single_cs(
 ///
 /// This even makes the contract more 'interoperable', as the linked-list datum
 /// can change in addititive manner without invalidating this contract.
-fn expect_registry_node(
+fn expect_registry_node_exists(
   inline_datum: Data,
-  return: fn(ByteArray, ByteArray, Credential, Credential) -> result,
+  return: fn(ByteArray, Credential) -> result,
+) -> result {
+  let fields = unconstr_fields(inline_datum)
+  expect key: ByteArray = head_list(fields)
+  expect transfer_logic_script: Credential =
+    head_list(tail_list(tail_list(fields)))
+  return(key, transfer_logic_script)
+}
+
+fn expect_registry_node_not_exists(
+  inline_datum: Data,
+  return: fn(ByteArray, ByteArray) -> result,
 ) -> result {
   let fields = unconstr_fields(inline_datum)
   expect key: ByteArray = head_list(fields)
   let fields = tail_list(fields)
   expect next: ByteArray = head_list(fields)
-  let fields = tail_list(fields)
-  expect transfer_logic_script: Credential = head_list(fields)
-  let fields = tail_list(fields)
-  expect third_party_transfer_logic_script: Credential = head_list(fields)
-  return(key, next, transfer_logic_script, third_party_transfer_logic_script)
+  return(key, next)
+}
+
+fn expect_registry_node_3rd_party(
+  inline_datum: Data,
+  return: fn(ByteArray, Credential) -> result,
+) -> result {
+  let fields = unconstr_fields(inline_datum)
+  expect key: ByteArray = head_list(fields)
+  expect third_party_transfer_logic_script: Credential =
+    head_list(tail_list(tail_list(tail_list(fields))))
+  return(key, third_party_transfer_logic_script)
 }
 
 /// See note on 'expect_registry_node'.
