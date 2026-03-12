@@ -182,17 +182,27 @@ pub fn has_key(haystack: List<Pair<Credential, a>>, needle: Credential) -> Bool 
 /// mint value.
 pub fn sum_output_assets(
   elems: List<i>,
-  zero: RawValue,
-  strategy: fn(i, fn(Output) -> RawValue, fn() -> RawValue) -> RawValue,
-) -> RawValue {
+  zero: Pairs<PolicyId, Tokens>,
+  strategy: fn(
+    i,
+    fn(Output) -> Pairs<PolicyId, Tokens>,
+    fn() -> Pairs<PolicyId, Tokens>,
+  ) ->
+    Pairs<PolicyId, Tokens>,
+) -> Pairs<PolicyId, Tokens> {
   do_sum_output_assets(elems, strategy, env.assert_no_ada_policy(zero))
 }
 
 fn do_sum_output_assets(
   elems: List<i>,
-  strategy: fn(i, fn(Output) -> RawValue, fn() -> RawValue) -> RawValue,
-  sum: RawValue,
-) -> RawValue {
+  strategy: fn(
+    i,
+    fn(Output) -> Pairs<PolicyId, Tokens>,
+    fn() -> Pairs<PolicyId, Tokens>,
+  ) ->
+    Pairs<PolicyId, Tokens>,
+  sum: Pairs<PolicyId, Tokens>,
+) -> Pairs<PolicyId, Tokens> {
   when elems is {
     [] -> sum
     [head, ..tail] ->
@@ -205,8 +215,9 @@ fn do_sum_output_assets(
           fn(output) {
             output.value
               |> assets.to_dict
-              |> dict.delete(ada_policy_id)
-              |> merge_raw_values(sum)
+              |> dict.to_pairs
+              |> tail_list
+              |> merge_raw_values(sum, _)
           },
           // Output is discarded
           fn() { sum },
@@ -217,8 +228,11 @@ fn do_sum_output_assets(
 
 /// Merge two RawValues by summing token quantities.
 /// Used to combine validated input prog value with validated mint prog value.
-pub fn merge_raw_values(left: RawValue, right: RawValue) -> RawValue {
-  dict.union_with(
+pub fn merge_raw_values(
+  left: Pairs<PolicyId, Tokens>,
+  right: Pairs<PolicyId, Tokens>,
+) -> Pairs<PolicyId, Tokens> {
+  do_union_with(
     left,
     right,
     // NOTE: Preserving null assets
@@ -227,10 +241,41 @@ pub fn merge_raw_values(left: RawValue, right: RawValue) -> RawValue {
     // coming from burns. If a burn is fully cover by a spend, we must preserve
     // the key in the map to ensure that validations necessary to that policy
     // occur as expected.
-    fn(_policy, left, right, keep, _discard) {
-      keep(dict.union_with(left, right, dict_strategy.sum()))
-    },
+    fn(left, right) { dict.union_with(left, right, dict_strategy.sum()) },
   )
+}
+
+fn do_union_with(
+  left: Pairs<ByteArray, value>,
+  right: Pairs<ByteArray, value>,
+  with: fn(value, value) -> value,
+) -> Pairs<ByteArray, value> {
+  when left is {
+    [] -> right
+    [Pair(k, v), ..rest] ->
+      do_union_with(rest, do_insert_with(right, k, v, with), with)
+  }
+}
+
+fn do_insert_with(
+  self: Pairs<ByteArray, value>,
+  key k: ByteArray,
+  value v: value,
+  with: fn(value, value) -> value,
+) -> Pairs<ByteArray, value> {
+  when self is {
+    [] -> [Pair(k, v)]
+    [Pair(k2, v2), ..rest] ->
+      if builtin.less_than_bytearray(k, k2) {
+        [Pair(k, v), ..self]
+      } else {
+        if k == k2 {
+          [Pair(k, with(v, v2)), ..rest]
+        } else {
+          [Pair(k2, v2), ..do_insert_with(rest, k, v, with)]
+        }
+      }
+  }
 }
 
 /// Compare two 'RawValue' to check if they have matchings assets.

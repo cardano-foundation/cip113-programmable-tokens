@@ -166,12 +166,9 @@ test sum_output_assets_many_assets() {
       |> assets.add("baz", "", 1)
       |> assets.add("foo", "bar", 2)
       |> assets.to_dict
+      |> dict.to_pairs
 
-  sum_output_assets(
-    [out1, out2, out3],
-    dict.empty,
-    fn(o, keep, _discard) { keep(o) },
-  ) == expected
+  sum_output_assets([out1, out2, out3], [], fn(o, keep, _discard) { keep(o) }) == expected
 }
 
 test sum_output_assets_mixed_mint_and_output() {
@@ -179,6 +176,7 @@ test sum_output_assets_mixed_mint_and_output() {
     assets.zero
       |> assets.add("foo", "bar", 1)
       |> assets.to_dict
+      |> dict.to_pairs
 
   let output_value =
     Output {
@@ -192,6 +190,7 @@ test sum_output_assets_mixed_mint_and_output() {
     assets.zero
       |> assets.add("foo", "bar", 2)
       |> assets.to_dict
+      |> dict.to_pairs
 
   sum_output_assets([output_value], mint, fn(o, keep, _discard) { keep(o) }) == expected
 }

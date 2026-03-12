@@ -13,7 +13,7 @@ use types.{
   TokenDoesNotExist, TokenExists, TransferAct,
 }
 use utils.{
-  RawValue, Tokens, bytearray_lt, drop_until, elem_at, has_key, has_signatory,
+  Tokens, bytearray_lt, drop_until, elem_at, has_key, has_signatory,
   peek_first_asset, skip_assert, split_at, sum_output_assets, tokens_contains,
   union_tokens,
 }
@@ -80,14 +80,14 @@ fn validate_transfer(
   proofs: List<RegistryProof>,
 ) -> Bool {
   // Collect all programmable tokens across inputs and minted/burned values.
-  let input_prog_value: RawValue = get_signed_prog_value(self, prog_logic_cred)
+  let input_prog_value = get_signed_prog_value(self, prog_logic_cred)
 
   // Collect all outputs that carry programmable tokens. We use them to ensure that
   // prog tokens cannot escape their fate.
-  let output_prog_value: RawValue =
+  let output_prog_value =
     sum_output_assets(
       self.outputs,
-      dict.empty,
+      [],
       fn(output, select, discard) {
         if output.address.payment_credential == prog_logic_cred {
           expect Some(Inline(_stake_cred)) = output.address.stake_credential
@@ -119,8 +119,8 @@ fn validate_transfer(
   check_transfer_and_compute_prog_value(
     proofs,
     validate_single_cs(get_registry_node, has_withdrawal, _, _),
-    dict.to_pairs(input_prog_value),
-    dict.to_pairs(output_prog_value),
+    input_prog_value,
+    output_prog_value,
   ) == []
 }
 
@@ -399,10 +399,10 @@ fn extract_seized_tokens(
 fn get_signed_prog_value(
   tx: Transaction,
   prog_logic_cred: Credential,
-) -> RawValue {
+) -> Pairs<PolicyId, Tokens> {
   sum_output_assets(
     tx.inputs,
-    assets.to_dict(tx.mint),
+    assets.to_dict(tx.mint) |> dict.to_pairs,
     fn(input, select, discard) {
       let output = input.output
       if output.address.payment_credential == prog_logic_cred {
