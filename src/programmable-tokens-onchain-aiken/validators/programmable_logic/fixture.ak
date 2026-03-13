@@ -19,6 +19,16 @@ use types.{
 pub const credential_transfer_logic: Credential =
   Credential.Script(#"00000000000000000000000000000000000000000000000000000b0b")
 
+/// Some script credential for the 3rd-party logic. Could also be a verification
+/// key hash, but the primary use-case is for script.
+pub const credential_3rd_party_logic: Credential =
+  Credential.Script(#"0000000000000000000000000000000000000000000000000000035d")
+
+/// Some script credential for the 3rd-party logic. Could also be a verification
+/// key hash, but the primary use-case is for script.
+pub const credential_seized_logic: Credential =
+  Credential.Script(#"000000000000000000000000000000000000000000000000002e12ed")
+
 /// Arbitrary script hash representing the programmable_logic_base validator.
 pub const credential_validator_logic_base: Credential =
   Credential.Script(#"0000000000000000000000000000000000000000000000000000ba5e")
@@ -37,12 +47,22 @@ pub const policy_tokens_registry: PolicyId =
 
 /// Typical withdrawals found in a transfer transaction; used to artificially
 /// invoke global logic.
-pub const withdrawals: Pairs<Credential, Int> =
+pub const withdrawals_transfer: Pairs<Credential, Int> =
   [
     // The artificial withdraw-0 to execute the global logic
     Pair(credential_validator_logic_global, 0),
     // The artificial withdraw-0 to execute the transfer logic
     Pair(credential_transfer_logic, 0),
+  ]
+
+/// Typical withdrawals found in a 3rd party transaction; used to artificially
+/// invoke global logic.
+pub const withdrawals_3rd_party: Pairs<Credential, Int> =
+  [
+    // The artificial withdraw-0 to execute the global logic
+    Pair(credential_validator_logic_global, 0),
+    // The artificial withdraw-0 to execute the 3rd party logic
+    Pair(credential_3rd_party_logic, 0),
   ]
 
 /// Parameters for a specific instance of the registry.
@@ -69,6 +89,7 @@ pub fn some_input_fuel(label: ByteArray) -> Input {
 /// the transfer logic and holding the given tokens (which may or may not be
 /// registered tokens)
 pub fn any_input_with_programmable_tokens(
+  stake_credential: Credential,
   tokens: List<(PolicyId, AssetName, Int)>,
 ) -> Fuzzer<Input> {
   let output_reference <- fuzz.map(cardano.output_reference())
@@ -77,7 +98,7 @@ pub fn any_input_with_programmable_tokens(
     output: Output {
       address: Address {
         payment_credential: credential_validator_logic_base,
-        stake_credential: Some(Inline(credential_transfer_logic)),
+        stake_credential: Some(Inline(stake_credential)),
       },
       value: list.foldr(
         tokens,
@@ -92,13 +113,25 @@ pub fn any_input_with_programmable_tokens(
   }
 }
 
+pub fn some_input_with_programmable_tokens_with(
+  stake_credential: Credential,
+  tokens: List<(PolicyId, AssetName, Int)>,
+  label: ByteArray,
+) -> Input {
+  generate(any_input_with_programmable_tokens(stake_credential, tokens), label)
+}
+
 /// A deterministic version of 'any_input_with_programmable_tokens', which
 /// determinism is given by the label.
 pub fn some_input_with_programmable_tokens(
   tokens: List<(PolicyId, AssetName, Int)>,
   label: ByteArray,
 ) -> Input {
-  generate(any_input_with_programmable_tokens(tokens), label)
+  some_input_with_programmable_tokens_with(
+    credential_transfer_logic,
+    tokens,
+    label,
+  )
 }
 
 /// Some reference inputs holding the given protocol params as inline datum.
@@ -131,15 +164,44 @@ pub fn some_output_change(label: ByteArray) -> Output {
   }
 }
 
-/// An arbitrary 'programmable' output (i.e. locked by the base logic +
-/// transfer logic) containing the given tokens.
-pub fn some_output_with_programmable_tokens(
+pub fn some_output_with_programmable_tokens_with(
+  stake_credential: Credential,
   tokens: List<(PolicyId, AssetName, Int)>,
 ) -> Output {
   Output {
     address: Address {
       payment_credential: credential_validator_logic_base,
-      stake_credential: Some(Inline(credential_transfer_logic)),
+      stake_credential: Some(Inline(stake_credential)),
+    },
+    value: list.foldr(
+      tokens,
+      min_ada_value,
+      fn((policy, asset_name, quantity), assets) {
+        assets.add(assets, policy, asset_name, quantity)
+      },
+    ),
+    datum: NoDatum,
+    reference_script: None,
+  }
+}
+
+/// An arbitrary 'programmable' output (i.e. locked by the base logic +
+/// transfer logic) containing the given tokens.
+pub fn some_output_with_programmable_tokens(
+  tokens: List<(PolicyId, AssetName, Int)>,
+) -> Output {
+  some_output_with_programmable_tokens_with(credential_transfer_logic, tokens)
+}
+
+/// An arbitrary seized output (i.e. locked by the base logic +
+/// 3rd party logic) containing the given tokens.
+pub fn some_output_with_seized_tokens(
+  tokens: List<(PolicyId, AssetName, Int)>,
+) -> Output {
+  Output {
+    address: Address {
+      payment_credential: credential_validator_logic_base,
+      stake_credential: Some(Inline(credential_seized_logic)),
     },
     value: list.foldr(
       tokens,
@@ -154,7 +216,9 @@ pub fn some_output_with_programmable_tokens(
 }
 
 /// A token registry linked-list node configured with the 'transfer_logic'
-pub fn some_reference_input_tokens_registry_node(
+pub fn some_reference_input_tokens_registry_node_with(
+  transfer_logic_script: Credential,
+  third_party_transfer_logic_script: Credential,
   key: ByteArray,
   next: ByteArray,
   label: ByteArray,
@@ -172,8 +236,8 @@ pub fn some_reference_input_tokens_registry_node(
           RegistryNode {
             key,
             next,
-            transfer_logic_script: credential_transfer_logic,
-            third_party_transfer_logic_script: Credential.Script(""),
+            transfer_logic_script,
+            third_party_transfer_logic_script,
             global_state_cs: "",
           },
         ),
@@ -183,8 +247,23 @@ pub fn some_reference_input_tokens_registry_node(
   }
 }
 
-/// A baseline transaction which can be used an alternative placeholder with most field pre-determined.
-pub fn some_transaction(
+pub fn some_reference_input_tokens_registry_node(
+  key: ByteArray,
+  next: ByteArray,
+  label: ByteArray,
+) -> Input {
+  some_reference_input_tokens_registry_node_with(
+    credential_transfer_logic,
+    credential_3rd_party_logic,
+    key,
+    next,
+    label,
+  )
+}
+
+/// A baseline transaction for transferring tokens which can be used a
+/// placeholder with most field pre-determined.
+pub fn some_transfer(
   tokens: List<(PolicyId, AssetName, Int)>,
 ) -> (Transaction, ProgrammableLogicGlobalRedeemer) {
   // Nub token policies, while preserving their order. This way, we allow for
@@ -240,21 +319,21 @@ pub fn some_transaction(
         some_reference_input_protocol_params(protocol_params, "protocol params"),
         ..nodes
       ],
-      withdrawals,
+      withdrawals: withdrawals_transfer,
     },
     node_idxs
       |> dict.foldr(
           [],
           fn(_, node_idx, proofs) { [TokenExists { node_idx }, ..proofs] },
         )
-      |> fn(proofs) { TransferAct { proofs, mint_proofs: [] } },
+      |> TransferAct,
   )
 }
 
 // --------------------------------------------------------------------- helpers
 
 /// Some value with a non-zero ADA amount. Embodies typical values found on-chain.
-const min_ada_value: Value =
+pub const min_ada_value: Value =
   assets.zero |> assets.add(ada_policy_id, ada_asset_name, 1000000)
 
 /// Run a 'Fuzzer' in-place, using a label as a seed. This can be used to

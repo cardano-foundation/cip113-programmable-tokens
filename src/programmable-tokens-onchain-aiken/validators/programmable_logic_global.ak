@@ -4,18 +4,18 @@
 
 use aiken/builtin.{head_list, tail_list, unconstr_fields}
 use aiken/collection/dict.{Dict}
-use aiken/collection/dict/strategy as dict_strategy
 use aiken/collection/list
 use cardano/address.{Credential, Inline, Script, VerificationKey}
 use cardano/assets.{AssetName, PolicyId}
 use cardano/transaction.{Datum, InlineDatum, Input, Output, Transaction}
 use types.{
-  ProgrammableLogicGlobalRedeemer, RegistryNode, RegistryProof, ThirdPartyAct,
+  ProgrammableLogicGlobalRedeemer, RegistryProof, ThirdPartyAct,
   TokenDoesNotExist, TokenExists, TransferAct,
 }
 use utils.{
-  RawValue, bytearray_lt, elem_at, expect_inline_datum, has_currency_symbol,
-  has_key, has_signatory, merge_raw_values, sum_output_values,
+  Tokens, bytearray_lt, drop_until, elem_at, has_key, has_signatory,
+  peek_first_asset, skip_assert, split_at, sum_output_assets, tokens_contains,
+  union_tokens,
 }
 
 validator programmable_logic_global(protocol_params_cs: PolicyId) {
@@ -35,21 +35,15 @@ validator programmable_logic_global(protocol_params_cs: PolicyId) {
     <- expect_programmable_logic_params(protocol_params_ref.output.datum)
 
     when redeemer is {
-      TransferAct { proofs, mint_proofs } ->
-        validate_transfer(
-          self,
-          prog_logic_cred,
-          registry_node_cs,
-          proofs,
-          mint_proofs,
-        )
+      TransferAct { proofs } ->
+        validate_transfer(self, prog_logic_cred, registry_node_cs, proofs)
       ThirdPartyAct {
         registry_node_idx,
         input_idxs,
         outputs_start_idx,
         length_input_idxs,
       } ->
-        validate_third_party(
+        validate_3rd_party(
           self,
           prog_logic_cred,
           registry_node_cs,
@@ -71,7 +65,7 @@ pub fn get_protocol_params_ref(
   ref_inputs: List<Input>,
 ) -> Input {
   let head = head_list(ref_inputs)
-  if has_currency_symbol(head.output.value, protocol_params_cs) {
+  if peek_first_asset(head.output.value).1st == protocol_params_cs {
     head
   } else {
     get_protocol_params_ref(protocol_params_cs, tail_list(ref_inputs))
@@ -84,37 +78,16 @@ fn validate_transfer(
   prog_logic_cred: Credential,
   registry_node_cs: PolicyId,
   proofs: List<RegistryProof>,
-  mint_proofs: List<RegistryProof>,
 ) -> Bool {
-  // Sum all inputs from the programmable logic credential
-  let total_prog_value: RawValue = get_signed_prog_value(self, prog_logic_cred)
+  // Collect all programmable tokens across inputs and minted/burned values.
+  let input_prog_value = get_signed_prog_value(self, prog_logic_cred)
 
-  // Check transfer logic for each programmable token type and filter to only programmable tokens
-  let validated_prog_value =
-    check_transfer_and_compute_prog_value(
-      total_prog_value,
-      proofs,
-      validate_single_cs(self, _, _, registry_node_cs),
-    )
-
-  // Always validate minted/burned programmable tokens against the directory.
-  // Gate on tx.mint content (not mint_proofs), matching Plutarch behavior.
-  // If self.mint is empty and mint_proofs is empty: no-op (returns dict.empty, merge is identity).
-  // If self.mint is non-empty but mint_proofs is empty: crashes on head_list([]) → tx rejected.
-  // If self.mint is empty but mint_proofs is non-empty: remaining_proofs != [] → tx rejected.
-  let mint_dict: RawValue = assets.to_dict(self.mint)
-  let validated_mint_value =
-    check_mint_and_compute_prog_value(
-      mint_dict,
-      mint_proofs,
-      validate_single_cs(self, _, _, registry_node_cs),
-    )
-  let expected_value =
-    merge_raw_values(validated_prog_value, validated_mint_value)
-
-  let output_prog_value: RawValue =
-    sum_output_values(
+  // Collect all outputs that carry programmable tokens. We use them to ensure that
+  // prog tokens cannot escape their fate.
+  let output_prog_value =
+    sum_output_assets(
       self.outputs,
+      [],
       fn(output, select, discard) {
         if output.address.payment_credential == prog_logic_cred {
           expect Some(Inline(_stake_cred)) = output.address.stake_credential
@@ -125,24 +98,74 @@ fn validate_transfer(
       },
     )
 
-  // The output must contain all the expected programmable tokens (inputs + mints)
-  // Pre-condition of 'value_contains' is guaranteed since both pairs
-  // come from 'Dict', thus guaranteeing key uniqueness and ordering.
-  dict.to_pairs(output_prog_value)
-    |> utils.value_contains(dict.to_pairs(expected_value))
+  let get_registry_node =
+    mk_get_registry_node(
+      registry_node_cs,
+      0,
+      self.reference_inputs,
+      fn(_) { fail },
+    )
+
+  let first_withdrawal = head_list(self.withdrawals).1st
+  let has_withdrawal =
+    mk_has_withdrawal(
+      fn(script_hash) { script_hash == first_withdrawal },
+      // NOTE: The programmable logic global is alway invoked via a withdrawal, so
+      // we know there's AT LEAST ONE withdrawal.
+      tail_list(self.withdrawals),
+    )
+
+  // Check transfer logic for each programmable token type and filter to only programmable tokens.
+  check_transfer_and_compute_prog_value(
+    proofs,
+    validate_single_cs(get_registry_node, has_withdrawal, _, _),
+    input_prog_value,
+    output_prog_value,
+  ) == []
 }
 
-/// Validate a third party action (seizure, freeze, etc.) on multiple UTxOs.
-///
-/// Implements delta tracking (matching Plutarch's checkBalanceInvariant):
-/// 1. For each input/output pair: verify non-policy assets are unchanged,
-///    accumulate the seized policy's input tokens.
-/// 2. Sum all outputs at prog_logic_cred for the seized policy.
-/// 3. Verify: total output tokens >= total input tokens (balance invariant).
-///
-/// This ensures seized tokens stay within prog_logic_cred and enables
-/// partial seizure (seize some tokens, leave others with the owner).
-fn validate_third_party(
+fn mk_has_withdrawal(
+  has_withdrawal: fn(Credential) -> Bool,
+  withdrawals: Pairs<Credential, Int>,
+) -> fn(Credential) -> Bool {
+  when withdrawals is {
+    [] -> has_withdrawal
+    [Pair(head, _), ..tail] ->
+      mk_has_withdrawal(
+        fn(script_hash) { head == script_hash || has_withdrawal(script_hash) },
+        tail,
+      )
+  }
+}
+
+fn mk_get_registry_node(
+  registry_node_cs: PolicyId,
+  ref_idx: Int,
+  reference_inputs: List<Input>,
+  get_registry_node: fn(Int) -> Data,
+) -> fn(Int) -> Data {
+  when reference_inputs is {
+    [] -> get_registry_node
+    [head, ..tail] ->
+      mk_get_registry_node(
+        registry_node_cs,
+        ref_idx + 1,
+        tail,
+        fn(proof_idx) {
+          if ref_idx == proof_idx {
+            let Pair(ref_cs, _) = peek_first_asset(head.output.value)
+            expect ref_cs == registry_node_cs
+            expect InlineDatum(data) = head.output.datum
+            data
+          } else {
+            get_registry_node(proof_idx)
+          }
+        },
+      )
+  }
+}
+
+fn validate_3rd_party(
   tx: Transaction,
   prog_logic_cred: Credential,
   registry_node_cs: PolicyId,
@@ -151,104 +174,235 @@ fn validate_third_party(
   outputs_start_idx: Int,
   length_input_idxs: Int,
 ) -> Bool {
-  trace @"validate_third_party: processing multiple inputs"
+  let Input { output: registry_ref_input, .. } =
+    elem_at(tx.reference_inputs, registry_node_idx)
 
-  // Get the registry node for this token policy
-  let registry_ref_input = elem_at(tx.reference_inputs, registry_node_idx)
-  let registry_datum = expect_inline_datum(registry_ref_input.output)
-  expect registry_node: RegistryNode = registry_datum
+  expect InlineDatum(registry_node_data) = registry_ref_input.datum
 
-  // Get the policy ID from the registry
-  let policy_id = registry_node.key
+  // Extract registry details from datum
+  let
+    policy_id,
+    third_party_transfer_logic_script,
+  <- expect_registry_node_3rd_party(registry_node_data)
 
-  // Process each input-output pair:
-  // - Verify non-policy assets are unchanged
-  // - Verify address and datum preserved
-  // - Accumulate the seized policy's input tokens for the balance invariant
-  let (_last_index, input_size, total_input_policy_tokens) =
-    list.indexed_foldr(
-      input_idxs,
-      (-1, 0, dict.empty),
-      fn(idx, input_idx, (prev_idx, acc, input_tokens_acc)) {
-        // Ensures inputs are sorted with no duplicates
-        expect prev_idx > input_idx || prev_idx == -1
+  // Validate registry node is authentic
+  expect peek_first_asset(registry_ref_input.value).1st == registry_node_cs
 
-        let input = elem_at(tx.inputs, input_idx)
-        let output_idx = outputs_start_idx + idx
-        let output = elem_at(tx.outputs, output_idx)
+  // The third party transfer logic script must be invoked
+  expect has_key(tx.withdrawals, third_party_transfer_logic_script)
 
-        let input_dict = assets.to_dict(input.output.value)
-        let output_dict = assets.to_dict(output.value)
+  // Minted/Burned tokens are used as the 'zero value' for computing the delta
+  // between outputs and inputs:
+  //
+  // - burns (negative quantity) reduces the expected output
+  // - mints (positive quantity) increases it
+  //
+  // At the end, all programmable tokens must be account for.
+  let minted_or_burned = tx.mint |> assets.tokens(policy_id)
 
-        // Must be from prog_logic_cred
-        expect input.output.address.payment_credential == prog_logic_cred
-        // Output must preserve address and datum
-        expect output.address == input.output.address
-        expect output.datum == input.output.datum
+  let
+    output_tokens,
+    outputs,
+  <-
+    drop_accum_tokens(
+      tx.outputs,
+      outputs_start_idx,
+      prog_logic_cred,
+      policy_id,
+      dict.empty,
+    )
 
-        // Non-policy assets must be exactly equal (only the seized policy can change)
-        expect
-          dict.delete(input_dict, policy_id) == dict.delete(
-            output_dict,
-            policy_id,
-          )
+  check_seized_tokens(
+    prog_logic_cred,
+    policy_id,
+    tx.inputs,
+    input_idxs,
+    length_input_idxs,
+    outputs,
+    minted_or_burned,
+    output_tokens,
+  )
+}
 
-        // Policy tokens must actually change (prevent DDOS with no-op seizures)
-        let input_policy_tokens = get_policy_tokens(input_dict, policy_id)
-        let output_policy_tokens = get_policy_tokens(output_dict, policy_id)
-        expect input_policy_tokens != output_policy_tokens
+/// Drop 'n' output from the list, while accumulating tokens of a given policy present in dropped outputs
+fn drop_accum_tokens(
+  outputs: List<Output>,
+  n: Int,
+  prog_logic_cred: Credential,
+  policy_id: PolicyId,
+  tokens: Tokens,
+  return: fn(Tokens, List<Output>) -> result,
+) -> result {
+  if n <= 0 {
+    return(tokens, outputs)
+  } else {
+    expect [output, ..tail_outputs] = outputs
 
-        // Accumulate input policy tokens for balance invariant
-        let new_tokens_acc = union_tokens(input_tokens_acc, input_policy_tokens)
+    let loop =
+      drop_accum_tokens(
+        tail_outputs,
+        n - 1,
+        prog_logic_cred,
+        policy_id,
+        _,
+        return,
+      )
 
-        (input_idx, acc + 1, new_tokens_acc)
+    if output.address.payment_credential == prog_logic_cred {
+      loop(union_tokens(output.value |> assets.tokens(policy_id), tokens))
+    } else {
+      loop(tokens)
+    }
+  }
+}
+
+/// Analyze inputs and outputs affected by the 3rd-party action (grossly named *seized_tokens* here).
+fn check_seized_tokens(
+  prog_logic_cred: Credential,
+  policy_id: PolicyId,
+  inputs: List<Input>,
+  input_idxs: List<Int>,
+  length_input_idxs: Int,
+  outputs: List<Output>,
+  input_tokens: Dict<AssetName, Int>,
+  output_tokens: Dict<AssetName, Int>,
+) -> Bool {
+  // This is an optimisation where the transaction builder also provides the length of the input indexes. This
+  // allows to not have to repeatedly pattern match on the input indices list to grab the next one; and converts
+  // that check into a null check on an integer.
+  //
+  // This is safe because:
+  //
+  // - if a larger length than the real one is given:
+  //     we'll attempt to 'head_list' on an empty list and the whole validation blows up.
+  //
+  // - if a smaller length than the real one is given:
+  //     we do ensures that there are no unprocessed programmable input once we
+  //     reach 0 (which would indicate someone tried to bypass validations).
+  //
+  if length_input_idxs <= 0 {
+    // Any remaining inputs must NOT be locked by the programmable logic
+    // credential, so that they don't escape validations.
+    list.for_each(
+      inputs,
+      fn(input) {
+        expect input.output.address.payment_credential != prog_logic_cred
       },
     )
 
-  // Verify length parameter matches actual list length
-  expect input_size == length_input_idxs
+    // Finish accumulating relevant tokens in remaining outputs. This ensure
+    // that tokens that have moved to new outputs that weren't paired with a
+    // seized input are still accounted for.
+    let total_output_tokens =
+      list.foldl(
+        outputs,
+        output_tokens,
+        fn(output, acc) {
+          // Ensure to only count programmable outputs, to not allow tokens to escape.
+          if output.address.payment_credential == prog_logic_cred {
+            union_tokens(
+              // We can safely restrict to the given policy id, to prevent arbitrarily large values
+              // from being too costly to merge. We check inclusion in the end, from tokens that have
+              // also been filtered by policy id. So other tokens are irrelevant.
+              //
+              // If anything, it only makes the inclusion stronger by restricting the superset further.
+              output.value |> assets.tokens(policy_id),
+              acc,
+            )
+          } else {
+            acc
+          }
+        },
+      )
 
-  // Validate registry node is authentic
-  expect has_currency_symbol(registry_ref_input.output.value, registry_node_cs)
-  // The third party transfer logic script must be invoked
-  expect
-    has_key(tx.withdrawals, registry_node.third_party_transfer_logic_script)
+    // All the inputs tokens (seized or not) must still be sent to the prog
+    // logic validator. This is checked by ensuring all collected tokens are
+    // contained within all programmable outputs, while allowing those outputs
+    // to contain other things.
+    utils.tokens_contains(
+      dict.to_pairs(total_output_tokens),
+      dict.to_pairs(input_tokens),
+    )?
+  } else {
+    expect [idx, ..tail_idxs] = input_idxs
 
-  // Verify that ONLY the specified inputs from prog_logic_cred are consumed
-  let prog_input_count =
-    list.count(
-      tx.inputs,
-      fn(input) { input.output.address.payment_credential == prog_logic_cred },
+    expect [Input { output: input, .. }, ..tail_inputs] =
+      skip_assert(
+        inputs,
+        idx,
+        fn(input) {
+          // Ensure that any input we skip is NOT locked by a prog logic credential,
+          // in case one attempt to spend programmable tokens by simply skipping over
+          // them.
+          input.output.address.payment_credential != prog_logic_cred
+        },
+      )
+
+    // All inputs pointed by a proof must be programmable inputs.
+    expect input.address.payment_credential == prog_logic_cred
+
+    // Extract the paired output and ensures it preserves address and datum
+    let output = head_list(outputs)
+    expect output.address == input.address
+    expect output.datum == input.datum
+
+    // Extract seized tokens as the delta between outputs and inputs for the
+    // given policy, ensuring all else is equal.
+    let input_value = assets.to_dict(input.value)
+    let output_value = assets.to_dict(output.value)
+    let
+      input_tokens_at,
+      output_tokens_at,
+    <- extract_seized_tokens(policy_id, input_value, output_value)
+
+    check_seized_tokens(
+      prog_logic_cred,
+      policy_id,
+      tail_inputs,
+      tail_idxs,
+      length_input_idxs - 1,
+      tail_list(outputs),
+      union_tokens(input_tokens_at, input_tokens),
+      union_tokens(output_tokens_at, output_tokens),
     )
-  expect prog_input_count == length_input_idxs
+  }
+}
 
-  // Balance invariant: total output policy tokens at prog_logic_cred
-  // must be >= total input policy tokens (adjusted for mints/burns).
-  // This ensures seized tokens stay within the programmable system.
-  let total_output_policy_tokens =
-    sum_policy_tokens_at_cred(tx.outputs, prog_logic_cred, policy_id)
+fn extract_seized_tokens(
+  policy_id: PolicyId,
+  input_tokens: Dict<PolicyId, Tokens>,
+  output_tokens: Dict<PolicyId, Tokens>,
+  return: fn(Tokens, Tokens) -> result,
+) -> result {
+  let
+    input_tokens_before,
+    input_tokens_at,
+    input_tokens_after,
+  <- split_at(input_tokens, policy_id)
 
-  // Account for minted/burned tokens in the balance invariant.
-  // Burns (negative qty) reduce the expected output; mints increase it.
-  // Authorization: issuance_mint validator + Cardano ledger enforce burn legitimacy.
-  let mint_policy_tokens = get_policy_tokens(assets.to_dict(tx.mint), policy_id)
-  let adjusted_input_policy_tokens =
-    union_tokens(total_input_policy_tokens, mint_policy_tokens)
-      |> dict.filter(fn(_name, qty) { qty > 0 })
+  let
+    output_tokens_before,
+    output_tokens_at,
+    output_tokens_after,
+  <- split_at(output_tokens, policy_id)
 
-  // Check: for each token name, output >= adjusted input
-  check_balance_invariant(
-    dict.to_pairs(total_output_policy_tokens),
-    dict.to_pairs(adjusted_input_policy_tokens),
-  )
+  // Seized tokens must change, but only them.
+  expect and {
+      (input_tokens_before == output_tokens_before)?,
+      (input_tokens_after == output_tokens_after)?,
+      (input_tokens_at != output_tokens_at)?,
+    }
+
+  return(input_tokens_at, output_tokens_at)
 }
 
 fn get_signed_prog_value(
   tx: Transaction,
   prog_logic_cred: Credential,
-) -> RawValue {
-  sum_output_values(
+) -> Pairs<PolicyId, Tokens> {
+  sum_output_assets(
     tx.inputs,
+    assets.to_dict(tx.mint) |> dict.to_pairs,
     fn(input, select, discard) {
       let output = input.output
       if output.address.payment_credential == prog_logic_cred {
@@ -276,152 +430,47 @@ fn get_signed_prog_value(
 /// Sum values from a list of inputs
 /// Check transfer logic for each currency symbol and filter to only programmable tokens
 fn check_transfer_and_compute_prog_value(
-  value: RawValue,
   proofs: List<RegistryProof>,
   check_policy: fn(PolicyId, RegistryProof) -> Bool,
-) -> RawValue {
-  let assets = tail_list(dict.to_pairs(value))
+  input_assets: Pairs<PolicyId, Dict<AssetName, Int>>,
+  output_assets: Pairs<PolicyId, Dict<AssetName, Int>>,
+) -> List<RegistryProof> {
+  when input_assets is {
+    [] -> proofs
+    [Pair(cs, head_input_tokens), ..tail_input_assets] ->
+      // We expect one proof per policy, if not, this blows up and halts the validation.
+      if check_policy(cs, head_list(proofs)) {
+        // Existing programmable token, must be in output.
 
-  let
-    remaining_proofs,
-    acc_value,
-  <- do_check_transfer(assets, proofs, check_policy, dict.empty)
+        // Outputs must be a superset of inputs, so they may contain extra
+        // policies not found in validated inputs. Yet, both input assets and
+        // output assets are in ascending policy order.
+        let
+          head_output_tokens,
+          tail_output_assets,
+        <- drop_until(output_assets, cs)
 
-  expect [] == remaining_proofs
+        expect
+          tokens_contains(
+            dict.to_pairs(head_output_tokens),
+            dict.to_pairs(head_input_tokens),
+          )
 
-  acc_value
-}
-
-fn do_check_transfer(
-  assets: Pairs<PolicyId, Dict<AssetName, Int>>,
-  proofs: List<RegistryProof>,
-  check_policy: fn(PolicyId, RegistryProof) -> Bool,
-  acc: RawValue,
-  return: fn(List<RegistryProof>, RawValue) -> result,
-) -> result {
-  when assets is {
-    [] -> return(proofs, acc)
-    [Pair(cs, tokens), ..rest] -> {
-      let proof = head_list(proofs)
-
-      // TODO: Failing-fast when finding non-validated programmable tokens?
-      //
-      // This seems a little suspicious but I do not want to alter the logic
-      // without diving more into the spec and what's the expected behaviour
-      // here.
-      //
-      // What is "suspicious" here is that we are already iterating over an
-      // asset list that was obtained from looping over the inputs, and
-      // selecting only tokens that were locked by the programmable logic
-      // script, and with a matching transfer logic as stake script.
-      //
-      // Couldn't we simply fail if any such token found in inputs appear to be
-      // unauthenticated? It would save quite some cost, as we are otherwise
-      // forced to re-create a whole new value object, which in the nominal
-      // case end up being the same as the original object.
-      let new_acc =
-        if check_policy(cs, proof) {
-          // Validated programmable token, keep it.
-          dict.insert(acc, cs, tokens)
-        } else {
-          // Not a programmable token, skip it
-          acc
-        }
-
-      do_check_transfer(rest, tail_list(proofs), check_policy, new_acc, return)
-    }
-  }
-}
-
-/// Validate minted/burned programmable tokens and filter to only programmable tokens.
-/// Unlike check_transfer_and_compute_prog_value, this does NOT skip ADA
-/// (mint values never contain ADA).
-fn check_mint_and_compute_prog_value(
-  mint_value: RawValue,
-  mint_proofs: List<RegistryProof>,
-  check_policy: fn(PolicyId, RegistryProof) -> Bool,
-) -> RawValue {
-  let mint_assets = dict.to_pairs(mint_value)
-
-  let
-    remaining_proofs,
-    acc_value,
-  <- do_check_transfer(mint_assets, mint_proofs, check_policy, dict.empty)
-
-  expect [] == remaining_proofs
-
-  acc_value
-}
-
-/// Extract tokens for a specific policy from a value dict.
-/// Returns dict.empty if the policy is not present.
-fn get_policy_tokens(
-  value_dict: RawValue,
-  policy: PolicyId,
-) -> Dict<AssetName, Int> {
-  when dict.get(value_dict, policy) is {
-    Some(tokens) -> tokens
-    None -> dict.empty
-  }
-}
-
-/// Merge two token maps by summing quantities per token name.
-fn union_tokens(
-  a: Dict<AssetName, Int>,
-  b: Dict<AssetName, Int>,
-) -> Dict<AssetName, Int> {
-  dict.union_with(a, b, dict_strategy.sum())
-}
-
-/// Sum policy tokens from all outputs at prog_logic_cred.
-/// Used by the balance invariant to verify seized tokens stay in the system.
-fn sum_policy_tokens_at_cred(
-  outputs: List<Output>,
-  prog_logic_cred: Credential,
-  policy_id: PolicyId,
-) -> Dict<AssetName, Int> {
-  list.foldr(
-    outputs,
-    dict.empty,
-    fn(output, acc) {
-      if output.address.payment_credential == prog_logic_cred {
-        let output_dict = assets.to_dict(output.value)
-        let policy_tokens = get_policy_tokens(output_dict, policy_id)
-        union_tokens(acc, policy_tokens)
+        check_transfer_and_compute_prog_value(
+          tail_list(proofs),
+          check_policy,
+          tail_input_assets,
+          tail_output_assets,
+        )
       } else {
-        acc
+        // Not a programmable token, skip it
+        check_transfer_and_compute_prog_value(
+          tail_list(proofs),
+          check_policy,
+          tail_input_assets,
+          output_assets,
+        )
       }
-    },
-  )
-}
-
-/// Check that for every token name in `subset`, `superset` has >= that quantity.
-/// Implements Plutarch's checkBalanceInvariant for seized token tracking.
-///
-/// Pre-condition: both lists are well-formed Pairs from Dict (sorted, no duplicates).
-fn check_balance_invariant(
-  superset: Pairs<AssetName, Int>,
-  subset: Pairs<AssetName, Int>,
-) -> Bool {
-  when subset is {
-    [] -> True
-    [Pair(name, qty), ..tail_subset] -> {
-      let sup_qty, tail_superset <- drop_until_token(superset, name)
-      sup_qty >= qty && check_balance_invariant(tail_superset, tail_subset)
-    }
-  }
-}
-
-fn drop_until_token(
-  self: Pairs<ByteArray, Int>,
-  until: ByteArray,
-  return: fn(Int, Pairs<ByteArray, Int>) -> result,
-) -> result {
-  let head = head_list(self)
-  if head.1st == until {
-    return(head.2nd, tail_list(self))
-  } else {
-    drop_until_token(tail_list(self), until, return)
   }
 }
 
@@ -430,36 +479,34 @@ fn drop_until_token(
 /// Returns False if the token is NOT a programmable token (TokenDoesNotExist with valid proof)
 /// FAILS the transaction if any proof is invalid
 fn validate_single_cs(
-  self: Transaction,
+  get_registry_node: fn(Int) -> Data,
+  has_withdrawal: fn(Credential) -> Bool,
   cs: PolicyId,
   proof: RegistryProof,
-  registry_node_cs: PolicyId,
 ) -> Bool {
   expect node_idx: Int = head_list(unconstr_fields(proof))
-
-  // Get the registry node details
-  let node_input = elem_at(self.reference_inputs, node_idx)
-  let
-    key,
-    next,
-    transfer_logic_script,
-  <- expect_registry_node(node_input.output.datum)
-
-  // Validate this is a legitimate registry node
-  expect has_currency_symbol(node_input.output.value, registry_node_cs)
+  let node: Data = get_registry_node(node_idx)
 
   when proof is {
     TokenExists { .. } -> {
+      let key, transfer_logic_script <- expect_registry_node_exists(node)
+
       // Validate the node's key matches the currency symbol
       expect key == cs
+
       // Validate the transfer logic script is invoked
-      has_key(self.withdrawals, transfer_logic_script)
+      expect has_withdrawal(transfer_logic_script)
+
+      True
     }
 
     TokenDoesNotExist { .. } -> {
+      let key, next <- expect_registry_node_not_exists(node)
+
       // Validate the node covers the currency symbol (nodeKey < cs < nodeNext)
       expect bytearray_lt(key, cs)
       expect bytearray_lt(cs, next)
+
       // This is NOT a programmable token (proof is valid)
       False
     }
@@ -473,18 +520,37 @@ fn validate_single_cs(
 ///
 /// This even makes the contract more 'interoperable', as the linked-list datum
 /// can change in addititive manner without invalidating this contract.
-fn expect_registry_node(
-  datum: Datum,
-  return: fn(ByteArray, ByteArray, Credential) -> result,
+fn expect_registry_node_exists(
+  inline_datum: Data,
+  return: fn(ByteArray, Credential) -> result,
 ) -> result {
-  expect InlineDatum(inline_datum) = datum
+  let fields = unconstr_fields(inline_datum)
+  expect key: ByteArray = head_list(fields)
+  expect transfer_logic_script: Credential =
+    head_list(tail_list(tail_list(fields)))
+  return(key, transfer_logic_script)
+}
+
+fn expect_registry_node_not_exists(
+  inline_datum: Data,
+  return: fn(ByteArray, ByteArray) -> result,
+) -> result {
   let fields = unconstr_fields(inline_datum)
   expect key: ByteArray = head_list(fields)
   let fields = tail_list(fields)
   expect next: ByteArray = head_list(fields)
-  let fields = tail_list(fields)
-  expect transfer_logic_script: Credential = head_list(fields)
-  return(key, next, transfer_logic_script)
+  return(key, next)
+}
+
+fn expect_registry_node_3rd_party(
+  inline_datum: Data,
+  return: fn(ByteArray, Credential) -> result,
+) -> result {
+  let fields = unconstr_fields(inline_datum)
+  expect key: ByteArray = head_list(fields)
+  expect third_party_transfer_logic_script: Credential =
+    head_list(tail_list(tail_list(tail_list(fields))))
+  return(key, third_party_transfer_logic_script)
 }
 
 /// See note on 'expect_registry_node'.
