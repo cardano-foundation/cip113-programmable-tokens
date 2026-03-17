@@ -22,19 +22,20 @@ validator protocol_params_mint(
   mint(_redeemer: Data, own_policy: PolicyId, self: Transaction) {
     trace @"Starting protocol_params_mint validation"
     // Check 1: This is a one-shot minting policy - must spend the specified UTXO
-    let consumed =
-      list.any(self.inputs, fn(input) { input.output_reference == utxo_ref })
+    let consumed = list.any(
+      self.inputs,
+      fn(input) { input.output_reference == utxo_ref },
+    )
 
     // Check 2: Get all minted tokens from this policy
     let minted_tokens = flatten(self.mint)
-    let own_minted =
-      list.filter(
-        minted_tokens,
-        fn(token) {
-          let (cs, _tn, _qty) = token
-          cs == own_policy
-        },
-      )
+    let own_minted = list.filter(
+      minted_tokens,
+      fn(token) {
+        let (cs, _tn, _qty) = token
+        cs == own_policy
+      },
+    )
 
     // Must mint exactly one token with the correct name and quantity
     expect [(_, tn, qty)] = own_minted
@@ -42,13 +43,12 @@ validator protocol_params_mint(
     // The always-fail address where the NFT must be locked
     let expected_address = address.from_script(always_fail_hash)
     // Find the output at the always-fail address
-    expect Some(nft_output) =
-      list.find(
-        self.outputs,
-        fn(output) {
-          assets.has_nft_strict(output.value, own_policy, protocol_params_token)
-        },
-      )
+    expect Some(nft_output) = list.find(
+      self.outputs,
+      fn(output) {
+        assets.has_nft_strict(output.value, own_policy, protocol_params_token)
+      },
+    )
     expect InlineDatum(datum) = nft_output.datum
     expect _params: ProgrammableLogicGlobalParams = datum
 

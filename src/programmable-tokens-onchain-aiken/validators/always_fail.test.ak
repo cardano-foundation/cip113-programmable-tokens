@@ -23,11 +23,10 @@ test always_fail_different_nonces() {
 test always_fail_address_construction() {
   let script_hash = #"deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
 
-  let addr =
-    Address {
-      payment_credential: Script(script_hash),
-      stake_credential: None,
-    }
+  let addr = Address {
+    payment_credential: Script(script_hash),
+    stake_credential: None,
+  }
 
   // Address has the script credential and no stake credential
   addr.payment_credential == Script(script_hash) && addr.stake_credential == None

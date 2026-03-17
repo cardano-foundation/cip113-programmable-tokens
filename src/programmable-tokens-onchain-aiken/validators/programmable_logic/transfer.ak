@@ -20,11 +20,10 @@ pub fn validate_transfer(
   // NOTE: The programmable logic global is alway invoked via a withdrawal, so
   // we know there's AT LEAST ONE withdrawal.
   let first_withdrawal = list.head(self.withdrawals).1st
-  let has_withdrawal =
-    new_withdrawal_checker(
-      fn(script_hash) { script_hash == first_withdrawal },
-      list.tail(self.withdrawals),
-    )
+  let has_withdrawal = new_withdrawal_checker(
+    fn(script_hash) { script_hash == first_withdrawal },
+    list.tail(self.withdrawals),
+  )
 
   // Collect all programmable tokens across inputs and minted/burned values.
   let input_assets = collect_input_assets(self, has_withdrawal, prog_logic_cred)
@@ -61,8 +60,7 @@ fn collect_input_assets(
   has_withdrawal: fn(Credential) -> Bool,
   prog_logic_cred: Credential,
 ) -> Assets {
-  let has_signatory =
-    list.has_or_fail(tx.extra_signatories, _)
+  let has_signatory = list.has_or_fail(tx.extra_signatories, _)
 
   assets.collect(
     tx.inputs,
@@ -136,10 +134,10 @@ fn verify_proofs(
           // Outputs must be a superset of inputs, so they may contain extra
           // policies not found in validated inputs. Yet, both input assets and
           // output assets are in ascending policy order.
-          let
-            head_output_tokens,
-            tail_output_assets,
-          <- pairs.pop_until(output_assets, equals_bytearray(policy, _))
+          let head_output_tokens, tail_output_assets <- pairs.pop_until(
+            output_assets,
+            equals_bytearray(policy, _),
+          )
 
           expect
             tokens.contains(
@@ -181,10 +179,9 @@ fn choose_registered_token_with(
 ) -> result {
   when proof is {
     TokenExists { node_idx } -> {
-      let
-        key,
-        transfer_logic_script,
-      <- with_key_and_transfer_logic(get_registry_node(node_idx))
+      let key, transfer_logic_script <- with_key_and_transfer_logic(
+        get_registry_node(node_idx),
+      )
 
       // Validate the node's key matches the currency symbol
       expect key == policy

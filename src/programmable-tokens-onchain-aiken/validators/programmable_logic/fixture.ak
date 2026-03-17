@@ -268,44 +268,38 @@ pub fn some_transfer(
   // Nub token policies, while preserving their order. This way, we allow for
   // declaring policies in arbitrary order, even if the proofs must be provided
   // in ascending policy order.
-  let
-    (node_idxs, policies),
-    _,
-  <-
-    list.foldl2(
-      tokens,
-      (dict.empty, []),
-      2,
-      fn((policy, _, _), (idxs, policies), ix, return) {
-        let new_idxs = dict.insert_with(idxs, policy, ix, keep_left())
-        // If unchanged, it means the policy was already known. No need to increment the index
-        if new_idxs == idxs {
-          return((idxs, policies), ix)
-        } else {
-          return((new_idxs, [policy, ..policies]), ix + 1)
-        }
-      },
-    )
+  let (node_idxs, policies), _ <- list.foldl2(
+    tokens,
+    (dict.empty, []),
+    2,
+    fn((policy, _, _), (idxs, policies), ix, return) {
+      let new_idxs = dict.insert_with(idxs, policy, ix, keep_left())
+      // If unchanged, it means the policy was already known. No need to increment the index
+      if new_idxs == idxs {
+        return((idxs, policies), ix)
+      } else {
+        return((new_idxs, [policy, ..policies]), ix + 1)
+      }
+    },
+  )
 
   // Create the linked-list registry from the end of the linked-list. Note that
   // we don't have 'gaps' in our linked-list, whereas the protocol should allow
   // for it just fine.
-  let
-    first_policy,
-    nodes,
-  <-
-    list.foldl2(
-      policies,
-      #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
-      [],
-      fn(key, next, nodes, return) {
-        let node = some_reference_input_tokens_registry_node(key, next, key)
-        return(key, [node, ..nodes])
-      },
-    )
+  let first_policy, nodes <- list.foldl2(
+    policies,
+    #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    [],
+    fn(key, next, nodes, return) {
+      let node = some_reference_input_tokens_registry_node(key, next, key)
+      return(key, [node, ..nodes])
+    },
+  )
 
-  let nodes =
-    [some_reference_input_tokens_registry_node("", first_policy, ""), ..nodes]
+  let nodes = [
+    some_reference_input_tokens_registry_node("", first_policy, ""),
+    ..nodes
+  ]
 
   (
     Transaction {

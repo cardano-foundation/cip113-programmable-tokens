@@ -21,8 +21,9 @@ const test_address =
 
 // Test SmartTokenMintingAction structure
 test smart_token_minting_action_structure() {
-  let action =
-    SmartTokenMintingAction { minting_logic_cred: test_minting_logic_cred }
+  let action = SmartTokenMintingAction {
+    minting_logic_cred: test_minting_logic_cred,
+  }
 
   action.minting_logic_cred == test_minting_logic_cred
 }
@@ -39,14 +40,13 @@ test minting_logic_credential_must_match() {
 test minting_logic_must_be_invoked() {
   let withdrawals = [Pair(test_minting_logic_cred, 0)]
 
-  let invoked_scripts =
-    list.map(
-      withdrawals,
-      fn(wdrl) {
-        let Pair(cred, _amount) = wdrl
-        cred
-      },
-    )
+  let invoked_scripts = list.map(
+    withdrawals,
+    fn(wdrl) {
+      let Pair(cred, _amount) = wdrl
+      cred
+    },
+  )
 
   list.has(invoked_scripts, test_minting_logic_cred)
 }
@@ -56,13 +56,12 @@ test minted_tokens_go_to_programmable_logic_base() {
   let token_name = #"746f6b656e31"
   let mint_qty = 100
 
-  let output =
-    Output {
-      address: test_address,
-      value: from_asset(test_policy_id, token_name, mint_qty),
-      datum: NoDatum,
-      reference_script: None,
-    }
+  let output = Output {
+    address: test_address,
+    value: from_asset(test_policy_id, token_name, mint_qty),
+    datum: NoDatum,
+    reference_script: None,
+  }
 
   output.address.payment_credential == test_programmable_logic_base && quantity_of(
     output.value,
@@ -74,8 +73,10 @@ test minted_tokens_go_to_programmable_logic_base() {
 // Test only one token name per policy allowed
 test one_token_name_per_policy() {
   let single_token = [(test_policy_id, #"746f6b656e31", 100)]
-  let multiple_tokens =
-    [(test_policy_id, #"746f6b656e31", 100), (test_policy_id, #"746f6b656e32", 50)]
+  let multiple_tokens = [
+    (test_policy_id, #"746f6b656e31", 100),
+    (test_policy_id, #"746f6b656e32", 50),
+  ]
 
   list.length(single_token) == 1 && list.length(multiple_tokens) == 2
 }
@@ -107,15 +108,15 @@ test zero_minting_not_allowed() {
 
 // Test mint field structure
 test mint_field_structure() {
-  let mint_value =
-    zero
-      |> add(test_policy_id, #"746f6b656e31", 100)
+  let mint_value = zero
+    |> add(test_policy_id, #"746f6b656e31", 100)
 
   let flattened = flatten(mint_value)
 
   // Should have exactly one entry
   when flattened is {
-    [(cs, tn, qty)] -> cs == test_policy_id && tn == #"746f6b656e31" && qty == 100
+    [(cs, tn, qty)] ->
+      cs == test_policy_id && tn == #"746f6b656e31" && qty == 100
     _ -> False
   }
 }
@@ -125,15 +126,14 @@ test first_output_receives_minted_tokens() {
   let token_name = #"746f6b656e31"
   let mint_qty = 100
 
-  let outputs =
-    [
-      Output {
-        address: test_address,
-        value: from_asset(test_policy_id, token_name, mint_qty),
-        datum: NoDatum,
-        reference_script: None,
-      },
-    ]
+  let outputs = [
+    Output {
+      address: test_address,
+      value: from_asset(test_policy_id, token_name, mint_qty),
+      datum: NoDatum,
+      reference_script: None,
+    },
+  ]
 
   when outputs is {
     [first_output, ..] ->

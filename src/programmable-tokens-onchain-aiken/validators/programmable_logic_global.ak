@@ -20,20 +20,19 @@ validator programmable_logic_global(params_policy: PolicyId) {
     trace @"Starting programmable_logic_global validation"
 
     // Extract protocol parameters from reference inputs
-    let
-      registry_node_policy,
-      prog_logic_cred,
-    <- with_programmable_logic_params(self.reference_inputs, params_policy)
+    let registry_node_policy, prog_logic_cred <- with_programmable_logic_params(
+      self.reference_inputs,
+      params_policy,
+    )
 
     // Pre-construct a getter for registry nodes in reference inputs, to avoid
     // repeatedly doing it in loops.
-    let get_registry_node =
-      new_registry_node_getter(
-        registry_node_policy,
-        0,
-        self.reference_inputs,
-        fn(_) { fail },
-      )
+    let get_registry_node = new_registry_node_getter(
+      registry_node_policy,
+      0,
+      self.reference_inputs,
+      fn(_) { fail },
+    )
 
     when redeemer is {
       TransferAct { proofs } ->

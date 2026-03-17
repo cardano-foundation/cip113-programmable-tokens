@@ -65,8 +65,9 @@ pub fn with_key_and_transfer_logic(
 ) -> result {
   let fields = unconstr_fields(data)
   expect key: ByteArray = list.head(fields)
-  expect transfer_logic_script: Credential =
-    list.head(list.tail(list.tail(fields)))
+  expect transfer_logic_script: Credential = list.head(
+    list.tail(list.tail(fields)),
+  )
   return(key, transfer_logic_script)
 }
 
@@ -87,7 +88,8 @@ pub fn with_key_and_3rd_party_logic(
 ) -> result {
   let fields = unconstr_fields(data)
   expect key: ByteArray = list.head(fields)
-  expect third_party_transfer_logic_script: Credential =
-    list.head(list.tail(list.tail(list.tail(fields))))
+  expect third_party_transfer_logic_script: Credential = list.head(
+    list.tail(list.tail(list.tail(fields))),
+  )
   return(key, third_party_transfer_logic_script)
 }

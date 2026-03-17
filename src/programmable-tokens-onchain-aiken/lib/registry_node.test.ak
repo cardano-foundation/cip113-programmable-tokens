@@ -16,8 +16,8 @@ fn any_registry_node_reference_input() -> Fuzzer<Input> {
   let output_reference <- fuzz.and_then(cardano.output_reference())
   let address <- fuzz.and_then(cardano.address())
   let registry_node <- fuzz.and_then(any_registry_node())
-  let min_ada_value =
-    value.zero |> value.add(ada_policy_id, ada_asset_name, 1000000)
+  let min_ada_value = value.zero
+    |> value.add(ada_policy_id, ada_asset_name, 1000000)
   fuzz.constant(
     Input {
       output_reference,
@@ -34,22 +34,18 @@ fn any_registry_node_reference_input() -> Fuzzer<Input> {
 
 fn any_registry(min_nodes: Int, max_nodes: Int) -> Fuzzer<(Int, List<Input>)> {
   let before <- fuzz.and_then(fuzz.list_between(cardano.input(), 0, 2))
-  let between <-
-    fuzz.and_then(
-      fuzz.list_between(
-        any_registry_node_reference_input(),
-        min_nodes,
-        max_nodes,
-      ),
-    )
+  let between <- fuzz.and_then(
+    fuzz.list_between(any_registry_node_reference_input(), min_nodes, max_nodes),
+  )
   let after <- fuzz.and_then(fuzz.list_between(cardano.input(), 0, 2))
 
   let len_before = list.length(before)
 
   let len_between = list.length(between)
 
-  let ix <-
-    fuzz.and_then(fuzz.int_between(len_before, len_before + len_between - 1))
+  let ix <- fuzz.and_then(
+    fuzz.int_between(len_before, len_before + len_between - 1),
+  )
 
   fuzz.constant(
     (
@@ -62,24 +58,36 @@ fn any_registry(min_nodes: Int, max_nodes: Int) -> Fuzzer<(Int, List<Input>)> {
 }
 
 test prop_registry_lookup((ix, registry) via any_registry(1, 2)) {
-  let get_registry_node =
-    new_registry_node_getter(registry_policy, 0, registry, fn(_) { fail })
+  let get_registry_node = new_registry_node_getter(
+    registry_policy,
+    0,
+    registry,
+    fn(_) { fail },
+  )
   expect _: RegistryNode = get_registry_node(ix)
 }
 
 test prop_registry_lookup_fail_no_node(
   (ix, registry) via any_registry(0, 0),
 ) fail {
-  let get_registry_node =
-    new_registry_node_getter(registry_policy, 0, registry, fn(_) { fail })
+  let get_registry_node = new_registry_node_getter(
+    registry_policy,
+    0,
+    registry,
+    fn(_) { fail },
+  )
   get_registry_node(ix) != as_data(Void)
 }
 
 test prop_registry_lookup_fail_wrong_policy(
   (ix, registry) via any_registry(1, 1),
 ) fail {
-  let get_registry_node =
-    new_registry_node_getter("foo", 0, registry, fn(_) { fail })
+  let get_registry_node = new_registry_node_getter(
+    "foo",
+    0,
+    registry,
+    fn(_) { fail },
+  )
   get_registry_node(ix) != as_data(Void)
 }
 
@@ -119,10 +127,9 @@ test prop_with_key_and_next_key_roundtrip(node via any_registry_node()) {
 }
 
 test prop_with_key_and_3rd_party_roundtrip(node via any_registry_node()) {
-  let
-    key,
-    third_party_transfer_logic_script,
-  <- with_key_and_3rd_party_logic(node)
+  let key, third_party_transfer_logic_script <- with_key_and_3rd_party_logic(
+    node,
+  )
   and {
     (key == node.key)?,
     (third_party_transfer_logic_script == node.third_party_transfer_logic_script)?,

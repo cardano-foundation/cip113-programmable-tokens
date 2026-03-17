@@ -19,14 +19,13 @@ test registry_init_creates_origin_node() {
   // This test validates the structure of an Init transaction
   // In a real scenario, this would be tested against actual transaction data
 
-  let origin_node =
-    RegistryNode {
-      key: #"",
-      next: #"",
-      transfer_logic_script: Script(#"11"),
-      third_party_transfer_logic_script: Script(#"22"),
-      global_state_cs: #"",
-    }
+  let origin_node = RegistryNode {
+    key: #"",
+    next: #"",
+    transfer_logic_script: Script(#"11"),
+    third_party_transfer_logic_script: Script(#"22"),
+    global_state_cs: #"",
+  }
 
   // Origin node should have empty keys
   origin_node.key == #"" && origin_node.next == #""
@@ -65,23 +64,21 @@ test registry_insert_two_outputs() {
   let insert_key = #"bb"
   let next_key = #"cc"
 
-  let updated_covering =
-    RegistryNode {
-      key: covering_key,
-      next: insert_key,
-      transfer_logic_script: Script(#"11"),
-      third_party_transfer_logic_script: Script(#"22"),
-      global_state_cs: #"",
-    }
+  let updated_covering = RegistryNode {
+    key: covering_key,
+    next: insert_key,
+    transfer_logic_script: Script(#"11"),
+    third_party_transfer_logic_script: Script(#"22"),
+    global_state_cs: #"",
+  }
 
-  let inserted_node =
-    RegistryNode {
-      key: insert_key,
-      next: next_key,
-      transfer_logic_script: Script(#"11"),
-      third_party_transfer_logic_script: Script(#"22"),
-      global_state_cs: #"",
-    }
+  let inserted_node = RegistryNode {
+    key: insert_key,
+    next: next_key,
+    transfer_logic_script: Script(#"11"),
+    third_party_transfer_logic_script: Script(#"22"),
+    global_state_cs: #"",
+  }
 
   // Validate the structure
   updated_covering.key == covering_key && updated_covering.next == insert_key && inserted_node.key == insert_key && inserted_node.next == next_key
@@ -92,16 +89,15 @@ test registry_one_shot_constraint() {
   // The utxo_ref must be spent in the transaction
   // This ensures the minting policy can only be used once
 
-  let input =
-    Input {
-      output_reference: test_utxo_ref,
-      output: Output {
-        address: test_address,
-        value: from_asset(ada_policy_id, ada_asset_name, 2000000),
-        datum: NoDatum,
-        reference_script: None,
-      },
-    }
+  let input = Input {
+    output_reference: test_utxo_ref,
+    output: Output {
+      address: test_address,
+      value: from_asset(ada_policy_id, ada_asset_name, 2000000),
+      datum: NoDatum,
+      reference_script: None,
+    },
+  }
 
   // The input's output reference should match the policy parameter
   input.output_reference == test_utxo_ref

@@ -49,18 +49,16 @@ pub fn collect_node_ios(
   node_cs: PolicyId,
 ) -> (List<Input>, List<Output>) {
   // Find inputs that have the node token
-  let node_inputs =
-    list.filter(
-      tx.inputs,
-      fn(input) { has_currency_symbol(input.output.value, node_cs) },
-    )
+  let node_inputs = list.filter(
+    tx.inputs,
+    fn(input) { has_currency_symbol(input.output.value, node_cs) },
+  )
 
   // Find outputs that have the node token
-  let node_outputs =
-    list.filter(
-      tx.outputs,
-      fn(output) { has_currency_symbol(output.value, node_cs) },
-    )
+  let node_outputs = list.filter(
+    tx.outputs,
+    fn(output) { has_currency_symbol(output.value, node_cs) },
+  )
 
   // All node outputs must be at the same address as the first node input
   when node_inputs is {

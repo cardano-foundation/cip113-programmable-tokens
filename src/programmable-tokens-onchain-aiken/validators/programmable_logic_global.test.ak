@@ -30,11 +30,10 @@ const test_token_cs: PolicyId =
 
 // Test ProgrammableLogicGlobalParams structure
 test programmable_logic_global_params_structure() {
-  let params =
-    ProgrammableLogicGlobalParams {
-      prog_logic_cred: test_prog_logic_cred,
-      registry_node_cs: test_registry_node_cs,
-    }
+  let params = ProgrammableLogicGlobalParams {
+    prog_logic_cred: test_prog_logic_cred,
+    registry_node_cs: test_registry_node_cs,
+  }
 
   params.prog_logic_cred == test_prog_logic_cred && params.registry_node_cs == test_registry_node_cs
 }
@@ -64,14 +63,13 @@ test token_does_not_exist_proof() {
 
 // Test registry node validation for transfer
 test registry_node_validation_for_transfer() {
-  let node =
-    RegistryNode {
-      key: test_token_cs,
-      next: #"ffff",
-      transfer_logic_script: test_transfer_logic_cred,
-      third_party_transfer_logic_script: test_third_party_transfer_logic_cred,
-      global_state_cs: #"",
-    }
+  let node = RegistryNode {
+    key: test_token_cs,
+    next: #"ffff",
+    transfer_logic_script: test_transfer_logic_cred,
+    third_party_transfer_logic_script: test_third_party_transfer_logic_cred,
+    global_state_cs: #"",
+  }
 
   // Node key should match the token CS
   node.key == test_token_cs && // Transfer logic script should be present
@@ -84,14 +82,13 @@ test covering_node_logic_for_non_existent_token() {
   let token_cs = #"bb"
   let next_key = #"cc"
 
-  let covering_node =
-    RegistryNode {
-      key: covering_key,
-      next: next_key,
-      transfer_logic_script: test_transfer_logic_cred,
-      third_party_transfer_logic_script: test_third_party_transfer_logic_cred,
-      global_state_cs: #"",
-    }
+  let covering_node = RegistryNode {
+    key: covering_key,
+    next: next_key,
+    transfer_logic_script: test_transfer_logic_cred,
+    third_party_transfer_logic_script: test_third_party_transfer_logic_cred,
+    global_state_cs: #"",
+  }
 
   // Covering node should satisfy: covering_key < token_cs < next_key
   bytearray_lt(covering_node.key, token_cs) && bytearray_lt(
@@ -112,16 +109,15 @@ test seize_validation_structure() {
 
 // Test programmable tokens go to prog_logic_cred
 test programmable_tokens_go_to_prog_logic_cred() {
-  let output =
-    Output {
-      address: Address {
-        payment_credential: test_prog_logic_cred,
-        stake_credential: None,
-      },
-      value: from_asset(test_token_cs, #"746f6b656e", 100),
-      datum: NoDatum,
-      reference_script: None,
-    }
+  let output = Output {
+    address: Address {
+      payment_credential: test_prog_logic_cred,
+      stake_credential: None,
+    },
+    value: from_asset(test_token_cs, #"746f6b656e", 100),
+    datum: NoDatum,
+    reference_script: None,
+  }
 
   output.address.payment_credential == test_prog_logic_cred
 }
@@ -135,8 +131,10 @@ test transfer_logic_script_must_be_invoked() {
 
 // Test third party transfer logic script must be invoked for third party actions
 test third_party_transfer_logic_script_must_be_invoked_for_third_party_actions() {
-  let invoked_scripts =
-    [test_third_party_transfer_logic_cred, Script(#"6f74686572")]
+  let invoked_scripts = [
+    test_third_party_transfer_logic_cred,
+    Script(#"6f74686572"),
+  ]
 
   list.has(invoked_scripts, test_third_party_transfer_logic_cred)
 }
@@ -144,22 +142,18 @@ test third_party_transfer_logic_script_must_be_invoked_for_third_party_actions()
 // Test signed prog inputs validation
 test signed_prog_inputs_validation() {
   let stake_pkh = #"aabbccdd"
-  let input =
-    Input {
-      output_reference: OutputReference {
-        transaction_id: #"00",
-        output_index: 0,
+  let input = Input {
+    output_reference: OutputReference { transaction_id: #"00", output_index: 0 },
+    output: Output {
+      address: Address {
+        payment_credential: test_prog_logic_cred,
+        stake_credential: Some(Inline(VerificationKey(stake_pkh))),
       },
-      output: Output {
-        address: Address {
-          payment_credential: test_prog_logic_cred,
-          stake_credential: Some(Inline(VerificationKey(stake_pkh))),
-        },
-        value: from_asset(test_token_cs, #"746f6b656e", 100),
-        datum: NoDatum,
-        reference_script: None,
-      },
-    }
+      value: from_asset(test_token_cs, #"746f6b656e", 100),
+      datum: NoDatum,
+      reference_script: None,
+    },
+  }
 
   // Input is from prog_logic_cred with stake credential
   input.output.address.payment_credential == test_prog_logic_cred && when
@@ -174,8 +168,10 @@ test signed_prog_inputs_validation() {
 test seize_prevents_ddos_by_requiring_value_change() {
   let input_value = from_asset(test_token_cs, #"746f6b656e", 100)
   // let output_value = from_asset(test_token_cs, #"746f6b656e", 100)
-  let expected_output =
-    merge(input_value, negate(from_asset(test_token_cs, #"746f6b656e", 50)))
+  let expected_output = merge(
+    input_value,
+    negate(from_asset(test_token_cs, #"746f6b656e", 50)),
+  )
 
   // Must actually remove tokens (DDOS prevention)
   input_value != expected_output
@@ -183,24 +179,23 @@ test seize_prevents_ddos_by_requiring_value_change() {
 
 // Test only one prog_logic_cred input allowed in seize
 test only_one_prog_logic_cred_input_in_seize() {
-  let inputs =
-    [
-      Input {
-        output_reference: OutputReference {
-          transaction_id: #"00",
-          output_index: 0,
-        },
-        output: Output {
-          address: Address {
-            payment_credential: test_prog_logic_cred,
-            stake_credential: None,
-          },
-          value: zero,
-          datum: NoDatum,
-          reference_script: None,
-        },
+  let inputs = [
+    Input {
+      output_reference: OutputReference {
+        transaction_id: #"00",
+        output_index: 0,
       },
-    ]
+      output: Output {
+        address: Address {
+          payment_credential: test_prog_logic_cred,
+          stake_credential: None,
+        },
+        value: zero,
+        datum: NoDatum,
+        reference_script: None,
+      },
+    },
+  ]
 
   list.length(
     list.filter(
@@ -214,11 +209,10 @@ test only_one_prog_logic_cred_input_in_seize() {
 
 // Test protocol params from reference inputs
 test protocol_params_from_reference_inputs() {
-  let params =
-    ProgrammableLogicGlobalParams {
-      prog_logic_cred: test_prog_logic_cred,
-      registry_node_cs: test_registry_node_cs,
-    }
+  let params = ProgrammableLogicGlobalParams {
+    prog_logic_cred: test_prog_logic_cred,
+    registry_node_cs: test_registry_node_cs,
+  }
 
   // Protocol params should be loaded from reference input
   params.registry_node_cs == test_registry_node_cs
@@ -226,20 +220,18 @@ test protocol_params_from_reference_inputs() {
 
 // Test invoked scripts via withdrawals
 test invoked_scripts_via_withdrawals() {
-  let withdrawals =
-    [
-      Pair(test_transfer_logic_cred, 0),
-      Pair(test_third_party_transfer_logic_cred, 0),
-    ]
+  let withdrawals = [
+    Pair(test_transfer_logic_cred, 0),
+    Pair(test_third_party_transfer_logic_cred, 0),
+  ]
 
-  let invoked_scripts =
-    list.map(
-      withdrawals,
-      fn(wdrl) {
-        let Pair(cred, _amount) = wdrl
-        cred
-      },
-    )
+  let invoked_scripts = list.map(
+    withdrawals,
+    fn(wdrl) {
+      let Pair(cred, _amount) = wdrl
+      cred
+    },
+  )
 
   list.has(invoked_scripts, test_transfer_logic_cred) && list.has(
     invoked_scripts,
@@ -312,55 +304,53 @@ fn third_party_registry_node_ref_input(
 /// two corresponding outputs with those tokens removed, plus a remaining
 /// output at prog_logic_cred that receives the seized tokens (balance invariant).
 fn validate_third_party_with_idxs(input_idxs: List<Int>) -> Bool {
-  let tx =
-    Transaction {
-      ..transaction.placeholder,
-      inputs: [
-        // Index 0 – prog_logic input A
-        fixture.some_input_with_programmable_tokens(
-          [(test_third_party_policy, "FOO", 42)],
-          "third_party_input_a",
-        ),
-        // Index 1 – prog_logic input B
-        fixture.some_input_with_programmable_tokens(
-          [(test_third_party_policy, "FOO", 100)],
-          "third_party_input_b",
-        ),
-      ],
-      outputs: [
-        // Paired outputs with programmable tokens removed (value = min_ada only)
-        fixture.some_output_with_programmable_tokens([]),
-        fixture.some_output_with_programmable_tokens([]),
-        // Remaining output: seized tokens stay at prog_logic_cred (balance invariant)
-        fixture.some_output_with_programmable_tokens(
-          [(test_third_party_policy, "FOO", 142)],
-        ),
-      ],
-      reference_inputs: [
-        // Index 0 – protocol params
-        fixture.some_reference_input_protocol_params(
-          fixture.protocol_params,
-          "protocol params",
-        ),
-        // Index 1 – registry node with real third-party credential
-        third_party_registry_node_ref_input(
-          test_third_party_policy,
-          test_third_party_cred,
-        ),
-      ],
-      withdrawals: [
-        Pair(fixture.credential_validator_logic_global, 0),
-        Pair(test_third_party_cred, 0),
-      ],
-    }
+  let tx = Transaction {
+    ..transaction.placeholder,
+    inputs: [
+      // Index 0 – prog_logic input A
+      fixture.some_input_with_programmable_tokens(
+        [(test_third_party_policy, "FOO", 42)],
+        "third_party_input_a",
+      ),
+      // Index 1 – prog_logic input B
+      fixture.some_input_with_programmable_tokens(
+        [(test_third_party_policy, "FOO", 100)],
+        "third_party_input_b",
+      ),
+    ],
+    outputs: [
+      // Paired outputs with programmable tokens removed (value = min_ada only)
+      fixture.some_output_with_programmable_tokens([]),
+      fixture.some_output_with_programmable_tokens([]),
+      // Remaining output: seized tokens stay at prog_logic_cred (balance invariant)
+      fixture.some_output_with_programmable_tokens(
+        [(test_third_party_policy, "FOO", 142)],
+      ),
+    ],
+    reference_inputs: [
+      // Index 0 – protocol params
+      fixture.some_reference_input_protocol_params(
+        fixture.protocol_params,
+        "protocol params",
+      ),
+      // Index 1 – registry node with real third-party credential
+      third_party_registry_node_ref_input(
+        test_third_party_policy,
+        test_third_party_cred,
+      ),
+    ],
+    withdrawals: [
+      Pair(fixture.credential_validator_logic_global, 0),
+      Pair(test_third_party_cred, 0),
+    ],
+  }
 
-  let redeemer =
-    ThirdPartyAct {
-      registry_node_idx: 1,
-      input_idxs,
-      outputs_start_idx: 0,
-      length_input_idxs: list.length(input_idxs),
-    }
+  let redeemer = ThirdPartyAct {
+    registry_node_idx: 1,
+    input_idxs,
+    outputs_start_idx: 0,
+    length_input_idxs: list.length(input_idxs),
+  }
 
   programmable_logic_global.programmable_logic_global.withdraw(
     fixture.policy_protocol_params,
@@ -398,59 +388,56 @@ test third_party_act_unsorted_indices_must_fail() fail {
 // The balance invariant rejects this because total output at prog_cred (0)
 // is less than total input tokens (42).
 test third_party_act_seized_tokens_escape_prog_cred_must_fail() fail {
-  let eve_address =
-    Address {
-      payment_credential: VerificationKey(
-        #"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  let eve_address = Address {
+    payment_credential: VerificationKey(
+      #"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    ),
+    stake_credential: None,
+  }
+
+  let tx = Transaction {
+    ..transaction.placeholder,
+    inputs: [
+      // Input 0: prog_logic_cred UTxO with 42 FOO tokens
+      fixture.some_input_with_programmable_tokens(
+        [(test_third_party_policy, "FOO", 42)],
+        "smuggling_input",
       ),
-      stake_credential: None,
-    }
+    ],
+    outputs: [
+      // Output 0: paired output at prog_logic_cred with FOO removed
+      fixture.some_output_with_programmable_tokens([]),
+      // Output 1: Eve's wallet receives the 42 FOO — ESCAPE!
+      Output {
+        address: eve_address,
+        value: from_asset(ada_policy_id, ada_asset_name, 1_000_000)
+          |> merge(from_asset(test_third_party_policy, "FOO", 42)),
+        datum: NoDatum,
+        reference_script: None,
+      },
+    ],
+    reference_inputs: [
+      fixture.some_reference_input_protocol_params(
+        fixture.protocol_params,
+        "protocol params",
+      ),
+      third_party_registry_node_ref_input(
+        test_third_party_policy,
+        test_third_party_cred,
+      ),
+    ],
+    withdrawals: [
+      Pair(fixture.credential_validator_logic_global, 0),
+      Pair(test_third_party_cred, 0),
+    ],
+  }
 
-  let tx =
-    Transaction {
-      ..transaction.placeholder,
-      inputs: [
-        // Input 0: prog_logic_cred UTxO with 42 FOO tokens
-        fixture.some_input_with_programmable_tokens(
-          [(test_third_party_policy, "FOO", 42)],
-          "smuggling_input",
-        ),
-      ],
-      outputs: [
-        // Output 0: paired output at prog_logic_cred with FOO removed
-        fixture.some_output_with_programmable_tokens([]),
-        // Output 1: Eve's wallet receives the 42 FOO — ESCAPE!
-        Output {
-          address: eve_address,
-          value: from_asset(ada_policy_id, ada_asset_name, 1_000_000)
-            |> merge(from_asset(test_third_party_policy, "FOO", 42)),
-          datum: NoDatum,
-          reference_script: None,
-        },
-      ],
-      reference_inputs: [
-        fixture.some_reference_input_protocol_params(
-          fixture.protocol_params,
-          "protocol params",
-        ),
-        third_party_registry_node_ref_input(
-          test_third_party_policy,
-          test_third_party_cred,
-        ),
-      ],
-      withdrawals: [
-        Pair(fixture.credential_validator_logic_global, 0),
-        Pair(test_third_party_cred, 0),
-      ],
-    }
-
-  let redeemer =
-    ThirdPartyAct {
-      registry_node_idx: 1,
-      input_idxs: [0],
-      outputs_start_idx: 0,
-      length_input_idxs: 1,
-    }
+  let redeemer = ThirdPartyAct {
+    registry_node_idx: 1,
+    input_idxs: [0],
+    outputs_start_idx: 0,
+    length_input_idxs: 1,
+  }
 
   programmable_logic_global.programmable_logic_global.withdraw(
     fixture.policy_protocol_params,
@@ -463,46 +450,44 @@ test third_party_act_seized_tokens_escape_prog_cred_must_fail() fail {
 // Positive: seized tokens routed to a new output at prog_logic_cred.
 // This is the correct seizure pattern.
 test third_party_act_seized_tokens_to_prog_cred_succeeds() {
-  let tx =
-    Transaction {
-      ..transaction.placeholder,
-      inputs: [
-        fixture.some_input_with_programmable_tokens(
-          [(test_third_party_policy, "FOO", 42)],
-          "seize_input",
-        ),
-      ],
-      outputs: [
-        // Paired output: tokens removed
-        fixture.some_output_with_programmable_tokens([]),
-        // Remaining output: seized tokens stay at prog_logic_cred
-        fixture.some_output_with_programmable_tokens(
-          [(test_third_party_policy, "FOO", 42)],
-        ),
-      ],
-      reference_inputs: [
-        fixture.some_reference_input_protocol_params(
-          fixture.protocol_params,
-          "protocol params",
-        ),
-        third_party_registry_node_ref_input(
-          test_third_party_policy,
-          test_third_party_cred,
-        ),
-      ],
-      withdrawals: [
-        Pair(fixture.credential_validator_logic_global, 0),
-        Pair(test_third_party_cred, 0),
-      ],
-    }
+  let tx = Transaction {
+    ..transaction.placeholder,
+    inputs: [
+      fixture.some_input_with_programmable_tokens(
+        [(test_third_party_policy, "FOO", 42)],
+        "seize_input",
+      ),
+    ],
+    outputs: [
+      // Paired output: tokens removed
+      fixture.some_output_with_programmable_tokens([]),
+      // Remaining output: seized tokens stay at prog_logic_cred
+      fixture.some_output_with_programmable_tokens(
+        [(test_third_party_policy, "FOO", 42)],
+      ),
+    ],
+    reference_inputs: [
+      fixture.some_reference_input_protocol_params(
+        fixture.protocol_params,
+        "protocol params",
+      ),
+      third_party_registry_node_ref_input(
+        test_third_party_policy,
+        test_third_party_cred,
+      ),
+    ],
+    withdrawals: [
+      Pair(fixture.credential_validator_logic_global, 0),
+      Pair(test_third_party_cred, 0),
+    ],
+  }
 
-  let redeemer =
-    ThirdPartyAct {
-      registry_node_idx: 1,
-      input_idxs: [0],
-      outputs_start_idx: 0,
-      length_input_idxs: 1,
-    }
+  let redeemer = ThirdPartyAct {
+    registry_node_idx: 1,
+    input_idxs: [0],
+    outputs_start_idx: 0,
+    length_input_idxs: 1,
+  }
 
   programmable_logic_global.programmable_logic_global.withdraw(
     fixture.policy_protocol_params,
@@ -515,48 +500,46 @@ test third_party_act_seized_tokens_to_prog_cred_succeeds() {
 // Positive: partial seizure — seize 40 of 100 tokens, leave 60 with owner.
 // The paired output retains 60 FOO, and a remaining output receives the 40 seized.
 test third_party_act_partial_seizure_succeeds() {
-  let tx =
-    Transaction {
-      ..transaction.placeholder,
-      inputs: [
-        fixture.some_input_with_programmable_tokens(
-          [(test_third_party_policy, "FOO", 100)],
-          "partial_seize_input",
-        ),
-      ],
-      outputs: [
-        // Paired output: owner keeps 60 FOO
-        fixture.some_output_with_programmable_tokens(
-          [(test_third_party_policy, "FOO", 60)],
-        ),
-        // Remaining output: authority receives 40 seized FOO
-        fixture.some_output_with_programmable_tokens(
-          [(test_third_party_policy, "FOO", 40)],
-        ),
-      ],
-      reference_inputs: [
-        fixture.some_reference_input_protocol_params(
-          fixture.protocol_params,
-          "protocol params",
-        ),
-        third_party_registry_node_ref_input(
-          test_third_party_policy,
-          test_third_party_cred,
-        ),
-      ],
-      withdrawals: [
-        Pair(fixture.credential_validator_logic_global, 0),
-        Pair(test_third_party_cred, 0),
-      ],
-    }
+  let tx = Transaction {
+    ..transaction.placeholder,
+    inputs: [
+      fixture.some_input_with_programmable_tokens(
+        [(test_third_party_policy, "FOO", 100)],
+        "partial_seize_input",
+      ),
+    ],
+    outputs: [
+      // Paired output: owner keeps 60 FOO
+      fixture.some_output_with_programmable_tokens(
+        [(test_third_party_policy, "FOO", 60)],
+      ),
+      // Remaining output: authority receives 40 seized FOO
+      fixture.some_output_with_programmable_tokens(
+        [(test_third_party_policy, "FOO", 40)],
+      ),
+    ],
+    reference_inputs: [
+      fixture.some_reference_input_protocol_params(
+        fixture.protocol_params,
+        "protocol params",
+      ),
+      third_party_registry_node_ref_input(
+        test_third_party_policy,
+        test_third_party_cred,
+      ),
+    ],
+    withdrawals: [
+      Pair(fixture.credential_validator_logic_global, 0),
+      Pair(test_third_party_cred, 0),
+    ],
+  }
 
-  let redeemer =
-    ThirdPartyAct {
-      registry_node_idx: 1,
-      input_idxs: [0],
-      outputs_start_idx: 0,
-      length_input_idxs: 1,
-    }
+  let redeemer = ThirdPartyAct {
+    registry_node_idx: 1,
+    input_idxs: [0],
+    outputs_start_idx: 0,
+    length_input_idxs: 1,
+  }
 
   programmable_logic_global.programmable_logic_global.withdraw(
     fixture.policy_protocol_params,
@@ -569,46 +552,44 @@ test third_party_act_partial_seizure_succeeds() {
 // Negative: remaining outputs at prog_cred don't have enough seized tokens.
 // Input has 100 FOO, paired output has 0, remaining only has 50 — delta of 50 is missing.
 test third_party_act_delta_insufficient_remaining_fails() fail {
-  let tx =
-    Transaction {
-      ..transaction.placeholder,
-      inputs: [
-        fixture.some_input_with_programmable_tokens(
-          [(test_third_party_policy, "FOO", 100)],
-          "insufficient_input",
-        ),
-      ],
-      outputs: [
-        // Paired output: all FOO removed
-        fixture.some_output_with_programmable_tokens([]),
-        // Remaining output: only 50 FOO, but 100 were seized
-        fixture.some_output_with_programmable_tokens(
-          [(test_third_party_policy, "FOO", 50)],
-        ),
-      ],
-      reference_inputs: [
-        fixture.some_reference_input_protocol_params(
-          fixture.protocol_params,
-          "protocol params",
-        ),
-        third_party_registry_node_ref_input(
-          test_third_party_policy,
-          test_third_party_cred,
-        ),
-      ],
-      withdrawals: [
-        Pair(fixture.credential_validator_logic_global, 0),
-        Pair(test_third_party_cred, 0),
-      ],
-    }
+  let tx = Transaction {
+    ..transaction.placeholder,
+    inputs: [
+      fixture.some_input_with_programmable_tokens(
+        [(test_third_party_policy, "FOO", 100)],
+        "insufficient_input",
+      ),
+    ],
+    outputs: [
+      // Paired output: all FOO removed
+      fixture.some_output_with_programmable_tokens([]),
+      // Remaining output: only 50 FOO, but 100 were seized
+      fixture.some_output_with_programmable_tokens(
+        [(test_third_party_policy, "FOO", 50)],
+      ),
+    ],
+    reference_inputs: [
+      fixture.some_reference_input_protocol_params(
+        fixture.protocol_params,
+        "protocol params",
+      ),
+      third_party_registry_node_ref_input(
+        test_third_party_policy,
+        test_third_party_cred,
+      ),
+    ],
+    withdrawals: [
+      Pair(fixture.credential_validator_logic_global, 0),
+      Pair(test_third_party_cred, 0),
+    ],
+  }
 
-  let redeemer =
-    ThirdPartyAct {
-      registry_node_idx: 1,
-      input_idxs: [0],
-      outputs_start_idx: 0,
-      length_input_idxs: 1,
-    }
+  let redeemer = ThirdPartyAct {
+    registry_node_idx: 1,
+    input_idxs: [0],
+    outputs_start_idx: 0,
+    length_input_idxs: 1,
+  }
 
   programmable_logic_global.programmable_logic_global.withdraw(
     fixture.policy_protocol_params,
@@ -631,37 +612,36 @@ const test_mint_policy: PolicyId =
 // and input to validate the burned and spent tokens against the registry,
 // adjusting the expected output down.
 test transfer_act_partial_burn_with_mint_proofs_succeeds() {
-  let tx =
-    Transaction {
-      ..transaction.placeholder,
-      inputs: [
-        fixture.some_input_with_programmable_tokens(
-          [(test_mint_policy, "FOO", 100)],
-          "burn input",
-        ),
-      ],
-      mint: from_asset(test_mint_policy, "FOO", -30),
-      outputs: [
-        fixture.some_output_with_programmable_tokens(
-          [(test_mint_policy, "FOO", 70)],
-        ),
-      ],
-      reference_inputs: [
-        fixture.some_reference_input_protocol_params(
-          fixture.protocol_params,
-          "protocol params",
-        ),
-        fixture.some_reference_input_tokens_registry_node(
-          test_mint_policy,
-          #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
-          "registry node",
-        ),
-      ],
-      withdrawals: [
-        Pair(fixture.credential_validator_logic_global, 0),
-        Pair(fixture.credential_transfer_logic, 0),
-      ],
-    }
+  let tx = Transaction {
+    ..transaction.placeholder,
+    inputs: [
+      fixture.some_input_with_programmable_tokens(
+        [(test_mint_policy, "FOO", 100)],
+        "burn input",
+      ),
+    ],
+    mint: from_asset(test_mint_policy, "FOO", -30),
+    outputs: [
+      fixture.some_output_with_programmable_tokens(
+        [(test_mint_policy, "FOO", 70)],
+      ),
+    ],
+    reference_inputs: [
+      fixture.some_reference_input_protocol_params(
+        fixture.protocol_params,
+        "protocol params",
+      ),
+      fixture.some_reference_input_tokens_registry_node(
+        test_mint_policy,
+        #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "registry node",
+      ),
+    ],
+    withdrawals: [
+      Pair(fixture.credential_validator_logic_global, 0),
+      Pair(fixture.credential_transfer_logic, 0),
+    ],
+  }
 
   let redeemer = TransferAct { proofs: [TokenExists { node_idx: 1 }] }
 
@@ -676,37 +656,36 @@ test transfer_act_partial_burn_with_mint_proofs_succeeds() {
 // Positive: transfer with minting — new tokens appear at prog_logic_cred.
 // Input has 100 FOO, mints 50 more, output must have at least 150.
 test transfer_act_with_minting_succeeds() {
-  let tx =
-    Transaction {
-      ..transaction.placeholder,
-      inputs: [
-        fixture.some_input_with_programmable_tokens(
-          [(test_mint_policy, "FOO", 100)],
-          "mint input",
-        ),
-      ],
-      mint: from_asset(test_mint_policy, "FOO", 50),
-      outputs: [
-        fixture.some_output_with_programmable_tokens(
-          [(test_mint_policy, "FOO", 150)],
-        ),
-      ],
-      reference_inputs: [
-        fixture.some_reference_input_protocol_params(
-          fixture.protocol_params,
-          "protocol params",
-        ),
-        fixture.some_reference_input_tokens_registry_node(
-          test_mint_policy,
-          #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
-          "registry node",
-        ),
-      ],
-      withdrawals: [
-        Pair(fixture.credential_validator_logic_global, 0),
-        Pair(fixture.credential_transfer_logic, 0),
-      ],
-    }
+  let tx = Transaction {
+    ..transaction.placeholder,
+    inputs: [
+      fixture.some_input_with_programmable_tokens(
+        [(test_mint_policy, "FOO", 100)],
+        "mint input",
+      ),
+    ],
+    mint: from_asset(test_mint_policy, "FOO", 50),
+    outputs: [
+      fixture.some_output_with_programmable_tokens(
+        [(test_mint_policy, "FOO", 150)],
+      ),
+    ],
+    reference_inputs: [
+      fixture.some_reference_input_protocol_params(
+        fixture.protocol_params,
+        "protocol params",
+      ),
+      fixture.some_reference_input_tokens_registry_node(
+        test_mint_policy,
+        #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "registry node",
+      ),
+    ],
+    withdrawals: [
+      Pair(fixture.credential_validator_logic_global, 0),
+      Pair(fixture.credential_transfer_logic, 0),
+    ],
+  }
 
   let redeemer = TransferAct { proofs: [TokenExists { node_idx: 1 }] }
 
@@ -723,42 +702,41 @@ test transfer_act_with_minting_succeeds() {
 // This prevents unvalidated tokens from bypassing the directory check.
 test transfer_act_mint_without_proofs_must_fail() fail {
   let test_input_policy = "input policy"
-  let tx =
-    Transaction {
-      ..transaction.placeholder,
-      inputs: [
-        fixture.some_input_with_programmable_tokens(
-          [(test_input_policy, "FOO", 100)],
-          "input",
-        ),
-      ],
-      mint: from_asset(test_mint_policy, "FOO", 50),
-      outputs: [
-        fixture.some_output_with_programmable_tokens(
-          [(test_input_policy, "FOO", 100), (test_mint_policy, "FOO", 50)],
-        ),
-      ],
-      reference_inputs: [
-        fixture.some_reference_input_protocol_params(
-          fixture.protocol_params,
-          "protocol params",
-        ),
-        fixture.some_reference_input_tokens_registry_node(
-          test_input_policy,
-          test_mint_policy,
-          "registry node #1",
-        ),
-        fixture.some_reference_input_tokens_registry_node(
-          test_mint_policy,
-          #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
-          "registry node #2",
-        ),
-      ],
-      withdrawals: [
-        Pair(fixture.credential_validator_logic_global, 0),
-        Pair(fixture.credential_transfer_logic, 0),
-      ],
-    }
+  let tx = Transaction {
+    ..transaction.placeholder,
+    inputs: [
+      fixture.some_input_with_programmable_tokens(
+        [(test_input_policy, "FOO", 100)],
+        "input",
+      ),
+    ],
+    mint: from_asset(test_mint_policy, "FOO", 50),
+    outputs: [
+      fixture.some_output_with_programmable_tokens(
+        [(test_input_policy, "FOO", 100), (test_mint_policy, "FOO", 50)],
+      ),
+    ],
+    reference_inputs: [
+      fixture.some_reference_input_protocol_params(
+        fixture.protocol_params,
+        "protocol params",
+      ),
+      fixture.some_reference_input_tokens_registry_node(
+        test_input_policy,
+        test_mint_policy,
+        "registry node #1",
+      ),
+      fixture.some_reference_input_tokens_registry_node(
+        test_mint_policy,
+        #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "registry node #2",
+      ),
+    ],
+    withdrawals: [
+      Pair(fixture.credential_validator_logic_global, 0),
+      Pair(fixture.credential_transfer_logic, 0),
+    ],
+  }
 
   // No proof for idx 2, necessary for the mint but tx.mint is non-empty — must be rejected
   let redeemer = TransferAct { proofs: [TokenExists { node_idx: 1 }] }
@@ -774,32 +752,31 @@ test transfer_act_mint_without_proofs_must_fail() fail {
 // Positive: transfer with ONLY minting — new tokens appear at prog_logic_cred.
 // Mints 50, no other prog input, output must have at least 50.
 test transfer_act_with_only_minting_succeeds() {
-  let tx =
-    Transaction {
-      ..transaction.placeholder,
-      inputs: [],
-      mint: from_asset(test_mint_policy, "FOO", 50),
-      outputs: [
-        fixture.some_output_with_programmable_tokens(
-          [(test_mint_policy, "FOO", 150)],
-        ),
-      ],
-      reference_inputs: [
-        fixture.some_reference_input_protocol_params(
-          fixture.protocol_params,
-          "protocol params",
-        ),
-        fixture.some_reference_input_tokens_registry_node(
-          test_mint_policy,
-          #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
-          "registry node",
-        ),
-      ],
-      withdrawals: [
-        Pair(fixture.credential_validator_logic_global, 0),
-        Pair(fixture.credential_transfer_logic, 0),
-      ],
-    }
+  let tx = Transaction {
+    ..transaction.placeholder,
+    inputs: [],
+    mint: from_asset(test_mint_policy, "FOO", 50),
+    outputs: [
+      fixture.some_output_with_programmable_tokens(
+        [(test_mint_policy, "FOO", 150)],
+      ),
+    ],
+    reference_inputs: [
+      fixture.some_reference_input_protocol_params(
+        fixture.protocol_params,
+        "protocol params",
+      ),
+      fixture.some_reference_input_tokens_registry_node(
+        test_mint_policy,
+        #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "registry node",
+      ),
+    ],
+    withdrawals: [
+      Pair(fixture.credential_validator_logic_global, 0),
+      Pair(fixture.credential_transfer_logic, 0),
+    ],
+  }
 
   let redeemer = TransferAct { proofs: [TokenExists { node_idx: 1 }] }
 
@@ -813,24 +790,23 @@ test transfer_act_with_only_minting_succeeds() {
 
 // Negative: transfer with only minting should not succeed if lacking proofs...
 test transfer_act_with_only_minting_no_proofs_fails() fail {
-  let tx =
-    Transaction {
-      ..transaction.placeholder,
-      inputs: [],
-      mint: from_asset(test_mint_policy, "FOO", 50),
-      outputs: [
-        fixture.some_output_with_programmable_tokens(
-          [(test_mint_policy, "FOO", 150)],
-        ),
-      ],
-      reference_inputs: [
-        fixture.some_reference_input_protocol_params(
-          fixture.protocol_params,
-          "protocol params",
-        ),
-      ],
-      withdrawals: [Pair(fixture.credential_validator_logic_global, 0)],
-    }
+  let tx = Transaction {
+    ..transaction.placeholder,
+    inputs: [],
+    mint: from_asset(test_mint_policy, "FOO", 50),
+    outputs: [
+      fixture.some_output_with_programmable_tokens(
+        [(test_mint_policy, "FOO", 150)],
+      ),
+    ],
+    reference_inputs: [
+      fixture.some_reference_input_protocol_params(
+        fixture.protocol_params,
+        "protocol params",
+      ),
+    ],
+    withdrawals: [Pair(fixture.credential_validator_logic_global, 0)],
+  }
 
   let redeemer = TransferAct { proofs: [] }
 
@@ -845,30 +821,29 @@ test transfer_act_with_only_minting_no_proofs_fails() fail {
 // Negative: unauthenticated transfer & burn where spent tokens are entirely burned (so
 // mint & spend values balancing each other out)
 test transfer_act_unauthorized_burning_compensate_spending_fails() fail {
-  let tx =
-    Transaction {
-      ..transaction.placeholder,
-      inputs: [
-        fixture.some_input_with_programmable_tokens(
-          [(test_mint_policy, "FOO", 100)],
-          "mint input",
-        ),
-      ],
-      mint: from_asset(test_mint_policy, "FOO", -100),
-      outputs: [],
-      reference_inputs: [
-        fixture.some_reference_input_protocol_params(
-          fixture.protocol_params,
-          "protocol params",
-        ),
-        fixture.some_reference_input_tokens_registry_node(
-          test_mint_policy,
-          #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
-          "registry node",
-        ),
-      ],
-      withdrawals: [Pair(fixture.credential_validator_logic_global, 0)],
-    }
+  let tx = Transaction {
+    ..transaction.placeholder,
+    inputs: [
+      fixture.some_input_with_programmable_tokens(
+        [(test_mint_policy, "FOO", 100)],
+        "mint input",
+      ),
+    ],
+    mint: from_asset(test_mint_policy, "FOO", -100),
+    outputs: [],
+    reference_inputs: [
+      fixture.some_reference_input_protocol_params(
+        fixture.protocol_params,
+        "protocol params",
+      ),
+      fixture.some_reference_input_tokens_registry_node(
+        test_mint_policy,
+        #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "registry node",
+      ),
+    ],
+    withdrawals: [Pair(fixture.credential_validator_logic_global, 0)],
+  }
 
   let redeemer = TransferAct { proofs: [TokenExists { node_idx: 1 }] }
 
@@ -883,28 +858,27 @@ test transfer_act_unauthorized_burning_compensate_spending_fails() fail {
 // Negative: unauthenticated transfer & burn where spent tokens are entirely burned (so
 // mint & spend values balancing each other out)
 test transfer_act_burning_compensate_spending_unproven_token_fails() fail {
-  let tx =
-    Transaction {
-      ..transaction.placeholder,
-      inputs: [
-        fixture.some_input_with_programmable_tokens(
-          [(test_mint_policy, "FOO", 100)],
-          "mint input",
-        ),
-      ],
-      mint: from_asset(test_mint_policy, "FOO", -100),
-      outputs: [],
-      reference_inputs: [
-        fixture.some_reference_input_protocol_params(
-          fixture.protocol_params,
-          "protocol params",
-        ),
-      ],
-      withdrawals: [
-        Pair(fixture.credential_validator_logic_global, 0),
-        Pair(fixture.credential_transfer_logic, 0),
-      ],
-    }
+  let tx = Transaction {
+    ..transaction.placeholder,
+    inputs: [
+      fixture.some_input_with_programmable_tokens(
+        [(test_mint_policy, "FOO", 100)],
+        "mint input",
+      ),
+    ],
+    mint: from_asset(test_mint_policy, "FOO", -100),
+    outputs: [],
+    reference_inputs: [
+      fixture.some_reference_input_protocol_params(
+        fixture.protocol_params,
+        "protocol params",
+      ),
+    ],
+    withdrawals: [
+      Pair(fixture.credential_validator_logic_global, 0),
+      Pair(fixture.credential_transfer_logic, 0),
+    ],
+  }
 
   let redeemer = TransferAct { proofs: [] }
 
@@ -928,43 +902,41 @@ test transfer_act_burning_compensate_spending_unproven_token_fails() fail {
 // Input has 100 FOO, mint has -100 FOO, paired output has 0 FOO.
 // Adjusted input = 100 + (-100) = 0, filtered to empty → check trivially passes.
 test third_party_act_wipe_full_burn_succeeds() {
-  let tx =
-    Transaction {
-      ..transaction.placeholder,
-      inputs: [
-        fixture.some_input_with_programmable_tokens(
-          [(test_third_party_policy, "FOO", 100)],
-          "wipe_full_burn_input",
-        ),
-      ],
-      mint: from_asset(test_third_party_policy, "FOO", -100),
-      outputs: [
-        // Paired output: all FOO removed
-        fixture.some_output_with_programmable_tokens([]),
-      ],
-      reference_inputs: [
-        fixture.some_reference_input_protocol_params(
-          fixture.protocol_params,
-          "protocol params",
-        ),
-        third_party_registry_node_ref_input(
-          test_third_party_policy,
-          test_third_party_cred,
-        ),
-      ],
-      withdrawals: [
-        Pair(fixture.credential_validator_logic_global, 0),
-        Pair(test_third_party_cred, 0),
-      ],
-    }
+  let tx = Transaction {
+    ..transaction.placeholder,
+    inputs: [
+      fixture.some_input_with_programmable_tokens(
+        [(test_third_party_policy, "FOO", 100)],
+        "wipe_full_burn_input",
+      ),
+    ],
+    mint: from_asset(test_third_party_policy, "FOO", -100),
+    outputs: [
+      // Paired output: all FOO removed
+      fixture.some_output_with_programmable_tokens([]),
+    ],
+    reference_inputs: [
+      fixture.some_reference_input_protocol_params(
+        fixture.protocol_params,
+        "protocol params",
+      ),
+      third_party_registry_node_ref_input(
+        test_third_party_policy,
+        test_third_party_cred,
+      ),
+    ],
+    withdrawals: [
+      Pair(fixture.credential_validator_logic_global, 0),
+      Pair(test_third_party_cred, 0),
+    ],
+  }
 
-  let redeemer =
-    ThirdPartyAct {
-      registry_node_idx: 1,
-      input_idxs: [0],
-      outputs_start_idx: 0,
-      length_input_idxs: 1,
-    }
+  let redeemer = ThirdPartyAct {
+    registry_node_idx: 1,
+    input_idxs: [0],
+    outputs_start_idx: 0,
+    length_input_idxs: 1,
+  }
 
   programmable_logic_global.programmable_logic_global.withdraw(
     fixture.policy_protocol_params,
@@ -977,47 +949,45 @@ test third_party_act_wipe_full_burn_succeeds() {
 // Positive: partial burn — seize all 100 FOO, burn 60, 40 remaining at prog_cred.
 // Adjusted input = 100 + (-60) = 40, output has 40 → passes.
 test third_party_act_wipe_partial_burn_succeeds() {
-  let tx =
-    Transaction {
-      ..transaction.placeholder,
-      inputs: [
-        fixture.some_input_with_programmable_tokens(
-          [(test_third_party_policy, "FOO", 100)],
-          "wipe_partial_burn_input",
-        ),
-      ],
-      mint: from_asset(test_third_party_policy, "FOO", -60),
-      outputs: [
-        // Paired output: all FOO removed from owner
-        fixture.some_output_with_programmable_tokens([]),
-        // Remaining output: 40 FOO stays at prog_logic_cred
-        fixture.some_output_with_programmable_tokens(
-          [(test_third_party_policy, "FOO", 40)],
-        ),
-      ],
-      reference_inputs: [
-        fixture.some_reference_input_protocol_params(
-          fixture.protocol_params,
-          "protocol params",
-        ),
-        third_party_registry_node_ref_input(
-          test_third_party_policy,
-          test_third_party_cred,
-        ),
-      ],
-      withdrawals: [
-        Pair(fixture.credential_validator_logic_global, 0),
-        Pair(test_third_party_cred, 0),
-      ],
-    }
+  let tx = Transaction {
+    ..transaction.placeholder,
+    inputs: [
+      fixture.some_input_with_programmable_tokens(
+        [(test_third_party_policy, "FOO", 100)],
+        "wipe_partial_burn_input",
+      ),
+    ],
+    mint: from_asset(test_third_party_policy, "FOO", -60),
+    outputs: [
+      // Paired output: all FOO removed from owner
+      fixture.some_output_with_programmable_tokens([]),
+      // Remaining output: 40 FOO stays at prog_logic_cred
+      fixture.some_output_with_programmable_tokens(
+        [(test_third_party_policy, "FOO", 40)],
+      ),
+    ],
+    reference_inputs: [
+      fixture.some_reference_input_protocol_params(
+        fixture.protocol_params,
+        "protocol params",
+      ),
+      third_party_registry_node_ref_input(
+        test_third_party_policy,
+        test_third_party_cred,
+      ),
+    ],
+    withdrawals: [
+      Pair(fixture.credential_validator_logic_global, 0),
+      Pair(test_third_party_cred, 0),
+    ],
+  }
 
-  let redeemer =
-    ThirdPartyAct {
-      registry_node_idx: 1,
-      input_idxs: [0],
-      outputs_start_idx: 0,
-      length_input_idxs: 1,
-    }
+  let redeemer = ThirdPartyAct {
+    registry_node_idx: 1,
+    input_idxs: [0],
+    outputs_start_idx: 0,
+    length_input_idxs: 1,
+  }
 
   programmable_logic_global.programmable_logic_global.withdraw(
     fixture.policy_protocol_params,
@@ -1031,49 +1001,47 @@ test third_party_act_wipe_partial_burn_succeeds() {
 // Owner keeps 20, authority gets 30, 50 burned.
 // Adjusted input = 100 + (-50) = 50, output = 20 + 30 = 50 → passes.
 test third_party_act_wipe_seize_and_partial_burn() {
-  let tx =
-    Transaction {
-      ..transaction.placeholder,
-      inputs: [
-        fixture.some_input_with_programmable_tokens(
-          [(test_third_party_policy, "FOO", 100)],
-          "wipe_seize_partial_input",
-        ),
-      ],
-      mint: from_asset(test_third_party_policy, "FOO", -50),
-      outputs: [
-        // Paired output: owner keeps 20 FOO
-        fixture.some_output_with_programmable_tokens(
-          [(test_third_party_policy, "FOO", 20)],
-        ),
-        // Remaining output: authority receives 30 seized FOO
-        fixture.some_output_with_programmable_tokens(
-          [(test_third_party_policy, "FOO", 30)],
-        ),
-      ],
-      reference_inputs: [
-        fixture.some_reference_input_protocol_params(
-          fixture.protocol_params,
-          "protocol params",
-        ),
-        third_party_registry_node_ref_input(
-          test_third_party_policy,
-          test_third_party_cred,
-        ),
-      ],
-      withdrawals: [
-        Pair(fixture.credential_validator_logic_global, 0),
-        Pair(test_third_party_cred, 0),
-      ],
-    }
+  let tx = Transaction {
+    ..transaction.placeholder,
+    inputs: [
+      fixture.some_input_with_programmable_tokens(
+        [(test_third_party_policy, "FOO", 100)],
+        "wipe_seize_partial_input",
+      ),
+    ],
+    mint: from_asset(test_third_party_policy, "FOO", -50),
+    outputs: [
+      // Paired output: owner keeps 20 FOO
+      fixture.some_output_with_programmable_tokens(
+        [(test_third_party_policy, "FOO", 20)],
+      ),
+      // Remaining output: authority receives 30 seized FOO
+      fixture.some_output_with_programmable_tokens(
+        [(test_third_party_policy, "FOO", 30)],
+      ),
+    ],
+    reference_inputs: [
+      fixture.some_reference_input_protocol_params(
+        fixture.protocol_params,
+        "protocol params",
+      ),
+      third_party_registry_node_ref_input(
+        test_third_party_policy,
+        test_third_party_cred,
+      ),
+    ],
+    withdrawals: [
+      Pair(fixture.credential_validator_logic_global, 0),
+      Pair(test_third_party_cred, 0),
+    ],
+  }
 
-  let redeemer =
-    ThirdPartyAct {
-      registry_node_idx: 1,
-      input_idxs: [0],
-      outputs_start_idx: 0,
-      length_input_idxs: 1,
-    }
+  let redeemer = ThirdPartyAct {
+    registry_node_idx: 1,
+    input_idxs: [0],
+    outputs_start_idx: 0,
+    length_input_idxs: 1,
+  }
 
   programmable_logic_global.programmable_logic_global.withdraw(
     fixture.policy_protocol_params,
@@ -1086,47 +1054,45 @@ test third_party_act_wipe_seize_and_partial_burn() {
 // Negative: burn 30, but remaining output only 50 — need 70.
 // Adjusted input = 100 + (-30) = 70, output = 0 + 50 = 50 < 70 → fails.
 test third_party_act_wipe_insufficient_after_burn_fails() fail {
-  let tx =
-    Transaction {
-      ..transaction.placeholder,
-      inputs: [
-        fixture.some_input_with_programmable_tokens(
-          [(test_third_party_policy, "FOO", 100)],
-          "wipe_insufficient_input",
-        ),
-      ],
-      mint: from_asset(test_third_party_policy, "FOO", -30),
-      outputs: [
-        // Paired output: all FOO removed
-        fixture.some_output_with_programmable_tokens([]),
-        // Remaining output: only 50 FOO, but adjusted input expects 70
-        fixture.some_output_with_programmable_tokens(
-          [(test_third_party_policy, "FOO", 50)],
-        ),
-      ],
-      reference_inputs: [
-        fixture.some_reference_input_protocol_params(
-          fixture.protocol_params,
-          "protocol params",
-        ),
-        third_party_registry_node_ref_input(
-          test_third_party_policy,
-          test_third_party_cred,
-        ),
-      ],
-      withdrawals: [
-        Pair(fixture.credential_validator_logic_global, 0),
-        Pair(test_third_party_cred, 0),
-      ],
-    }
+  let tx = Transaction {
+    ..transaction.placeholder,
+    inputs: [
+      fixture.some_input_with_programmable_tokens(
+        [(test_third_party_policy, "FOO", 100)],
+        "wipe_insufficient_input",
+      ),
+    ],
+    mint: from_asset(test_third_party_policy, "FOO", -30),
+    outputs: [
+      // Paired output: all FOO removed
+      fixture.some_output_with_programmable_tokens([]),
+      // Remaining output: only 50 FOO, but adjusted input expects 70
+      fixture.some_output_with_programmable_tokens(
+        [(test_third_party_policy, "FOO", 50)],
+      ),
+    ],
+    reference_inputs: [
+      fixture.some_reference_input_protocol_params(
+        fixture.protocol_params,
+        "protocol params",
+      ),
+      third_party_registry_node_ref_input(
+        test_third_party_policy,
+        test_third_party_cred,
+      ),
+    ],
+    withdrawals: [
+      Pair(fixture.credential_validator_logic_global, 0),
+      Pair(test_third_party_cred, 0),
+    ],
+  }
 
-  let redeemer =
-    ThirdPartyAct {
-      registry_node_idx: 1,
-      input_idxs: [0],
-      outputs_start_idx: 0,
-      length_input_idxs: 1,
-    }
+  let redeemer = ThirdPartyAct {
+    registry_node_idx: 1,
+    input_idxs: [0],
+    outputs_start_idx: 0,
+    length_input_idxs: 1,
+  }
 
   programmable_logic_global.programmable_logic_global.withdraw(
     fixture.policy_protocol_params,
@@ -1138,41 +1104,39 @@ test third_party_act_wipe_insufficient_after_burn_fails() fail {
 
 // Negative: spending and burning some tokens (exact quantities), without executing the 3rd party script.
 test third_party_act_unauthorized_burn_compensate_spend() fail {
-  let tx =
-    Transaction {
-      ..transaction.placeholder,
-      inputs: [
-        fixture.some_input_with_programmable_tokens(
-          [(test_third_party_policy, "FOO", 100)],
-          "programmable tokens",
-        ),
-      ],
-      mint: from_asset(test_third_party_policy, "FOO", -50),
-      outputs: [
-        fixture.some_output_with_programmable_tokens(
-          [(test_third_party_policy, "FOO", 50)],
-        ),
-      ],
-      reference_inputs: [
-        fixture.some_reference_input_protocol_params(
-          fixture.protocol_params,
-          "protocol params",
-        ),
-        third_party_registry_node_ref_input(
-          test_third_party_policy,
-          test_third_party_cred,
-        ),
-      ],
-      withdrawals: [Pair(fixture.credential_validator_logic_global, 0)],
-    }
+  let tx = Transaction {
+    ..transaction.placeholder,
+    inputs: [
+      fixture.some_input_with_programmable_tokens(
+        [(test_third_party_policy, "FOO", 100)],
+        "programmable tokens",
+      ),
+    ],
+    mint: from_asset(test_third_party_policy, "FOO", -50),
+    outputs: [
+      fixture.some_output_with_programmable_tokens(
+        [(test_third_party_policy, "FOO", 50)],
+      ),
+    ],
+    reference_inputs: [
+      fixture.some_reference_input_protocol_params(
+        fixture.protocol_params,
+        "protocol params",
+      ),
+      third_party_registry_node_ref_input(
+        test_third_party_policy,
+        test_third_party_cred,
+      ),
+    ],
+    withdrawals: [Pair(fixture.credential_validator_logic_global, 0)],
+  }
 
-  let redeemer =
-    ThirdPartyAct {
-      registry_node_idx: 1,
-      input_idxs: [0],
-      outputs_start_idx: 0,
-      length_input_idxs: 1,
-    }
+  let redeemer = ThirdPartyAct {
+    registry_node_idx: 1,
+    input_idxs: [0],
+    outputs_start_idx: 0,
+    length_input_idxs: 1,
+  }
 
   programmable_logic_global.programmable_logic_global.withdraw(
     fixture.policy_protocol_params,
@@ -1184,44 +1148,42 @@ test third_party_act_unauthorized_burn_compensate_spend() fail {
 
 // Negative: spending and burning some tokens (exact quantities), without providing adequate proof.
 test third_party_act_unproven_burn_compensate_spend() fail {
-  let tx =
-    Transaction {
-      ..transaction.placeholder,
-      inputs: [
-        fixture.some_input_with_programmable_tokens(
-          [(test_third_party_policy, "FOO", 100)],
-          "programmable tokens",
-        ),
-      ],
-      mint: from_asset(test_third_party_policy, "FOO", -50),
-      outputs: [
-        fixture.some_output_with_programmable_tokens(
-          [(test_third_party_policy, "FOO", 50)],
-        ),
-      ],
-      reference_inputs: [
-        fixture.some_reference_input_protocol_params(
-          fixture.protocol_params,
-          "protocol params",
-        ),
-        third_party_registry_node_ref_input(
-          test_third_party_policy,
-          test_third_party_cred,
-        ),
-      ],
-      withdrawals: [
-        Pair(fixture.credential_validator_logic_global, 0),
-        Pair(test_third_party_cred, 0),
-      ],
-    }
+  let tx = Transaction {
+    ..transaction.placeholder,
+    inputs: [
+      fixture.some_input_with_programmable_tokens(
+        [(test_third_party_policy, "FOO", 100)],
+        "programmable tokens",
+      ),
+    ],
+    mint: from_asset(test_third_party_policy, "FOO", -50),
+    outputs: [
+      fixture.some_output_with_programmable_tokens(
+        [(test_third_party_policy, "FOO", 50)],
+      ),
+    ],
+    reference_inputs: [
+      fixture.some_reference_input_protocol_params(
+        fixture.protocol_params,
+        "protocol params",
+      ),
+      third_party_registry_node_ref_input(
+        test_third_party_policy,
+        test_third_party_cred,
+      ),
+    ],
+    withdrawals: [
+      Pair(fixture.credential_validator_logic_global, 0),
+      Pair(test_third_party_cred, 0),
+    ],
+  }
 
-  let redeemer =
-    ThirdPartyAct {
-      registry_node_idx: 1,
-      input_idxs: [],
-      outputs_start_idx: 0,
-      length_input_idxs: 0,
-    }
+  let redeemer = ThirdPartyAct {
+    registry_node_idx: 1,
+    input_idxs: [],
+    outputs_start_idx: 0,
+    length_input_idxs: 0,
+  }
 
   programmable_logic_global.programmable_logic_global.withdraw(
     fixture.policy_protocol_params,
@@ -1257,47 +1219,45 @@ const test_unrelated_policy: PolicyId =
 // Not exploitable: issuance_mint forces minted tokens to prog_cred,
 // so the minter is just raising the bar for themselves.
 test third_party_act_same_policy_mint_during_seizure_succeeds() {
-  let tx =
-    Transaction {
-      ..transaction.placeholder,
-      inputs: [
-        fixture.some_input_with_programmable_tokens(
-          [(test_third_party_policy, "FOO", 100)],
-          "same_policy_mint_input",
-        ),
-      ],
-      mint: from_asset(test_third_party_policy, "FOO", 50),
-      outputs: [
-        // Paired output: all FOO removed from owner
-        fixture.some_output_with_programmable_tokens([]),
-        // Remaining output: 100 seized + 50 minted = 150 at prog_cred
-        fixture.some_output_with_programmable_tokens(
-          [(test_third_party_policy, "FOO", 150)],
-        ),
-      ],
-      reference_inputs: [
-        fixture.some_reference_input_protocol_params(
-          fixture.protocol_params,
-          "protocol params",
-        ),
-        third_party_registry_node_ref_input(
-          test_third_party_policy,
-          test_third_party_cred,
-        ),
-      ],
-      withdrawals: [
-        Pair(fixture.credential_validator_logic_global, 0),
-        Pair(test_third_party_cred, 0),
-      ],
-    }
+  let tx = Transaction {
+    ..transaction.placeholder,
+    inputs: [
+      fixture.some_input_with_programmable_tokens(
+        [(test_third_party_policy, "FOO", 100)],
+        "same_policy_mint_input",
+      ),
+    ],
+    mint: from_asset(test_third_party_policy, "FOO", 50),
+    outputs: [
+      // Paired output: all FOO removed from owner
+      fixture.some_output_with_programmable_tokens([]),
+      // Remaining output: 100 seized + 50 minted = 150 at prog_cred
+      fixture.some_output_with_programmable_tokens(
+        [(test_third_party_policy, "FOO", 150)],
+      ),
+    ],
+    reference_inputs: [
+      fixture.some_reference_input_protocol_params(
+        fixture.protocol_params,
+        "protocol params",
+      ),
+      third_party_registry_node_ref_input(
+        test_third_party_policy,
+        test_third_party_cred,
+      ),
+    ],
+    withdrawals: [
+      Pair(fixture.credential_validator_logic_global, 0),
+      Pair(test_third_party_cred, 0),
+    ],
+  }
 
-  let redeemer =
-    ThirdPartyAct {
-      registry_node_idx: 1,
-      input_idxs: [0],
-      outputs_start_idx: 0,
-      length_input_idxs: 1,
-    }
+  let redeemer = ThirdPartyAct {
+    registry_node_idx: 1,
+    input_idxs: [0],
+    outputs_start_idx: 0,
+    length_input_idxs: 1,
+  }
 
   programmable_logic_global.programmable_logic_global.withdraw(
     fixture.policy_protocol_params,
@@ -1310,47 +1270,45 @@ test third_party_act_same_policy_mint_during_seizure_succeeds() {
 // Negative: mint same policy during seizure but insufficient output.
 // Seize 100 FOO, mint 50 → adjusted input = 150, but output only has 100.
 test third_party_act_same_policy_mint_insufficient_output_fails() fail {
-  let tx =
-    Transaction {
-      ..transaction.placeholder,
-      inputs: [
-        fixture.some_input_with_programmable_tokens(
-          [(test_third_party_policy, "FOO", 100)],
-          "same_policy_mint_fail_input",
-        ),
-      ],
-      mint: from_asset(test_third_party_policy, "FOO", 50),
-      outputs: [
-        // Paired output: all FOO removed
-        fixture.some_output_with_programmable_tokens([]),
-        // Only 100 FOO, but adjusted input expects 150
-        fixture.some_output_with_programmable_tokens(
-          [(test_third_party_policy, "FOO", 100)],
-        ),
-      ],
-      reference_inputs: [
-        fixture.some_reference_input_protocol_params(
-          fixture.protocol_params,
-          "protocol params",
-        ),
-        third_party_registry_node_ref_input(
-          test_third_party_policy,
-          test_third_party_cred,
-        ),
-      ],
-      withdrawals: [
-        Pair(fixture.credential_validator_logic_global, 0),
-        Pair(test_third_party_cred, 0),
-      ],
-    }
+  let tx = Transaction {
+    ..transaction.placeholder,
+    inputs: [
+      fixture.some_input_with_programmable_tokens(
+        [(test_third_party_policy, "FOO", 100)],
+        "same_policy_mint_fail_input",
+      ),
+    ],
+    mint: from_asset(test_third_party_policy, "FOO", 50),
+    outputs: [
+      // Paired output: all FOO removed
+      fixture.some_output_with_programmable_tokens([]),
+      // Only 100 FOO, but adjusted input expects 150
+      fixture.some_output_with_programmable_tokens(
+        [(test_third_party_policy, "FOO", 100)],
+      ),
+    ],
+    reference_inputs: [
+      fixture.some_reference_input_protocol_params(
+        fixture.protocol_params,
+        "protocol params",
+      ),
+      third_party_registry_node_ref_input(
+        test_third_party_policy,
+        test_third_party_cred,
+      ),
+    ],
+    withdrawals: [
+      Pair(fixture.credential_validator_logic_global, 0),
+      Pair(test_third_party_cred, 0),
+    ],
+  }
 
-  let redeemer =
-    ThirdPartyAct {
-      registry_node_idx: 1,
-      input_idxs: [0],
-      outputs_start_idx: 0,
-      length_input_idxs: 1,
-    }
+  let redeemer = ThirdPartyAct {
+    registry_node_idx: 1,
+    input_idxs: [0],
+    outputs_start_idx: 0,
+    length_input_idxs: 1,
+  }
 
   programmable_logic_global.programmable_logic_global.withdraw(
     fixture.policy_protocol_params,
@@ -1367,47 +1325,45 @@ test third_party_act_same_policy_mint_insufficient_output_fails() fail {
 // doesn't distinguish. issuance_mint handles programmable authorization
 // externally; non-programmable tokens have their own minting policy.
 test third_party_act_unrelated_policy_mint_succeeds() {
-  let tx =
-    Transaction {
-      ..transaction.placeholder,
-      inputs: [
-        fixture.some_input_with_programmable_tokens(
-          [(test_third_party_policy, "FOO", 100)],
-          "unrelated_mint_input",
-        ),
-      ],
-      mint: from_asset(test_unrelated_policy, "BAR", 500),
-      outputs: [
-        // Paired output: all FOO removed
-        fixture.some_output_with_programmable_tokens([]),
-        // Remaining output: seized FOO stays at prog_cred
-        fixture.some_output_with_programmable_tokens(
-          [(test_third_party_policy, "FOO", 100)],
-        ),
-      ],
-      reference_inputs: [
-        fixture.some_reference_input_protocol_params(
-          fixture.protocol_params,
-          "protocol params",
-        ),
-        third_party_registry_node_ref_input(
-          test_third_party_policy,
-          test_third_party_cred,
-        ),
-      ],
-      withdrawals: [
-        Pair(fixture.credential_validator_logic_global, 0),
-        Pair(test_third_party_cred, 0),
-      ],
-    }
+  let tx = Transaction {
+    ..transaction.placeholder,
+    inputs: [
+      fixture.some_input_with_programmable_tokens(
+        [(test_third_party_policy, "FOO", 100)],
+        "unrelated_mint_input",
+      ),
+    ],
+    mint: from_asset(test_unrelated_policy, "BAR", 500),
+    outputs: [
+      // Paired output: all FOO removed
+      fixture.some_output_with_programmable_tokens([]),
+      // Remaining output: seized FOO stays at prog_cred
+      fixture.some_output_with_programmable_tokens(
+        [(test_third_party_policy, "FOO", 100)],
+      ),
+    ],
+    reference_inputs: [
+      fixture.some_reference_input_protocol_params(
+        fixture.protocol_params,
+        "protocol params",
+      ),
+      third_party_registry_node_ref_input(
+        test_third_party_policy,
+        test_third_party_cred,
+      ),
+    ],
+    withdrawals: [
+      Pair(fixture.credential_validator_logic_global, 0),
+      Pair(test_third_party_cred, 0),
+    ],
+  }
 
-  let redeemer =
-    ThirdPartyAct {
-      registry_node_idx: 1,
-      input_idxs: [0],
-      outputs_start_idx: 0,
-      length_input_idxs: 1,
-    }
+  let redeemer = ThirdPartyAct {
+    registry_node_idx: 1,
+    input_idxs: [0],
+    outputs_start_idx: 0,
+    length_input_idxs: 1,
+  }
 
   programmable_logic_global.programmable_logic_global.withdraw(
     fixture.policy_protocol_params,
@@ -1422,48 +1378,46 @@ test third_party_act_unrelated_policy_mint_succeeds() {
 // the tx also mints something unrelated (e.g. a receipt NFT).
 // Balance invariant sees only the seized policy burn; unrelated mint is invisible.
 test third_party_act_wipe_burn_plus_unrelated_mint_succeeds() {
-  let tx =
-    Transaction {
-      ..transaction.placeholder,
-      inputs: [
-        fixture.some_input_with_programmable_tokens(
-          [(test_third_party_policy, "FOO", 100)],
-          "mixed_mint_input",
-        ),
-      ],
-      mint: from_asset(test_third_party_policy, "FOO", -60)
-        |> merge(from_asset(test_unrelated_policy, "RECEIPT", 1)),
-      outputs: [
-        // Paired output: all FOO removed from owner
-        fixture.some_output_with_programmable_tokens([]),
-        // Remaining output: 40 FOO stays at prog_cred (100 - 60 burned)
-        fixture.some_output_with_programmable_tokens(
-          [(test_third_party_policy, "FOO", 40)],
-        ),
-      ],
-      reference_inputs: [
-        fixture.some_reference_input_protocol_params(
-          fixture.protocol_params,
-          "protocol params",
-        ),
-        third_party_registry_node_ref_input(
-          test_third_party_policy,
-          test_third_party_cred,
-        ),
-      ],
-      withdrawals: [
-        Pair(fixture.credential_validator_logic_global, 0),
-        Pair(test_third_party_cred, 0),
-      ],
-    }
+  let tx = Transaction {
+    ..transaction.placeholder,
+    inputs: [
+      fixture.some_input_with_programmable_tokens(
+        [(test_third_party_policy, "FOO", 100)],
+        "mixed_mint_input",
+      ),
+    ],
+    mint: from_asset(test_third_party_policy, "FOO", -60)
+      |> merge(from_asset(test_unrelated_policy, "RECEIPT", 1)),
+    outputs: [
+      // Paired output: all FOO removed from owner
+      fixture.some_output_with_programmable_tokens([]),
+      // Remaining output: 40 FOO stays at prog_cred (100 - 60 burned)
+      fixture.some_output_with_programmable_tokens(
+        [(test_third_party_policy, "FOO", 40)],
+      ),
+    ],
+    reference_inputs: [
+      fixture.some_reference_input_protocol_params(
+        fixture.protocol_params,
+        "protocol params",
+      ),
+      third_party_registry_node_ref_input(
+        test_third_party_policy,
+        test_third_party_cred,
+      ),
+    ],
+    withdrawals: [
+      Pair(fixture.credential_validator_logic_global, 0),
+      Pair(test_third_party_cred, 0),
+    ],
+  }
 
-  let redeemer =
-    ThirdPartyAct {
-      registry_node_idx: 1,
-      input_idxs: [0],
-      outputs_start_idx: 0,
-      length_input_idxs: 1,
-    }
+  let redeemer = ThirdPartyAct {
+    registry_node_idx: 1,
+    input_idxs: [0],
+    outputs_start_idx: 0,
+    length_input_idxs: 1,
+  }
 
   programmable_logic_global.programmable_logic_global.withdraw(
     fixture.policy_protocol_params,
@@ -1476,38 +1430,37 @@ test third_party_act_wipe_burn_plus_unrelated_mint_succeeds() {
 // Negative: minting without enough output — mints 50 FOO but output only has 100.
 // Expected output is 100 (input) + 50 (mint) = 150, but output only has 100.
 test transfer_act_mint_insufficient_output_fails() fail {
-  let tx =
-    Transaction {
-      ..transaction.placeholder,
-      inputs: [
-        fixture.some_input_with_programmable_tokens(
-          [(test_mint_policy, "FOO", 100)],
-          "mint fail input",
-        ),
-      ],
-      mint: from_asset(test_mint_policy, "FOO", 50),
-      outputs: [
-        // Only 100 FOO, but expected 150
-        fixture.some_output_with_programmable_tokens(
-          [(test_mint_policy, "FOO", 100)],
-        ),
-      ],
-      reference_inputs: [
-        fixture.some_reference_input_protocol_params(
-          fixture.protocol_params,
-          "protocol params",
-        ),
-        fixture.some_reference_input_tokens_registry_node(
-          test_mint_policy,
-          #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
-          "registry node",
-        ),
-      ],
-      withdrawals: [
-        Pair(fixture.credential_validator_logic_global, 0),
-        Pair(fixture.credential_transfer_logic, 0),
-      ],
-    }
+  let tx = Transaction {
+    ..transaction.placeholder,
+    inputs: [
+      fixture.some_input_with_programmable_tokens(
+        [(test_mint_policy, "FOO", 100)],
+        "mint fail input",
+      ),
+    ],
+    mint: from_asset(test_mint_policy, "FOO", 50),
+    outputs: [
+      // Only 100 FOO, but expected 150
+      fixture.some_output_with_programmable_tokens(
+        [(test_mint_policy, "FOO", 100)],
+      ),
+    ],
+    reference_inputs: [
+      fixture.some_reference_input_protocol_params(
+        fixture.protocol_params,
+        "protocol params",
+      ),
+      fixture.some_reference_input_tokens_registry_node(
+        test_mint_policy,
+        #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "registry node",
+      ),
+    ],
+    withdrawals: [
+      Pair(fixture.credential_validator_logic_global, 0),
+      Pair(fixture.credential_transfer_logic, 0),
+    ],
+  }
 
   let redeemer = TransferAct { proofs: [TokenExists { node_idx: 1 }] }
 

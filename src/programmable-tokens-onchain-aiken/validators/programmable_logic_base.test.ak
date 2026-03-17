@@ -48,12 +48,11 @@ test withdraw_zero_pattern() {
 
 // Test multiple withdrawals with stake credential present
 test multiple_withdrawals_with_stake_credential() {
-  let withdrawals =
-    [
-      Pair(test_other_cred, 0),
-      Pair(test_stake_cred, 0),
-      Pair(Script(#"99999999"), 0),
-    ]
+  let withdrawals = [
+    Pair(test_other_cred, 0),
+    Pair(test_stake_cred, 0),
+    Pair(Script(#"99999999"), 0),
+  ]
 
   list.any(
     withdrawals,
@@ -102,11 +101,10 @@ test stake_credential_types() {
 
 // Test address with inline stake credential
 test address_with_inline_stake_credential() {
-  let addr =
-    Address {
-      payment_credential: Script(#"deadbeef"),
-      stake_credential: Some(Inline(test_stake_cred)),
-    }
+  let addr = Address {
+    payment_credential: Script(#"deadbeef"),
+    stake_credential: Some(Inline(test_stake_cred)),
+  }
 
   when addr.stake_credential is {
     Some(Inline(stake)) -> stake == test_stake_cred

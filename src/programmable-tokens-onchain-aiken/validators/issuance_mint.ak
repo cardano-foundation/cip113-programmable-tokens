@@ -21,48 +21,45 @@ validator issuance_mint(
     self: Transaction,
   ) {
     // Check that the minting logic script is invoked
-    let invoked_scripts =
-      list.map(
-        self.withdrawals,
-        fn(wdrl) {
-          let Pair(cred, _amount) = wdrl
-          cred
-        },
-      )
+    let invoked_scripts = list.map(
+      self.withdrawals,
+      fn(wdrl) {
+        let Pair(cred, _amount) = wdrl
+        cred
+      },
+    )
 
     // Get the minted/burned amount for this policy
     let own_tokens = flatten(self.mint)
-    let tokens_for_policy =
-      list.filter(
-        own_tokens,
-        fn(token) {
-          let (cs, _tn, _qty) = token
-          cs == own_policy
-        },
-      )
+    let tokens_for_policy = list.filter(
+      own_tokens,
+      fn(token) {
+        let (cs, _tn, _qty) = token
+        cs == own_policy
+      },
+    )
 
     expect [(_cs, tn, qty)] = tokens_for_policy
 
-    let valid_minting =
-      if qty > 0 {
-        // Minting tokens
-        // First output must receive the minted tokens at programmable_logic_base
-        // AND must have a stake credential to prevent permanent token locking
-        expect [first_output, ..] = self.outputs
+    let valid_minting = if qty > 0 {
+      // Minting tokens
+      // First output must receive the minted tokens at programmable_logic_base
+      // AND must have a stake credential to prevent permanent token locking
+      expect [first_output, ..] = self.outputs
 
-        // Validate that the output has a stake credential
-        expect Some(Inline(_stake_cred)) = first_output.address.stake_credential
-        and {
-          (first_output.address.payment_credential == programmable_logic_base)?,
-          (quantity_of(first_output.value, own_policy, tn) == qty)?,
-        }
-      } else if qty < 0 {
-        // Burning tokens - no additional checks needed beyond the minting logic being invoked
-        True
-      } else {
-        // Zero minting is not allowed
-        fail @"Cannot mint zero tokens"
+      // Validate that the output has a stake credential
+      expect Some(Inline(_stake_cred)) = first_output.address.stake_credential
+      and {
+        (first_output.address.payment_credential == programmable_logic_base)?,
+        (quantity_of(first_output.value, own_policy, tn) == qty)?,
       }
+    } else if qty < 0 {
+      // Burning tokens - no additional checks needed beyond the minting logic being invoked
+      True
+    } else {
+      // Zero minting is not allowed
+      fail @"Cannot mint zero tokens"
+    }
 
     and {
       // Validate that the redeemer matches the minting logic credential
@@ -97,24 +94,23 @@ fn single_mint_with_credential(
 ) -> Bool {
   let target_redeemer_data: Data = target_redeemer
 
-  let matching_count =
-    list.foldl(
-      redeemers,
-      0,
-      fn(pair, count) {
-        let Pair(purpose, rdmr) = pair
+  let matching_count = list.foldl(
+    redeemers,
+    0,
+    fn(pair, count) {
+      let Pair(purpose, rdmr) = pair
 
-        when purpose is {
-          Mint(_) ->
-            if rdmr == target_redeemer_data {
-              count + 1
-            } else {
-              count
-            }
-          _ -> count
-        }
-      },
-    )
+      when purpose is {
+        Mint(_) ->
+          if rdmr == target_redeemer_data {
+            count + 1
+          } else {
+            count
+          }
+        _ -> count
+      }
+    },
+  )
 
   matching_count == 1
 }

@@ -9,8 +9,9 @@
 
 use cardano/address.{Address, Script, VerificationKey}
 use cardano/assets.{PolicyId, ada_asset_name, ada_policy_id, from_asset}
-use cardano/transaction.{InlineDatum, Input, NoDatum, Output, OutputReference,
-  Transaction}
+use cardano/transaction.{
+  InlineDatum, Input, NoDatum, Output, OutputReference, Transaction,
+}
 use issuance_cbor_hex_mint
 use types.{IssuanceCborHex, issuance_cbor_hex_token_name}
 
@@ -47,10 +48,7 @@ fn always_fail_address() -> Address {
 
 fn valid_issuance_datum() -> Data {
   as_data(
-    IssuanceCborHex {
-      prefix_cbor_hex: #"aabb",
-      postfix_cbor_hex: #"ccdd",
-    },
+    IssuanceCborHex { prefix_cbor_hex: #"aabb", postfix_cbor_hex: #"ccdd" },
   )
 }
 
@@ -117,11 +115,10 @@ test issuance_cbor_hex_mint_valid() {
 // ========================================================================
 
 test fails_when_utxo_not_consumed() fail {
-  let wrong_utxo_ref =
-    OutputReference {
-      transaction_id: #"1111111111111111111111111111111111111111111111111111111111111111",
-      output_index: 99,
-    }
+  let wrong_utxo_ref = OutputReference {
+    transaction_id: #"1111111111111111111111111111111111111111111111111111111111111111",
+    output_index: 99,
+  }
   call_validator(wrong_utxo_ref, test_always_fail_hash, valid_transaction())
 }
 
@@ -133,13 +130,12 @@ test fails_when_utxo_not_consumed() fail {
 // ========================================================================
 
 test fails_with_wrong_token_name() fail {
-  let tx =
-    Transaction {
-      ..transaction.placeholder,
-      inputs: [valid_input()],
-      mint: from_asset(test_policy_id, "WrongName", 1),
-      outputs: [valid_nft_output()],
-    }
+  let tx = Transaction {
+    ..transaction.placeholder,
+    inputs: [valid_input()],
+    mint: from_asset(test_policy_id, "WrongName", 1),
+    outputs: [valid_nft_output()],
+  }
   call_validator(test_utxo_ref, test_always_fail_hash, tx)
 }
 
@@ -151,13 +147,12 @@ test fails_with_wrong_token_name() fail {
 // ========================================================================
 
 test fails_when_quantity_is_not_one() fail {
-  let tx =
-    Transaction {
-      ..transaction.placeholder,
-      inputs: [valid_input()],
-      mint: from_asset(test_policy_id, issuance_cbor_hex_token_name, 2),
-      outputs: [valid_nft_output()],
-    }
+  let tx = Transaction {
+    ..transaction.placeholder,
+    inputs: [valid_input()],
+    mint: from_asset(test_policy_id, issuance_cbor_hex_token_name, 2),
+    outputs: [valid_nft_output()],
+  }
   call_validator(test_utxo_ref, test_always_fail_hash, tx)
 }
 
@@ -169,14 +164,13 @@ test fails_when_quantity_is_not_one() fail {
 // ========================================================================
 
 test fails_with_multiple_token_names_minted() fail {
-  let tx =
-    Transaction {
-      ..transaction.placeholder,
-      inputs: [valid_input()],
-      mint: from_asset(test_policy_id, issuance_cbor_hex_token_name, 1)
-        |> assets.add(test_policy_id, "ExtraToken", 1),
-      outputs: [valid_nft_output()],
-    }
+  let tx = Transaction {
+    ..transaction.placeholder,
+    inputs: [valid_input()],
+    mint: from_asset(test_policy_id, issuance_cbor_hex_token_name, 1)
+      |> assets.add(test_policy_id, "ExtraToken", 1),
+    outputs: [valid_nft_output()],
+  }
   call_validator(test_utxo_ref, test_always_fail_hash, tx)
 }
 
@@ -188,15 +182,13 @@ test fails_with_multiple_token_names_minted() fail {
 // ========================================================================
 
 test fails_when_no_tokens_minted_from_own_policy() fail {
-  let other_policy: PolicyId =
-    #"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
-  let tx =
-    Transaction {
-      ..transaction.placeholder,
-      inputs: [valid_input()],
-      mint: from_asset(other_policy, "SomeToken", 1),
-      outputs: [valid_nft_output()],
-    }
+  let other_policy: PolicyId = #"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+  let tx = Transaction {
+    ..transaction.placeholder,
+    inputs: [valid_input()],
+    mint: from_asset(other_policy, "SomeToken", 1),
+    outputs: [valid_nft_output()],
+  }
   call_validator(test_utxo_ref, test_always_fail_hash, tx)
 }
 
@@ -209,28 +201,26 @@ test fails_when_no_tokens_minted_from_own_policy() fail {
 // ========================================================================
 
 test fails_when_no_output_at_always_fail_address() fail {
-  let wrong_address =
-    Address {
-      payment_credential: Script(
-        #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
-      ),
-      stake_credential: None,
-    }
-  let tx =
-    Transaction {
-      ..transaction.placeholder,
-      inputs: [valid_input()],
-      mint: from_asset(test_policy_id, issuance_cbor_hex_token_name, 1),
-      outputs: [
-        Output {
-          address: wrong_address,
-          value: min_ada
-            |> assets.add(test_policy_id, issuance_cbor_hex_token_name, 1),
-          datum: InlineDatum(valid_issuance_datum()),
-          reference_script: None,
-        },
-      ],
-    }
+  let wrong_address = Address {
+    payment_credential: Script(
+      #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    ),
+    stake_credential: None,
+  }
+  let tx = Transaction {
+    ..transaction.placeholder,
+    inputs: [valid_input()],
+    mint: from_asset(test_policy_id, issuance_cbor_hex_token_name, 1),
+    outputs: [
+      Output {
+        address: wrong_address,
+        value: min_ada
+          |> assets.add(test_policy_id, issuance_cbor_hex_token_name, 1),
+        datum: InlineDatum(valid_issuance_datum()),
+        reference_script: None,
+      },
+    ],
+  }
   call_validator(test_utxo_ref, test_always_fail_hash, tx)
 }
 
@@ -242,21 +232,20 @@ test fails_when_no_output_at_always_fail_address() fail {
 // ========================================================================
 
 test fails_when_nft_missing_from_always_fail_output() fail {
-  let tx =
-    Transaction {
-      ..transaction.placeholder,
-      inputs: [valid_input()],
-      mint: from_asset(test_policy_id, issuance_cbor_hex_token_name, 1),
-      outputs: [
-        // Output at always-fail address but WITHOUT the NFT
-        Output {
-          address: always_fail_address(),
-          value: min_ada,
-          datum: InlineDatum(valid_issuance_datum()),
-          reference_script: None,
-        },
-      ],
-    }
+  let tx = Transaction {
+    ..transaction.placeholder,
+    inputs: [valid_input()],
+    mint: from_asset(test_policy_id, issuance_cbor_hex_token_name, 1),
+    outputs: [
+      // Output at always-fail address but WITHOUT the NFT
+      Output {
+        address: always_fail_address(),
+        value: min_ada,
+        datum: InlineDatum(valid_issuance_datum()),
+        reference_script: None,
+      },
+    ],
+  }
   call_validator(test_utxo_ref, test_always_fail_hash, tx)
 }
 
@@ -268,15 +257,12 @@ test fails_when_nft_missing_from_always_fail_output() fail {
 // ========================================================================
 
 test fails_when_no_inline_datum() fail {
-  let tx =
-    Transaction {
-      ..transaction.placeholder,
-      inputs: [valid_input()],
-      mint: from_asset(test_policy_id, issuance_cbor_hex_token_name, 1),
-      outputs: [
-        Output { ..valid_nft_output(), datum: NoDatum },
-      ],
-    }
+  let tx = Transaction {
+    ..transaction.placeholder,
+    inputs: [valid_input()],
+    mint: from_asset(test_policy_id, issuance_cbor_hex_token_name, 1),
+    outputs: [Output { ..valid_nft_output(), datum: NoDatum }],
+  }
   call_validator(test_utxo_ref, test_always_fail_hash, tx)
 }
 
@@ -288,14 +274,11 @@ test fails_when_no_inline_datum() fail {
 // ========================================================================
 
 test fails_with_invalid_datum_type() fail {
-  let tx =
-    Transaction {
-      ..transaction.placeholder,
-      inputs: [valid_input()],
-      mint: from_asset(test_policy_id, issuance_cbor_hex_token_name, 1),
-      outputs: [
-        Output { ..valid_nft_output(), datum: InlineDatum(as_data(42)) },
-      ],
-    }
+  let tx = Transaction {
+    ..transaction.placeholder,
+    inputs: [valid_input()],
+    mint: from_asset(test_policy_id, issuance_cbor_hex_token_name, 1),
+    outputs: [Output { ..valid_nft_output(), datum: InlineDatum(as_data(42)) }],
+  }
   call_validator(test_utxo_ref, test_always_fail_hash, tx)
 }
