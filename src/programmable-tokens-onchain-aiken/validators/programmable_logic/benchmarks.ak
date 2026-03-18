@@ -2,6 +2,7 @@
 
 use aiken/collection/list
 use aiken/fuzz
+use aiken/primitive/bytearray
 use cardano/address.{VerificationKey}
 use cardano/assets.{AssetName, PolicyId}
 use cardano/fuzz as cardano
@@ -36,7 +37,7 @@ fn programmable_logic(
   }
 }
 
-/// --- Plutarch baseline (3rd party) ---------------------------------------------------------------
+/// --- Baseline 1 (3rd party) ---------------------------------------------------------------
 ///
 /// Replicate a Preview 3rd-party transaction based on the Plutarch version of the
 /// programmable logic validators. This transaction has been used as a benchmark
@@ -49,7 +50,7 @@ fn programmable_logic(
 /// - no other tokens
 ///
 /// Source: https://preview.cexplorer.io/tx/d29a977a55ed54ef0f5c9d5c15f85a63e915349890f1952934809070430ef33a
-const fixture_plutarch_baseline_3rd_party: Transaction = {
+const fixture_baseline_3rd_party_1: Transaction = {
     let policy_programmable_token: PolicyId =
       #"76658c4afd597ba7524f85bf32ac59d9e58856593a2e8399326f853a"
 
@@ -121,24 +122,17 @@ const fixture_plutarch_baseline_3rd_party: Transaction = {
     }
   }
 
-const fixture_redeemer_plutarch_baseline_3rd_party: ProgrammableLogicGlobalRedeemer =
-  ThirdPartyAct {
-    registry_node_idx: 1,
-    input_idxs: [1],
-    outputs_start_idx: 2,
-    length_input_idxs: 1,
-  }
+const fixture_redeemer_baseline_3rd_party_1: ProgrammableLogicGlobalRedeemer =
+  ThirdPartyAct { registry_node_idx: 1, outputs_start_idx: 2, length_inputs: 2 }
 
-// Plutarch => [mem: 228.09K cpu: 85.23M]
-test plutarch_baseline_3rd_party() {
+test baseline_3rd_party_1() {
   programmable_logic(
-    fixture_plutarch_baseline_3rd_party,
-    fixture_redeemer_plutarch_baseline_3rd_party,
+    fixture_baseline_3rd_party_1,
+    fixture_redeemer_baseline_3rd_party_1,
   )
 }
 
-/// -------------------------------------------------------------------------------------------------
-/// --- Plutarch baseline 2 (3rd party) -------------------------------------------------------------
+/// --- Baseline 2 (3rd party) -------------------------------------------------------------
 ///
 /// A slightly more interesting scenario than the baseline #1, which mostly adds "noise":
 ///
@@ -146,8 +140,8 @@ test plutarch_baseline_3rd_party() {
 /// - seizing from multiple inputs
 /// - one partial and one total seizing
 /// - burning tokens
-/// -------------------------------------------------------------------------------------------------
-const fixture_plutarch_baseline_3rd_party_2: Transaction = {
+///
+const fixture_baseline_3rd_party_2: Transaction = {
     let policy_programmable_token: PolicyId =
       #"76658c4afd597ba7524f85bf32ac59d9e58856593a2e8399326f853a"
 
@@ -265,18 +259,102 @@ const fixture_plutarch_baseline_3rd_party_2: Transaction = {
     }
   }
 
-const fixture_redeemer_plutarch_baseline_3rd_party_2: ProgrammableLogicGlobalRedeemer =
-  ThirdPartyAct {
-    registry_node_idx: 1,
-    input_idxs: [0, 1],
-    outputs_start_idx: 2,
-    length_input_idxs: 2,
+const fixture_redeemer_baseline_3rd_party_2: ProgrammableLogicGlobalRedeemer =
+  ThirdPartyAct { registry_node_idx: 1, outputs_start_idx: 2, length_inputs: 3 }
+
+test baseline_3rd_party_2() {
+  programmable_logic(
+    fixture_baseline_3rd_party_2,
+    fixture_redeemer_baseline_3rd_party_2,
+  )
+}
+
+/// --- Baseline 3 (3rd party) -------------------------------------------------------------
+///
+/// A scenario with MANY seized programmable inputs
+const length_baseline_3rd_party_3: Int = 150
+
+const fixture_baseline_3rd_party_3: Transaction = {
+    let policy_programmable_token =
+      #"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    let asset_name_programmable_token = "programmable"
+
+    let inputs =
+      list.range(0, length_baseline_3rd_party_3 - 1)
+        |> list.map(
+            fn(output_index) {
+              Input {
+                output_reference: OutputReference {
+                  transaction_id: #"0000000000000000000000000000000000000000000000000000000000000000",
+                  output_index,
+                },
+                output: fixture.some_input_with_programmable_tokens(
+                  [
+                    (
+                      policy_programmable_token,
+                      asset_name_programmable_token,
+                      1,
+                    ),
+                  ],
+                  bytearray.from_int_big_endian(output_index, 0),
+                ).output,
+              }
+            },
+          )
+
+    let outputs =
+      list.repeat(
+        fixture.some_output_with_programmable_tokens([]),
+        length_baseline_3rd_party_3,
+      )
+
+    Transaction {
+      ..transaction.placeholder,
+      inputs,
+      // An input holding programmable tokens being spent.
+      outputs: list.concat(
+        outputs,
+        [
+          fixture.some_output_with_seized_tokens(
+            [
+              (
+                policy_programmable_token,
+                asset_name_programmable_token,
+                length_baseline_3rd_party_3,
+              ),
+            ],
+          ),
+        ],
+      ),
+      reference_inputs: [
+        // Reference inputs with the protocol params. Identified by a specific NFT.
+        // Holds a ProtocolParams inline datum with configuration.
+        fixture.some_reference_input_protocol_params(
+          fixture.protocol_params,
+          "protocol params",
+        ),
+        // Token registry node holding the programmable policy being spent.
+        fixture.some_reference_input_tokens_registry_node(
+          policy_programmable_token,
+          #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "current",
+        ),
+      ],
+      withdrawals: fixture.withdrawals_3rd_party,
+    }
   }
 
-test plutarch_baseline_3rd_party_2() {
+const fixture_redeemer_baseline_3rd_party_3: ProgrammableLogicGlobalRedeemer =
+  ThirdPartyAct {
+    registry_node_idx: 1,
+    outputs_start_idx: 0,
+    length_inputs: length_baseline_3rd_party_3,
+  }
+
+test baseline_3rd_party_3() {
   programmable_logic(
-    fixture_plutarch_baseline_3rd_party_2,
-    fixture_redeemer_plutarch_baseline_3rd_party_2,
+    fixture_baseline_3rd_party_3,
+    fixture_redeemer_baseline_3rd_party_3,
   )
 }
 

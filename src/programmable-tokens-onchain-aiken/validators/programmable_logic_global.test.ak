@@ -311,7 +311,10 @@ fn third_party_registry_node_ref_input(
 /// prog_logic_cred inputs (indices 0 and 1) holding programmable tokens, and
 /// two corresponding outputs with those tokens removed, plus a remaining
 /// output at prog_logic_cred that receives the seized tokens (balance invariant).
-fn validate_third_party_with_idxs(input_idxs: List<Int>) -> Bool {
+fn validate_third_party_with_outputs(
+  outputs: List<Output>,
+  outputs_start_idx: Int,
+) -> Bool {
   let tx =
     Transaction {
       ..transaction.placeholder,
@@ -327,15 +330,7 @@ fn validate_third_party_with_idxs(input_idxs: List<Int>) -> Bool {
           "third_party_input_b",
         ),
       ],
-      outputs: [
-        // Paired outputs with programmable tokens removed (value = min_ada only)
-        fixture.some_output_with_programmable_tokens([]),
-        fixture.some_output_with_programmable_tokens([]),
-        // Remaining output: seized tokens stay at prog_logic_cred (balance invariant)
-        fixture.some_output_with_programmable_tokens(
-          [(test_third_party_policy, "FOO", 142)],
-        ),
-      ],
+      outputs,
       reference_inputs: [
         // Index 0 – protocol params
         fixture.some_reference_input_protocol_params(
@@ -355,12 +350,7 @@ fn validate_third_party_with_idxs(input_idxs: List<Int>) -> Bool {
     }
 
   let redeemer =
-    ThirdPartyAct {
-      registry_node_idx: 1,
-      input_idxs,
-      outputs_start_idx: 0,
-      length_input_idxs: list.length(input_idxs),
-    }
+    ThirdPartyAct { registry_node_idx: 1, length_inputs: 2, outputs_start_idx }
 
   programmable_logic_global.programmable_logic_global.withdraw(
     fixture.policy_protocol_params,
@@ -370,21 +360,63 @@ fn validate_third_party_with_idxs(input_idxs: List<Int>) -> Bool {
   )
 }
 
-// Positive: unique, sorted indices [0, 1] — must always pass.
-test third_party_act_with_unique_sorted_indices() {
-  validate_third_party_with_idxs([0, 0])
+test third_party_act_prog_outputs_first() {
+  validate_third_party_with_outputs(
+    [
+      // Paired outputs with programmable tokens removed (value = min_ada only)
+      fixture.some_output_with_programmable_tokens([]),
+      fixture.some_output_with_programmable_tokens([]),
+      // Remaining output: seized tokens stay at prog_logic_cred (balance invariant)
+      fixture.some_output_with_programmable_tokens(
+        [(test_third_party_policy, "FOO", 142)],
+      ),
+    ],
+    0,
+  )
 }
 
-// input 1 is consumed but never validated, allowing its tokens to be stolen.
-// The validator SHOULD reject this, so we mark the test `fail`.
-test third_party_act_missing_indices() fail {
-  validate_third_party_with_idxs([0])
+test third_party_act_prog_outputs_skipped() {
+  validate_third_party_with_outputs(
+    [
+      // Remaining output: seized tokens stay at prog_logic_cred (balance invariant)
+      fixture.some_output_with_programmable_tokens(
+        [(test_third_party_policy, "FOO", 142)],
+      ),
+      // Paired outputs with programmable tokens removed (value = min_ada only)
+      fixture.some_output_with_programmable_tokens([]),
+      fixture.some_output_with_programmable_tokens([]),
+    ],
+    1,
+  )
 }
 
-// Out of bounds indices, trying to skip more inputs that we have. Should reject,
-// so marked as `fail`
-test third_party_act_unsorted_indices_must_fail() fail {
-  validate_third_party_with_idxs([0, 1])
+test third_party_act_missing_prog_output() fail {
+  validate_third_party_with_outputs(
+    [
+      // Paired outputs with programmable tokens removed (value = min_ada only)
+      fixture.some_output_with_programmable_tokens([]),
+      // Remaining output: seized tokens stay at prog_logic_cred (balance invariant)
+      fixture.some_output_with_programmable_tokens(
+        [(test_third_party_policy, "FOO", 142)],
+      ),
+    ],
+    0,
+  )
+}
+
+test third_party_act_prog_outputs_out_of_order() fail {
+  validate_third_party_with_outputs(
+    [
+      // Remaining output: seized tokens stay at prog_logic_cred (balance invariant)
+      fixture.some_output_with_programmable_tokens(
+        [(test_third_party_policy, "FOO", 142)],
+      ),
+      // Paired outputs with programmable tokens removed (value = min_ada only)
+      fixture.some_output_with_programmable_tokens([]),
+      fixture.some_output_with_programmable_tokens([]),
+    ],
+    0,
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -447,9 +479,8 @@ test third_party_act_seized_tokens_escape_prog_cred_must_fail() fail {
   let redeemer =
     ThirdPartyAct {
       registry_node_idx: 1,
-      input_idxs: [0],
       outputs_start_idx: 0,
-      length_input_idxs: 1,
+      length_inputs: 1,
     }
 
   programmable_logic_global.programmable_logic_global.withdraw(
@@ -499,9 +530,8 @@ test third_party_act_seized_tokens_to_prog_cred_succeeds() {
   let redeemer =
     ThirdPartyAct {
       registry_node_idx: 1,
-      input_idxs: [0],
       outputs_start_idx: 0,
-      length_input_idxs: 1,
+      length_inputs: 1,
     }
 
   programmable_logic_global.programmable_logic_global.withdraw(
@@ -553,9 +583,8 @@ test third_party_act_partial_seizure_succeeds() {
   let redeemer =
     ThirdPartyAct {
       registry_node_idx: 1,
-      input_idxs: [0],
       outputs_start_idx: 0,
-      length_input_idxs: 1,
+      length_inputs: 1,
     }
 
   programmable_logic_global.programmable_logic_global.withdraw(
@@ -605,9 +634,8 @@ test third_party_act_delta_insufficient_remaining_fails() fail {
   let redeemer =
     ThirdPartyAct {
       registry_node_idx: 1,
-      input_idxs: [0],
       outputs_start_idx: 0,
-      length_input_idxs: 1,
+      length_inputs: 1,
     }
 
   programmable_logic_global.programmable_logic_global.withdraw(
@@ -961,9 +989,8 @@ test third_party_act_wipe_full_burn_succeeds() {
   let redeemer =
     ThirdPartyAct {
       registry_node_idx: 1,
-      input_idxs: [0],
       outputs_start_idx: 0,
-      length_input_idxs: 1,
+      length_inputs: 1,
     }
 
   programmable_logic_global.programmable_logic_global.withdraw(
@@ -1014,9 +1041,8 @@ test third_party_act_wipe_partial_burn_succeeds() {
   let redeemer =
     ThirdPartyAct {
       registry_node_idx: 1,
-      input_idxs: [0],
       outputs_start_idx: 0,
-      length_input_idxs: 1,
+      length_inputs: 1,
     }
 
   programmable_logic_global.programmable_logic_global.withdraw(
@@ -1070,9 +1096,8 @@ test third_party_act_wipe_seize_and_partial_burn() {
   let redeemer =
     ThirdPartyAct {
       registry_node_idx: 1,
-      input_idxs: [0],
       outputs_start_idx: 0,
-      length_input_idxs: 1,
+      length_inputs: 1,
     }
 
   programmable_logic_global.programmable_logic_global.withdraw(
@@ -1123,9 +1148,8 @@ test third_party_act_wipe_insufficient_after_burn_fails() fail {
   let redeemer =
     ThirdPartyAct {
       registry_node_idx: 1,
-      input_idxs: [0],
       outputs_start_idx: 0,
-      length_input_idxs: 1,
+      length_inputs: 1,
     }
 
   programmable_logic_global.programmable_logic_global.withdraw(
@@ -1169,9 +1193,8 @@ test third_party_act_unauthorized_burn_compensate_spend() fail {
   let redeemer =
     ThirdPartyAct {
       registry_node_idx: 1,
-      input_idxs: [0],
       outputs_start_idx: 0,
-      length_input_idxs: 1,
+      length_inputs: 1,
     }
 
   programmable_logic_global.programmable_logic_global.withdraw(
@@ -1218,9 +1241,8 @@ test third_party_act_unproven_burn_compensate_spend() fail {
   let redeemer =
     ThirdPartyAct {
       registry_node_idx: 1,
-      input_idxs: [],
       outputs_start_idx: 0,
-      length_input_idxs: 0,
+      length_inputs: 0,
     }
 
   programmable_logic_global.programmable_logic_global.withdraw(
@@ -1294,9 +1316,8 @@ test third_party_act_same_policy_mint_during_seizure_succeeds() {
   let redeemer =
     ThirdPartyAct {
       registry_node_idx: 1,
-      input_idxs: [0],
       outputs_start_idx: 0,
-      length_input_idxs: 1,
+      length_inputs: 1,
     }
 
   programmable_logic_global.programmable_logic_global.withdraw(
@@ -1347,9 +1368,8 @@ test third_party_act_same_policy_mint_insufficient_output_fails() fail {
   let redeemer =
     ThirdPartyAct {
       registry_node_idx: 1,
-      input_idxs: [0],
       outputs_start_idx: 0,
-      length_input_idxs: 1,
+      length_inputs: 1,
     }
 
   programmable_logic_global.programmable_logic_global.withdraw(
@@ -1404,9 +1424,8 @@ test third_party_act_unrelated_policy_mint_succeeds() {
   let redeemer =
     ThirdPartyAct {
       registry_node_idx: 1,
-      input_idxs: [0],
       outputs_start_idx: 0,
-      length_input_idxs: 1,
+      length_inputs: 1,
     }
 
   programmable_logic_global.programmable_logic_global.withdraw(
@@ -1460,9 +1479,8 @@ test third_party_act_wipe_burn_plus_unrelated_mint_succeeds() {
   let redeemer =
     ThirdPartyAct {
       registry_node_idx: 1,
-      input_idxs: [0],
       outputs_start_idx: 0,
-      length_input_idxs: 1,
+      length_inputs: 1,
     }
 
   programmable_logic_global.programmable_logic_global.withdraw(

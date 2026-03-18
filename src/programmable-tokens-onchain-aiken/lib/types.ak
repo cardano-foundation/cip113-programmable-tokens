@@ -23,12 +23,10 @@ pub type ProgrammableLogicGlobalRedeemer {
   ThirdPartyAct {
     /// Index of the registry node in reference inputs
     registry_node_idx: Int,
-    /// List of input indices to process (supports multi-UTxO operations)
-    input_idxs: List<Int>,
     /// Starting index in outputs where processed outputs begin
     outputs_start_idx: Int,
     /// Length of input_idxs list (for validation)
-    length_input_idxs: Int,
+    length_inputs: Int,
   }
 }
 

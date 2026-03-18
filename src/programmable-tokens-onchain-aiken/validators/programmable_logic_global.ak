@@ -39,19 +39,13 @@ validator programmable_logic_global(params_policy: PolicyId) {
       TransferAct { proofs } ->
         validate_transfer(self, prog_logic_cred, get_registry_node, proofs)
 
-      ThirdPartyAct {
-        registry_node_idx,
-        input_idxs,
-        outputs_start_idx,
-        length_input_idxs,
-      } ->
+      ThirdPartyAct { registry_node_idx, outputs_start_idx, length_inputs } ->
         validate_3rd_party(
           self,
           prog_logic_cred,
           get_registry_node(registry_node_idx),
-          input_idxs,
           outputs_start_idx,
-          length_input_idxs,
+          length_inputs,
         )
     }
   }
