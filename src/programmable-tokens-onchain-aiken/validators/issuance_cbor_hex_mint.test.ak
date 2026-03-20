@@ -9,8 +9,9 @@
 
 use cardano/address.{Address, Script, VerificationKey}
 use cardano/assets.{PolicyId, ada_asset_name, ada_policy_id, from_asset}
-use cardano/transaction.{InlineDatum, Input, NoDatum, Output, OutputReference,
-  Transaction}
+use cardano/transaction.{
+  InlineDatum, Input, NoDatum, Output, OutputReference, Transaction,
+}
 use issuance_cbor_hex_mint
 use types.{IssuanceCborHex, issuance_cbor_hex_token_name}
 
@@ -47,10 +48,7 @@ fn always_fail_address() -> Address {
 
 fn valid_issuance_datum() -> Data {
   as_data(
-    IssuanceCborHex {
-      prefix_cbor_hex: #"aabb",
-      postfix_cbor_hex: #"ccdd",
-    },
+    IssuanceCborHex { prefix_cbor_hex: #"aabb", postfix_cbor_hex: #"ccdd" },
   )
 }
 
@@ -273,9 +271,7 @@ test fails_when_no_inline_datum() fail {
       ..transaction.placeholder,
       inputs: [valid_input()],
       mint: from_asset(test_policy_id, issuance_cbor_hex_token_name, 1),
-      outputs: [
-        Output { ..valid_nft_output(), datum: NoDatum },
-      ],
+      outputs: [Output { ..valid_nft_output(), datum: NoDatum }],
     }
   call_validator(test_utxo_ref, test_always_fail_hash, tx)
 }

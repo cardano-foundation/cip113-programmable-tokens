@@ -75,7 +75,10 @@ test minted_tokens_go_to_programmable_logic_base() {
 test one_token_name_per_policy() {
   let single_token = [(test_policy_id, #"746f6b656e31", 100)]
   let multiple_tokens =
-    [(test_policy_id, #"746f6b656e31", 100), (test_policy_id, #"746f6b656e32", 50)]
+    [
+      (test_policy_id, #"746f6b656e31", 100),
+      (test_policy_id, #"746f6b656e32", 50),
+    ]
 
   list.length(single_token) == 1 && list.length(multiple_tokens) == 2
 }
@@ -115,7 +118,8 @@ test mint_field_structure() {
 
   // Should have exactly one entry
   when flattened is {
-    [(cs, tn, qty)] -> cs == test_policy_id && tn == #"746f6b656e31" && qty == 100
+    [(cs, tn, qty)] ->
+      cs == test_policy_id && tn == #"746f6b656e31" && qty == 100
     _ -> False
   }
 }
