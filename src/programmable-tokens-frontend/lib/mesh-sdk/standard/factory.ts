@@ -5,6 +5,7 @@ import type {
   SubstandardBlueprint,
 } from "@/types/protocol";
 import { register_programmable_tokens } from "../transactions/register";
+import { register_fes_token } from "../transactions/register-fes";
 import { transfer_programmable_token } from "../transactions/transfer";
 import { transfer_freeze_and_seize_token } from "../transactions/transfer-fes";
 import { mint_programmable_tokens } from "../transactions/mint";
@@ -31,6 +32,10 @@ export interface RegisterTransactionParams {
   substandardTransferContractName: string;
   substandardThirdPartyContractName?: string;
   networkId?: 0 | 1;
+  context?: {
+    adminPubKeyHash?: string;
+    blacklistNodePolicyId?: string;
+  };
 }
 
 export interface TransferTransactionParams {
@@ -169,9 +174,37 @@ const freezeAndSeizeHandler: SubstandardHandler = {
     );
   },
 
-  async buildRegisterTransaction() {
-    throw new Error(
-      "Freeze-and-seize register not yet implemented for client-side transaction building"
+  async buildRegisterTransaction(
+    params: RegisterTransactionParams,
+    protocolParams: ProtocolBootstrapParams,
+    protocolBlueprint: ProtocolBlueprint,
+    substandardBlueprint: SubstandardBlueprint,
+    wallet: IWallet
+  ): Promise<{ unsignedTx: string; policy_Id: string }> {
+    if (!params.context?.adminPubKeyHash) {
+      throw new Error(
+        "adminPubKeyHash is required for freeze-and-seize registration"
+      );
+    }
+    if (!params.context?.blacklistNodePolicyId) {
+      throw new Error(
+        "blacklistNodePolicyId is required for freeze-and-seize registration"
+      );
+    }
+
+    const networkId = params.networkId ?? getNetworkId();
+
+    return register_fes_token(
+      params.assetName,
+      params.quantity,
+      params.context.adminPubKeyHash,
+      params.context.blacklistNodePolicyId,
+      protocolParams,
+      networkId,
+      wallet,
+      protocolBlueprint,
+      substandardBlueprint,
+      params.recipientAddress || null
     );
   },
 

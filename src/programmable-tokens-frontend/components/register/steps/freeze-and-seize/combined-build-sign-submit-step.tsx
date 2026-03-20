@@ -10,11 +10,18 @@ import { useToast } from '@/components/ui/use-toast';
 import { useProtocolVersion } from '@/contexts/protocol-version-context';
 import { initBlacklist } from '@/lib/api/compliance';
 import { registerToken, stringToHex } from '@/lib/api';
+import { getProtocolBlueprint, getProtocolBootstrap, getSubstandardBlueprint } from '@/lib/api/protocol';
 import { getPaymentKeyHash } from '@/lib/utils/address';
 import { getExplorerTxUrl } from '@/lib/utils/format';
 import { waitForTxConfirmation } from '@/lib/utils/tx-confirmation';
+import { getNetworkId } from '@/lib/mesh-sdk/config';
+import { build_blacklist_init } from '@/lib/mesh-sdk/transactions/blacklist-init';
+import { register_fes_token } from '@/lib/mesh-sdk/transactions/register-fes';
 import type { FreezeAndSeizeRegisterRequest } from '@/types/api';
 import type { StepComponentProps, TokenDetailsData } from '@/types/registration';
+import type { ProtocolBootstrapParams, ProtocolBlueprint, SubstandardBlueprint } from '@/types/protocol';
+
+type BuildMode = 'backend' | 'frontend';
 
 type CombinedStatus =
   | 'idle'
@@ -50,6 +57,7 @@ export function CombinedBuildSignSubmitStep({
   const { toast: showToast } = useToast();
   const { selectedVersion } = useProtocolVersion();
 
+  const [buildMode, setBuildMode] = useState<BuildMode>('backend');
   const [status, setStatus] = useState<CombinedStatus>('idle');
   const [errorMessage, setErrorMessage] = useState('');
   const [pollAttempt, setPollAttempt] = useState(0);
@@ -68,6 +76,15 @@ export function CombinedBuildSignSubmitStep({
   // Signed transactions (kept for retry after polling)
   const [signedInitTx, setSignedInitTx] = useState('');
   const [signedRegTx, setSignedRegTx] = useState('');
+
+  // Frontend-mode cached context for deferred TX2 build
+  const [adminPubKeyHash, setAdminPubKeyHash] = useState('');
+  const cachedBlueprintsRef = useRef<{
+    protocolBlueprint: ProtocolBlueprint;
+    protocolBootstrap: ProtocolBootstrapParams;
+    substandardBlueprint: SubstandardBlueprint;
+    networkId: 0 | 1;
+  } | null>(null);
 
   // Refs
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -91,8 +108,8 @@ export function CombinedBuildSignSubmitStep({
     return (detailsState?.data || {}) as Partial<TokenDetailsData>;
   }, [wizardState.stepStates]);
 
-  // ---- BUILD BOTH TRANSACTIONS ----
-  const handleBuild = useCallback(async () => {
+  // ---- BUILD (BACKEND MODE) ----
+  const handleBuildBackend = useCallback(async () => {
     if (!connected || !wallet) {
       onError('Wallet not connected');
       return;
@@ -139,14 +156,14 @@ export function CombinedBuildSignSubmitStep({
         variant: 'default',
       });
 
-      const adminPubKeyHash = getPaymentKeyHash(adminAddress);
+      const pkh = getPaymentKeyHash(adminAddress);
       const regRequest: FreezeAndSeizeRegisterRequest = {
         substandardId: 'freeze-and-seize',
         feePayerAddress: adminAddress,
         assetName: stringToHex(tokenDetails.assetName),
         quantity: tokenDetails.quantity,
         recipientAddress: tokenDetails.recipientAddress || '',
-        adminPubKeyHash,
+        adminPubKeyHash: pkh,
         blacklistNodePolicyId: initResponse.policyId,
         chainingTransactionCborHex: initResponse.unsignedCborTx,
       };
@@ -178,8 +195,90 @@ export function CombinedBuildSignSubmitStep({
     }
   }, [connected, wallet, tokenDetails, selectedVersion, onError, setProcessing]);
 
-  // ---- SIGN BOTH & SUBMIT SEQUENTIALLY ----
-  const handleSignAndSubmit = useCallback(async () => {
+  // ---- BUILD (FRONTEND / MESH SDK MODE) ----
+  // Sequential: builds only TX1 (blacklist init) now; TX2 is built after TX1 confirms
+  const handleBuildFrontend = useCallback(async () => {
+    if (!connected || !wallet) {
+      onError('Wallet not connected');
+      return;
+    }
+    if (!tokenDetails.assetName || !tokenDetails.quantity) {
+      onError('Token details missing');
+      return;
+    }
+
+    try {
+      setProcessing(true);
+      setErrorMessage('');
+
+      const addresses = await wallet.getUsedAddresses();
+      if (!addresses?.[0]) throw new Error('No wallet address found');
+      const adminAddress = addresses[0];
+      const pkh = getPaymentKeyHash(adminAddress);
+      setAdminPubKeyHash(pkh);
+
+      setStatus('building-init');
+      showToastRef.current({
+        title: 'Building (Mesh SDK)',
+        description: 'Fetching blueprints and building blacklist init...',
+        variant: 'default',
+      });
+
+      const [protocolBlueprint, protocolBootstrap, substandardBlueprint] = await Promise.all([
+        getProtocolBlueprint(),
+        getProtocolBootstrap(selectedVersion?.txHash),
+        getSubstandardBlueprint('freeze-and-seize'),
+      ]);
+
+      const networkId = getNetworkId();
+
+      // Cache blueprints for TX2 build later
+      cachedBlueprintsRef.current = { protocolBlueprint, protocolBootstrap, substandardBlueprint, networkId };
+
+      // Build blacklist init TX (TX1) only
+      console.log("[FES-UI] Building TX1 (blacklist init)...");
+      const initResult = await build_blacklist_init(
+        pkh,
+        networkId,
+        wallet,
+        substandardBlueprint,
+        protocolBootstrap,
+      );
+      console.log("[FES-UI] TX1 built OK: blacklistNodePolicyId=%s", initResult.blacklistNodePolicyId?.slice(0, 16));
+
+      setBlacklistNodePolicyId(initResult.blacklistNodePolicyId);
+      setInitUnsignedCbor(initResult.unsignedTx);
+      setDerivedInitTxHash(resolveTxHash(initResult.unsignedTx));
+
+      setStatus('preview');
+      showToastRef.current({
+        title: 'Init TX Built',
+        description: 'Review and sign the blacklist init transaction',
+        variant: 'success',
+      });
+    } catch (error) {
+      console.error("[FES-UI] BUILD ERROR:", error);
+      setStatus('error');
+      const message = error instanceof Error ? error.message : 'Failed to build transactions';
+      setErrorMessage(message);
+      showToastRef.current({ title: 'Build Failed', description: message, variant: 'error' });
+      onError(message);
+    } finally {
+      setProcessing(false);
+    }
+  }, [connected, wallet, tokenDetails, selectedVersion, onError, setProcessing]);
+
+  // ---- DISPATCH BUILD ----
+  const handleBuild = useCallback(async () => {
+    if (buildMode === 'backend') {
+      return handleBuildBackend();
+    } else {
+      return handleBuildFrontend();
+    }
+  }, [buildMode, handleBuildBackend, handleBuildFrontend]);
+
+  // ---- SIGN & SUBMIT (BACKEND MODE) ----
+  const handleSignAndSubmitBackend = useCallback(async () => {
     if (!connected || !wallet) {
       onError('Wallet not connected');
       return;
@@ -283,6 +382,10 @@ export function CombinedBuildSignSubmitStep({
         completedAt: Date.now(),
       });
     } catch (error) {
+      console.error("[FES-UI-SIGN] ERROR (full):", error);
+      if (error instanceof Error) {
+        console.error("[FES-UI-SIGN] ERROR stack:", error.stack);
+      }
       if (error instanceof Error && error.message === 'Aborted') return;
 
       setStatus('error');
@@ -312,6 +415,185 @@ export function CombinedBuildSignSubmitStep({
     blacklistNodePolicyId, tokenPolicyId,
     onComplete, onError, setProcessing,
   ]);
+
+  // ---- SIGN & SUBMIT (FRONTEND / MESH SDK MODE) ----
+  // Sequential: sign TX1 → submit → wait for confirmation → build TX2 → sign TX2 → submit
+  const handleSignAndSubmitFrontend = useCallback(async () => {
+    if (!connected || !wallet) {
+      onError('Wallet not connected');
+      return;
+    }
+    const cached = cachedBlueprintsRef.current;
+    if (!cached) {
+      onError('Cached blueprints missing — rebuild from scratch');
+      return;
+    }
+
+    try {
+      setProcessing(true);
+      setErrorMessage('');
+
+      // --- Sign TX1 (blacklist init) ---
+      setStatus('signing');
+      showToastRef.current({
+        title: 'Sign Init Transaction',
+        description: 'Please sign the blacklist init transaction in your wallet',
+        variant: 'default',
+      });
+
+      console.log("[FES-UI] Signing TX1...");
+      const signedTx1 = await wallet.signTx(initUnsignedCbor, true);
+      setSignedInitTx(signedTx1);
+
+      // --- Submit TX1 ---
+      setStatus('submitting-init');
+      showToastRef.current({
+        title: 'Submitting',
+        description: 'Submitting blacklist initialization...',
+        variant: 'default',
+      });
+
+      const hash1 = await wallet.submitTx(signedTx1);
+      setInitTxHash(hash1);
+      console.log("[FES-UI] TX1 submitted: %s", hash1);
+
+      // --- Wait for TX1 confirmation ---
+      setStatus('polling-init');
+      setPollAttempt(0);
+      showToastRef.current({
+        title: 'Waiting for Confirmation',
+        description: 'Waiting for init transaction to be confirmed on-chain...',
+        variant: 'default',
+      });
+
+      abortControllerRef.current = new AbortController();
+      await waitForTxConfirmation(hash1, {
+        pollInterval: TX_POLL_INTERVAL,
+        timeout: TX_POLL_TIMEOUT,
+        signal: abortControllerRef.current.signal,
+        onPoll: (attempt) => setPollAttempt(attempt),
+        onConfirmed: () => {
+          showToastRef.current({
+            title: 'Init Confirmed',
+            description: 'Building registration transaction...',
+            variant: 'success',
+          });
+        },
+      });
+
+      // Brief delay to let wallet/provider UTxO set refresh after TX1 confirmation
+      await new Promise((r) => setTimeout(r, 3000));
+
+      // --- Build TX2 (registration) against confirmed on-chain state ---
+      setStatus('building-reg');
+      showToastRef.current({
+        title: 'Building (Mesh SDK)',
+        description: 'Building registration transaction...',
+        variant: 'default',
+      });
+
+      console.log("[FES-UI] Building TX2 (registration) after TX1 confirmed...");
+      const regResult = await register_fes_token(
+        tokenDetails.assetName!,
+        tokenDetails.quantity!,
+        adminPubKeyHash,
+        blacklistNodePolicyId,
+        cached.protocolBootstrap,
+        cached.networkId,
+        wallet,
+        cached.protocolBlueprint,
+        cached.substandardBlueprint,
+        tokenDetails.recipientAddress || null,
+      );
+      console.log("[FES-UI] TX2 built OK: policy_Id=%s", regResult.policy_Id?.slice(0, 16));
+
+      setTokenPolicyId(regResult.policy_Id);
+      setRegUnsignedCbor(regResult.unsignedTx);
+      setDerivedRegTxHash(resolveTxHash(regResult.unsignedTx));
+
+      // --- Sign TX2 (registration) ---
+      setStatus('signing');
+      showToastRef.current({
+        title: 'Sign Registration Transaction',
+        description: 'Please sign the registration transaction in your wallet',
+        variant: 'default',
+      });
+
+      console.log("[FES-UI] Signing TX2...");
+      const signedTx2 = await wallet.signTx(regResult.unsignedTx, true);
+      setSignedRegTx(signedTx2);
+
+      // --- Submit TX2 ---
+      setStatus('submitting-reg');
+      showToastRef.current({
+        title: 'Submitting',
+        description: 'Submitting token registration...',
+        variant: 'default',
+      });
+
+      const hash2 = await wallet.submitTx(signedTx2);
+      setRegTxHash(hash2);
+      console.log("[FES-UI] TX2 submitted: %s", hash2);
+
+      // --- Success ---
+      setStatus('success');
+      showToastRef.current({
+        title: 'Registration Complete!',
+        description: 'Both transactions submitted successfully',
+        variant: 'success',
+      });
+
+      onComplete({
+        stepId: 'combined-build-sign',
+        data: {
+          blacklistNodePolicyId,
+          initTxHash: hash1,
+          tokenPolicyId: regResult.policy_Id,
+          regTxHash: hash2,
+        },
+        txHash: hash2,
+        completedAt: Date.now(),
+      });
+    } catch (error) {
+      console.error("[FES-UI] SIGN/SUBMIT ERROR:", error);
+      if (error instanceof Error && error.message === 'Aborted') return;
+
+      setStatus('error');
+      const message = error instanceof Error ? error.message : 'Failed to sign or submit';
+      setErrorMessage(message);
+
+      if (message.toLowerCase().includes('user declined') ||
+          message.toLowerCase().includes('user rejected')) {
+        showToastRef.current({
+          title: 'Transaction Cancelled',
+          description: 'You cancelled the transaction',
+          variant: 'default',
+        });
+      } else {
+        showToastRef.current({
+          title: 'Submission Failed',
+          description: message,
+          variant: 'error',
+        });
+        onError(message);
+      }
+    } finally {
+      setProcessing(false);
+    }
+  }, [
+    connected, wallet, initUnsignedCbor, adminPubKeyHash,
+    blacklistNodePolicyId, tokenDetails,
+    onComplete, onError, setProcessing,
+  ]);
+
+  // ---- DISPATCH SIGN & SUBMIT ----
+  const handleSignAndSubmit = useCallback(async () => {
+    if (buildMode === 'backend') {
+      return handleSignAndSubmitBackend();
+    } else {
+      return handleSignAndSubmitFrontend();
+    }
+  }, [buildMode, handleSignAndSubmitBackend, handleSignAndSubmitFrontend]);
 
   // ---- RETRY: If init was submitted but reg failed, try submitting reg again ----
   const handleRetryRegSubmit = useCallback(async () => {
@@ -382,6 +664,8 @@ export function CombinedBuildSignSubmitStep({
     setSignedRegTx('');
     setDerivedInitTxHash('');
     setDerivedRegTxHash('');
+    setAdminPubKeyHash('');
+    cachedBlueprintsRef.current = null;
   }, []);
 
   // Can we retry just the reg submission?
@@ -448,9 +732,44 @@ export function CombinedBuildSignSubmitStep({
         </p>
       </div>
 
-      {/* Idle state: show summary + build button */}
+      {/* Idle state: show summary + build mode toggle + build button */}
       {status === 'idle' && (
         <>
+          {/* Build Mode Toggle */}
+          <Card className="p-4 space-y-3">
+            <h4 className="font-medium text-white text-sm">Transaction Building Mode</h4>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setBuildMode('backend')}
+                className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium transition-colors border ${
+                  buildMode === 'backend'
+                    ? 'bg-primary-500/20 border-primary-500 text-primary-300'
+                    : 'bg-dark-800 border-dark-600 text-dark-400 hover:border-dark-500 hover:text-dark-300'
+                }`}
+              >
+                Backend
+                <span className="block text-xs mt-0.5 font-normal opacity-70">
+                  Java API + TX chaining
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setBuildMode('frontend')}
+                className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium transition-colors border ${
+                  buildMode === 'frontend'
+                    ? 'bg-primary-500/20 border-primary-500 text-primary-300'
+                    : 'bg-dark-800 border-dark-600 text-dark-400 hover:border-dark-500 hover:text-dark-300'
+                }`}
+              >
+                Frontend (Mesh SDK)
+                <span className="block text-xs mt-0.5 font-normal opacity-70">
+                  Client-side + 2 wallet popups
+                </span>
+              </button>
+            </div>
+          </Card>
+
           <Card className="p-4 space-y-3">
             <h4 className="font-medium text-white">Registration Summary</h4>
             <div className="grid grid-cols-2 gap-3 text-sm">
@@ -485,10 +804,13 @@ export function CombinedBuildSignSubmitStep({
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
               <div>
-                <p className="text-blue-300 font-medium text-sm">Combined Registration</p>
+                <p className="text-blue-300 font-medium text-sm">
+                  {buildMode === 'backend' ? 'Combined Registration' : 'Mesh SDK Registration'}
+                </p>
                 <p className="text-blue-200/70 text-sm mt-1">
-                  This will build the blacklist init and token registration transactions together,
-                  then sign them in a single wallet interaction.
+                  {buildMode === 'backend'
+                    ? 'This will build both transactions together with TX chaining, then sign them in a single wallet interaction.'
+                    : 'This will build transactions client-side using Mesh SDK. Init TX is signed and submitted first, then the registration TX is built and signed after on-chain confirmation.'}
                 </p>
               </div>
             </div>
