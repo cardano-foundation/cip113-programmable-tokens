@@ -3,7 +3,7 @@
 //// Migrated from SmartTokens.Contracts.ProgrammableLogicBase (mkProgrammableLogicGlobal)
 
 use aiken/collection/dict
-use aiken/collection/list.{foldl, for_each} as aiken_list
+use aiken/collection/list.{foldl} as aiken_list
 use assets
 use cardano/address.{Credential}
 use cardano/assets.{PolicyId} as value
@@ -17,9 +17,8 @@ pub fn validate_3rd_party(
   self: Transaction,
   prog_logic_cred: Credential,
   registry_node: Data,
-  input_idxs: List<Int>,
   outputs_start_idx: Int,
-  length_input_idxs: Int,
+  length_inputs: Int,
 ) -> Bool {
   // Extract registry details from datum
   let
@@ -55,8 +54,7 @@ pub fn validate_3rd_party(
     prog_logic_cred,
     policy_id,
     self.inputs,
-    input_idxs,
-    length_input_idxs,
+    length_inputs,
     outputs,
     minted_or_burned,
     output_tokens,
@@ -100,8 +98,7 @@ fn check_seized_tokens(
   prog_logic_cred: Credential,
   policy_id: PolicyId,
   inputs: List<Input>,
-  input_idxs: List<Int>,
-  length_input_idxs: Int,
+  length_inputs: Int,
   outputs: List<Output>,
   input_tokens: Tokens,
   output_tokens: Tokens,
@@ -119,15 +116,9 @@ fn check_seized_tokens(
   //     we do ensures that there are no unprocessed programmable input once we
   //     reach 0 (which would indicate someone tried to bypass validations).
   //
-  if length_input_idxs <= 0 {
-    // Any remaining inputs must NOT be locked by the programmable logic
-    // credential, so that they don't escape validations.
-    for_each(
-      inputs,
-      fn(input) {
-        expect input.output.address.payment_credential != prog_logic_cred
-      },
-    )
+  if length_inputs <= 0 {
+    // All inputs must have been consumed / checked
+    expect [] == inputs
 
     // Finish accumulating relevant tokens in remaining outputs. This ensure
     // that tokens that have moved to new outputs that weren't paired with a
@@ -163,58 +154,55 @@ fn check_seized_tokens(
       dict.to_pairs(input_tokens),
     )?
   } else {
-    expect [idx, ..tail_idxs] = input_idxs
+    let Input { output: input, .. } = list.head(inputs)
 
-    expect [Input { output: input, .. }, ..tail_inputs] =
-      list.skip_assert_or_fail(
-        inputs,
-        idx,
-        fn(input) {
-          // Ensure that any input we skip is NOT locked by a prog logic credential,
-          // in case one attempt to spend programmable tokens by simply skipping over
-          // them.
-          input.output.address.payment_credential != prog_logic_cred
-        },
+    // Validate all inputs pointing at a programmable proof
+    if input.address.payment_credential == prog_logic_cred {
+      // Extract the paired output and ensures it preserves address and datum
+      let output = list.head(outputs)
+      expect output.address == input.address
+      expect output.datum == input.datum
+
+      // Extract seized tokens as the delta between outputs and inputs for the
+      // given policy, ensuring all else is equal.
+      let
+        input_tokens_before,
+        input_tokens_at,
+        input_tokens_after,
+      <- assets.split_at(input.value, policy_id)
+
+      let
+        output_tokens_before,
+        output_tokens_at,
+        output_tokens_after,
+      <- assets.split_at(output.value, policy_id)
+
+      // Seized tokens must change, but only them.
+      expect and {
+          (input_tokens_before == output_tokens_before)?,
+          (input_tokens_after == output_tokens_after)?,
+          (input_tokens_at != output_tokens_at)?,
+        }
+
+      check_seized_tokens(
+        prog_logic_cred,
+        policy_id,
+        list.tail(inputs),
+        length_inputs - 1,
+        list.tail(outputs),
+        tokens.union(input_tokens, input_tokens_at),
+        tokens.union(output_tokens_at, output_tokens),
       )
-
-    // All inputs pointed by a proof must be programmable inputs.
-    expect input.address.payment_credential == prog_logic_cred
-
-    // Extract the paired output and ensures it preserves address and datum
-    let output = list.head(outputs)
-    expect output.address == input.address
-    expect output.datum == input.datum
-
-    // Extract seized tokens as the delta between outputs and inputs for the
-    // given policy, ensuring all else is equal.
-    let
-      input_tokens_before,
-      input_tokens_at,
-      input_tokens_after,
-    <- assets.split_at(input.value, policy_id)
-
-    let
-      output_tokens_before,
-      output_tokens_at,
-      output_tokens_after,
-    <- assets.split_at(output.value, policy_id)
-
-    // Seized tokens must change, but only them.
-    expect and {
-        (input_tokens_before == output_tokens_before)?,
-        (input_tokens_after == output_tokens_after)?,
-        (input_tokens_at != output_tokens_at)?,
-      }
-
-    check_seized_tokens(
-      prog_logic_cred,
-      policy_id,
-      tail_inputs,
-      tail_idxs,
-      length_input_idxs - 1,
-      list.tail(outputs),
-      tokens.union(input_tokens, input_tokens_at),
-      tokens.union(output_tokens_at, output_tokens),
-    )
+    } else {
+      check_seized_tokens(
+        prog_logic_cred,
+        policy_id,
+        list.tail(inputs),
+        length_inputs - 1,
+        outputs,
+        input_tokens,
+        output_tokens,
+      )
+    }
   }
 }
