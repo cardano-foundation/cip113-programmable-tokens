@@ -1,10 +1,11 @@
+use aiken/collection/dict
 use aiken/collection/list
 // Programmable Token Issuance Minting Policy
 // This policy handles minting and burning of registered programmable tokens
 // Migrated from SmartTokens.Contracts.Issuance
 
 use cardano/address.{Credential, Inline}
-use cardano/assets.{PolicyId, flatten, quantity_of}
+use cardano/assets.{PolicyId, quantity_of}
 use cardano/transaction.{Mint, Output, ScriptPurpose, Transaction}
 use registry_node.{RegistryNode}
 use types.{OutputIndex, RefInput, SmartTokenMintingAction}
@@ -49,20 +50,12 @@ validator issuance_mint(
       )
 
     // Get the minted/burned amount for this policy
-    let own_tokens = flatten(self.mint)
-    let tokens_for_policy =
-      list.filter(
-        own_tokens,
-        fn(token) {
-          let (cs, _tn, _qty) = token
-          cs == own_policy
-        },
-      )
-
-    expect [(_cs, tn, qty)] = tokens_for_policy
+    expect Some(minted_assets) =
+      assets.to_dict(self.mint) |> dict.get(own_policy)
+    expect [Pair(token_name, quantity)] = minted_assets |> dict.to_pairs
 
     let valid_minting =
-      if qty > 0 {
+      if quantity > 0 {
         // If it's spend and mint, check if prog token base spend invoked
         // as it already checks for spending and minting invariants. Or ..
         let is_spend =
@@ -73,7 +66,7 @@ validator issuance_mint(
             },
           )
 
-        // if it's spending only, ensure all prog tokens in 
+        // if it's minting only, ensure all prog tokens are sent to prog token script
         let validate_token_output =
           fn(outputs: List<Output>) -> Bool {
             (list.foldl(
@@ -81,18 +74,21 @@ validator issuance_mint(
               0,
               fn(output, acc) -> Int {
                 if output.address.payment_credential == programmable_logic_base {
+                  // if programmable token, ensure there's an owner
                   expect Some(Inline(_stake_cred)) =
                     output.address.stake_credential
-                  acc + quantity_of(output.value, own_policy, tn)
+                  acc + quantity_of(output.value, own_policy, token_name)
                 } else {
+                  // this is technically redundant, hence commented out
+                  // expect quantity_of(output.value, own_policy, token_name) == 0
                   acc
                 }
               },
-            ) == qty)?
+            ) == quantity)?
           }
 
         is_spend || validate_token_output(self.outputs)
-      } else if qty < 0 {
+      } else if quantity < 0 {
         // Burning tokens - no additional checks needed beyond the minting logic being invoked
         True
       } else {
@@ -108,8 +104,6 @@ validator issuance_mint(
       // Check that exactly one minting redeemer matches the minting logic credential
       // This prevents multiple concurrent mints with the same minting logic in one transaction
       single_mint_with_credential(self.redeemers, redeemer)?,
-      // For POC, we only allow one token name per policy
-      (list.length(tokens_for_policy) == 1)?,
       valid_minting?,
     }
   }
