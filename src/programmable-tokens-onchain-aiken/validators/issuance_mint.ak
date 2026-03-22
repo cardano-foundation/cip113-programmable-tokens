@@ -6,12 +6,15 @@ use aiken/collection/list
 use cardano/address.{Credential, Inline}
 use cardano/assets.{PolicyId, flatten, quantity_of}
 use cardano/transaction.{Mint, Output, ScriptPurpose, Transaction}
-use types.{SmartTokenMintingAction}
+use registry_node.{RegistryNode}
+use types.{OutputIndex, RefInput, SmartTokenMintingAction}
+use utils.{expect_inline_datum}
 
-// Do two tokens with exactly same minting logic credential (issueing credential) then will have same policy id ??
 validator issuance_mint(
-  // <- static, cosntant hash
+  // Programmable Token Script Hash
   programmable_logic_base: Credential,
+  // Registry Node Currency Symbol - used to verify registry proofs for token minting
+  registry_node_cs: PolicyId,
   // <- the hash of the contract of the logic for minting.
   minting_logic_cred: Credential,
 ) {
@@ -20,6 +23,21 @@ validator issuance_mint(
     own_policy: PolicyId,
     self: Transaction,
   ) {
+    // Check token was or is being registered in the registry
+    expect
+      when redeemer.minting_registry_proof is {
+        RefInput { index } -> {
+          let ref_input_opt = list.at(self.reference_inputs, index)
+          expect Some(ref_input) = ref_input_opt
+          verify_registry_node(ref_input.output, registry_node_cs, own_policy)?
+        }
+        OutputIndex { index } -> {
+          let output_opt = list.at(self.outputs, index)
+          expect Some(output) = output_opt
+          verify_registry_node(output, registry_node_cs, own_policy)?
+        }
+      }
+
     // Check that the minting logic script is invoked
     let invoked_scripts =
       list.map(
@@ -45,17 +63,35 @@ validator issuance_mint(
 
     let valid_minting =
       if qty > 0 {
-        // Minting tokens
-        // First output must receive the minted tokens at programmable_logic_base
-        // AND must have a stake credential to prevent permanent token locking
-        expect [first_output, ..] = self.outputs
+        // If it's spend and mint, check if prog token base spend invoked
+        // as it already checks for spending and minting invariants. Or ..
+        let is_spend =
+          list.any(
+            self.inputs,
+            fn(input) {
+              input.output.address.payment_credential == programmable_logic_base
+            },
+          )
 
-        // Validate that the output has a stake credential
-        expect Some(Inline(_stake_cred)) = first_output.address.stake_credential
-        and {
-          (first_output.address.payment_credential == programmable_logic_base)?,
-          (quantity_of(first_output.value, own_policy, tn) == qty)?,
-        }
+        // if it's spending only, ensure all prog tokens in 
+        let validate_token_output =
+          fn(outputs: List<Output>) -> Bool {
+            (list.foldl(
+              outputs,
+              0,
+              fn(output, acc) -> Int {
+                if output.address.payment_credential == programmable_logic_base {
+                  expect Some(Inline(_stake_cred)) =
+                    output.address.stake_credential
+                  acc + quantity_of(output.value, own_policy, tn)
+                } else {
+                  acc
+                }
+              },
+            ) == qty)?
+          }
+
+        is_spend || validate_token_output(self.outputs)
       } else if qty < 0 {
         // Burning tokens - no additional checks needed beyond the minting logic being invoked
         True
@@ -117,4 +153,16 @@ fn single_mint_with_credential(
     )
 
   matching_count == 1
+}
+
+fn verify_registry_node(
+  output: Output,
+  registry_node_cs: PolicyId,
+  own_policy: PolicyId,
+) -> Bool {
+  expect assets.has_any_nft(output.value, registry_node_cs)?
+  let registry_datum = expect_inline_datum(output)
+  expect registry: RegistryNode = registry_datum
+  expect registry.key == own_policy
+  True
 }
