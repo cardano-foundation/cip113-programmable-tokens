@@ -162,5 +162,6 @@ pub fn has_policy_nft_strictly(
   asset_name: AssetName,
 ) -> Bool {
   expect Some(policy_assets) = assets.to_dict(value) |> dict.get(policy_id)
-  policy_assets == dict.from_pairs([Pair(asset_name, 1)])
+  expect [Pair(actual_asset_name, 1)] = dict.to_pairs(policy_assets)
+  actual_asset_name == asset_name
 }
