@@ -24,18 +24,22 @@ validator issuance_mint(
     own_policy: PolicyId,
     self: Transaction,
   ) {
-    // Check token was or is being registered in the registry
-    expect
+    // Check token was or is being registered in the registry.
+    // is_first_mint distinguishes registration-in-this-tx (OutputIndex) from
+    // already-registered (RefInput) — this drives output validation below.
+    let is_first_mint =
       when redeemer.minting_registry_proof is {
         RefInput { index } -> {
           let ref_input_opt = list.at(self.reference_inputs, index)
           expect Some(ref_input) = ref_input_opt
-          verify_registry_node(ref_input.output, registry_node_cs, own_policy)?
+          expect verify_registry_node(ref_input.output, registry_node_cs, own_policy)?
+          False
         }
         OutputIndex { index } -> {
           let output_opt = list.at(self.outputs, index)
           expect Some(output) = output_opt
-          verify_registry_node(output, registry_node_cs, own_policy)?
+          expect verify_registry_node(output, registry_node_cs, own_policy)?
+          True
         }
       }
 
@@ -56,38 +60,42 @@ validator issuance_mint(
 
     let valid_minting =
       if quantity > 0 {
-        // If it's spend and mint, check if prog token base spend invoked
-        // as it already checks for spending and minting invariants. Or ..
-        let is_spend =
-          list.any(
-            self.inputs,
-            fn(input) {
-              input.output.address.payment_credential == programmable_logic_base
-            },
-          )
-
-        // if it's minting only, ensure all prog tokens are sent to prog token script
-        let validate_token_output =
-          fn(outputs: List<Output>) -> Bool {
-            (list.foldl(
-              outputs,
-              0,
-              fn(output, acc) -> Int {
-                if output.address.payment_credential == programmable_logic_base {
-                  // if programmable token, ensure there's an owner
-                  expect Some(Inline(_stake_cred)) =
-                    output.address.stake_credential
-                  acc + quantity_of(output.value, own_policy, token_name)
-                } else {
-                  // this is technically redundant, hence commented out
-                  // expect quantity_of(output.value, own_policy, token_name) == 0
-                  acc
-                }
+        if is_first_mint {
+          // First mint (registration happening in this tx via OutputIndex).
+          // PLGlobal is unaware of this token — we must verify ALL minted
+          // tokens land at PLB with a stake credential.
+          validate_mint_outputs(
+            self.outputs,
+            programmable_logic_base,
+            own_policy,
+            token_name,
+            quantity,
+          )?
+        } else {
+          // Subsequent mint (token already registered, RefInput proof).
+          let is_spend =
+            list.any(
+              self.inputs,
+              fn(input) {
+                input.output.address.payment_credential == programmable_logic_base
               },
-            ) == quantity)?
+            )
+          if is_spend {
+            // PLB is being spent → PLGlobal validates all invariants for
+            // this token (value preservation, outputs at PLB, etc.) and
+            // accounts for minting in its balance checks.
+            True
+          } else {
+            // Pure subsequent mint, no spend — validate outputs ourselves.
+            validate_mint_outputs(
+              self.outputs,
+              programmable_logic_base,
+              own_policy,
+              token_name,
+              quantity,
+            )?
           }
-
-        is_spend || validate_token_output(self.outputs)
+        }
       } else if quantity < 0 {
         // Burning tokens - no additional checks needed beyond the minting logic being invoked
         True
@@ -147,6 +155,29 @@ fn single_mint_with_credential(
     )
 
   matching_count == 1
+}
+
+/// Validate that exactly `expected_qty` of the minted token ends up at
+/// PLB outputs, each with an inline stake credential (owner).
+fn validate_mint_outputs(
+  outputs: List<Output>,
+  programmable_logic_base: Credential,
+  own_policy: PolicyId,
+  token_name: ByteArray,
+  expected_qty: Int,
+) -> Bool {
+  (list.foldl(
+    outputs,
+    0,
+    fn(output, acc) -> Int {
+      if output.address.payment_credential == programmable_logic_base {
+        expect Some(Inline(_stake_cred)) = output.address.stake_credential
+        acc + quantity_of(output.value, own_policy, token_name)
+      } else {
+        acc
+      }
+    },
+  ) == expected_qty)?
 }
 
 fn verify_registry_node(

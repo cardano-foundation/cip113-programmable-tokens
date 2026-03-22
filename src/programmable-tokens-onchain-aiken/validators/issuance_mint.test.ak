@@ -500,54 +500,184 @@ test multiple_token_names_fails() fail {
   call_validator(rdmr, tx)
 }
 
-test mint_only_multiple_outputs_succeed() {
+// ========================================================================
+// Four minting scenarios — output validation logic
+//
+// Case 1: First mint (OutputIndex registry proof, no PLB spend)
+// Case 2: Subsequent mint-only (RefInput registry proof, no PLB spend)
+// Case 3: Spend different token + first mint (OutputIndex, PLB input exists)
+// Case 4: Spend + mint same token (RefInput, PLB input exists)
+// ========================================================================
+
+// --- Case 1: First mint (registry as output) ---
+
+// Happy path: all minted tokens go to PLB
+test case1_first_mint_valid() {
+  let rdmr =
+    SmartTokenMintingAction {
+      minting_logic_cred: test_ml_cred,
+      minting_registry_proof: OutputIndex(1),
+    }
+  let tx =
+    Transaction {
+      ..transaction.placeholder,
+      outputs: [mint_output(100), registry_node_output(test_own_policy)],
+      mint: from_asset(test_own_policy, test_token_name, 100),
+      withdrawals: [Pair(test_ml_cred, 0)],
+      redeemers: [Pair(Mint(test_own_policy), as_data(rdmr))],
+    }
+  call_validator(rdmr, tx)
+}
+
+// First mint: multiple outputs, all at PLB
+test case1_first_mint_multiple_outputs() {
+  let rdmr =
+    SmartTokenMintingAction {
+      minting_logic_cred: test_ml_cred,
+      minting_registry_proof: OutputIndex(2),
+    }
+  let tx =
+    Transaction {
+      ..transaction.placeholder,
+      outputs: [
+        mint_output(60),
+        mint_output(40),
+        registry_node_output(test_own_policy),
+      ],
+      mint: from_asset(test_own_policy, test_token_name, 100),
+      withdrawals: [Pair(test_ml_cred, 0)],
+      redeemers: [Pair(Mint(test_own_policy), as_data(rdmr))],
+    }
+  call_validator(rdmr, tx)
+}
+
+// First mint: tokens sent to non-PLB address — must fail
+test case1_first_mint_tokens_to_non_plb_fails() fail {
+  let rdmr =
+    SmartTokenMintingAction {
+      minting_logic_cred: test_ml_cred,
+      minting_registry_proof: OutputIndex(1),
+    }
+  let non_plb_output =
+    Output {
+      address: Address {
+        payment_credential: Script(#"99999999999999999999999999999999999999999999999999999999"),
+        stake_credential: Some(Inline(Script(#"77777777777777777777777777777777777777777777777777777777"))),
+      },
+      value: min_ada
+        |> assets.add(test_own_policy, test_token_name, 25),
+      datum: NoDatum,
+      reference_script: None,
+    }
+  let tx =
+    Transaction {
+      ..transaction.placeholder,
+      outputs: [
+        mint_output(75),
+        registry_node_output(test_own_policy),
+        non_plb_output,
+      ],
+      mint: from_asset(test_own_policy, test_token_name, 100),
+      withdrawals: [Pair(test_ml_cred, 0)],
+      redeemers: [Pair(Mint(test_own_policy), as_data(rdmr))],
+    }
+  call_validator(rdmr, tx)
+}
+
+// --- Case 2: Subsequent mint-only (RefInput, no PLB spend) ---
+
+// Happy path: subsequent mint, all tokens to PLB
+test case2_subsequent_mint_valid() {
+  call_validator(valid_redeemer(), valid_mint_tx())
+}
+
+// Subsequent mint: multiple outputs at PLB
+test case2_subsequent_mint_multiple_outputs() {
   let tx =
     Transaction {
       ..valid_mint_tx(),
       outputs: [mint_output(50), mint_output(50)],
     }
-
   call_validator(valid_redeemer(), tx)
 }
 
-// TODO
-test mint_only_output_non_programmable() fail {
+// Subsequent mint: tokens sent to non-PLB — must fail
+test case2_subsequent_mint_tokens_to_non_plb_fails() fail {
+  let non_plb_output =
+    Output {
+      address: Address {
+        payment_credential: Script(#"99999999999999999999999999999999999999999999999999999999"),
+        stake_credential: Some(Inline(Script(#"77777777777777777777777777777777777777777777777777777777"))),
+      },
+      value: min_ada
+        |> assets.add(test_own_policy, test_token_name, 25),
+      datum: NoDatum,
+      reference_script: None,
+    }
   let tx =
     Transaction {
       ..valid_mint_tx(),
-      outputs: [
-        mint_output(75),
-        Output {
-          address: Address {
-            payment_credential: Script("non prog base"),
-            stake_credential: Some(
-              Inline(
-                Script(
-                  #"77777777777777777777777777777777777777777777777777777777",
-                ),
-              ),
-            ),
+      outputs: [mint_output(75), non_plb_output],
+    }
+  call_validator(valid_redeemer(), tx)
+}
+
+// --- Case 3: Spend different token + first mint (OutputIndex, PLB input) ---
+// PLGlobal doesn't know the new token → issuance_mint must validate outputs
+
+// First mint with PLB input present: tokens to non-PLB must still fail
+test case3_first_mint_with_plb_spend_tokens_escape_fails() fail {
+  let rdmr =
+    SmartTokenMintingAction {
+      minting_logic_cred: test_ml_cred,
+      minting_registry_proof: OutputIndex(1),
+    }
+  let non_plb_output =
+    Output {
+      address: Address {
+        payment_credential: Script(#"99999999999999999999999999999999999999999999999999999999"),
+        stake_credential: Some(Inline(Script(#"77777777777777777777777777777777777777777777777777777777"))),
+      },
+      value: min_ada
+        |> assets.add(test_own_policy, test_token_name, 25),
+      datum: NoDatum,
+      reference_script: None,
+    }
+  let tx =
+    Transaction {
+      ..transaction.placeholder,
+      // PLB input exists (spending a different programmable token)
+      inputs: [
+        Input {
+          output_reference: OutputReference {
+            transaction_id: #"0000000000000000000000000000000000000000000000000000000000000000",
+            output_index: 0,
           },
-          value: min_ada
-            |> assets.add(test_own_policy, test_token_name, 25),
-          datum: NoDatum,
-          reference_script: None,
+          output: mint_output(50),
         },
       ],
+      outputs: [
+        mint_output(75),
+        registry_node_output(test_own_policy),
+        non_plb_output,
+      ],
+      mint: from_asset(test_own_policy, test_token_name, 100),
+      withdrawals: [Pair(test_ml_cred, 0)],
+      redeemers: [Pair(Mint(test_own_policy), as_data(rdmr))],
     }
-
-  call_validator(valid_redeemer(), tx)
+  call_validator(rdmr, tx)
 }
 
-// In this test validation is deferred to prog base spend. Because it is not possible to mock
-// and verify mint validation short-circuit to the prog base branch, it's easier to prove that 
-// the outputs are not verified (i.e. prog tokens in non prog token utxo.)
-// This tst should in theory fail (prog token in non prog token utxo), but it passes coz it 
-// just verifies there's a prog base being spent as input
-test spend_and_mint_multiple_outputs() {
+// --- Case 4: Spend + mint same token (RefInput, PLB input) ---
+// PLGlobal validates all invariants including mint accounting → defer to PLB
+
+// Spend 100 existing + mint 50 new → 150 in outputs, all at PLB
+test case4_spend_and_mint_same_token_valid() {
+  let rdmr = valid_redeemer()
   let tx =
     Transaction {
-      ..valid_mint_tx(),
+      ..transaction.placeholder,
+      // Spending existing PLB UTxO with 100 tokens
       inputs: [
         Input {
           output_reference: OutputReference {
@@ -557,26 +687,50 @@ test spend_and_mint_multiple_outputs() {
           output: mint_output(100),
         },
       ],
-      outputs: [
-        mint_output(75),
-        Output {
-          address: Address {
-            payment_credential: Script("non prog base"),
-            stake_credential: Some(
-              Inline(
-                Script(
-                  #"77777777777777777777777777777777777777777777777777777777",
-                ),
-              ),
-            ),
+      reference_inputs: [some_ref_input(registry_node_output(test_own_policy))],
+      // 150 total in outputs (100 spent + 50 minted) — all at PLB
+      outputs: [mint_output(150)],
+      mint: from_asset(test_own_policy, test_token_name, 50),
+      withdrawals: [Pair(test_ml_cred, 0)],
+      redeemers: [Pair(Mint(test_own_policy), as_data(rdmr))],
+    }
+  call_validator(rdmr, tx)
+}
+
+// Spend + mint same token: tokens escaping to non-PLB — deferred to PLGlobal.
+// issuance_mint allows it because PLGlobal (invoked via PLB spend) will reject.
+// This test documents that issuance_mint trusts PLGlobal in this case.
+test case4_spend_and_mint_defers_to_plglobal() {
+  let rdmr = valid_redeemer()
+  let non_plb_output =
+    Output {
+      address: Address {
+        payment_credential: Script(#"99999999999999999999999999999999999999999999999999999999"),
+        stake_credential: Some(Inline(Script(#"77777777777777777777777777777777777777777777777777777777"))),
+      },
+      value: min_ada
+        |> assets.add(test_own_policy, test_token_name, 25),
+      datum: NoDatum,
+      reference_script: None,
+    }
+  let tx =
+    Transaction {
+      ..transaction.placeholder,
+      inputs: [
+        Input {
+          output_reference: OutputReference {
+            transaction_id: #"0000000000000000000000000000000000000000000000000000000000000000",
+            output_index: 0,
           },
-          value: min_ada
-            |> assets.add(test_own_policy, test_token_name, 25),
-          datum: NoDatum,
-          reference_script: None,
+          output: mint_output(100),
         },
       ],
+      reference_inputs: [some_ref_input(registry_node_output(test_own_policy))],
+      outputs: [mint_output(75), non_plb_output],
+      mint: from_asset(test_own_policy, test_token_name, 50),
+      withdrawals: [Pair(test_ml_cred, 0)],
+      redeemers: [Pair(Mint(test_own_policy), as_data(rdmr))],
     }
-
-  call_validator(valid_redeemer(), tx)
+  // This passes at issuance_mint level — PLGlobal would reject it on-chain
+  call_validator(rdmr, tx)
 }
