@@ -32,6 +32,13 @@ pub type ProgrammableLogicGlobalRedeemer {
 pub type SmartTokenMintingAction {
   /// The credential of the minting logic script that must be invoked
   minting_logic_cred: Credential,
+  /// Minting Registry Proofs
+  minting_registry_proof: MintingRegistryProof,
+}
+
+pub type MintingRegistryProof {
+  RefInput { index: Int }
+  OutputIndex { index: Int }
 }
 
 /// Redeemer for registry minting policy (linked list operations)
