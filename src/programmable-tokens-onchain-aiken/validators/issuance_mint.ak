@@ -6,7 +6,7 @@ use aiken/collection/list
 
 use cardano/address.{Credential, Inline}
 use cardano/assets.{PolicyId, quantity_of}
-use cardano/transaction.{Mint, Output, ScriptPurpose, Transaction}
+use cardano/transaction.{InlineDatum, Mint, Output, ScriptPurpose, Transaction}
 use registry_node.{RegistryNode}
 use types.{OutputIndex, RefInput, SmartTokenMintingAction}
 use utils.{expect_inline_datum}
@@ -24,25 +24,6 @@ validator issuance_mint(
     own_policy: PolicyId,
     self: Transaction,
   ) {
-    // Check token was or is being registered in the registry.
-    // is_first_mint distinguishes registration-in-this-tx (OutputIndex) from
-    // already-registered (RefInput) — this drives output validation below.
-    let is_first_mint =
-      when redeemer.minting_registry_proof is {
-        RefInput { index } -> {
-          let ref_input_opt = list.at(self.reference_inputs, index)
-          expect Some(ref_input) = ref_input_opt
-          expect verify_registry_node(ref_input.output, registry_node_cs, own_policy)?
-          False
-        }
-        OutputIndex { index } -> {
-          let output_opt = list.at(self.outputs, index)
-          expect Some(output) = output_opt
-          expect verify_registry_node(output, registry_node_cs, own_policy)?
-          True
-        }
-      }
-
     // Check that the minting logic script is invoked
     let invoked_scripts =
       list.map(
@@ -52,6 +33,33 @@ validator issuance_mint(
           cred
         },
       )
+    // Check token was or is being registered in the registry.
+    // is_first_mint distinguishes registration-in-this-tx (OutputIndex) from
+    // already-registered (RefInput) — this drives output validation below.
+    let is_first_mint =
+      when redeemer.minting_registry_proof is {
+        RefInput { index } -> {
+          let ref_input_opt = list.at(self.reference_inputs, index)
+          expect Some(ref_input) = ref_input_opt
+          expect
+            verify_registry_node(ref_input.output, registry_node_cs, own_policy)?
+          False
+        }
+        OutputIndex { index } -> {
+          let output_opt = list.at(self.outputs, index)
+          expect Some(output) = output_opt
+          // just ensure this is a genuine first mint and no sneaky transfer AND registry update at the same time
+          expect InlineDatum(datum) = output.datum
+          expect current_registry_node: RegistryNode = datum
+          expect
+            !list.has(
+              invoked_scripts,
+              current_registry_node.transfer_logic_script,
+            )
+          expect verify_registry_node(output, registry_node_cs, own_policy)?
+          True
+        }
+      }
 
     // Get the minted/burned amount for this policy
     expect Some(minted_assets) =
