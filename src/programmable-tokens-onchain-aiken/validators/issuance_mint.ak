@@ -6,7 +6,7 @@ use aiken/collection/list
 
 use cardano/address.{Credential, Inline}
 use cardano/assets.{PolicyId, quantity_of}
-use cardano/transaction.{InlineDatum, Mint, Output, ScriptPurpose, Transaction}
+use cardano/transaction.{Mint, Output, ScriptPurpose, Transaction}
 use registry_node.{RegistryNode}
 use types.{OutputIndex, RefInput, SmartTokenMintingAction}
 use utils.{expect_inline_datum}

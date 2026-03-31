@@ -82,9 +82,6 @@ test plb_fails_with_wrong_credential_type() fail {
   let vkey_cred: Credential =
     VerificationKey(#"aabbccddaabbccddaabbccddaabbccddaabbccddaabbccddaabbccdd")
   let tx =
-    Transaction {
-      ..transaction.placeholder,
-      withdrawals: [Pair(vkey_cred, 0)],
-    }
+    Transaction { ..transaction.placeholder, withdrawals: [Pair(vkey_cred, 0)] }
   call_validator(tx)
 }

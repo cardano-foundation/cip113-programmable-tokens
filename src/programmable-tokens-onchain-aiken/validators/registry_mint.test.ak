@@ -4,8 +4,9 @@
 
 use cardano/address.{Address, Script}
 use cardano/assets.{PolicyId, ada_asset_name, ada_policy_id, from_asset}
-use cardano/transaction.{InlineDatum, Input, NoDatum, Output, OutputReference,
-  Transaction}
+use cardano/transaction.{
+  InlineDatum, Input, NoDatum, Output, OutputReference, Transaction,
+}
 use registry_mint
 use registry_node.{RegistryNode, empty_vkey, origin_node_tn}
 use types.{IssuanceCborHex, RegistryInit, RegistryInsert, RegistryRedeemer}
@@ -15,8 +16,7 @@ use utils.{apply_hashed_parameter}
 // Test constants
 // ---------------------------------------------------------------------------
 
-const test_utxo_ref =
-  OutputReference { transaction_id: #"00", output_index: 0 }
+const test_utxo_ref = OutputReference { transaction_id: #"00", output_index: 0 }
 
 /// A fake issuance_cbor_hex currency symbol (28 bytes)
 const test_issuance_cbor_hex_cs: PolicyId =
@@ -80,10 +80,7 @@ fn origin_node_output() -> Output {
 /// Build a covering node input (origin node as input)
 fn covering_node_input() -> Input {
   Input {
-    output_reference: OutputReference {
-      transaction_id: #"01",
-      output_index: 0,
-    },
+    output_reference: OutputReference { transaction_id: #"01", output_index: 0 },
     output: Output {
       address: test_node_address,
       value: min_ada
@@ -155,10 +152,7 @@ fn inserted_node_output() -> Output {
 /// Reference input carrying the IssuanceCborHex NFT
 fn issuance_ref_input() -> Input {
   Input {
-    output_reference: OutputReference {
-      transaction_id: #"02",
-      output_index: 0,
-    },
+    output_reference: OutputReference { transaction_id: #"02", output_index: 0 },
     output: Output {
       address: test_input_address,
       value: min_ada
@@ -199,10 +193,7 @@ fn call_init_validator(tx: Transaction) -> Bool {
   )
 }
 
-fn call_insert_validator(
-  redeemer: RegistryRedeemer,
-  tx: Transaction,
-) -> Bool {
+fn call_insert_validator(redeemer: RegistryRedeemer, tx: Transaction) -> Bool {
   registry_mint.registry_mint.mint(
     test_utxo_ref,
     test_issuance_cbor_hex_cs,
@@ -323,8 +314,7 @@ test registry_insert_valid() {
 
 // No reference input with issuance_cbor_hex_cs token
 test registry_insert_fails_no_issuance_ref_input() fail {
-  let tx =
-    Transaction { ..valid_insert_tx(), reference_inputs: [] }
+  let tx = Transaction { ..valid_insert_tx(), reference_inputs: [] }
   call_insert_validator(valid_insert_redeemer(), tx)
 }
 
@@ -360,8 +350,7 @@ test registry_insert_fails_key_not_covered() fail {
         reference_script: None,
       },
     }
-  let tx =
-    Transaction { ..valid_insert_tx(), inputs: [bad_covering] }
+  let tx = Transaction { ..valid_insert_tx(), inputs: [bad_covering] }
   call_insert_validator(valid_insert_redeemer(), tx)
 }
 
@@ -407,8 +396,7 @@ test registry_insert_fails_updated_node_modified() fail {
 
 // Programmable token not being minted (fails is_programmable_token_registration)
 test registry_insert_fails_no_token_minted() fail {
-  let tx =
-    Transaction { ..valid_insert_tx(), mint: assets.zero }
+  let tx = Transaction { ..valid_insert_tx(), mint: assets.zero }
   call_insert_validator(valid_insert_redeemer(), tx)
 }
 

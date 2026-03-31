@@ -561,8 +561,14 @@ test case1_first_mint_tokens_to_non_plb_fails() fail {
   let non_plb_output =
     Output {
       address: Address {
-        payment_credential: Script(#"99999999999999999999999999999999999999999999999999999999"),
-        stake_credential: Some(Inline(Script(#"77777777777777777777777777777777777777777777777777777777"))),
+        payment_credential: Script(
+          #"99999999999999999999999999999999999999999999999999999999",
+        ),
+        stake_credential: Some(
+          Inline(
+            Script(#"77777777777777777777777777777777777777777777777777777777"),
+          ),
+        ),
       },
       value: min_ada
         |> assets.add(test_own_policy, test_token_name, 25),
@@ -606,8 +612,14 @@ test case2_subsequent_mint_tokens_to_non_plb_fails() fail {
   let non_plb_output =
     Output {
       address: Address {
-        payment_credential: Script(#"99999999999999999999999999999999999999999999999999999999"),
-        stake_credential: Some(Inline(Script(#"77777777777777777777777777777777777777777777777777777777"))),
+        payment_credential: Script(
+          #"99999999999999999999999999999999999999999999999999999999",
+        ),
+        stake_credential: Some(
+          Inline(
+            Script(#"77777777777777777777777777777777777777777777777777777777"),
+          ),
+        ),
       },
       value: min_ada
         |> assets.add(test_own_policy, test_token_name, 25),
@@ -635,8 +647,14 @@ test case3_first_mint_with_plb_spend_tokens_escape_fails() fail {
   let non_plb_output =
     Output {
       address: Address {
-        payment_credential: Script(#"99999999999999999999999999999999999999999999999999999999"),
-        stake_credential: Some(Inline(Script(#"77777777777777777777777777777777777777777777777777777777"))),
+        payment_credential: Script(
+          #"99999999999999999999999999999999999999999999999999999999",
+        ),
+        stake_credential: Some(
+          Inline(
+            Script(#"77777777777777777777777777777777777777777777777777777777"),
+          ),
+        ),
       },
       value: min_ada
         |> assets.add(test_own_policy, test_token_name, 25),
@@ -705,8 +723,14 @@ test case4_spend_and_mint_defers_to_plglobal() {
   let non_plb_output =
     Output {
       address: Address {
-        payment_credential: Script(#"99999999999999999999999999999999999999999999999999999999"),
-        stake_credential: Some(Inline(Script(#"77777777777777777777777777777777777777777777777777777777"))),
+        payment_credential: Script(
+          #"99999999999999999999999999999999999999999999999999999999",
+        ),
+        stake_credential: Some(
+          Inline(
+            Script(#"77777777777777777777777777777777777777777777777777777777"),
+          ),
+        ),
       },
       value: min_ada
         |> assets.add(test_own_policy, test_token_name, 25),
