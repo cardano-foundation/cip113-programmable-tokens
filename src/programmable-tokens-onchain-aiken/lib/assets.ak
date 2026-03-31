@@ -1,6 +1,5 @@
 use aiken/builtin.{less_than_bytearray, less_than_equals_bytearray}
 use aiken/collection/dict
-use aiken/collection/dict/strategy as dict_strategy
 use cardano/assets.{AssetName, PolicyId, Value}
 use cardano/transaction.{Output}
 use env
