@@ -3,10 +3,7 @@ use aiken/collection/dict
 use aiken/interval
 use cardano/assets.{ada_asset_name, ada_policy_id, add, from_asset, zero}
 use cardano/transaction.{Transaction}
-use utils.{
-  bytearray_lt, count_unique_tokens, has_currency_symbol, is_signed_by,
-  value_contains,
-}
+use utils.{bytearray_lt, count_unique_tokens, has_currency_symbol, is_signed_by}
 
 // Test bytearray_lt with different bytearrays
 test bytearray_lt_works() {

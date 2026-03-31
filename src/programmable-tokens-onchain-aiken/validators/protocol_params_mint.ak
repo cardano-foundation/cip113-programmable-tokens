@@ -1,4 +1,5 @@
 use aiken/collection/list
+use assets.{has_policy_nft_strictly} as my_assets
 // Protocol Parameters Minting Policy
 // One-shot minting policy for the protocol parameters NFT
 // Migrated from SmartTokens.Contracts.ProtocolParams
@@ -9,7 +10,7 @@ use aiken/collection/list
 // 3. The token is sent to an always-fail address with an inline datum containing ProgrammableLogicGlobalParams
 
 use cardano/address
-use cardano/assets.{PolicyId, flatten}
+use cardano/assets.{PolicyId}
 use cardano/transaction.{InlineDatum, OutputReference, Transaction}
 use programmable_logic/params.{
   ProgrammableLogicGlobalParams, protocol_params_token,
@@ -22,22 +23,12 @@ validator protocol_params_mint(
   mint(_redeemer: Data, own_policy: PolicyId, self: Transaction) {
     trace @"Starting protocol_params_mint validation"
     // Check 1: This is a one-shot minting policy - must spend the specified UTXO
-    let consumed =
+    expect
       list.any(self.inputs, fn(input) { input.output_reference == utxo_ref })
 
     // Check 2: Get all minted tokens from this policy
-    let minted_tokens = flatten(self.mint)
-    let own_minted =
-      list.filter(
-        minted_tokens,
-        fn(token) {
-          let (cs, _tn, _qty) = token
-          cs == own_policy
-        },
-      )
-
-    // Must mint exactly one token with the correct name and quantity
-    expect [(_, tn, qty)] = own_minted
+    // Token name must be "ProtocolParams"
+    expect has_policy_nft_strictly(self.mint, own_policy, protocol_params_token)
 
     // The always-fail address where the NFT must be locked
     let expected_address = address.from_script(always_fail_hash)
@@ -52,16 +43,8 @@ validator protocol_params_mint(
     expect InlineDatum(datum) = nft_output.datum
     expect _params: ProgrammableLogicGlobalParams = datum
 
-    and {
-      // One-shot: the specified UTxO must be consumed
-      consumed?,
-      // Token name must be "ProtocolParams"
-      (tn == protocol_params_token)?,
-      // Exactly 1 token minted
-      (qty == 1)?,
-      // NFT must be locked at the always-fail address
-      (nft_output.address == expected_address)?,
-    }
+    // NFT must be locked at the always-fail address
+    (nft_output.address == expected_address)?
   }
 
   else(_) {
