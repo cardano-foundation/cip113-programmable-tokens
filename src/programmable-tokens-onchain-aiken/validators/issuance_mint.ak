@@ -41,22 +41,17 @@ validator issuance_mint(
         RefInput { index } -> {
           let ref_input_opt = list.at(self.reference_inputs, index)
           expect Some(ref_input) = ref_input_opt
-          expect
-            verify_registry_node(ref_input.output, registry_node_cs, own_policy)?
+          expect _ =
+            verify_registry_node(ref_input.output, registry_node_cs, own_policy)
           False
         }
         OutputIndex { index } -> {
           let output_opt = list.at(self.outputs, index)
           expect Some(output) = output_opt
           // just ensure this is a genuine first mint and no sneaky transfer AND registry update at the same time
-          expect InlineDatum(datum) = output.datum
-          expect current_registry_node: RegistryNode = datum
-          expect
-            !list.has(
-              invoked_scripts,
-              current_registry_node.transfer_logic_script,
-            )
-          expect verify_registry_node(output, registry_node_cs, own_policy)?
+          let registry =
+            verify_registry_node(output, registry_node_cs, own_policy)
+          expect !list.has(invoked_scripts, registry.transfer_logic_script)
           True
         }
       }
@@ -192,10 +187,10 @@ fn verify_registry_node(
   output: Output,
   registry_node_cs: PolicyId,
   own_policy: PolicyId,
-) -> Bool {
+) -> RegistryNode {
   expect assets.has_any_nft(output.value, registry_node_cs)?
   let registry_datum = expect_inline_datum(output)
   expect registry: RegistryNode = registry_datum
   expect registry.key == own_policy
-  True
+  registry
 }
