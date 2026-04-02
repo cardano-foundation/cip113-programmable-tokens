@@ -766,6 +766,80 @@ test case1_first_mint_tokens_to_non_plb_fails() fail {
   call_validator(rdmr, tx)
 }
 
+// First mint with shared transfer logic: another token uses the same transfer
+// logic script, and that script is invoked in this tx (for the other token's
+// transfer). The old anti-abuse check (!list.has(invoked_scripts, transfer_logic))
+// would have blocked this legitimate scenario.
+test case1_first_mint_with_shared_transfer_logic() {
+  // The transfer logic for this new token is the same as test_ml_cred
+  // (which IS in invoked_scripts because it's the minting logic)
+  let shared_cred = test_ml_cred
+  let registry_with_shared_logic =
+    Output {
+      address: Address {
+        payment_credential: Script(
+          #"88888888888888888888888888888888888888888888888888888888",
+        ),
+        stake_credential: None,
+      },
+      value: min_ada
+        |> assets.add(test_registry_cs, test_own_policy, 1),
+      datum: InlineDatum(
+        as_data(
+          RegistryNode {
+            key: test_own_policy,
+            next: #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            transfer_logic_script: shared_cred,
+            third_party_transfer_logic_script: Script(
+              #"66666666666666666666666666666666666666666666666666666666",
+            ),
+            global_state_cs: #"",
+          },
+        ),
+      ),
+      reference_script: None,
+    }
+  let rdmr =
+    SmartTokenMintingAction {
+      minting_logic_cred: test_ml_cred,
+      minting_registry_proof: OutputIndex(1),
+    }
+  let tx =
+    Transaction {
+      ..transaction.placeholder,
+      outputs: [mint_output(100), registry_with_shared_logic],
+      mint: from_asset(test_own_policy, test_token_name, 100),
+      // minting logic (== transfer logic) is invoked — old check would reject this
+      withdrawals: [Pair(test_ml_cred, 0)],
+      redeemers: [Pair(Mint(test_own_policy), as_data(rdmr))],
+    }
+  call_validator(rdmr, tx)
+}
+
+// First mint where transfer logic of another already-registered token happens
+// to be invoked in the same tx. This is a legitimate multi-token scenario.
+test case1_first_mint_with_other_tokens_transfer_logic_invoked() {
+  let other_transfer_logic =
+    Script(#"55555555555555555555555555555555555555555555555555555555")
+  let rdmr =
+    SmartTokenMintingAction {
+      minting_logic_cred: test_ml_cred,
+      minting_registry_proof: OutputIndex(1),
+    }
+  let tx =
+    Transaction {
+      ..transaction.placeholder,
+      outputs: [mint_output(100), registry_node_output(test_own_policy)],
+      mint: from_asset(test_own_policy, test_token_name, 100),
+      // Both minting logic AND another token's transfer logic are invoked
+      // The registry_node_output uses #"5555..." as transfer_logic_script
+      // Old anti-abuse check would reject because #"5555..." is in withdrawals
+      withdrawals: [Pair(test_ml_cred, 0), Pair(other_transfer_logic, 0)],
+      redeemers: [Pair(Mint(test_own_policy), as_data(rdmr))],
+    }
+  call_validator(rdmr, tx)
+}
+
 // --- Case 2: Subsequent mint-only (RefInput, no PLB spend) ---
 
 // Happy path: subsequent mint, all tokens to PLB

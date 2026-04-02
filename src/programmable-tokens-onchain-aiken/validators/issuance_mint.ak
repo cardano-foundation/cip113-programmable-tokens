@@ -53,12 +53,7 @@ validator issuance_mint(
           // FIRST MINT — registry node being (re-)created in this tx
           let output_opt = list.at(self.outputs, index)
           expect Some(output) = output_opt
-          let registry =
-            verify_registry_node(output, registry_node_cs, own_policy)
-          // Anti-abuse: no transfer logic during first mint
-          // (prevents sneaky transfer + registry update in same tx)
-          expect !list.has(invoked_scripts, registry.transfer_logic_script)
-
+          expect verify_registry_node(output, registry_node_cs, own_policy)
           // First mint ⇒ all minted tokens must go to PLB
           let minted = self.mint |> assets.tokens(own_policy)
           validate_mint_outputs(
@@ -73,7 +68,7 @@ validator issuance_mint(
           // ALREADY REGISTERED — verify registry node
           let ref_input_opt = list.at(self.reference_inputs, index)
           expect Some(ref_input) = ref_input_opt
-          expect _ =
+          expect
             verify_registry_node(ref_input.output, registry_node_cs, own_policy)
 
           // Can we delegate to PLGlobal?
@@ -185,10 +180,9 @@ fn verify_registry_node(
   output: Output,
   registry_node_cs: PolicyId,
   own_policy: PolicyId,
-) -> RegistryNode {
+) -> Bool {
   expect assets.has_any_nft(output.value, registry_node_cs)?
   let registry_datum = expect_inline_datum(output)
   expect registry: RegistryNode = registry_datum
-  expect registry.key == own_policy
-  registry
+  registry.key == own_policy
 }
