@@ -20,7 +20,9 @@ public interface BlacklistManageable {
             /** The admin address that will manage this blacklist */
             String adminAddress,
             /** The address that pays for the tx */
-            String feePayerAddress
+            String feePayerAddress,
+            /** Hex-encoded asset name of the programmable token */
+            String assetName
     ) {
     }
 
@@ -32,6 +34,8 @@ public interface BlacklistManageable {
              * The policy id of the programmable token
              */
             String tokenPolicyId,
+            /** Hex-encoded asset name of the programmable token */
+            String assetName,
             /** The address/credential to add to blacklist */
             String targetAddress,
             /** The address that pays for hte tx */
@@ -47,6 +51,8 @@ public interface BlacklistManageable {
              * The policy id of the programmable token
              */
             String tokenPolicyId,
+            /** Hex-encoded asset name of the programmable token */
+            String assetName,
             /** The address/credential to remove from blacklist */
             String targetAddress,
             /** The address that pays for hte tx */

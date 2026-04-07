@@ -124,6 +124,7 @@ export function CombinedBuildSignSubmitStep({
           substandardId: 'freeze-and-seize',
           adminAddress,
           feePayerAddress: adminAddress,
+          assetName: stringToHex(tokenDetails.assetName),
         },
         selectedVersion?.txHash
       );

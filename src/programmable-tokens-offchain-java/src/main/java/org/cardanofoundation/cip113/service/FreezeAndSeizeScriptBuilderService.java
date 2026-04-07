@@ -45,15 +45,22 @@ public class FreezeAndSeizeScriptBuilderService {
      * Build Issuer Admin Contract (withdraw)
      * <p>
      * Contract: example_transfer_logic.issuer_admin_contract.withdraw
-     * Parameters: [admin_pkh]
+     * Parameters: [admin_credential, asset_name]
+     * <p>
+     * The asset_name parameter differentiates the script per token, ensuring
+     * each token has a unique minting logic credential even when sharing the same admin.
      *
-     * @param adminPubKeyHash Admin's payment credential hash (hex string)
+     * @param adminPubKeyHash Admin's payment credential
+     * @param assetName       Hex-encoded asset name (used to make script hash unique per token)
      * @return Parameterized PlutusScript v3
      */
-    public PlutusScript buildIssuerAdminScript(Credential adminPubKeyHash) {
+    public PlutusScript buildIssuerAdminScript(Credential adminPubKeyHash, String assetName) {
         var contract = getContract("example_transfer_logic.issuer_admin_contract.withdraw");
 
-        var params = ListPlutusData.of(serialize(adminPubKeyHash));
+        var params = ListPlutusData.of(
+                serialize(adminPubKeyHash),
+                BytesPlutusData.of(HexUtil.decodeHexString(assetName))
+        );
 
         return applyParameters(contract, params, "issuer_admin");
     }

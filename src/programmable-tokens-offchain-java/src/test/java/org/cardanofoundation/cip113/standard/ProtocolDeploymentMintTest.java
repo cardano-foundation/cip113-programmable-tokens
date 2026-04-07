@@ -72,7 +72,7 @@ public class ProtocolDeploymentMintTest extends AbstractPreviewTest {
     }
 
     @Test
-    public void test() throws Exception {
+    public void deploy() throws Exception {
 
         var dryRun = false;
 
@@ -98,7 +98,6 @@ public class ProtocolDeploymentMintTest extends AbstractPreviewTest {
 
             utxosOpt = bfBackendService.getUtxoService().getUtxos(adminAccount.baseAddress(), 100, 1);
         }
-        var allWalletUtxos = utxosOpt.getValue();
         var walletUtxos = utxosOpt.getValue().stream().limit(2).toList();
 
         var utxo1 = walletUtxos.getFirst();
@@ -241,6 +240,7 @@ public class ProtocolDeploymentMintTest extends AbstractPreviewTest {
                 ConstrPlutusData.of(1,
                         BytesPlutusData.of(programmableLogicBaseContract.getScriptHash())
                 ),
+                BytesPlutusData.of(directoryContract.getScriptHash()),
                 ConstrPlutusData.of(1,
                         BytesPlutusData.of(HexUtil.decodeHexString(dummyPolicyId))
                 )

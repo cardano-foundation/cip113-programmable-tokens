@@ -96,7 +96,7 @@ public class ProtocolScriptBuilderService {
 
     /**
      * Get parameterized Issuance Mint script
-     * Parameters: programmable logic base script hash, substandard issue script hash
+     * Parameters: programmable logic base credential, registry node cs (directory mint policy), minting logic credential
      */
     public PlutusScript getParameterizedIssuanceMintScript(
             ProtocolBootstrapParams protocolParams,
@@ -105,11 +105,13 @@ public class ProtocolScriptBuilderService {
         try {
             // Don't cache this one since it depends on substandard script which varies
             var programmableLogicBaseScriptHash = protocolParams.programmableLogicBaseParams().scriptHash();
+            var registryNodeCs = protocolParams.directoryMintParams().scriptHash();
 
             var issuanceParameters = ListPlutusData.of(
                     ConstrPlutusData.of(1,
                             BytesPlutusData.of(HexUtil.decodeHexString(programmableLogicBaseScriptHash))
                     ),
+                    BytesPlutusData.of(HexUtil.decodeHexString(registryNodeCs)),
                     ConstrPlutusData.of(1,
                             BytesPlutusData.of(substandardIssueScript.getScriptHash())
                     )

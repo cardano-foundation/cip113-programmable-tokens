@@ -29,6 +29,12 @@ public class FreezeAndSeizeContext implements SubstandardContext {
     private final String issuerAdminPkh;
 
     /**
+     * Hex-encoded asset name of the programmable token.
+     * Used to differentiate the issuer admin script per token.
+     */
+    private final String assetName;
+
+    /**
      * Blacklist Manager Payment PKH
      */
     private final String blacklistManagerPkh;

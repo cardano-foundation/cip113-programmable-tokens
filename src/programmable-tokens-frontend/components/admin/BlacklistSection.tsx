@@ -81,6 +81,7 @@ export function BlacklistSection({ tokens, adminAddress }: BlacklistSectionProps
 
       const request = {
         tokenPolicyId: selectedToken.policyId,
+        assetName: selectedToken.assetName,
         targetAddress: targetAddress.trim(),
         feePayerAddress: adminAddress,
       };

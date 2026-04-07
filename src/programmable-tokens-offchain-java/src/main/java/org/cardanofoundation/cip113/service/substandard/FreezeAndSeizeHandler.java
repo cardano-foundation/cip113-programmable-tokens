@@ -88,7 +88,6 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
 
     private final ObjectMapper objectMapper;
     private final AppConfig.Network network;
-    private final UtxoRepository utxoRepository;
     private final BlacklistNodeParser blacklistNodeParser;
     private final RegistryNodeParser registryNodeParser;
     private final AccountService accountService;
@@ -199,7 +198,7 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
 
             /// Getting Substandard Contracts and parameterize
             // Issuer to be used for minting/burning/sieze
-            var substandardIssueContract = fesScriptBuilder.buildIssuerAdminScript(Credential.fromKey(request.getAdminPubKeyHash()));
+            var substandardIssueContract = fesScriptBuilder.buildIssuerAdminScript(Credential.fromKey(request.getAdminPubKeyHash()), request.getAssetName());
             var substandardIssueAddress = AddressProvider.getRewardAddress(substandardIssueContract, network.getCardanoNetwork());
             log.info("substandardIssueAddress: {}", substandardIssueAddress.getAddress());
 
@@ -311,7 +310,12 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
             log.info("directorySpendValue: {}", directorySpendValue);
 
 
-            var issuanceRedeemer = ConstrPlutusData.of(0, ConstrPlutusData.of(1, BytesPlutusData.of(substandardIssueContract.getScriptHash())));
+            // Registry node output is at index 2 in outputs:
+            // [0] PLB output (programmable token), [1] updated covering node, [2] new registry node
+            var issuanceRedeemer = ConstrPlutusData.of(0,
+                    ConstrPlutusData.of(1, BytesPlutusData.of(substandardIssueContract.getScriptHash())),
+                    ConstrPlutusData.of(1, BigIntPlutusData.of(2)) // OutputIndex { index: 2 }
+            );
 
             // Programmable Token Mint
             var programmableToken = Asset.builder()
@@ -447,7 +451,7 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
             /// Getting Substandard Contracts and parameterize
             // Issuer to be used for minting/burning/sieze
             var adminPkh = Credential.fromKey(context.getIssuerAdminPkh());
-            var substandardIssueContract = fesScriptBuilder.buildIssuerAdminScript(Credential.fromKey(context.getIssuerAdminPkh()));
+            var substandardIssueContract = fesScriptBuilder.buildIssuerAdminScript(Credential.fromKey(context.getIssuerAdminPkh()), request.assetName());
             log.info("substandardIssueContract: {}", substandardIssueContract.getPolicyId());
 
             var substandardIssueAddress = AddressProvider.getRewardAddress(substandardIssueContract, network.getCardanoNetwork());
@@ -457,7 +461,34 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
             var issuanceContract = protocolScriptBuilderService.getParameterizedIssuanceMintScript(protocolParams, substandardIssueContract);
             log.info("issuanceContract: {}", issuanceContract.getPolicyId());
 
-            var issuanceRedeemer = ConstrPlutusData.of(0, ConstrPlutusData.of(1, BytesPlutusData.of(substandardIssueContract.getScriptHash())));
+            // Find the registry node for this token (must exist for subsequent mint)
+            var registrySpendContract = protocolScriptBuilderService.getParameterizedDirectorySpendScript(protocolParams);
+            var registryAddress = AddressProvider.getEntAddress(registrySpendContract, network.getCardanoNetwork());
+            var registryEntries = utxoProvider.findUtxos(registryAddress.getAddress());
+            final var progTokenPolicyId = issuanceContract.getPolicyId();
+            var progTokenRegistryOpt = registryEntries.stream()
+                    .filter(utxo -> {
+                        var registryDatumOpt = registryNodeParser.parse(utxo.getInlineDatum());
+                        return registryDatumOpt.map(registryDatum -> registryDatum.key().equals(progTokenPolicyId)).orElse(false);
+                    })
+                    .findAny();
+            if (progTokenRegistryOpt.isEmpty()) {
+                return TransactionContext.typedError("could not find registry entry for token");
+            }
+            var progTokenRegistry = progTokenRegistryOpt.get();
+            var registryRefInput = TransactionInput.builder()
+                    .transactionId(progTokenRegistry.getTxHash())
+                    .index(progTokenRegistry.getOutputIndex())
+                    .build();
+            var sortedReferenceInputs = Stream.of(registryRefInput)
+                    .sorted(new TransactionInputComparator())
+                    .toList();
+            var registryRefInputIndex = sortedReferenceInputs.indexOf(registryRefInput);
+
+            var issuanceRedeemer = ConstrPlutusData.of(0,
+                    ConstrPlutusData.of(1, BytesPlutusData.of(substandardIssueContract.getScriptHash())),
+                    ConstrPlutusData.of(0, BigIntPlutusData.of(registryRefInputIndex)) // RefInput { index }
+            );
 
             // Programmable Token Mint
             var programmableToken = Asset.builder()
@@ -488,6 +519,7 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
                     .withdraw(substandardIssueAddress.getAddress(), BigInteger.ZERO, ConstrPlutusData.of(0))
                     .mintAsset(issuanceContract, programmableToken, issuanceRedeemer)
                     .payToContract(targetAddress.getAddress(), ValueUtil.toAmountList(programmableTokenValue), ConstrPlutusData.of(0))
+                    .readFrom(registryRefInput)
                     .attachRewardValidator(substandardIssueContract)
                     .withChangeAddress(request.feePayerAddress());
 
@@ -562,7 +594,7 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
             /// Getting Substandard Contracts and parameterize
             // Issuer to be used for minting/burning/sieze
             var adminPkh = Credential.fromKey(context.getIssuerAdminPkh());
-            var substandardIssueContract = fesScriptBuilder.buildIssuerAdminScript(Credential.fromKey(context.getIssuerAdminPkh()));
+            var substandardIssueContract = fesScriptBuilder.buildIssuerAdminScript(Credential.fromKey(context.getIssuerAdminPkh()), assetTypeToBurn.assetName());
             log.info("substandardIssueContract: {}", substandardIssueContract.getPolicyId());
 
             var substandardIssueAddress = AddressProvider.getRewardAddress(substandardIssueContract, network.getCardanoNetwork());
@@ -572,7 +604,7 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
             var issuanceContract = protocolScriptBuilderService.getParameterizedIssuanceMintScript(protocolParams, substandardIssueContract);
             log.info("issuanceContract: {}", issuanceContract.getPolicyId());
 
-            var issuanceRedeemer = ConstrPlutusData.of(0, ConstrPlutusData.of(1, BytesPlutusData.of(substandardIssueContract.getScriptHash())));
+            // issuanceRedeemer is built below after registryRefInputIndex is computed
 
             // Programmable Token Mint
             var programmableToken = Asset.builder()
@@ -636,14 +668,18 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
             var registryRefInputInex = sortedReferenceInputs.indexOf(registryRefInput);
             log.info("registryRefInputInex: {}", registryRefInputInex);
 
+            // Build issuance redeemer with RefInput proof (burn = already registered token)
+            var issuanceRedeemer = ConstrPlutusData.of(0,
+                    ConstrPlutusData.of(1, BytesPlutusData.of(substandardIssueContract.getScriptHash())),
+                    ConstrPlutusData.of(0, BigIntPlutusData.of(registryRefInputInex)) // RefInput { index }
+            );
+
             var seizeInputIndex = sortedInputUtxos.indexOf(utxoToBurn);
             log.info("seizeInputIndex: {}", seizeInputIndex);
 
             var programmableGlobalRedeemer = ConstrPlutusData.of(1,
                     BigIntPlutusData.of(registryRefInputInex),
-                    ListPlutusData.of(BigIntPlutusData.of(seizeInputIndex)),
-                    BigIntPlutusData.of(0), // Index of the first output
-                    BigIntPlutusData.of(1)
+                    BigIntPlutusData.of(0) // outputs_start_idx
             );
 
             var programmableLogicBase = protocolScriptBuilderService.getParameterizedProgrammableLogicBaseScript(protocolParams);
@@ -1013,7 +1049,7 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
                     .build();
 
             // Stake Address Registration
-            var substandardIssueContract = fesScriptBuilder.buildIssuerAdminScript(Credential.fromKey(adminPkh));
+            var substandardIssueContract = fesScriptBuilder.buildIssuerAdminScript(Credential.fromKey(adminPkh), request.assetName());
             var substandardIssueAddress = AddressProvider.getRewardAddress(substandardIssueContract, network.getCardanoNetwork());
             log.info("substandardIssueAddress: {}", substandardIssueAddress.getAddress());
 
@@ -1432,7 +1468,7 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
             // Issuer to be used for minting/burning/sieze
             log.info("context.getIssuerAdminPkh(): {}", context.getIssuerAdminPkh());
             var adminPkh = Credential.fromKey(context.getIssuerAdminPkh());
-            var substandardIssueAdminContract = fesScriptBuilder.buildIssuerAdminScript(Credential.fromKey(context.getIssuerAdminPkh()));
+            var substandardIssueAdminContract = fesScriptBuilder.buildIssuerAdminScript(Credential.fromKey(context.getIssuerAdminPkh()), progToken.assetName());
             log.info("substandardIssueAdminContract: {}", substandardIssueAdminContract.getPolicyId());
 
             var substandardIssueAdminAddress = AddressProvider.getRewardAddress(substandardIssueAdminContract, network.getCardanoNetwork());
@@ -1472,9 +1508,7 @@ public class FreezeAndSeizeHandler implements SubstandardHandler, BasicOperation
 
             var programmableGlobalRedeemer = ConstrPlutusData.of(1,
                     BigIntPlutusData.of(registryRefInputInex),
-                    ListPlutusData.of(BigIntPlutusData.of(seizeInputIndex)),
-                    BigIntPlutusData.of(1), // Index of the first output
-                    BigIntPlutusData.of(1)
+                    BigIntPlutusData.of(1) // outputs_start_idx
             );
 
             var tx = new Tx()
