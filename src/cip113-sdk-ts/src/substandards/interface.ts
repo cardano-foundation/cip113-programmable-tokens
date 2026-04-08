@@ -98,6 +98,8 @@ export interface MintParams {
   assetName: string;
   quantity: bigint;
   recipientAddress?: Address;
+  /** Optional: route directly to this substandard instead of trying all */
+  substandardId?: string;
 }
 
 export interface BurnParams {
@@ -106,6 +108,8 @@ export interface BurnParams {
   assetName: string;
   utxoTxHash: HexString;
   utxoOutputIndex: number;
+  /** Optional: route directly to this substandard instead of trying all */
+  substandardId?: string;
 }
 
 export interface TransferParams {
@@ -114,6 +118,8 @@ export interface TransferParams {
   tokenPolicyId: PolicyId;
   assetName: string;
   quantity: bigint;
+  /** Optional: route directly to this substandard instead of trying all */
+  substandardId?: string;
 }
 
 export interface FreezeParams {

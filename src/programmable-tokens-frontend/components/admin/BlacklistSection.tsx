@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useWallet } from "@meshsdk/react";
+import { useWallet } from "@/hooks/use-wallet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Shield, Plus, Minus, CheckCircle, ExternalLink } from "lucide-react";

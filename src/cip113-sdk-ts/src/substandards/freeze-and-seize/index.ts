@@ -1,16 +1,14 @@
 /**
  * Freeze-and-Seize substandard.
  *
- * Provides compliance features:
- * - Admin-controlled minting/burning
- * - Blacklist management (freeze/unfreeze addresses)
- * - Token seizure from frozen addresses
- * - Transfer validation against blacklist (non-membership proof)
+ * Each instance manages ONE programmable token. The deployment params
+ * (adminPkh, assetName, blacklistNodePolicyId) are provided at init
+ * and used to parameterize all FES scripts once.
  *
- * Replicates the Java FreezeAndSeizeHandler transaction flows.
+ * Capabilities: register, mint, burn, transfer, freeze, unfreeze, seize.
  */
 
-import type { PlutusBlueprint, PlutusScript, ScriptHash } from "../../types.js";
+import type { PlutusBlueprint, PlutusScript, UTxO } from "../../types.js";
 import type {
   SubstandardPlugin,
   SubstandardContext,
@@ -24,32 +22,45 @@ import type {
   InitComplianceParams,
   UnsignedTx,
 } from "../interface.js";
-import { Data, registryNodeDatum } from "../../core/datums.js";
+import { Data } from "../../core/datums.js";
 import {
-  issuanceRedeemerFirstMint,
-  issuanceRedeemerRefInput,
-  registryInsertRedeemer,
-  spendRedeemer,
   transferActRedeemer,
-  thirdPartyActRedeemer,
-  blacklistInitRedeemer,
-  blacklistAddRedeemer,
-  blacklistRemoveRedeemer,
+  spendRedeemer,
 } from "../../core/redeemers.js";
 import {
   sortTxInputs,
   findRefInputIndex,
-  findCoveringNode,
   findRegistryNode,
 } from "../../core/registry.js";
-import { stringToHex, MAX_NEXT } from "../../core/utils.js";
-import { createFESScripts, type FESScripts } from "./scripts.js";
+import { stringToHex } from "../../core/utils.js";
+import { createFESScripts } from "./scripts.js";
+import type { FESDeploymentParams } from "./types.js";
+
+// ---------------------------------------------------------------------------
+// Resolved scripts — computed once at init, reused for all operations
+// ---------------------------------------------------------------------------
+
+interface ResolvedFESScripts {
+  issuerAdmin: PlutusScript;
+  transfer: PlutusScript;
+  blacklistMint: PlutusScript;
+  blacklistSpend: PlutusScript;
+  /** The issuance_mint policy for this token */
+  issuanceMint: PlutusScript;
+  /** Token's policy ID (= issuanceMint hash) */
+  tokenPolicyId: string;
+}
+
+// ---------------------------------------------------------------------------
+// Factory
+// ---------------------------------------------------------------------------
 
 export function freezeAndSeizeSubstandard(config: {
   blueprint: PlutusBlueprint;
+  deployment: FESDeploymentParams;
 }): SubstandardPlugin {
   let ctx: SubstandardContext;
-  let fesScripts: FESScripts;
+  let scripts: ResolvedFESScripts;
 
   return {
     id: "freeze-and-seize",
@@ -58,271 +69,292 @@ export function freezeAndSeizeSubstandard(config: {
 
     init(context) {
       ctx = context;
-      fesScripts = createFESScripts(config.blueprint, ctx.adapter);
-    },
+      const { adminPkh, assetName, blacklistNodePolicyId, blacklistInitTxInput } = config.deployment;
+      const fes = createFESScripts(config.blueprint, ctx.adapter);
+      const plbHash = ctx.standardScripts.programmableLogicBase.hash;
 
-    // ====================================================================
-    // REGISTER — First mint + registry insert
-    // ====================================================================
-    async register(params: RegisterParams): Promise<UnsignedTx> {
-      const { feePayerAddress, assetName, quantity, recipientAddress, config: subConfig } = params;
-      const recipient = recipientAddress || feePayerAddress;
-      const assetNameHex = stringToHex(assetName);
+      // Parameterize ALL FES scripts once
+      const issuerAdmin = fes.buildIssuerAdmin(adminPkh, assetName);
+      const transfer = fes.buildTransfer(plbHash, blacklistNodePolicyId);
+      const blacklistMint = fes.buildBlacklistMint(blacklistInitTxInput, adminPkh);
+      const blacklistSpend = fes.buildBlacklistSpend(blacklistNodePolicyId);
+      const issuanceMint = ctx.standardScripts.buildIssuanceMint(issuerAdmin.hash);
 
-      // Extract FES-specific config
-      const adminPkh = (subConfig?.adminPkh as string) || "";
-      const blacklistNodePolicyId = (subConfig?.blacklistNodePolicyId as string) || "";
-
-      if (!adminPkh) throw new Error("freeze-and-seize.register: adminPkh required in config");
-      if (!blacklistNodePolicyId) throw new Error("freeze-and-seize.register: blacklistNodePolicyId required in config");
-
-      // 1. Build substandard scripts
-      const issuerAdminScript = fesScripts.buildIssuerAdmin(adminPkh, assetNameHex);
-      const transferScript = fesScripts.buildTransfer(
-        ctx.standardScripts.programmableLogicBase.hash,
-        blacklistNodePolicyId
-      );
-
-      // 2. Build issuance_mint script
-      const issuanceMintScript = ctx.standardScripts.buildIssuanceMint(issuerAdminScript.hash);
-      const tokenPolicyId = issuanceMintScript.hash;
-
-      // 3. Find covering registry node
-      const registrySpendAddress = ctx.adapter.scriptAddress(ctx.standardScripts.registrySpend.hash);
-      const coveringNodeUtxo = await findCoveringNode(ctx.adapter, registrySpendAddress, tokenPolicyId);
-      if (!coveringNodeUtxo) throw new Error("Could not find covering registry node");
-
-      // 4. Build redeemers
-      // Output layout: [0] PLB token, [1] updated covering node, [2] new registry node
-      const issuanceRedeemer = issuanceRedeemerFirstMint(issuerAdminScript.hash, 2);
-      const registryMintRedeemer = registryInsertRedeemer(
-        issuanceMintScript.hash,
-        issuerAdminScript.hash
-      );
-
-      // 5. Build new registry node datum
-      const newNodeDatum = registryNodeDatum({
-        key: tokenPolicyId,
-        next: MAX_NEXT, // TODO: get from covering node
-        transferLogicScript: { type: "script", hash: transferScript.hash },
-        thirdPartyTransferLogicScript: { type: "script", hash: issuerAdminScript.hash },
-        globalStateCs: "",
-      });
-
-      // 6. Build transaction
-      // TODO: Full tx building with ctx.adapter.newTx()
-      // Pattern from FreezeAndSeizeHandler.buildRegistrationTransaction:
-      //   collectFrom(feePayerUtxos)
-      //   collectFrom(coveringNode, spendRedeemer)
-      //   withdraw(issuerAdmin, 0, ConstrPlutusData.of(0))
-      //   mintAsset(issuanceMint, token, issuanceRedeemer)
-      //   mintAsset(registryMint, nft, registryMintRedeemer)
-      //   payToContract(PLB+recipientStake, tokenValue, void)
-      //   payToContract(registrySpend, updatedCoveringNode)
-      //   payToContract(registrySpend, newNode)
-      //   readFrom(protocolParams, issuanceCborHex)
-      //   attachSpendingValidator(registrySpend)
-      //   attachRewardValidator(issuerAdmin)
-      //   addSigner(adminPkh)
-
-      return {
-        cbor: "", // TODO
-        txHash: "",
-        tokenPolicyId,
-        metadata: {
-          issuerAdminScriptHash: issuerAdminScript.hash,
-          transferScriptHash: transferScript.hash,
-        },
+      scripts = {
+        issuerAdmin,
+        transfer,
+        blacklistMint,
+        blacklistSpend,
+        issuanceMint,
+        tokenPolicyId: issuanceMint.hash,
       };
     },
 
     // ====================================================================
-    // MINT — Subsequent mint with RefInput proof
+    // REGISTER
     // ====================================================================
-    async mint(params: MintParams): Promise<UnsignedTx> {
-      const { feePayerAddress, tokenPolicyId, assetName, quantity, recipientAddress } = params;
-      const recipient = recipientAddress || feePayerAddress;
-      const assetNameHex = stringToHex(assetName);
-
-      // TODO: Need adminPkh from context to rebuild issuerAdmin script
-      // For now this demonstrates the flow
-      throw new Error(
-        "freeze-and-seize.mint: Need adminPkh to rebuild issuer admin script. " +
-        "Pass via MintParams.config or resolve from on-chain registry."
-      );
+    async register(_params: RegisterParams): Promise<UnsignedTx> {
+      // TODO: replicate FreezeAndSeizeHandler.buildRegistrationTransaction
+      throw new Error("freeze-and-seize.register: not yet implemented");
     },
 
     // ====================================================================
-    // BURN — Burn with PLGlobal ThirdPartyAct
+    // MINT
     // ====================================================================
-    async burn(params: BurnParams): Promise<UnsignedTx> {
-      const { feePayerAddress, tokenPolicyId, assetName, utxoTxHash, utxoOutputIndex } = params;
+    async mint(_params: MintParams): Promise<UnsignedTx> {
+      // TODO: replicate FreezeAndSeizeHandler.buildMintingTransaction
+      throw new Error("freeze-and-seize.mint: not yet implemented");
+    },
 
-      // Pattern from FreezeAndSeizeHandler.buildBurnTransaction:
-      //   Find registry node (RefInput)
-      //   Find protocol params (RefInput)
-      //   Sort reference inputs, compute indices
-      //   Build issuance redeemer (RefInput)
-      //   Build PLGlobal redeemer (ThirdPartyAct, registry_node_idx, outputs_start_idx=0)
-      //   collectFrom(adminUtxos)
-      //   collectFrom(utxoToBurn, spendRedeemer)
-      //   withdraw(issuerAdmin, 0, void)
-      //   withdraw(PLGlobal, 0, plgRedeemer)
-      //   mintAsset(issuanceMint, -quantity, issuanceRedeemer)
-      //   payToContract(original address, value minus policy)
-      //   readFrom(protocolParams, registryNode)
-      //   attachSpendingValidator(PLB)
-      //   attachRewardValidator(PLGlobal, issuerAdmin)
-      //   addSigner(adminPkh)
-
+    // ====================================================================
+    // BURN
+    // ====================================================================
+    async burn(_params: BurnParams): Promise<UnsignedTx> {
+      // TODO: replicate FreezeAndSeizeHandler.buildBurnTransaction
       throw new Error("freeze-and-seize.burn: not yet implemented");
     },
 
     // ====================================================================
-    // TRANSFER — Transfer with blacklist non-membership proof
+    // TRANSFER — with blacklist non-membership proofs
     // ====================================================================
     async transfer(params: TransferParams): Promise<UnsignedTx> {
       const { senderAddress, recipientAddress, tokenPolicyId, assetName, quantity } = params;
-
-      // Pattern from FreezeAndSeizeHandler.buildTransferTransaction:
-      //   Find token UTxOs at sender's PLB address
-      //   Find registry node (RefInput)
-      //   Find blacklist covering nodes for sender stake cred (non-membership proof)
-      //   Find protocol params (RefInput)
-      //   Sort all reference inputs, compute indices
-      //   Build FES transfer redeemer (list of blacklist proofs)
-      //   Build PLGlobal TransferAct redeemer
-      //   collectFrom(senderUtxos for fees)
-      //   collectFrom(tokenUtxos, spendRedeemer)
-      //   withdraw(transferScript, 0, fesRedeemer)
-      //   withdraw(PLGlobal, 0, plgRedeemer)
-      //   payToContract(sender PLB address, remainingValue)
-      //   payToContract(recipient PLB address, transferValue)
-      //   readFrom(blacklistNodes, protocolParams, registryNode)
-      //   attachSpendingValidator(PLB)
-      //   attachRewardValidator(PLGlobal, transferScript)
-      //   addSigner(sender staking cred)
-
-      throw new Error("freeze-and-seize.transfer: not yet implemented");
-    },
-
-    // ====================================================================
-    // INIT COMPLIANCE — Initialize blacklist
-    // ====================================================================
-    async initCompliance(params: InitComplianceParams): Promise<UnsignedTx> {
-      const { feePayerAddress, adminAddress, assetName } = params;
       const assetNameHex = stringToHex(assetName);
+      const unit = tokenPolicyId + assetNameHex;
 
-      // 1. Get a bootstrap UTxO from fee payer
-      const feePayerUtxos = await ctx.adapter.getUtxos(feePayerAddress);
-      if (feePayerUtxos.length === 0) throw new Error("No UTxOs at fee payer address");
+      // Sanity check: the token must match this substandard instance
+      if (tokenPolicyId !== scripts.tokenPolicyId) {
+        throw new Error(
+          `Token policy ${tokenPolicyId} does not match this FES instance (${scripts.tokenPolicyId})`
+        );
+      }
 
-      const bootstrapUtxo = feePayerUtxos[0];
-      const bootstrapTxInput = {
-        txHash: bootstrapUtxo.txHash,
-        outputIndex: bootstrapUtxo.outputIndex,
-      };
+      const adapter = ctx.adapter;
+      const plbHash = ctx.standardScripts.programmableLogicBase.hash;
 
-      // 2. Extract admin PKH from address
-      // TODO: proper address parsing
-      const adminPkh = ""; // Would be extracted from adminAddress
+      // 1. Build PLB addresses
+      const senderPlbAddress = adapter.baseAddress(plbHash, senderAddress);
+      const recipientPlbAddress = adapter.baseAddress(plbHash, recipientAddress);
 
-      // 3. Build blacklist scripts
-      const blacklistMintScript = fesScripts.buildBlacklistMint(bootstrapTxInput, adminPkh);
-      const blacklistSpendScript = fesScripts.buildBlacklistSpend(blacklistMintScript.hash);
+      // 2. Find sender's token UTxOs
+      const allUtxos = await adapter.getUtxos(senderPlbAddress);
+      const tokenUtxos = allUtxos.filter(
+        (u) => u.value.assets?.has(unit) && (u.value.assets.get(unit) ?? 0n) > 0n
+      );
+      if (tokenUtxos.length === 0) {
+        throw new Error(`No token UTxOs found at ${senderPlbAddress} for ${unit}`);
+      }
 
-      // 4. Build issuer admin + transfer scripts
-      const issuerAdminScript = fesScripts.buildIssuerAdmin(adminPkh, assetNameHex);
-      const transferScript = fesScripts.buildTransfer(
-        ctx.standardScripts.programmableLogicBase.hash,
-        blacklistMintScript.hash
+      // 3. Select enough UTxOs
+      const { selected, totalTokenAmount } = selectUtxosForAmount(tokenUtxos, unit, quantity);
+      const returningAmount = totalTokenAmount - quantity;
+
+      // 4. Find registry node reference input
+      const registrySpendAddress = adapter.scriptAddress(ctx.standardScripts.registrySpend.hash);
+      const registryUtxo = await findRegistryNode(adapter, registrySpendAddress, tokenPolicyId);
+      if (!registryUtxo) throw new Error(`Registry node not found for ${tokenPolicyId}`);
+
+      // 5. Find protocol params reference input
+      const protocolParamsUtxos = await adapter.getUtxos(
+        adapter.scriptAddress(ctx.deployment.protocolParams.alwaysFailScriptHash)
+      );
+      const ppUnit = ctx.deployment.protocolParams.policyId + stringToHex("ProtocolParams");
+      const protocolParamsUtxo = protocolParamsUtxos.find((u) => u.value.assets?.has(ppUnit));
+      if (!protocolParamsUtxo) throw new Error("Protocol params UTxO not found");
+
+      // 6. Find blacklist non-membership proofs
+      const senderStakingHash = adapter.stakingCredentialHash(senderAddress);
+      const blacklistSpendAddress = adapter.scriptAddress(scripts.blacklistSpend.hash);
+      const blacklistUtxos = await adapter.getUtxos(blacklistSpendAddress);
+
+      // For each selected input, find covering node proving sender is NOT blacklisted
+      const proofUtxos: UTxO[] = [];
+      for (const _inputUtxo of selected) {
+        const proofUtxo = findBlacklistCoveringNode(blacklistUtxos, senderStakingHash);
+        if (!proofUtxo) {
+          throw new Error(`Sender ${senderStakingHash} is blacklisted — transfer denied`);
+        }
+        // Deduplicate: same proof covers all inputs from same sender
+        if (!proofUtxos.some(
+          (p) => p.txHash === proofUtxo.txHash && p.outputIndex === proofUtxo.outputIndex
+        )) {
+          proofUtxos.push(proofUtxo);
+        }
+      }
+
+      // 7. Sort ALL reference inputs and compute indices
+      const allRefInputRefs = [
+        ...proofUtxos.map((u) => ({ txHash: u.txHash, outputIndex: u.outputIndex })),
+        { txHash: protocolParamsUtxo.txHash, outputIndex: protocolParamsUtxo.outputIndex },
+        { txHash: registryUtxo.txHash, outputIndex: registryUtxo.outputIndex },
+      ];
+      const sortedRefInputs = sortTxInputs(allRefInputRefs);
+
+      // Proof indices: one per selected input
+      const proofIndices: number[] = selected.map(() =>
+        findRefInputIndex(sortedRefInputs, {
+          txHash: proofUtxos[0].txHash,
+          outputIndex: proofUtxos[0].outputIndex,
+        })
       );
 
-      // 5. Build blacklist init transaction
-      // Pattern from FreezeAndSeizeHandler.buildBlacklistInitTransaction:
-      //   collectFrom(utilityUtxos) — must include bootstrap UTxO
-      //   mintAsset(blacklistMint, originNft, blacklistInitRedeemer)
-      //   payToAddress(feePayerAddress, 40 ADA) — chain output
-      //   payToContract(blacklistSpendAddress, blacklistOriginNode)
-      //   registerStake(issuerAdminAddress)
-      //   registerStake(transferScriptAddress)
+      const registryIdx = findRefInputIndex(sortedRefInputs, {
+        txHash: registryUtxo.txHash,
+        outputIndex: registryUtxo.outputIndex,
+      });
 
+      // 8. Get sender's wallet UTxOs for fee coverage + collateral
+      const senderWalletUtxos = await adapter.getUtxos(senderAddress);
+
+      // 9. Build redeemers
+      const fesTransferRedeemer = Data.list(
+        proofIndices.map((idx) => Data.constr(0, [Data.integer(idx)]))
+      );
+      const plgRedeemer = transferActRedeemer([
+        { type: "exists", nodeIdx: registryIdx },
+      ]);
+      const spendRdmr = spendRedeemer();
+      const tokenDatum = Data.void();
+
+      // 9. Build transaction
+      let tx = adapter.newTx();
+
+      // Spend token UTxOs
+      tx = tx.collectFrom({ inputs: selected, redeemer: spendRdmr });
+
+      // Withdraw-zero: PLGlobal (TransferAct)
+      tx = tx.withdraw({
+        stakeCredential: ctx.standardScripts.programmableLogicGlobal.hash,
+        amount: 0n,
+        redeemer: plgRedeemer,
+      });
+
+      // Withdraw-zero: FES transfer logic (blacklist proofs)
+      tx = tx.withdraw({
+        stakeCredential: scripts.transfer.hash,
+        amount: 0n,
+        redeemer: fesTransferRedeemer,
+      });
+
+      // Output: remaining tokens back to sender (if any)
+      if (returningAmount > 0n) {
+        const senderAssets = new Map<string, bigint>();
+        senderAssets.set(unit, returningAmount);
+        tx = tx.payToAddress({
+          address: senderPlbAddress,
+          value: { lovelace: 1_300_000n, assets: senderAssets },
+          datum: tokenDatum,
+          inlineDatum: true,
+        });
+      }
+
+      // Output: transferred tokens to recipient
+      const recipientAssets = new Map<string, bigint>();
+      recipientAssets.set(unit, quantity);
+      tx = tx.payToAddress({
+        address: recipientPlbAddress,
+        value: { lovelace: 1_300_000n, assets: recipientAssets },
+        datum: tokenDatum,
+        inlineDatum: true,
+      });
+
+      // Reference inputs
+      const allRefUtxos = [...proofUtxos, protocolParamsUtxo, registryUtxo];
+      tx = tx.readFrom({ referenceInputs: allRefUtxos });
+
+      // Attach scripts
+      tx = tx.attachScript({ script: ctx.standardScripts.programmableLogicBase });
+      tx = tx.attachScript({ script: ctx.standardScripts.programmableLogicGlobal });
+      tx = tx.attachScript({ script: scripts.transfer });
+
+      // Required signer: sender's staking credential
+      tx = tx.addSigner({ keyHash: senderStakingHash });
+
+      // Provide wallet UTxOs for coin selection + collateral
+      tx = tx.provideUtxos(senderWalletUtxos);
+
+      // Change address: sender's wallet address
+      tx = tx.setChangeAddress(senderAddress);
+
+      const built = await tx.build();
       return {
-        cbor: "", // TODO
-        txHash: "",
-        metadata: {
-          blacklistNodePolicyId: blacklistMintScript.hash,
-          blacklistSpendScriptHash: blacklistSpendScript.hash,
-          issuerAdminScriptHash: issuerAdminScript.hash,
-          transferScriptHash: transferScript.hash,
-        },
+        cbor: built.toCbor(),
+        txHash: built.txHash(),
       };
     },
 
     // ====================================================================
-    // FREEZE — Add address to blacklist
+    // COMPLIANCE: Init blacklist
     // ====================================================================
-    async freeze(params: FreezeParams): Promise<UnsignedTx> {
-      const { feePayerAddress, tokenPolicyId, assetName, targetAddress } = params;
+    async initCompliance(_params: InitComplianceParams): Promise<UnsignedTx> {
+      throw new Error("freeze-and-seize.initCompliance: not yet implemented");
+    },
 
-      // Pattern from FreezeAndSeizeHandler.buildAddToBlacklistTransaction:
-      //   Find blacklist covering node (key < target_cred < next)
-      //   Build blacklist add redeemer
-      //   collectFrom(managerUtxos)
-      //   collectFrom(coveringBlacklistNode, spendRedeemer)
-      //   mintAsset(blacklistMint, newNft, blacklistAddRedeemer)
-      //   payToContract(blacklistSpend, updatedCoveringNode) — next = target
-      //   payToContract(blacklistSpend, newNode) — key = target, next = old_next
-      //   attachSpendingValidator(blacklistSpend)
-      //   addSigner(managerPkh)
-
+    async freeze(_params: FreezeParams): Promise<UnsignedTx> {
       throw new Error("freeze-and-seize.freeze: not yet implemented");
     },
 
-    // ====================================================================
-    // UNFREEZE — Remove address from blacklist
-    // ====================================================================
-    async unfreeze(params: UnfreezeParams): Promise<UnsignedTx> {
-      const { feePayerAddress, tokenPolicyId, assetName, targetAddress } = params;
-
-      // Pattern from FreezeAndSeizeHandler.buildRemoveFromBlacklistTransaction:
-      //   Find blacklist node to remove (key = target_cred)
-      //   Find blacklist node to update (next = target_cred)
-      //   Build blacklist remove redeemer
-      //   collectFrom(managerUtxos)
-      //   collectFrom(nodeToRemove, spendRedeemer)
-      //   collectFrom(nodeToUpdate, spendRedeemer)
-      //   mintAsset(blacklistMint, -1 nft, blacklistRemoveRedeemer) — burn
-      //   payToContract(blacklistSpend, updatedNode) — next skips removed
-      //   attachSpendingValidator(blacklistSpend)
-      //   addSigner(managerPkh)
-
+    async unfreeze(_params: UnfreezeParams): Promise<UnsignedTx> {
       throw new Error("freeze-and-seize.unfreeze: not yet implemented");
     },
 
-    // ====================================================================
-    // SEIZE — Seize tokens from a frozen address
-    // ====================================================================
-    async seize(params: SeizeParams): Promise<UnsignedTx> {
-      const { feePayerAddress, tokenPolicyId, assetName, utxoTxHash, utxoOutputIndex, destinationAddress } = params;
-
-      // Pattern from FreezeAndSeizeHandler.buildSeizeTransaction:
-      //   Find registry node (RefInput)
-      //   Find protocol params (RefInput)
-      //   Sort reference inputs, compute indices
-      //   Build PLGlobal ThirdPartyAct redeemer (registry_node_idx, outputs_start_idx=1)
-      //   collectFrom(adminUtxos)
-      //   collectFrom(utxoToSeize, spendRedeemer)
-      //   withdraw(issuerAdmin, 0, void)
-      //   withdraw(PLGlobal, 0, plgRedeemer)
-      //   payToContract(recipient PLB address, seizedValue)
-      //   payToContract(original address, remainingValue)
-      //   readFrom(protocolParams, registryNode)
-      //   attachSpendingValidator(PLB)
-      //   attachRewardValidator(PLGlobal, issuerAdmin)
-      //   addSigner(adminPkh)
-
+    async seize(_params: SeizeParams): Promise<UnsignedTx> {
       throw new Error("freeze-and-seize.seize: not yet implemented");
     },
   };
+}
+
+// Re-export types
+export type { FESDeploymentParams } from "./types.js";
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function selectUtxosForAmount(
+  utxos: UTxO[],
+  unit: string,
+  requiredAmount: bigint
+): { selected: UTxO[]; totalTokenAmount: bigint } {
+  const selected: UTxO[] = [];
+  let total = 0n;
+
+  for (const utxo of utxos) {
+    const amount = utxo.value.assets?.get(unit) ?? 0n;
+    if (amount <= 0n) continue;
+    selected.push(utxo);
+    total += amount;
+    if (total >= requiredAmount) break;
+  }
+
+  if (total < requiredAmount) {
+    throw new Error(`Insufficient token balance: have ${total}, need ${requiredAmount}`);
+  }
+
+  return { selected, totalTokenAmount: total };
+}
+
+/**
+ * Find a blacklist node proving non-membership for a given staking credential.
+ * Non-membership: node.key < stakingHash < node.next
+ */
+function findBlacklistCoveringNode(
+  blacklistUtxos: UTxO[],
+  stakingHash: string
+): UTxO | undefined {
+  return blacklistUtxos.find((utxo) => {
+    if (!utxo.datum) return false;
+
+    const datum = utxo.datum as { constr?: number; fields?: unknown[] };
+    if (!datum.fields || datum.fields.length < 2) return false;
+
+    const keyField = datum.fields[0] as { bytes?: string };
+    const nextField = datum.fields[1] as { bytes?: string };
+    if (!keyField || !nextField) return false;
+
+    const key = keyField.bytes ?? "";
+    const next = nextField.bytes ?? "";
+
+    return key < stakingHash && stakingHash < next;
+  });
 }

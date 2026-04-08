@@ -115,22 +115,47 @@ function parseRegistryNodeNext(datum: unknown): string | undefined {
 
 /**
  * Extract a bytes field at a given index from a Constr datum.
- * This is adapter-agnostic: works with the { constr, fields } format
- * from our Data module.
+ * Handles multiple formats:
+ * - Our internal Data format: { constr: 0, fields: [{ bytes: "hex" }] }
+ * - Evolution SDK Data.Constr: { index: 0n, fields: [Uint8Array] }
+ * - Raw CBOR parsed: various shapes
  */
 function extractConstrField(datum: unknown, fieldIndex: number): string | undefined {
-  // Handle our Data format: { constr: 0, fields: [...] }
-  if (
-    typeof datum === "object" &&
-    datum !== null &&
-    "constr" in datum &&
-    "fields" in datum
-  ) {
+  if (typeof datum !== "object" || datum === null) return undefined;
+
+  // Format 1: Our internal { constr, fields } format
+  if ("constr" in datum && "fields" in datum) {
     const d = datum as { constr: number; fields: unknown[] };
-    const field = d.fields[fieldIndex];
-    if (typeof field === "object" && field !== null && "bytes" in field) {
-      return (field as { bytes: string }).bytes;
-    }
+    return extractBytesValue(d.fields[fieldIndex]);
   }
+
+  // Format 2: Evolution SDK Constr { index: bigint, fields: Data[] }
+  if ("index" in datum && "fields" in datum) {
+    const d = datum as { index: bigint; fields: unknown[] };
+    return extractBytesValue(d.fields[fieldIndex]);
+  }
+
+  return undefined;
+}
+
+/** Extract a hex string from a bytes value in various formats */
+function extractBytesValue(value: unknown): string | undefined {
+  if (value == null) return undefined;
+
+  // Format: { bytes: "hexstring" } (our internal format)
+  if (typeof value === "object" && "bytes" in (value as Record<string, unknown>)) {
+    return String((value as { bytes: string }).bytes);
+  }
+
+  // Format: Uint8Array (Evolution SDK)
+  if (value instanceof Uint8Array) {
+    return Array.from(value).map((b) => b.toString(16).padStart(2, "0")).join("");
+  }
+
+  // Format: plain hex string
+  if (typeof value === "string") {
+    return value;
+  }
+
   return undefined;
 }

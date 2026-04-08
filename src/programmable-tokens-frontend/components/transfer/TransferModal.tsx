@@ -1,25 +1,20 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useWallet } from "@meshsdk/react";
+import { useWallet } from "@/hooks/use-wallet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { X, Send, CheckCircle, ExternalLink } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { transferToken, getProtocolBlueprint, getProtocolBootstrap, getSubstandardBlueprint, getTokenContext } from "@/lib/api";
+import { transferToken } from "@/lib/api";
 import { TransferTokenRequest, ParsedAsset } from "@/types/api";
 import { useProtocolVersion } from "@/contexts/protocol-version-context";
+import { useCIP113 } from "@/contexts/cip113-context";
 import { useToast } from "@/components/ui/use-toast";
 import { getExplorerTxUrl } from "@/lib/utils";
-import {
-  TransactionBuilderToggle,
-  TransactionBuilder,
-} from "@/components/mint/transaction-builder-toggle";
-import { getSubstandardHandler, SubstandardId } from "@/lib/mesh-sdk/standard/factory";
-import type { TransferTransactionParams } from "@/lib/mesh-sdk/standard/factory";
-import type { IWallet } from "@meshsdk/core";
-import { getNetworkId } from "@/lib/mesh-sdk/config";
+
+type TransactionBuilder = "sdk" | "backend";
 
 interface TransferModalProps {
   isOpen: boolean;
@@ -39,17 +34,18 @@ export function TransferModal({
   const { wallet } = useWallet();
   const { toast: showToast } = useToast();
   const { selectedVersion } = useProtocolVersion();
+  const { getProtocol, ensureSubstandard, available: sdkAvailable } = useCIP113();
   const network = process.env.NEXT_PUBLIC_NETWORK || "preview";
 
   const [step, setStep] = useState<TransferStep>("form");
   const [quantity, setQuantity] = useState("");
   const [recipientAddress, setRecipientAddress] = useState("");
+  const [transactionBuilder, setTransactionBuilder] = useState<TransactionBuilder>(
+    sdkAvailable ? "sdk" : "backend"
+  );
   const [isBuilding, setIsBuilding] = useState(false);
   const [isSigning, setIsSigning] = useState(false);
   const [txHash, setTxHash] = useState<string | null>(null);
-  const [transactionBuilder, setTransactionBuilder] =
-    useState<TransactionBuilder>("backend");
-
   const [errors, setErrors] = useState({
     quantity: "",
     recipientAddress: "",
@@ -66,43 +62,28 @@ export function TransferModal({
     }
   }, [isOpen]);
 
-  // Close on escape key
-  useEffect(() => {
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && isOpen && step === "form") {
-        onClose();
-      }
-    };
-    document.addEventListener("keydown", handleEscape);
-    return () => document.removeEventListener("keydown", handleEscape);
-  }, [isOpen, onClose, step]);
-
   const handleSetMax = () => {
-    setQuantity(asset.amount);
+    setQuantity(asset.amount.toString());
     setErrors((prev) => ({ ...prev, quantity: "" }));
   };
 
-  const validateForm = (): boolean => {
-    const newErrors = {
-      quantity: "",
-      recipientAddress: "",
-    };
+  const validateForm = () => {
+    const newErrors = { quantity: "", recipientAddress: "" };
+    const qty = parseInt(quantity);
 
-    if (!quantity.trim()) {
-      newErrors.quantity = "Quantity is required";
-    } else if (!/^\d+$/.test(quantity)) {
-      newErrors.quantity = "Quantity must be a positive number";
-    } else if (BigInt(quantity) <= 0) {
-      newErrors.quantity = "Quantity must be greater than 0";
-    } else if (BigInt(quantity) > BigInt(asset.amount)) {
-      newErrors.quantity = `Quantity exceeds balance (max: ${asset.amount})`;
+    if (!quantity || isNaN(qty) || qty <= 0) {
+      newErrors.quantity = "Enter a valid positive amount";
+    } else if (qty > parseInt(asset.amount)) {
+      newErrors.quantity = `Maximum available: ${asset.amount}`;
     }
 
     if (!recipientAddress.trim()) {
       newErrors.recipientAddress = "Recipient address is required";
     } else if (!recipientAddress.startsWith("addr")) {
-      newErrors.recipientAddress = "Invalid Cardano address format";
-    } else if (recipientAddress === senderAddress) {
+      newErrors.recipientAddress = "Invalid Cardano address";
+    }
+
+    if (recipientAddress.trim() === senderAddress) {
       newErrors.recipientAddress = "Cannot transfer to yourself";
     }
 
@@ -122,59 +103,37 @@ export function TransferModal({
 
       let unsignedCborTx: string;
 
-      if (transactionBuilder === "frontend") {
-        // Client-side transaction building using Mesh SDK
+      if (transactionBuilder === "sdk") {
+        // ----- Client-side tx building via CIP-113 SDK -----
         showToast({
           title: "Building Transaction",
-          description: "Building transaction on client side...",
+          description: "Initializing CIP-113 SDK...",
           variant: "default",
         });
 
-        // Resolve substandard and context from backend
-        const tokenPolicyId = asset.unit.substring(0, 56);
-        const tokenContext = await getTokenContext(tokenPolicyId);
-        const substandardId = tokenContext.substandardId;
+        // Resolve substandard from backend + register if needed
+        const substandardId = await ensureSubstandard(asset.policyId, asset.assetName);
 
-        // Fetch protocol data
-        const protocolTxHash = selectedVersion?.txHash;
-        const [protocolBlueprint, protocolBootstrap, substandardBlueprint] =
-          await Promise.all([
-            getProtocolBlueprint(),
-            getProtocolBootstrap(protocolTxHash),
-            getSubstandardBlueprint(substandardId),
-          ]);
-
-        // Get substandard handler
-        const handler = getSubstandardHandler(
-          substandardId as SubstandardId
-        );
-
-        // Prepare transfer parameters
-        const transferParams: TransferTransactionParams = {
-          unit: asset.unit,
-          quantity,
-          recipientAddress: recipientAddress.trim(),
-          networkId: getNetworkId(),
-          context: {
-            blacklistNodePolicyId: tokenContext.blacklistNodePolicyId,
-          },
-        };
-        // Build transaction client-side using Mesh SDK
-        unsignedCborTx = await handler.buildTransferTransaction(
-          transferParams,
-          protocolBootstrap,
-          protocolBlueprint,
-          substandardBlueprint,
-          wallet as IWallet
-        );
+        const protocol = await getProtocol();
 
         showToast({
-          title: "Transaction Built",
-          description: "Transaction built successfully using Mesh SDK",
-          variant: "success",
+          title: "Building Transaction",
+          description: `Building ${substandardId} transfer with CIP-113 SDK...`,
+          variant: "default",
         });
+
+        const result = await protocol.transfer({
+          senderAddress,
+          recipientAddress: recipientAddress.trim(),
+          tokenPolicyId: asset.policyId,
+          assetName: asset.assetName,
+          quantity: BigInt(quantity),
+          substandardId, // Route directly — no try/catch guessing
+        });
+
+        unsignedCborTx = result.cbor;
       } else {
-        // Server-side transaction building (existing logic)
+        // ----- Server-side tx building via backend API -----
         const request: TransferTokenRequest = {
           senderAddress,
           unit: asset.unit,
@@ -258,6 +217,39 @@ export function TransferModal({
         <div className="p-6">
           {step === "form" && (
             <form onSubmit={handleSubmit} className="space-y-5">
+              {/* Transaction Builder Toggle */}
+              <div className="flex items-center justify-between px-3 py-2 bg-dark-900 rounded-lg">
+                <span className="text-xs text-dark-400">Tx Builder</span>
+                <div className="flex gap-1 bg-dark-800 rounded-md p-0.5">
+                  <button
+                    type="button"
+                    onClick={() => setTransactionBuilder("sdk")}
+                    disabled={!sdkAvailable}
+                    className={cn(
+                      "px-3 py-1 text-xs rounded transition-colors",
+                      transactionBuilder === "sdk"
+                        ? "bg-primary-500 text-white"
+                        : "text-dark-400 hover:text-white",
+                      !sdkAvailable && "opacity-50 cursor-not-allowed"
+                    )}
+                  >
+                    SDK
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTransactionBuilder("backend")}
+                    className={cn(
+                      "px-3 py-1 text-xs rounded transition-colors",
+                      transactionBuilder === "backend"
+                        ? "bg-primary-500 text-white"
+                        : "text-dark-400 hover:text-white"
+                    )}
+                  >
+                    Backend
+                  </button>
+                </div>
+              </div>
+
               {/* Token Info */}
               <div className="px-4 py-3 bg-dark-900 rounded-lg">
                 <div className="flex items-center justify-between">
@@ -313,15 +305,6 @@ export function TransferModal({
                   placeholder="addr1..."
                   disabled={isBuilding}
                   error={errors.recipientAddress}
-                />
-              </div>
-
-              {/* Transaction Builder Toggle */}
-              <div className="pt-2">
-                <TransactionBuilderToggle
-                  value={transactionBuilder}
-                  onChange={setTransactionBuilder}
-                  disabled={isBuilding}
                 />
               </div>
 

@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
-import { useWallet } from '@meshsdk/react';
-import { resolveTxHash } from '@meshsdk/core';
+import { useWallet } from '@/hooks/use-wallet';
+import { resolveTxHash } from '@/lib/utils/tx-hash';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { CopyButton } from '@/components/ui/copy-button';
@@ -130,7 +130,7 @@ export function CombinedBuildSignSubmitStep({
       );
       setBlacklistNodePolicyId(initResponse.policyId);
       setInitUnsignedCbor(initResponse.unsignedCborTx);
-      setDerivedInitTxHash(resolveTxHash(initResponse.unsignedCborTx));
+      setDerivedInitTxHash(await resolveTxHash(initResponse.unsignedCborTx));
 
       // --- Step 2: Build registration tx with chaining (send full init CBOR) ---
       setStatus('building-reg');
@@ -155,7 +155,7 @@ export function CombinedBuildSignSubmitStep({
       const regResponse = await registerToken(regRequest, selectedVersion?.txHash);
       setTokenPolicyId(regResponse.policyId);
       setRegUnsignedCbor(regResponse.unsignedCborTx);
-      setDerivedRegTxHash(resolveTxHash(regResponse.unsignedCborTx));
+      setDerivedRegTxHash(await resolveTxHash(regResponse.unsignedCborTx));
 
       // --- Show preview ---
       setStatus('preview');

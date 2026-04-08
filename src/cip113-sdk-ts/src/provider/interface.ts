@@ -52,6 +52,20 @@ export interface CardanoProvider {
 
   /** Derive a reward (staking) address from a script hash */
   rewardAddress(scriptHash: ScriptHash): Address;
+
+  /**
+   * Build a base address with a script payment credential and
+   * the staking credential extracted from a user's address.
+   * This is how PLB addresses are constructed:
+   *   payment = PLB script hash, staking = user's delegation credential.
+   */
+  baseAddress(scriptHash: ScriptHash, userAddress: Address): Address;
+
+  /**
+   * Extract the staking/delegation credential hash from a user address.
+   * Returns the hex-encoded 28-byte hash.
+   */
+  stakingCredentialHash(address: Address): HexString;
 }
 
 export interface ProtocolParameters {
@@ -97,6 +111,12 @@ export interface TxPlan {
 
   /** Set transaction validity interval */
   setValidity(params: ValidityParams): TxPlan;
+
+  /** Provide available UTxOs for coin selection (fee coverage) */
+  provideUtxos(utxos: UTxO[]): TxPlan;
+
+  /** Set the change address (where leftover ADA goes) */
+  setChangeAddress(address: Address): TxPlan;
 
   /** Build the transaction (returns unsigned CBOR) */
   build(): Promise<BuiltTx>;

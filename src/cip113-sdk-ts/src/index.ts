@@ -149,6 +149,29 @@ export const CIP113 = {
       }
     }
 
+    // Helper: try all substandards (fallback when substandardId not provided)
+    async function tryAllSubstandards(
+      operation: string,
+      policyId: string,
+      fn: (plugin: SubstandardPlugin) => Promise<UnsignedTx>
+    ): Promise<UnsignedTx> {
+      let lastError: unknown;
+      for (const plugin of substandards.values()) {
+        try {
+          return await fn(plugin);
+        } catch (e) {
+          lastError = e;
+          continue;
+        }
+      }
+      throw new Error(
+        `No substandard can handle ${operation} for policy ${policyId}. ` +
+        `Available: [${[...substandards.keys()].join(", ")}]. ` +
+        `Last error: ${lastError instanceof Error ? lastError.message : String(lastError)}. ` +
+        `Hint: pass substandardId to route directly.`
+      );
+    }
+
     // Helper to get substandard or throw
     function requireSubstandard(id: string): SubstandardPlugin {
       const plugin = substandards.get(id);
@@ -177,38 +200,24 @@ export const CIP113 = {
       },
 
       async mint(params) {
-        // TODO: resolve substandard from policyId via registry lookup
-        // For now, iterate substandards and try
-        for (const plugin of substandards.values()) {
-          try {
-            return await plugin.mint(params);
-          } catch {
-            continue;
-          }
+        if (params.substandardId) {
+          return requireSubstandard(params.substandardId).mint(params);
         }
-        throw new Error(`No substandard can handle mint for policy ${params.tokenPolicyId}`);
+        return tryAllSubstandards("mint", params.tokenPolicyId, (p) => p.mint(params));
       },
 
       async burn(params) {
-        for (const plugin of substandards.values()) {
-          try {
-            return await plugin.burn(params);
-          } catch {
-            continue;
-          }
+        if (params.substandardId) {
+          return requireSubstandard(params.substandardId).burn(params);
         }
-        throw new Error(`No substandard can handle burn for policy ${params.tokenPolicyId}`);
+        return tryAllSubstandards("burn", params.tokenPolicyId, (p) => p.burn(params));
       },
 
       async transfer(params) {
-        for (const plugin of substandards.values()) {
-          try {
-            return await plugin.transfer(params);
-          } catch {
-            continue;
-          }
+        if (params.substandardId) {
+          return requireSubstandard(params.substandardId).transfer(params);
         }
-        throw new Error(`No substandard can handle transfer for policy ${params.tokenPolicyId}`);
+        return tryAllSubstandards("transfer", params.tokenPolicyId, (p) => p.transfer(params));
       },
 
       compliance: {
@@ -221,42 +230,25 @@ export const CIP113 = {
         },
 
         async freeze(params) {
-          for (const plugin of substandards.values()) {
-            if (plugin.freeze) {
-              try {
-                return await plugin.freeze(params);
-              } catch {
-                continue;
-              }
-            }
-          }
-          throw new Error(`No substandard supports freeze for policy ${params.tokenPolicyId}`);
+          // FES tokens have a registered substandard — route via tokenPolicyId match
+          return tryAllSubstandards("freeze", params.tokenPolicyId, (p) => {
+            if (!p.freeze) throw new Error(`${p.id} does not support freeze`);
+            return p.freeze(params);
+          });
         },
 
         async unfreeze(params) {
-          for (const plugin of substandards.values()) {
-            if (plugin.unfreeze) {
-              try {
-                return await plugin.unfreeze(params);
-              } catch {
-                continue;
-              }
-            }
-          }
-          throw new Error(`No substandard supports unfreeze for policy ${params.tokenPolicyId}`);
+          return tryAllSubstandards("unfreeze", params.tokenPolicyId, (p) => {
+            if (!p.unfreeze) throw new Error(`${p.id} does not support unfreeze`);
+            return p.unfreeze(params);
+          });
         },
 
         async seize(params) {
-          for (const plugin of substandards.values()) {
-            if (plugin.seize) {
-              try {
-                return await plugin.seize(params);
-              } catch {
-                continue;
-              }
-            }
-          }
-          throw new Error(`No substandard supports seize for policy ${params.tokenPolicyId}`);
+          return tryAllSubstandards("seize", params.tokenPolicyId, (p) => {
+            if (!p.seize) throw new Error(`${p.id} does not support seize`);
+            return p.seize(params);
+          });
         },
       },
 
@@ -310,3 +302,6 @@ export type {
 export { Data } from "./core/datums.js";
 export * from "./core/redeemers.js";
 export { sortTxInputs, findRefInputIndex } from "./core/registry.js";
+export { addressHexToBech32 } from "./provider/address-utils.js";
+export { assembleSignedTx } from "./provider/tx-utils.js";
+export type { FESDeploymentParams } from "./substandards/freeze-and-seize/types.js";

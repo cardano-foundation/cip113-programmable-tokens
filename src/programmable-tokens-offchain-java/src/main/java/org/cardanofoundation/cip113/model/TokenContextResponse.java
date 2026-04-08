@@ -3,5 +3,7 @@ package org.cardanofoundation.cip113.model;
 public record TokenContextResponse(
         String policyId,
         String substandardId,
-        String blacklistNodePolicyId
+        String assetName,
+        String blacklistNodePolicyId,
+        String issuerAdminPkh
 ) {}

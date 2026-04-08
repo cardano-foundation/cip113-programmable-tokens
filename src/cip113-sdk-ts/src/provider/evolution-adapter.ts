@@ -13,11 +13,27 @@ import {
   Script,
   UPLC,
   Address as EvoAddress,
+  AddressEras,
+  BaseAddress,
   Assets,
   Credential,
   InlineDatum,
   KeyHash,
+  UTxO as EvoUTxO,
+  TransactionHash,
+  RewardAccount,
+  EnterpriseAddress,
 } from "@evolution-sdk/evolution";
+
+// Import Chain presets for proper network context
+import {
+  mainnet as mainnetChain,
+  preprod as preprodChain,
+  preview as previewChain,
+} from "@evolution-sdk/evolution/sdk/client/Chain";
+
+// Import PlutusV3 class for proper script construction
+import { PlutusV3 } from "@evolution-sdk/evolution/PlutusV3";
 
 import type {
   CIP113Adapter,
@@ -135,10 +151,28 @@ function toEvoData(d: unknown): Data.Data {
  * under all moduleResolution settings.
  */
 function buildEvoScript(compiledCode: HexString): Script.Script {
-  return {
-    _tag: "PlutusV3",
-    bytes: Bytes.fromHex(compiledCode),
-  } as Script.Script;
+  // Blueprint compiledCode is "single" CBOR (one bytestring wrapper).
+  // applyParamsToScript output is "double" CBOR (two bytestring wrappers).
+  //
+  // PlutusV3.bytes must contain the single-CBOR version:
+  // - Script.toCBORHex adds one CBOR layer → producing double-CBOR in the witness set
+  // - Double-CBOR in the witness set is what Cardano expects on-chain
+  //
+  // For "double" (applyParamsToScript output): strip the outer CBOR header.
+  // For "single"/"none" (blueprint compiledCode): use as-is.
+  const level = UPLC.getCborEncodingLevel(compiledCode);
+
+  if (level === "double") {
+    // Strip outer CBOR bytestring header to get the inner single-CBOR bytes
+    const raw = Bytes.fromHex(compiledCode);
+    const additionalInfo = raw[0] & 0x1f;
+    const headerLen = additionalInfo < 24 ? 1 : additionalInfo === 24 ? 2 : additionalInfo === 25 ? 3 : 5;
+    const innerBytes = raw.slice(headerLen);
+    return new PlutusV3({ bytes: innerBytes }) as unknown as Script.Script;
+  }
+
+  // "single" or "none": the compiledCode bytes go directly to PlutusV3
+  return new PlutusV3({ bytes: Bytes.fromHex(compiledCode) }) as unknown as Script.Script;
 }
 
 /** Convert a CIP113 Value to Evolution Assets */
@@ -199,11 +233,15 @@ function fromEvoAssets(evoAssets: Assets.Assets): Value {
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function fromEvoUtxo(evoUtxo: any): UTxO {
-  // Extract transaction hash from TransactionHash tagged class
-  const txHash: string =
-    typeof evoUtxo.transactionId === "object" && evoUtxo.transactionId?.hash
-      ? String(evoUtxo.transactionId.hash)
-      : String(evoUtxo.transactionId ?? "");
+  // Extract transaction hash using Evolution SDK's TransactionHash.toHex
+  let txHash: string;
+  if (evoUtxo.transactionId?._tag === "TransactionHash") {
+    txHash = TransactionHash.toHex(evoUtxo.transactionId);
+  } else if (typeof evoUtxo.transactionId === "string") {
+    txHash = evoUtxo.transactionId;
+  } else {
+    txHash = "";
+  }
 
   const outputIndex = Number(evoUtxo.index ?? 0);
 
@@ -223,6 +261,11 @@ function fromEvoUtxo(evoUtxo: any): UTxO {
   const value = fromEvoAssets(evoUtxo.assets);
 
   const utxo: UTxO = { txHash, outputIndex, address, value };
+
+  // Preserve the raw Evolution UTxO for pass-through to tx builder
+  // This avoids lossy round-trip conversion
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (utxo as any)._evoUtxo = evoUtxo;
 
   // Extract datum if present
   if (evoUtxo.datumOption != null) {
@@ -253,36 +296,40 @@ function fromEvoUtxo(evoUtxo: any): UTxO {
 /**
  * Convert a CIP113 UTxO to an Evolution SDK UTxO for use in tx builder.
  *
- * Needed by collectFrom and readFrom to pass properly typed inputs.
- * We construct the object shape that Evolution's TransactionBuilder expects.
+ * If the UTxO was originally fetched via this adapter, uses the preserved
+ * raw Evolution UTxO (avoids lossy round-trip). Otherwise constructs one.
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function toEvoUtxo(utxo: UTxO): any {
+function toEvoUtxo(utxo: UTxO): EvoUTxO.UTxO {
+  // Fast path: use preserved raw Evolution UTxO if available
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const raw = (utxo as any)._evoUtxo;
+  if (raw instanceof EvoUTxO.UTxO) return raw;
+
   const evoAddress = EvoAddress.fromBech32(utxo.address);
   const evoAssets = toEvoAssets(utxo.value);
 
+  // Build params for the UTxO constructor
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const result: any = {
-    _tag: "UTxO",
-    transactionId: { _tag: "TransactionHash", hash: utxo.txHash },
+  const params: any = {
+    transactionId: new TransactionHash.TransactionHash({
+      hash: Bytes.fromHex(utxo.txHash),
+    }),
     index: BigInt(utxo.outputIndex),
     address: evoAddress,
     assets: evoAssets,
   };
 
   if (utxo.datum != null) {
-    result.datumOption = new InlineDatum.InlineDatum({
+    params.datumOption = new InlineDatum.InlineDatum({
       data: toEvoData(utxo.datum),
     });
-  } else if (utxo.datumHash != null) {
-    result.datumOption = { _tag: "DatumHash", hash: utxo.datumHash };
   }
 
   if (utxo.referenceScript != null) {
-    result.scriptRef = buildEvoScript(utxo.referenceScript.compiledCode);
+    params.scriptRef = buildEvoScript(utxo.referenceScript.compiledCode);
   }
 
-  return result;
+  return new EvoUTxO.UTxO(params);
 }
 
 // ---------------------------------------------------------------------------
@@ -297,10 +344,14 @@ function toEvoUtxo(utxo: UTxO): any {
 class EvolutionTxPlan implements TxPlan {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private builder: any;
+  private changeAddr?: string;
+  private availableUtxos?: EvoUTxO.UTxO[];
+  private networkId: number;
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  constructor(builder: any) {
+  constructor(builder: any, networkId: number) {
     this.builder = builder;
+    this.networkId = networkId;
   }
 
   payToAddress(params: PayToAddressParams): TxPlan {
@@ -369,6 +420,15 @@ class EvolutionTxPlan implements TxPlan {
       Bytes.fromHex(params.stakeCredential)
     );
 
+    // Debug: log what we're passing
+    console.log("[CIP113 DEBUG] withdraw stakeCredential:", JSON.stringify({
+      type: stakeCredential?.constructor?.name ?? typeof stakeCredential,
+      _tag: (stakeCredential as any)?._tag,
+      hash: (stakeCredential as any)?.hash ? "present" : "missing",
+      networkId: this.networkId,
+      stakeCredHex: params.stakeCredential,
+    }));
+
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const evoParams: any = {
       stakeCredential,
@@ -379,7 +439,13 @@ class EvolutionTxPlan implements TxPlan {
       evoParams.redeemer = toEvoData(params.redeemer);
     }
 
-    this.builder = this.builder.withdraw(evoParams);
+    console.log("[CIP113 DEBUG] calling builder.withdraw with:", Object.keys(evoParams));
+    try {
+      this.builder = this.builder.withdraw(evoParams);
+    } catch (e) {
+      console.error("[CIP113 DEBUG] builder.withdraw THREW:", e);
+      throw e;
+    }
     return this;
   }
 
@@ -405,6 +471,16 @@ class EvolutionTxPlan implements TxPlan {
     return this;
   }
 
+  provideUtxos(utxos: UTxO[]): TxPlan {
+    this.availableUtxos = utxos.map(toEvoUtxo);
+    return this;
+  }
+
+  setChangeAddress(address: string): TxPlan {
+    this.changeAddr = address;
+    return this;
+  }
+
   setValidity(params: ValidityParams): TxPlan {
     // Evolution ValidityParams uses { from?: UnixTime, to?: UnixTime }
     // Both are Unix time in milliseconds, converted to slots internally
@@ -417,22 +493,76 @@ class EvolutionTxPlan implements TxPlan {
   }
 
   async build(): Promise<BuiltTx> {
-    // Evolution build() returns a SignBuilder which provides sign/submit chain.
-    // For unsigned CBOR access, we extract it from the result.
-    const result = await this.builder.build();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const buildOptions: any = {};
+    if (this.changeAddr) {
+      buildOptions.changeAddress = EvoAddress.fromBech32(this.changeAddr);
+    }
+    if (this.availableUtxos) {
+      buildOptions.availableUtxos = this.availableUtxos;
+    }
+
+    // Use buildEither to capture errors without throwing — lets us log the tx
+    const either = await this.builder.buildEither(buildOptions);
+
+    // Either is { _tag: "Right", right: result } or { _tag: "Left", left: error }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const eitherAny = either as any;
+
+    if (eitherAny._tag === "Left") {
+      const error = eitherAny.left;
+      console.error("[CIP113] Transaction build failed:", error?.message ?? error);
+
+      // DEBUG: Retry with dummy evaluator to extract CBOR for comparison
+      try {
+        const { Effect } = await import("effect");
+        const { Transaction: TxModule } = await import("@evolution-sdk/evolution");
+        const debugEither = await this.builder.buildEither({
+          ...buildOptions,
+          evaluator: {
+            evaluate: (tx: any) => {
+              // Log the raw tx CBOR
+              try { console.log("[CIP113 DEBUG] Pre-eval tx CBOR:", TxModule.toCBORHex(tx)); } catch {}
+              // Return dummy redeemers for ALL spend + reward purposes
+              const r: any[] = [];
+              const eu = { mem: 14000000n, steps: 10000000000n };
+              let spendIdx = 0;
+              for (const _inp of tx?.body?.inputs ?? []) r.push({ redeemer_tag: "spend", redeemer_index: spendIdx++, ex_units: eu });
+              let rewIdx = 0;
+              for (const [_k] of tx?.body?.withdrawals ?? new Map()) r.push({ redeemer_tag: "reward", redeemer_index: rewIdx++, ex_units: eu });
+              console.log("[CIP113 DEBUG] Dummy evaluator:", r.length, "redeemers");
+              return Effect.succeed(r);
+            },
+          },
+        });
+        if ((debugEither as any)._tag === "Right") {
+          const debugTx = await (debugEither as any).right.toTransaction();
+          console.log("[CIP113 DEBUG] Unsigned tx CBOR:", TxModule.toCBORHex(debugTx));
+        }
+      } catch (e2: any) {
+        console.error("[CIP113 DEBUG] Debug build also failed:", e2?.message);
+      }
+
+      throw error;
+    }
+
+    const result = eitherAny.right;
+
+    // Extract transaction for CBOR serialization
+    const { Transaction: TxModule } = await import("@evolution-sdk/evolution");
+    const tx = await result.toTransaction();
+    const cbor = TxModule.toCBORHex(tx);
+    console.log("[CIP113 DEBUG] Unsigned tx CBOR hex:", cbor);
 
     return {
       toCbor(): HexString {
-        if (typeof result.toCBOR === "function") return result.toCBOR();
-        if (typeof result.toCBORHex === "function") return result.toCBORHex();
-        if (typeof result.toCbor === "function") return result.toCbor();
-        throw new Error("Cannot extract CBOR from built transaction");
+        return cbor;
       },
       txHash(): TxHash {
+        // Transaction hash from the serialized body
         if (typeof result.txHash === "function") return result.txHash();
-        if (typeof result.hash === "function") return result.hash();
-        if (typeof result.txHash === "string") return result.txHash;
-        throw new Error("Cannot extract txHash from built transaction");
+        // Derive from CBOR if needed
+        return "";
       },
     };
   }
@@ -460,11 +590,14 @@ class EvolutionTxPlan implements TxPlan {
 export function evolutionAdapter(
   config: EvolutionAdapterConfig
 ): CIP113Adapter {
-  const chainName = toEvoChain(config.network);
+  const chain = config.network === "mainnet" ? mainnetChain
+    : config.network === "preprod" ? preprodChain
+    : previewChain;
+  const networkId = chain.id;
 
-  // Step 1: Create chain-scoped assembly
+  // Step 1: Create chain-scoped assembly with proper Chain preset
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let builder: any = evoClient(chainName as any);
+  let builder: any = evoClient(chain);
 
   // Step 2: Attach provider (produces ReadClient)
   switch (config.provider.type) {
@@ -493,17 +626,25 @@ export function evolutionAdapter(
       break;
   }
 
-  // Step 3: Attach wallet if provided (produces SigningClient)
+  // Step 3: Attach wallet
   if (config.wallet) {
+    // Full signing wallet (seed phrase)
     builder = builder.withSeed({
       mnemonic: config.wallet.mnemonic,
       ...(config.wallet.accountIndex != null
         ? { accountIndex: config.wallet.accountIndex }
         : {}),
     });
+  } else {
+    // Read-only wallet with a dummy address — gives the builder network context
+    // (required for withdrawal RewardAccount construction)
+    const dummyAddr = networkId === 1
+      ? "addr1qx2kd28nq8ac5prwg32hhvudlwggpgfp8utlyqxu6wqgz62f79qsdmm5dsknt9ecr5w468r9ey0fxwkdrwh08ly3tu9sy0f4qd"
+      : "addr_test1qzx9hu8j4ah3auytk0mwcupd69hpc52t0cw39a65ndrah86djs784u92a3m5w475w3w35tyd6v3qumkze80j8a6h5tuqq5xe8y";
+    builder = builder.withAddress(dummyAddr);
   }
 
-  // The final client: ReadClient (no wallet) or SigningClient (with wallet)
+  // The final client: ReadOnlyClient or SigningClient
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const evoClient_: any = builder;
 
@@ -555,22 +696,47 @@ export function evolutionAdapter(
     },
 
     scriptAddress(scriptHash: ScriptHash): Address {
-      // Enterprise address: header 0x70 (testnet) or 0x71 (mainnet) + 28-byte script hash
-      const headerByte = config.network === "mainnet" ? "71" : "70";
-      return EvoAddress.toBech32(EvoAddress.fromHex(headerByte + scriptHash));
+      const cred = new EvoScriptHash.ScriptHash({ hash: Bytes.fromHex(scriptHash) });
+      const addr = new EnterpriseAddress.EnterpriseAddress({ networkId, paymentCredential: cred });
+      return AddressEras.toBech32(addr);
     },
 
     rewardAddress(scriptHash: ScriptHash): Address {
-      // Reward address: header 0xf0 (testnet script) or 0xf1 (mainnet script) + 28-byte script hash
-      const headerByte = config.network === "mainnet" ? "f1" : "f0";
-      return EvoAddress.toBech32(EvoAddress.fromHex(headerByte + scriptHash));
+      const cred = new EvoScriptHash.ScriptHash({ hash: Bytes.fromHex(scriptHash) });
+      const addr = new RewardAccount.RewardAccount({ networkId, stakeCredential: cred });
+      return AddressEras.toBech32(addr);
+    },
+
+    baseAddress(scriptHash: ScriptHash, userAddress: Address): Address {
+      // Build a base address: script payment credential + user's key staking credential
+      // Uses Evolution SDK's BaseAddress constructor for correct header byte computation
+      const stakingHash = this.stakingCredentialHash(userAddress);
+
+      const addr = new BaseAddress.BaseAddress({
+        networkId,
+        paymentCredential: new EvoScriptHash.ScriptHash({
+          hash: Bytes.fromHex(scriptHash),
+        }),
+        stakeCredential: new KeyHash.KeyHash({
+          hash: Bytes.fromHex(stakingHash),
+        }),
+      });
+
+      return AddressEras.toBech32(addr);
+    },
+
+    stakingCredentialHash(address: Address): HexString {
+      // Parse as BaseAddress to extract staking credential using Evolution SDK
+      const evoAddr = EvoAddress.fromBech32(address);
+      const baseAddr = BaseAddress.fromHex(EvoAddress.toHex(evoAddr));
+      return Bytes.toHex(baseAddr.stakeCredential.hash);
     },
 
     // -- TxBuilder --
 
     newTx(): TxPlan {
       const txBuilder = evoClient_.newTx();
-      return new EvolutionTxPlan(txBuilder);
+      return new EvolutionTxPlan(txBuilder, networkId);
     },
   };
 }

@@ -13,10 +13,8 @@
     "test:parameterization": "node test-parameterization.js"
   },
   "dependencies": {
+    "@cip113/sdk": "file:../cip113-sdk-ts",
     "@hookform/resolvers": "^3.9.0",
-    "@meshsdk/core": "^1.9.0-beta.1",
-    "@meshsdk/core-cst": "^1.9.0-beta.1",
-    "@meshsdk/react": "^1.9.0-beta.1",
     "@utxorpc/sdk": "^0.7.0",
     "@utxorpc/spec": "^0.18.1",
     "cbor": "^10.0.11",

@@ -1,28 +1,18 @@
 "use client";
 
 import { useState } from "react";
-import { useWallet } from "@meshsdk/react";
+import { useWallet } from "@/hooks/use-wallet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SubstandardSelector } from "./substandard-selector";
-import {
-  TransactionBuilderToggle,
-  TransactionBuilder,
-} from "./transaction-builder-toggle";
 import { Substandard, LegacyMintFormData } from "@/types/api";
 import {
   prepareLegacyMintRequest,
   legacyMintToken,
   stringToHex,
-  getProtocolBlueprint,
-  getProtocolBootstrap,
-  getSubstandardBlueprint,
 } from "@/lib/api";
 import { useToast } from "@/components/ui/use-toast";
 import { useProtocolVersion } from "@/contexts/protocol-version-context";
-import { getSubstandardHandler } from "@/lib/mesh-sdk/standard/factory";
-import type { MintTransactionParams } from "@/lib/mesh-sdk/standard/factory";
-import { IWallet } from "@meshsdk/core";
 
 interface MintFormProps {
   substandards: Substandard[];
@@ -50,8 +40,6 @@ export function MintForm({
   const [recipientAddress, setRecipientAddress] = useState("");
   const [substandardId, setSubstandardId] = useState("");
   const [validatorTitle, setValidatorTitle] = useState("");
-  const [transactionBuilder, setTransactionBuilder] =
-    useState<TransactionBuilder>("backend");
   const [isBuilding, setIsBuilding] = useState(false);
 
   const [errors, setErrors] = useState({
@@ -135,65 +123,20 @@ export function MintForm({
       }
       const issuerAddress = addresses[0];
 
-      let unsignedTxCborHex: string;
+      const formData: LegacyMintFormData = {
+        tokenName,
+        quantity,
+        substandardId,
+        validatorTitle,
+        recipientAddress: recipientAddress.trim() || undefined,
+      };
 
-      if (transactionBuilder === "frontend") {
-        // Client-side transaction building
-        showToast({
-          title: "Building Transaction",
-          description: "Building transaction on client side...",
-          variant: "default",
-        });
-
-        // Fetch protocol data
-        const protocolTxHash = selectedVersion?.txHash;
-        const [protocolBlueprint, protocolBootstrap, substandardBlueprint] =
-          await Promise.all([
-            getProtocolBlueprint(),
-            getProtocolBootstrap(protocolTxHash),
-            getSubstandardBlueprint(substandardId),
-          ]);
-
-        // Get substandard handler
-        const handler = getSubstandardHandler(
-          substandardId as "dummy" | "bafin"
-        );
-
-        // Prepare mint parameters
-        const mintParams: MintTransactionParams = {
-          assetName: tokenName,
-          quantity,
-          issuerBaseAddress: issuerAddress,
-          recipientAddress: recipientAddress.trim() || undefined,
-          substandardName: substandardId,
-          substandardIssueContractName: validatorTitle,
-        };
-
-        // Build transaction client-side
-        unsignedTxCborHex = await handler.buildMintTransaction(
-          mintParams,
-          protocolBootstrap,
-          protocolBlueprint,
-          substandardBlueprint,
-          wallet as IWallet
-        );
-      } else {
-        // Server-side transaction building (existing logic)
-        const formData: LegacyMintFormData = {
-          tokenName,
-          quantity,
-          substandardId,
-          validatorTitle,
-          recipientAddress: recipientAddress.trim() || undefined,
-        };
-
-        const request = prepareLegacyMintRequest(formData, issuerAddress);
-        unsignedTxCborHex = await legacyMintToken(request);
-      }
+      const request = prepareLegacyMintRequest(formData, issuerAddress);
+      const unsignedTxCborHex = await legacyMintToken(request);
 
       showToast({
         title: "Transaction Built",
-        description: `Transaction built successfully using ${transactionBuilder} builder`,
+        description: "Transaction built successfully",
         variant: "success",
       });
 
@@ -281,13 +224,6 @@ export function MintForm({
           <p className="mt-1 text-sm text-red-400">{errors.substandard}</p>
         )}
       </div>
-
-      {/* Transaction Builder Toggle */}
-      <TransactionBuilderToggle
-        value={transactionBuilder}
-        onChange={setTransactionBuilder}
-        disabled={isBuilding}
-      />
 
       {/* Submit Button */}
       <Button

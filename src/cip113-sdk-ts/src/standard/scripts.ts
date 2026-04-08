@@ -115,8 +115,15 @@ export function createStandardScripts(
 }
 
 /**
- * Build all static standard scripts from deployment params.
- * Returns cached scripts that don't vary per substandard/token.
+ * Build resolved standard scripts from deployment params.
+ *
+ * IMPORTANT: Uses the known hashes from DeploymentParams (the source of truth)
+ * rather than re-deriving them from the blueprint. Re-derivation can produce
+ * different CBOR encoding → different hashes → wrong addresses.
+ *
+ * The compiled code is still parameterized from the blueprint when needed
+ * (e.g., to attach a script to a transaction), but the hashes come from
+ * the deployment.
  */
 export function buildDeploymentScripts(
   blueprint: PlutusBlueprint,
@@ -125,30 +132,42 @@ export function buildDeploymentScripts(
 ): ResolvedStandardScripts {
   const builders = createStandardScripts(blueprint, provider);
 
+  // Use KNOWN hashes from deployment — these are the actual on-chain values
+  // Re-parameterize scripts for their compiled code, but override hashes
+
   const protocolParamsMint = builders.protocolParamsMint(
     deployment.protocolParams.txInput,
     deployment.protocolParams.alwaysFailScriptHash
   );
+  // Override hash with the known deployment value
+  protocolParamsMint.hash = deployment.protocolParams.policyId;
 
   const programmableLogicGlobal = builders.programmableLogicGlobal(
-    protocolParamsMint.hash
+    deployment.protocolParams.policyId // Use known hash, not derived
   );
+  programmableLogicGlobal.hash = deployment.programmableLogicGlobal.scriptHash;
 
   const programmableLogicBase = builders.programmableLogicBase(
-    programmableLogicGlobal.hash
+    deployment.programmableLogicGlobal.scriptHash // Use known hash
   );
+  programmableLogicBase.hash = deployment.programmableLogicBase.scriptHash;
 
   const issuanceCborHexMint = builders.issuanceCborHexMint(
     deployment.issuance.txInput,
     deployment.issuance.alwaysFailScriptHash
   );
+  issuanceCborHexMint.hash = deployment.issuance.policyId;
 
   const registryMint = builders.registryMint(
     deployment.directoryMint.txInput,
-    issuanceCborHexMint.hash
+    deployment.issuance.policyId // Use known hash
   );
+  registryMint.hash = deployment.directoryMint.scriptHash;
 
-  const registrySpend = builders.registrySpend(protocolParamsMint.hash);
+  const registrySpend = builders.registrySpend(
+    deployment.protocolParams.policyId // Use known hash
+  );
+  registrySpend.hash = deployment.directorySpend.scriptHash;
 
   return {
     protocolParamsMint,
@@ -160,8 +179,8 @@ export function buildDeploymentScripts(
     /** Build an issuance_mint script for a specific minting logic credential */
     buildIssuanceMint(mintingLogicHash: ScriptHash) {
       return builders.issuanceMint(
-        programmableLogicBase.hash,
-        registryMint.hash,
+        deployment.programmableLogicBase.scriptHash, // Known PLB hash
+        deployment.directoryMint.scriptHash, // Known registry mint hash
         mintingLogicHash
       );
     },

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useWallet } from "@meshsdk/react";
+import { useWallet } from "@/hooks/use-wallet";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Flame, Loader2, ExternalLink, AlertTriangle } from "lucide-react";

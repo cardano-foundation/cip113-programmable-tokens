@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useWallet } from "@meshsdk/react";
+import { useWallet } from "@/hooks/use-wallet";
 import {
   Card,
   CardHeader,

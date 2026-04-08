@@ -23,3 +23,11 @@ export const ORIGIN_NODE_TOKEN_NAME = "";
 
 /** Max next pointer for linked list sentinel */
 export const MAX_NEXT = "ff".repeat(28);
+
+/**
+ * Convert a hex-encoded Cardano address to bech32.
+ * Uses Evolution SDK's Address module under the hood.
+ *
+ * CIP-30 wallets return hex addresses — this converts them for display and API use.
+ */
+export { addressHexToBech32 } from "../provider/address-utils.js";

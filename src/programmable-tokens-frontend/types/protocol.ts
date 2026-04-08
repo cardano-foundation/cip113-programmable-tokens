@@ -4,12 +4,15 @@ export interface TxInput {
 }
 
 export interface ProtocolParams {
+  txInput: TxInput;
   scriptHash: string;
+  alwaysFailScriptHash: string;
 }
 
 export interface DirectoryMintParams {
   txInput: TxInput;
   issuanceScriptHash: string;
+  scriptHash: string;
 }
 
 export interface ProgrammableLogicBaseParams {
@@ -21,7 +24,9 @@ export interface ProgrammableLogicGlobalParams {
 }
 
 export interface IssuanceParams {
+  txInput: TxInput;
   scriptHash: string;
+  alwaysFailScriptHash: string;
 }
 
 export interface DirectorySpendParams {
@@ -77,5 +82,7 @@ export interface SubstandardBlueprint {
 export interface TokenContext {
   policyId: string;
   substandardId: string;
+  assetName?: string;
   blacklistNodePolicyId?: string;
+  issuerAdminPkh?: string;
 }
