@@ -21,8 +21,8 @@ export const ISSUANCE_CBOR_HEX_TOKEN_NAME = stringToHex("IssuanceCborHex");
 /** Origin node token name (empty byte string) */
 export const ORIGIN_NODE_TOKEN_NAME = "";
 
-/** Max next pointer for linked list sentinel */
-export const MAX_NEXT = "ff".repeat(28);
+/** Max next pointer for linked list sentinel (30 bytes, matches Aiken #"ff"*30) */
+export const MAX_NEXT = "ff".repeat(30);
 
 /**
  * Convert a hex-encoded Cardano address to bech32.

@@ -8,6 +8,7 @@ import { Card } from '@/components/ui/card';
 import { CopyButton } from '@/components/ui/copy-button';
 import { useToast } from '@/components/ui/use-toast';
 import { useProtocolVersion } from '@/contexts/protocol-version-context';
+import { useCIP113 } from '@/contexts/cip113-context';
 import { initBlacklist } from '@/lib/api/compliance';
 import { registerToken, stringToHex } from '@/lib/api';
 import { getPaymentKeyHash } from '@/lib/utils/address';
@@ -49,6 +50,8 @@ export function CombinedBuildSignSubmitStep({
   const { connected, wallet } = useWallet();
   const { toast: showToast } = useToast();
   const { selectedVersion } = useProtocolVersion();
+  const { buildFESRegistration, registerTokenCallback, available: sdkAvailable } = useCIP113();
+  const [useSDK, setUseSDK] = useState(sdkAvailable);
 
   const [status, setStatus] = useState<CombinedStatus>('idle');
   const [errorMessage, setErrorMessage] = useState('');
@@ -111,51 +114,79 @@ export function CombinedBuildSignSubmitStep({
       if (!addresses?.[0]) throw new Error('No wallet address found');
       const adminAddress = addresses[0];
 
-      // --- Step 1: Build init tx ---
-      setStatus('building-init');
-      showToastRef.current({
-        title: 'Building Transactions',
-        description: 'Building blacklist initialization...',
-        variant: 'default',
-      });
+      if (useSDK) {
+        // ===== SDK PATH: Build both txs client-side =====
+        setStatus('building-init');
+        showToastRef.current({
+          title: 'Building with CIP-113 SDK',
+          description: 'Building blacklist init + registration...',
+          variant: 'default',
+        });
 
-      const initResponse = await initBlacklist(
-        {
-          substandardId: 'freeze-and-seize',
+        const sdkResult = await buildFESRegistration({
           adminAddress,
+          assetName: tokenDetails.assetName,
+          quantity: tokenDetails.quantity,
+          recipientAddress: tokenDetails.recipientAddress,
+        });
+
+        setBlacklistNodePolicyId(sdkResult.blacklistNodePolicyId);
+        setInitUnsignedCbor(sdkResult.initCbor);
+        setDerivedInitTxHash(await resolveTxHash(sdkResult.initCbor));
+
+        setStatus('building-reg');
+        setTokenPolicyId(sdkResult.tokenPolicyId);
+        setRegUnsignedCbor(sdkResult.regCbor);
+        setDerivedRegTxHash(await resolveTxHash(sdkResult.regCbor));
+      } else {
+        // ===== BACKEND PATH: Build via Java API =====
+
+        // --- Step 1: Build init tx ---
+        setStatus('building-init');
+        showToastRef.current({
+          title: 'Building Transactions',
+          description: 'Building blacklist initialization...',
+          variant: 'default',
+        });
+
+        const initResponse = await initBlacklist(
+          {
+            substandardId: 'freeze-and-seize',
+            adminAddress,
+            feePayerAddress: adminAddress,
+            assetName: stringToHex(tokenDetails.assetName),
+          },
+          selectedVersion?.txHash
+        );
+        setBlacklistNodePolicyId(initResponse.policyId);
+        setInitUnsignedCbor(initResponse.unsignedCborTx);
+        setDerivedInitTxHash(await resolveTxHash(initResponse.unsignedCborTx));
+
+        // --- Step 2: Build registration tx with chaining (send full init CBOR) ---
+        setStatus('building-reg');
+        showToastRef.current({
+          title: 'Building Transactions',
+          description: 'Building registration transaction...',
+          variant: 'default',
+        });
+
+        const adminPubKeyHash = getPaymentKeyHash(adminAddress);
+        const regRequest: FreezeAndSeizeRegisterRequest = {
+          substandardId: 'freeze-and-seize',
           feePayerAddress: adminAddress,
           assetName: stringToHex(tokenDetails.assetName),
-        },
-        selectedVersion?.txHash
-      );
-      setBlacklistNodePolicyId(initResponse.policyId);
-      setInitUnsignedCbor(initResponse.unsignedCborTx);
-      setDerivedInitTxHash(await resolveTxHash(initResponse.unsignedCborTx));
+          quantity: tokenDetails.quantity,
+          recipientAddress: tokenDetails.recipientAddress || '',
+          adminPubKeyHash,
+          blacklistNodePolicyId: initResponse.policyId,
+          chainingTransactionCborHex: initResponse.unsignedCborTx,
+        };
 
-      // --- Step 2: Build registration tx with chaining (send full init CBOR) ---
-      setStatus('building-reg');
-      showToastRef.current({
-        title: 'Building Transactions',
-        description: 'Building registration transaction...',
-        variant: 'default',
-      });
-
-      const adminPubKeyHash = getPaymentKeyHash(adminAddress);
-      const regRequest: FreezeAndSeizeRegisterRequest = {
-        substandardId: 'freeze-and-seize',
-        feePayerAddress: adminAddress,
-        assetName: stringToHex(tokenDetails.assetName),
-        quantity: tokenDetails.quantity,
-        recipientAddress: tokenDetails.recipientAddress || '',
-        adminPubKeyHash,
-        blacklistNodePolicyId: initResponse.policyId,
-        chainingTransactionCborHex: initResponse.unsignedCborTx,
-      };
-
-      const regResponse = await registerToken(regRequest, selectedVersion?.txHash);
-      setTokenPolicyId(regResponse.policyId);
-      setRegUnsignedCbor(regResponse.unsignedCborTx);
-      setDerivedRegTxHash(await resolveTxHash(regResponse.unsignedCborTx));
+        const regResponse = await registerToken(regRequest, selectedVersion?.txHash);
+        setTokenPolicyId(regResponse.policyId);
+        setRegUnsignedCbor(regResponse.unsignedCborTx);
+        setDerivedRegTxHash(await resolveTxHash(regResponse.unsignedCborTx));
+      }
 
       // --- Show preview ---
       setStatus('preview');
@@ -177,7 +208,7 @@ export function CombinedBuildSignSubmitStep({
     } finally {
       setProcessing(false);
     }
-  }, [connected, wallet, tokenDetails, selectedVersion, onError, setProcessing]);
+  }, [connected, wallet, tokenDetails, selectedVersion, onError, setProcessing, useSDK, buildFESRegistration]);
 
   // ---- SIGN BOTH & SUBMIT SEQUENTIALLY ----
   const handleSignAndSubmit = useCallback(async () => {
@@ -270,6 +301,24 @@ export function CombinedBuildSignSubmitStep({
         description: 'Both transactions submitted successfully',
         variant: 'success',
       });
+
+      // Register token in backend DB (callback for SDK-built registrations)
+      if (useSDK && tokenPolicyId) {
+        try {
+          const addresses = await wallet.getUsedAddresses();
+          const adminAddr = addresses?.[0] ?? '';
+          await registerTokenCallback({
+            policyId: tokenPolicyId,
+            substandardId: 'freeze-and-seize',
+            assetName: stringToHex(tokenDetails.assetName || ''),
+            issuerAdminPkh: adminAddr ? getPaymentKeyHash(adminAddr) : '',
+            blacklistNodePolicyId,
+          });
+          console.log('[CIP-113] Token registered in backend DB');
+        } catch (e) {
+          console.warn('[CIP-113] Failed to register token in backend DB:', e);
+        }
+      }
 
       // Complete the wizard step
       onComplete({
@@ -480,6 +529,37 @@ export function CombinedBuildSignSubmitStep({
             </div>
           </Card>
 
+          {/* SDK / Backend toggle */}
+          <Card className="p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-dark-300">Transaction Builder</span>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setUseSDK(false)}
+                  className={`px-3 py-1 rounded text-xs font-medium transition-colors ${
+                    !useSDK ? 'bg-primary-500 text-white' : 'bg-dark-700 text-dark-400 hover:text-white'
+                  }`}
+                >
+                  Backend (Java)
+                </button>
+                <button
+                  onClick={() => setUseSDK(true)}
+                  disabled={!sdkAvailable}
+                  className={`px-3 py-1 rounded text-xs font-medium transition-colors ${
+                    useSDK ? 'bg-primary-500 text-white' : 'bg-dark-700 text-dark-400 hover:text-white'
+                  } ${!sdkAvailable ? 'opacity-50 cursor-not-allowed' : ''}`}
+                >
+                  SDK (Evolution)
+                </button>
+              </div>
+            </div>
+            <p className="text-xs text-dark-500">
+              {useSDK
+                ? 'Building transactions client-side with CIP-113 SDK + Evolution SDK'
+                : 'Building transactions server-side with Java backend'}
+            </p>
+          </Card>
+
           <Card className="p-4 bg-blue-500/10 border-blue-500/30">
             <div className="flex items-start gap-3">
               <svg className="w-5 h-5 text-blue-400 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -558,6 +638,32 @@ export function CombinedBuildSignSubmitStep({
               )}
             </div>
           </Card>
+
+          {/* CBOR Debug: Init Tx */}
+          {initUnsignedCbor && (
+            <Card className="p-4 space-y-2">
+              <div className="flex items-center justify-between">
+                <h4 className="font-medium text-white text-sm">Init Tx CBOR ({useSDK ? 'SDK' : 'Backend'})</h4>
+                <CopyButton value={initUnsignedCbor} />
+              </div>
+              <p className="text-xs text-dark-500 font-mono break-all max-h-24 overflow-y-auto">
+                {initUnsignedCbor}
+              </p>
+            </Card>
+          )}
+
+          {/* CBOR Debug: Reg Tx */}
+          {regUnsignedCbor && (
+            <Card className="p-4 space-y-2">
+              <div className="flex items-center justify-between">
+                <h4 className="font-medium text-white text-sm">Reg Tx CBOR ({useSDK ? 'SDK' : 'Backend'})</h4>
+                <CopyButton value={regUnsignedCbor} />
+              </div>
+              <p className="text-xs text-dark-500 font-mono break-all max-h-24 overflow-y-auto">
+                {regUnsignedCbor}
+              </p>
+            </Card>
+          )}
         </>
       )}
 

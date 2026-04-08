@@ -32,6 +32,7 @@ import {
   getSubstandardBlueprint,
   getTokenContext,
 } from "@/lib/api/protocol";
+import { stringToHex } from "@/lib/api/minting";
 import type { ProtocolBootstrapParams } from "@/types/protocol";
 
 // ---------------------------------------------------------------------------
@@ -64,6 +65,22 @@ interface CIP113ContextValue {
     blacklistNodePolicyId?: string;
   }): Promise<void>;
 
+  /**
+   * Build a FES registration flow (blacklist init + token registration).
+   * Returns two unsigned tx CBORs that must be signed and submitted in order.
+   */
+  buildFESRegistration(params: {
+    adminAddress: string;
+    assetName: string;
+    quantity: string;
+    recipientAddress?: string;
+  }): Promise<{
+    initCbor: string;
+    regCbor: string;
+    blacklistNodePolicyId: string;
+    tokenPolicyId: string;
+  }>;
+
   /** Whether the SDK is available (has Blockfrost key) */
   available: boolean;
 }
@@ -72,6 +89,7 @@ const CIP113Context = createContext<CIP113ContextValue>({
   getProtocol: () => Promise.reject(new Error("CIP113Provider not mounted")),
   ensureSubstandard: () => Promise.reject(new Error("CIP113Provider not mounted")),
   registerTokenCallback: () => Promise.reject(new Error("CIP113Provider not mounted")),
+  buildFESRegistration: () => Promise.reject(new Error("CIP113Provider not mounted")),
   available: false,
 });
 
@@ -282,9 +300,97 @@ export function CIP113Provider({ children }: { children: ReactNode }) {
     console.log(`[CIP-113] Token ${params.policyId} registered in backend DB`);
   }, []);
 
+  /**
+   * Build a FES registration flow (blacklist init + token registration).
+   * Creates a temporary FES substandard instance for the registration.
+   */
+  const buildFESRegistration = useCallback(async (params: {
+    adminAddress: string;
+    assetName: string;
+    quantity: string;
+    recipientAddress?: string;
+  }) => {
+    const protocol = await getProtocol();
+    const adapter = protocol.adapter;
+    const assetNameHex = stringToHex(params.assetName);
+    const adminPkh = adapter.paymentCredentialHash(params.adminAddress);
+
+    // Fetch FES blueprint
+    if (!fesBlueprintRef.current) {
+      const fesBp = await getSubstandardBlueprint("freeze-and-seize");
+      fesBlueprintRef.current = substandardToSdkBlueprint(fesBp);
+    }
+
+    // Step 1: We need blacklistInitTxInput — use the first wallet UTxO
+    const walletUtxos = await adapter.getUtxos(params.adminAddress);
+    if (walletUtxos.length === 0) throw new Error("No wallet UTxOs");
+    const bootstrapUtxo = walletUtxos[0];
+    const blacklistInitTxInput = {
+      txHash: bootstrapUtxo.txHash,
+      outputIndex: bootstrapUtxo.outputIndex,
+    };
+
+    // Pre-compute the blacklist mint policy ID deterministically
+    // It's derived from: blacklistMint(bootstrapTxInput, adminPkh)
+    // We need to parameterize just the blacklist mint script to get its hash
+    const { createFESScripts } = await import("@cip113/sdk/freeze-and-seize");
+    const tempFesScripts = createFESScripts(fesBlueprintRef.current, adapter);
+    const blacklistMintScript = tempFesScripts.buildBlacklistMint(blacklistInitTxInput, adminPkh);
+    const blacklistNodePolicyId = blacklistMintScript.hash;
+    console.log("[CIP-113] Pre-computed blacklistNodePolicyId:", blacklistNodePolicyId);
+
+    // Create a FES substandard with the CORRECT blacklistNodePolicyId
+    const fes = freezeAndSeizeSubstandard({
+      blueprint: fesBlueprintRef.current,
+      deployment: {
+        adminPkh,
+        assetName: assetNameHex,
+        blacklistNodePolicyId,
+        blacklistInitTxInput,
+      },
+    });
+
+    fes.init({
+      adapter,
+      standardScripts: protocol.scripts,
+      deployment: protocol.deployment,
+      network: network,
+    });
+
+    // Step 1: Build blacklist init tx
+    console.log("[CIP-113] Building blacklist init tx...");
+    const initResult = await fes.initCompliance!({
+      feePayerAddress: params.adminAddress,
+      adminAddress: params.adminAddress,
+      assetName: params.assetName,
+      skipStakeRegistration: true, // Stake registration handled separately
+    });
+
+    console.log("[CIP-113] Blacklist init built. PolicyId:", initResult.metadata?.blacklistNodePolicyId);
+
+    console.log("[CIP-113] Building registration tx...");
+    const regResult = await fes.register({
+      feePayerAddress: params.adminAddress,
+      assetName: params.assetName,
+      quantity: BigInt(params.quantity),
+      recipientAddress: params.recipientAddress,
+      config: { adminPkh, blacklistNodePolicyId },
+    });
+
+    const tokenPolicyId = regResult.tokenPolicyId ?? "";
+    console.log("[CIP-113] Registration built. TokenPolicyId:", tokenPolicyId);
+
+    return {
+      initCbor: initResult.cbor,
+      regCbor: regResult.cbor,
+      blacklistNodePolicyId,
+      tokenPolicyId,
+    };
+  }, [getProtocol, network]);
+
   const value = useMemo(
-    () => ({ getProtocol, ensureSubstandard, registerTokenCallback, available }),
-    [getProtocol, ensureSubstandard, registerTokenCallback, available]
+    () => ({ getProtocol, ensureSubstandard, registerTokenCallback, buildFESRegistration, available }),
+    [getProtocol, ensureSubstandard, registerTokenCallback, buildFESRegistration, available]
   );
 
   return (

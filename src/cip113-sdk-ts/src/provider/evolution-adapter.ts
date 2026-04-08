@@ -453,7 +453,12 @@ class EvolutionTxPlan implements TxPlan {
     const stakeCredential = Credential.makeScriptHash(
       Bytes.fromHex(params.stakeCredential)
     );
-    this.builder = this.builder.registerStake({ stakeCredential });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const evoParams: any = { stakeCredential };
+    if (params.redeemer != null) {
+      evoParams.redeemer = toEvoData(params.redeemer);
+    }
+    this.builder = this.builder.registerStake(evoParams);
     return this;
   }
 
@@ -512,6 +517,16 @@ class EvolutionTxPlan implements TxPlan {
     if (eitherAny._tag === "Left") {
       const error = eitherAny.left;
       console.error("[CIP113] Transaction build failed:", error?.message ?? error);
+      // Log full error cause chain for Blockfrost details
+      let cause = error?.cause;
+      while (cause) {
+        console.error("[CIP113] Caused by:", cause?.message ?? cause);
+        // Check for Blockfrost response details
+        if (cause?.response) console.error("[CIP113] Response:", JSON.stringify(cause.response)?.slice(0, 500));
+        if (cause?.body) console.error("[CIP113] Body:", JSON.stringify(cause.body)?.slice(0, 500));
+        if (cause?.details) console.error("[CIP113] Details:", JSON.stringify(cause.details)?.slice(0, 500));
+        cause = cause?.cause;
+      }
 
       // DEBUG: Retry with dummy evaluator to extract CBOR for comparison
       try {
@@ -726,10 +741,15 @@ export function evolutionAdapter(
     },
 
     stakingCredentialHash(address: Address): HexString {
-      // Parse as BaseAddress to extract staking credential using Evolution SDK
       const evoAddr = EvoAddress.fromBech32(address);
       const baseAddr = BaseAddress.fromHex(EvoAddress.toHex(evoAddr));
       return Bytes.toHex(baseAddr.stakeCredential.hash);
+    },
+
+    paymentCredentialHash(address: Address): HexString {
+      const evoAddr = EvoAddress.fromBech32(address);
+      const baseAddr = BaseAddress.fromHex(EvoAddress.toHex(evoAddr));
+      return Bytes.toHex(baseAddr.paymentCredential.hash);
     },
 
     // -- TxBuilder --

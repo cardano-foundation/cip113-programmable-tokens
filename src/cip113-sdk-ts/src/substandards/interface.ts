@@ -149,6 +149,8 @@ export interface InitComplianceParams {
   feePayerAddress: Address;
   adminAddress: Address;
   assetName: string;
+  /** Skip stake address registration (handle separately if already registered) */
+  skipStakeRegistration?: boolean;
 }
 
 // ---------------------------------------------------------------------------

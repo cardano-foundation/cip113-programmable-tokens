@@ -66,6 +66,12 @@ export interface CardanoProvider {
    * Returns the hex-encoded 28-byte hash.
    */
   stakingCredentialHash(address: Address): HexString;
+
+  /**
+   * Extract the payment credential hash from a user address.
+   * Returns the hex-encoded 28-byte hash.
+   */
+  paymentCredentialHash(address: Address): HexString;
 }
 
 export interface ProtocolParameters {
@@ -157,6 +163,8 @@ export interface WithdrawParams {
 
 export interface RegisterStakeParams {
   stakeCredential: ScriptHash;
+  /** Redeemer required for script-controlled stake credentials (Conway era) */
+  redeemer?: PlutusData;
 }
 
 export interface AttachScriptParams {
