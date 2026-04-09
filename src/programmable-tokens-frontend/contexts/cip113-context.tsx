@@ -65,6 +65,15 @@ interface CIP113ContextValue {
     recipientAddress?: string;
     /** Raw CIP-30 API from wallet.enable() — needed for SigningClient with chainResult */
     rawWalletApi?: unknown;
+    /** Optional CIP-68 metadata for on-chain reference token */
+    cip68Metadata?: {
+      name: string;
+      description?: string;
+      ticker?: string;
+      decimals?: number;
+      url?: string;
+      logo?: string;
+    };
   }): Promise<{
     initCbor: string;
     regCbor: string;
@@ -281,6 +290,14 @@ export function CIP113Provider({ children }: { children: ReactNode }) {
     quantity: string;
     recipientAddress?: string;
     rawWalletApi?: unknown;
+    cip68Metadata?: {
+      name: string;
+      description?: string;
+      ticker?: string;
+      decimals?: number;
+      url?: string;
+      logo?: string;
+    };
   }) => {
     const protocol = await getProtocol();
     const assetNameHex = stringToHex(params.assetName);
@@ -380,6 +397,7 @@ export function CIP113Provider({ children }: { children: ReactNode }) {
         quantity: BigInt(params.quantity),
         recipientAddress: params.recipientAddress,
         config: { adminPkh, blacklistNodePolicyId },
+        cip68Metadata: params.cip68Metadata,
         chainedUtxos: initResult.chainAvailable,
       });
 

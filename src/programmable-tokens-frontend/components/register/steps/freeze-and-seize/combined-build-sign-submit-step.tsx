@@ -123,12 +123,24 @@ export function CombinedBuildSignSubmitStep({
           variant: 'default',
         });
 
+        // Build CIP-68 metadata for SDK (convert form strings to SDK types)
+        const cip68Form = tokenDetails.cip68Metadata;
+        const cip68ForSdk = cip68Form?.enabled ? {
+          name: cip68Form.name,
+          description: cip68Form.description || undefined,
+          ticker: cip68Form.ticker || undefined,
+          decimals: cip68Form.decimals ? parseInt(cip68Form.decimals) : undefined,
+          url: cip68Form.url || undefined,
+          logo: cip68Form.logo || undefined,
+        } : undefined;
+
         const sdkResult = await buildFESRegistration({
           adminAddress,
           assetName: tokenDetails.assetName,
           quantity: tokenDetails.quantity,
           recipientAddress: tokenDetails.recipientAddress,
           rawWalletApi: rawApi,
+          cip68Metadata: cip68ForSdk,
         });
 
         setBlacklistNodePolicyId(sdkResult.blacklistNodePolicyId);

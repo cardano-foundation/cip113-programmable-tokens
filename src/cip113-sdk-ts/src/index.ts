@@ -281,6 +281,7 @@ export type {
   SeizeParams,
   InitComplianceParams,
   UnsignedTx,
+  CIP68MetadataInput,
 } from "./substandards/interface.js";
 export type {
   DeploymentParams,
@@ -309,6 +310,8 @@ export {
   outputReference,
   scriptCredential,
   keyCredential,
+  labeledAssetName,
+  buildCIP68FTDatum,
 } from "./core/evo-utils.js";
 export { sortTxInputs, findRefInputIndex } from "./core/registry.js";
 export { addressHexToBech32 } from "./provider/address-utils.js";

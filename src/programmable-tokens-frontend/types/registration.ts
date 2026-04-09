@@ -194,12 +194,26 @@ export interface SubstandardSelectionData {
 }
 
 /**
+ * CIP-68 metadata form data (string values for form state).
+ */
+export interface CIP68MetadataFormData {
+  enabled: boolean;
+  name: string;
+  description: string;
+  ticker: string;
+  decimals: string;
+  url: string;
+  logo: string;
+}
+
+/**
  * Data for token details step
  */
 export interface TokenDetailsData {
   assetName: string;
   quantity: string;
   recipientAddress?: string;
+  cip68Metadata?: CIP68MetadataFormData;
 }
 
 /**

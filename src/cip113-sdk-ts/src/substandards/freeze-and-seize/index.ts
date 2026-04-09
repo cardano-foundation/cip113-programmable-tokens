@@ -72,6 +72,8 @@ import {
   Credential,
   KeyHash,
   InlineDatum,
+  labeledAssetName,
+  buildCIP68FTDatum,
 } from "../../core/evo-utils.js";
 import { createFESScripts } from "./scripts.js";
 import type { FESDeploymentParams } from "./types.js";
@@ -263,23 +265,20 @@ export function freezeAndSeizeSubstandard(config: {
       const recipient = recipientAddress || feePayerAddress;
       const chainedUtxos = (params.chainedUtxos ?? []) as EvoUTxO.UTxO[];
       const assetNameHex = stringToHex(assetName);
-      const unit = scripts.tokenPolicyId + assetNameHex;
+      const hasCIP68 = !!params.cip68Metadata;
       const client = ctx.client;
+
+      // When CIP-68 is enabled, prefix asset names with CIP-67 labels
+      const userAssetNameHex = hasCIP68 ? labeledAssetName(333, assetNameHex) : assetNameHex;
+      const unit = scripts.tokenPolicyId + userAssetNameHex;
+
+      // Reference token (only when CIP-68)
+      const refAssetNameHex = hasCIP68 ? labeledAssetName(100, assetNameHex) : null;
+      const refUnit = refAssetNameHex ? scripts.tokenPolicyId + refAssetNameHex : null;
 
       // 1. Find covering registry node
       const registrySpendAddr = scriptAddress(networkId, ctx.standardScripts.registrySpend.hash);
-      console.log("[FES register] registrySpend hash:", ctx.standardScripts.registrySpend.hash);
-      console.log("[FES register] registrySpend addr:", registrySpendAddr);
-      console.log("[FES register] tokenPolicyId to insert:", scripts.tokenPolicyId);
       const registryUtxos = await client.getUtxos(EvoAddress.fromBech32(registrySpendAddr));
-      console.log("[FES register] registry UTxOs found:", registryUtxos.length);
-      for (const u of registryUtxos) {
-        const d = getInlineDatum(u);
-        const k = d ? extractConstrBytesField(d, 0) : undefined;
-        const n = d ? extractConstrBytesField(d, 1) : undefined;
-        console.log("[FES register]   utxo datum: key=", JSON.stringify(k), "next=", JSON.stringify(n),
-          "covers?", k !== undefined && n !== undefined && k < scripts.tokenPolicyId && scripts.tokenPolicyId < n);
-      }
       const coveringNodeUtxo = findCoveringNode(registryUtxos, scripts.tokenPolicyId);
       if (!coveringNodeUtxo) throw new Error("Could not find covering registry node for insertion");
 
@@ -311,8 +310,9 @@ export function freezeAndSeizeSubstandard(config: {
         globalStateCs: "",
       });
 
-      // 4. Build redeemers
-      const issuanceRedeemer = issuanceRedeemerFirstMint(scripts.issuerAdmin.hash, 2);
+      // 4. Build redeemers — registry output index shifts when CIP-68 adds an extra output
+      const registryOutputIndex = hasCIP68 ? 3 : 2;
+      const issuanceRedeemer = issuanceRedeemerFirstMint(scripts.issuerAdmin.hash, registryOutputIndex);
       const registryMintRedeemer = registryInsertRedeemer(scripts.issuanceMint.hash, scripts.issuerAdmin.hash);
       const tokenDatum = voidData();
 
@@ -324,13 +324,17 @@ export function freezeAndSeizeSubstandard(config: {
       const recipientPlbAddr = baseAddress(networkId, plbHash, recipient);
       const registryMintPolicyId = ctx.standardScripts.registryMint.hash;
 
-      // 7. Build asset maps
-      const tokenAssets = mintAssetsFromMap(new Map([[unit, quantity]]));
+      // 7. Build asset maps — include CIP-68 ref token in the same mint (same policy + redeemer)
+      const mintEntries = new Map<string, bigint>([[unit, quantity]]);
+      if (hasCIP68 && refUnit) {
+        mintEntries.set(refUnit, 1n);
+      }
+      const tokenAssets = mintAssetsFromMap(mintEntries);
       const registryNftUnit = registryMintPolicyId + scripts.tokenPolicyId;
       const registryNftAssets = mintAssetsFromMap(new Map([[registryNftUnit, 1n]]));
       const coveringNftUnit = findCoveringNodeNftUnit(coveringNodeUtxo, registryMintPolicyId);
 
-      // 8. Build transaction — let coin selection use chained UTxOs or auto-fetch
+      // 8. Build transaction
       let tx = client.newTx();
 
       tx = tx.collectFrom({ inputs: [coveringNodeUtxo], redeemer: voidData() });
@@ -344,14 +348,25 @@ export function freezeAndSeizeSubstandard(config: {
       tx = tx.mintAssets({ assets: tokenAssets, redeemer: issuanceRedeemer });
       tx = tx.mintAssets({ assets: registryNftAssets, redeemer: registryMintRedeemer });
 
-      // Output 0: token to recipient
+      // Output 0: user token to recipient (with label 333 prefix if CIP-68)
       tx = tx.payToAddress({
         address: EvoAddress.fromBech32(recipientPlbAddr),
         assets: outputAssets(1_300_000n, new Map([[unit, quantity]])),
         datum: new InlineDatum.InlineDatum({ data: tokenDatum }),
       });
 
-      // Output 1: updated covering node
+      // Output 1 (CIP-68 only): reference token to issuer's PLB address with metadata datum
+      if (hasCIP68 && refUnit) {
+        const issuerPlbAddr = baseAddress(networkId, plbHash, feePayerAddress);
+        const cip68Datum = buildCIP68FTDatum(params.cip68Metadata!);
+        tx = tx.payToAddress({
+          address: EvoAddress.fromBech32(issuerPlbAddr),
+          assets: outputAssets(3_000_000n, new Map([[refUnit, 1n]])),
+          datum: new InlineDatum.InlineDatum({ data: cip68Datum }),
+        });
+      }
+
+      // Updated covering node (output 1 or 2)
       const coveringNodeTokenMap = new Map<string, bigint>();
       if (coveringNftUnit) coveringNodeTokenMap.set(coveringNftUnit, 1n);
       tx = tx.payToAddress({
@@ -360,7 +375,7 @@ export function freezeAndSeizeSubstandard(config: {
         datum: new InlineDatum.InlineDatum({ data: updatedCoveringDatum }),
       });
 
-      // Output 2: new registry node (needs higher min-UTxO due to large datum with credentials)
+      // New registry node (output 2 or 3)
       tx = tx.payToAddress({
         address: EvoAddress.fromBech32(registrySpendAddr),
         assets: outputAssets(2_000_000n, new Map([[registryNftUnit, 1n]])),
@@ -379,11 +394,55 @@ export function freezeAndSeizeSubstandard(config: {
       // Required signer
       tx = tx.addSigner({ keyHash: KeyHash.fromHex(config.deployment.adminPkh) });
 
-      const built = await buildAndSerialize(
-        tx, feePayerAddress,
-        useChaining ? chainedUtxos : undefined,
-        useChaining,
-      );
+      console.log("[FES register] building tx...", { hasCIP68, registryOutputIndex, useChaining, chainedUtxoCount: chainedUtxos.length });
+      let built;
+      try {
+        built = await buildAndSerialize(
+          tx, feePayerAddress,
+          useChaining ? chainedUtxos : undefined,
+          useChaining,
+        );
+      } catch (e) {
+        console.error("[FES register] buildAndSerialize FAILED:", (e as Error)?.message);
+        // Rebuild with a logging evaluator to capture the CBOR before evaluation
+        try {
+          const { Effect } = await import("effect");
+          const loggingEvaluator = {
+            evaluate: (txObj: unknown) => {
+              console.log("[FES register] CAPTURED tx CBOR hex:", Transaction.toCBORHex(txObj as any));
+              return Effect.succeed([]);
+            },
+          };
+          // Reconstruct the full tx from scratch for the capture
+          let tx2 = client.newTx();
+          tx2 = tx2.collectFrom({ inputs: [coveringNodeUtxo], redeemer: voidData() });
+          tx2 = tx2.withdraw({ stakeCredential: Credential.makeScriptHash(new Uint8Array(Buffer.from(scripts.issuerAdmin.hash, "hex"))), amount: 0n, redeemer: voidData() });
+          tx2 = tx2.mintAssets({ assets: tokenAssets, redeemer: issuanceRedeemer });
+          tx2 = tx2.mintAssets({ assets: registryNftAssets, redeemer: registryMintRedeemer });
+          tx2 = tx2.payToAddress({ address: EvoAddress.fromBech32(recipientPlbAddr), assets: outputAssets(1_300_000n, new Map([[unit, quantity]])), datum: new InlineDatum.InlineDatum({ data: tokenDatum }) });
+          if (hasCIP68 && refUnit) {
+            const issuerPlbAddr = baseAddress(networkId, plbHash, feePayerAddress);
+            tx2 = tx2.payToAddress({ address: EvoAddress.fromBech32(issuerPlbAddr), assets: outputAssets(3_000_000n, new Map([[refUnit, 1n]])), datum: new InlineDatum.InlineDatum({ data: buildCIP68FTDatum(params.cip68Metadata!) }) });
+          }
+          const coveringNodeTokenMap2 = new Map<string, bigint>();
+          if (coveringNftUnit) coveringNodeTokenMap2.set(coveringNftUnit, 1n);
+          tx2 = tx2.payToAddress({ address: EvoAddress.fromBech32(registrySpendAddr), assets: outputAssets(utxoLovelace(coveringNodeUtxo), coveringNodeTokenMap2), datum: new InlineDatum.InlineDatum({ data: updatedCoveringDatum }) });
+          tx2 = tx2.payToAddress({ address: EvoAddress.fromBech32(registrySpendAddr), assets: outputAssets(2_000_000n, new Map([[registryNftUnit, 1n]])), datum: new InlineDatum.InlineDatum({ data: newRegistryNodeDatum }) });
+          tx2 = tx2.readFrom({ referenceInputs: [protocolParamsUtxo, issuanceCborHexUtxo] });
+          tx2 = tx2.attachScript({ script: buildEvoScript(ctx.standardScripts.registrySpend.compiledCode) });
+          tx2 = tx2.attachScript({ script: buildEvoScript(scripts.issuerAdmin.compiledCode) });
+          tx2 = tx2.attachScript({ script: buildEvoScript(scripts.issuanceMint.compiledCode) });
+          tx2 = tx2.attachScript({ script: buildEvoScript(ctx.standardScripts.registryMint.compiledCode) });
+          tx2 = tx2.addSigner({ keyHash: KeyHash.fromHex(config.deployment.adminPkh) });
+          const buildOpts2: Record<string, unknown> = { changeAddress: EvoAddress.fromBech32(feePayerAddress), evaluator: loggingEvaluator };
+          if (useChaining) { buildOpts2.availableUtxos = chainedUtxos; buildOpts2.passAdditionalUtxos = true; }
+          await tx2.build(buildOpts2);
+        } catch (e2) {
+          console.error("[FES register] capture build error (may be expected):", (e2 as Error)?.message?.slice(0, 200));
+        }
+        throw e;
+      }
+      console.log("[FES register] tx CBOR hex:", built.cbor);
       return {
         cbor: built.cbor,
         txHash: built.txHash,
@@ -392,6 +451,11 @@ export function freezeAndSeizeSubstandard(config: {
         metadata: {
           issuerAdminScriptHash: scripts.issuerAdmin.hash,
           transferScriptHash: scripts.transfer.hash,
+          ...(hasCIP68 && {
+            cip68Enabled: true,
+            userAssetNameHex,
+            refAssetNameHex,
+          }),
         },
       };
     },

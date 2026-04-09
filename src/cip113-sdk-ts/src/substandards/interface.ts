@@ -95,6 +95,26 @@ export interface SubstandardContext {
 }
 
 // ---------------------------------------------------------------------------
+// CIP-68 metadata
+// ---------------------------------------------------------------------------
+
+/** CIP-68 FT metadata fields provided by the caller. */
+export interface CIP68MetadataInput {
+  /** Display name (required, stored as byte string in datum) */
+  name: string;
+  /** Token description */
+  description?: string;
+  /** Short ticker symbol, e.g. "MYTKN" */
+  ticker?: string;
+  /** Number of decimal places for display (default: 0) */
+  decimals?: number;
+  /** Project or token URL */
+  url?: string;
+  /** URI pointing to the token logo image */
+  logo?: string;
+}
+
+// ---------------------------------------------------------------------------
 // Operation parameters
 // ---------------------------------------------------------------------------
 
@@ -107,6 +127,8 @@ export interface RegisterParams {
   config?: Record<string, unknown>;
   /** Available UTxOs from a chained transaction (e.g., initCompliance) */
   chainedUtxos?: unknown[];
+  /** Optional CIP-68 metadata. When provided, mints ref token (label 100) + FT user token (label 333). */
+  cip68Metadata?: CIP68MetadataInput;
 }
 
 export interface MintParams {

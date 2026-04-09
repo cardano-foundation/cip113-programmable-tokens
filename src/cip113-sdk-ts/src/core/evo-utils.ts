@@ -26,6 +26,7 @@ import {
 } from "@evolution-sdk/evolution";
 
 import { PlutusV3 } from "@evolution-sdk/evolution/PlutusV3";
+import * as Label from "@evolution-sdk/evolution/Assets/Label";
 
 import type { HexString, PlutusScript, ScriptHash, TxInput } from "../types.js";
 
@@ -433,6 +434,51 @@ export const MAX_NEXT = "ff".repeat(30);
 /** Convert a UTF-8 string to hex */
 export function stringToHex(str: string): string {
   return Buffer.from(str, "utf-8").toString("hex");
+}
+
+// ---------------------------------------------------------------------------
+// CIP-68 / CIP-67 helpers
+// ---------------------------------------------------------------------------
+
+import type { CIP68MetadataInput } from "../substandards/interface.js";
+
+/** Prefix an asset name hex with a CIP-67 label (e.g., 333 → "000f4141" + assetNameHex). */
+export function labeledAssetName(label: number, assetNameHex: HexString): HexString {
+  return Label.toLabel(label) + assetNameHex;
+}
+
+/**
+ * Build CIP-68 FT metadata datum: Constr(0, [metadata_map, version, extra]).
+ *
+ * Keys and text values are byte strings (standard CIP-68 convention).
+ * Matches real-world CIP-68 FT datums (e.g., FLDT token).
+ */
+export function buildCIP68FTDatum(meta: CIP68MetadataInput): Data.Data {
+  const entries: Array<[Data.Data, Data.Data]> = [];
+
+  entries.push([Data.bytearray(stringToHex("name")), Data.bytearray(stringToHex(meta.name))]);
+
+  if (meta.description) {
+    entries.push([Data.bytearray(stringToHex("description")), Data.bytearray(stringToHex(meta.description))]);
+  }
+  if (meta.ticker) {
+    entries.push([Data.bytearray(stringToHex("ticker")), Data.bytearray(stringToHex(meta.ticker))]);
+  }
+  if (meta.decimals !== undefined) {
+    entries.push([Data.bytearray(stringToHex("decimals")), Data.int(BigInt(meta.decimals))]);
+  }
+  if (meta.url) {
+    entries.push([Data.bytearray(stringToHex("url")), Data.bytearray(stringToHex(meta.url))]);
+  }
+  if (meta.logo) {
+    entries.push([Data.bytearray(stringToHex("logo")), Data.bytearray(stringToHex(meta.logo))]);
+  }
+
+  return Data.constr(0n, [
+    Data.map(entries),
+    Data.int(1n),       // version
+    Data.int(1n),       // extra (matches real-world CIP-68 datums)
+  ]);
 }
 
 // ---------------------------------------------------------------------------
