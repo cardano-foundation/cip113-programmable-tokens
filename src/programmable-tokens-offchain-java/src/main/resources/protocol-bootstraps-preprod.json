@@ -1,0 +1,49 @@
+[
+  {
+    "protocolParams": {
+      "txInput": {
+        "txHash": "72286cb222fb335c8c3854f1d1de42fbe831e01048b759c3508e3825fdf8a4fa",
+        "outputIndex": 0
+      },
+      "scriptHash": "d4230b10ba4c8a4350212f9e9af80084aa3b886ac33b683a722b6ea9",
+      "alwaysFailScriptHash": "7df9369eb2ded40f5eac15bcb1ee0562d3dc53def0dab4ad26bae4e9"
+    },
+    "programmableLogicGlobalPrams": {
+      "protocolParamsScriptHash": "d4230b10ba4c8a4350212f9e9af80084aa3b886ac33b683a722b6ea9",
+      "scriptHash": "d0a12c8a72ecfa08457987ba294fada31eaac764a1772e9ee07ddcf7"
+    },
+    "programmableLogicBaseParams": {
+      "programmableLogicGlobalScriptHash": "d0a12c8a72ecfa08457987ba294fada31eaac764a1772e9ee07ddcf7",
+      "scriptHash": "c8b055ef3e2c0ba8b5c016e86fc59381f4397e375d250da9ea4758b9"
+    },
+    "issuanceParams": {
+      "txInput": {
+        "txHash": "72286cb222fb335c8c3854f1d1de42fbe831e01048b759c3508e3825fdf8a4fa",
+        "outputIndex": 1
+      },
+      "scriptHash": "203ac50ec29d7f7739781e42f02e0ec103f439677ec3be03cb9e7809",
+      "alwaysFailScriptHash": "5ff3439ab5b059889fbaf360195275d8471de9ad939e1bb6c3a7b74c"
+    },
+    "directoryMintParams": {
+      "txInput": {
+        "txHash": "72286cb222fb335c8c3854f1d1de42fbe831e01048b759c3508e3825fdf8a4fa",
+        "outputIndex": 0
+      },
+      "issuanceScriptHash": "203ac50ec29d7f7739781e42f02e0ec103f439677ec3be03cb9e7809",
+      "scriptHash": "b9b19dc682ed108590277bb5301132b8b2c357cfbdb9138c01af5d1d"
+    },
+    "directorySpendParams": {
+      "protocolParamsPolicyId": "d4230b10ba4c8a4350212f9e9af80084aa3b886ac33b683a722b6ea9",
+      "scriptHash": "116a5de7080ea7428a04aac13fa7e1c4d55544c019386b1dd91bfdef"
+    },
+    "programmableBaseRefInput": {
+      "txHash": "d01ae47ef64aa13282296aabf9283da869ba70697438052cad8a630abf140517",
+      "outputIndex": 3
+    },
+    "programmableGlobalRefInput": {
+      "txHash": "d01ae47ef64aa13282296aabf9283da869ba70697438052cad8a630abf140517",
+      "outputIndex": 4
+    },
+    "txHash": "d01ae47ef64aa13282296aabf9283da869ba70697438052cad8a630abf140517"
+  }
+]

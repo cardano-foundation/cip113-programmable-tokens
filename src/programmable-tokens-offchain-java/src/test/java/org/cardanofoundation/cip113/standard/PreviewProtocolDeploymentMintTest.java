@@ -32,7 +32,7 @@ import java.math.BigInteger;
 import java.util.List;
 
 @Slf4j
-public class ProtocolDeploymentMintTest extends AbstractPreviewTest {
+public class PreviewProtocolDeploymentMintTest extends AbstractPreviewTest {
 
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
