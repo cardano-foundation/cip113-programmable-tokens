@@ -90,6 +90,8 @@ export interface SubstandardContext {
   standardScripts: ResolvedStandardScripts;
   deployment: DeploymentParams;
   network: string;
+  /** Backend API base URL (e.g., http://localhost:8080/api/v1) for stake registration checks */
+  backendUrl?: string;
 }
 
 // ---------------------------------------------------------------------------

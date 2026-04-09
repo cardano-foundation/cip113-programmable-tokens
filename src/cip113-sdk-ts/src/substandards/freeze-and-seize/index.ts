@@ -76,6 +76,26 @@ import {
 import { createFESScripts } from "./scripts.js";
 import type { FESDeploymentParams } from "./types.js";
 
+/**
+ * Check if a stake address is registered on-chain via the backend API.
+ * GET /script-registration/check?stakeAddress=...
+ */
+async function isStakeRegistered(
+  backendUrl: string,
+  stakeAddress: string,
+): Promise<boolean> {
+  try {
+    const res = await fetch(
+      `${backendUrl}/script-registration/check?stakeAddress=${encodeURIComponent(stakeAddress)}`
+    );
+    if (!res.ok) return false;
+    const data = await res.json();
+    return data.isRegistered === true;
+  } catch {
+    return false;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Resolved scripts — computed once at init, reused for all operations
 // ---------------------------------------------------------------------------
@@ -346,10 +366,10 @@ export function freezeAndSeizeSubstandard(config: {
         datum: new InlineDatum.InlineDatum({ data: updatedCoveringDatum }),
       });
 
-      // Output 2: new registry node
+      // Output 2: new registry node (needs higher min-UTxO due to large datum with credentials)
       tx = tx.payToAddress({
         address: EvoAddress.fromBech32(registrySpendAddr),
-        assets: outputAssets(1_300_000n, new Map([[registryNftUnit, 1n]])),
+        assets: outputAssets(2_000_000n, new Map([[registryNftUnit, 1n]])),
         datum: new InlineDatum.InlineDatum({ data: newRegistryNodeDatum }),
       });
 
@@ -365,14 +385,15 @@ export function freezeAndSeizeSubstandard(config: {
       // Required signer
       tx = tx.addSigner({ keyHash: KeyHash.fromHex(config.deployment.adminPkh) });
 
-      const { cbor, txHash } = await buildAndSerialize(
+      const built = await buildAndSerialize(
         tx, feePayerAddress,
         useChaining ? chainedUtxos : undefined,
         useChaining,
       );
       return {
-        cbor,
-        txHash,
+        cbor: built.cbor,
+        txHash: built.txHash,
+        _signBuilder: built._signBuilder,
         tokenPolicyId: scripts.tokenPolicyId,
         metadata: {
           issuerAdminScriptHash: scripts.issuerAdmin.hash,
@@ -709,23 +730,18 @@ export function freezeAndSeizeSubstandard(config: {
       });
 
       // Register stake addresses only if not already registered on-chain.
-      // Check via Blockfrost accounts endpoint (404 = not registered).
+      // Check via backend API (reliable, unlike Blockfrost getDelegation).
       const stakeScripts = [
         { hash: scripts.issuerAdmin.hash, code: scripts.issuerAdmin.compiledCode },
         { hash: scripts.transfer.hash, code: scripts.transfer.compiledCode },
       ];
       for (const s of stakeScripts) {
         const stakeAddr = rewardAddress(networkId, s.hash);
-        let isRegistered = false;
-        try {
-          // getDelegation returns the delegation info; if it doesn't throw, the address is registered
-          await client.getDelegation(stakeAddr as any);
-          isRegistered = true;
-        } catch {
-          isRegistered = false;
-        }
-        console.log(`[CIP-113] Stake ${stakeAddr}: registered=${isRegistered}`);
-        if (!isRegistered) {
+        const registered = ctx.backendUrl
+          ? await isStakeRegistered(ctx.backendUrl, stakeAddr)
+          : false; // no backend → assume not registered → register
+        console.log(`[CIP-113] Stake ${stakeAddr}: registered=${registered}`);
+        if (!registered) {
           tx = tx.registerStake({
             stakeCredential: Credential.makeScriptHash(new Uint8Array(Buffer.from(s.hash, "hex"))),
             redeemer: voidData(),
