@@ -394,55 +394,11 @@ export function freezeAndSeizeSubstandard(config: {
       // Required signer
       tx = tx.addSigner({ keyHash: KeyHash.fromHex(config.deployment.adminPkh) });
 
-      console.log("[FES register] building tx...", { hasCIP68, registryOutputIndex, useChaining, chainedUtxoCount: chainedUtxos.length });
-      let built;
-      try {
-        built = await buildAndSerialize(
-          tx, feePayerAddress,
-          useChaining ? chainedUtxos : undefined,
-          useChaining,
-        );
-      } catch (e) {
-        console.error("[FES register] buildAndSerialize FAILED:", (e as Error)?.message);
-        // Rebuild with a logging evaluator to capture the CBOR before evaluation
-        try {
-          const { Effect } = await import("effect");
-          const loggingEvaluator = {
-            evaluate: (txObj: unknown) => {
-              console.log("[FES register] CAPTURED tx CBOR hex:", Transaction.toCBORHex(txObj as any));
-              return Effect.succeed([]);
-            },
-          };
-          // Reconstruct the full tx from scratch for the capture
-          let tx2 = client.newTx();
-          tx2 = tx2.collectFrom({ inputs: [coveringNodeUtxo], redeemer: voidData() });
-          tx2 = tx2.withdraw({ stakeCredential: Credential.makeScriptHash(new Uint8Array(Buffer.from(scripts.issuerAdmin.hash, "hex"))), amount: 0n, redeemer: voidData() });
-          tx2 = tx2.mintAssets({ assets: tokenAssets, redeemer: issuanceRedeemer });
-          tx2 = tx2.mintAssets({ assets: registryNftAssets, redeemer: registryMintRedeemer });
-          tx2 = tx2.payToAddress({ address: EvoAddress.fromBech32(recipientPlbAddr), assets: outputAssets(1_300_000n, new Map([[unit, quantity]])), datum: new InlineDatum.InlineDatum({ data: tokenDatum }) });
-          if (hasCIP68 && refUnit) {
-            const issuerPlbAddr = baseAddress(networkId, plbHash, feePayerAddress);
-            tx2 = tx2.payToAddress({ address: EvoAddress.fromBech32(issuerPlbAddr), assets: outputAssets(3_000_000n, new Map([[refUnit, 1n]])), datum: new InlineDatum.InlineDatum({ data: buildCIP68FTDatum(params.cip68Metadata!) }) });
-          }
-          const coveringNodeTokenMap2 = new Map<string, bigint>();
-          if (coveringNftUnit) coveringNodeTokenMap2.set(coveringNftUnit, 1n);
-          tx2 = tx2.payToAddress({ address: EvoAddress.fromBech32(registrySpendAddr), assets: outputAssets(utxoLovelace(coveringNodeUtxo), coveringNodeTokenMap2), datum: new InlineDatum.InlineDatum({ data: updatedCoveringDatum }) });
-          tx2 = tx2.payToAddress({ address: EvoAddress.fromBech32(registrySpendAddr), assets: outputAssets(2_000_000n, new Map([[registryNftUnit, 1n]])), datum: new InlineDatum.InlineDatum({ data: newRegistryNodeDatum }) });
-          tx2 = tx2.readFrom({ referenceInputs: [protocolParamsUtxo, issuanceCborHexUtxo] });
-          tx2 = tx2.attachScript({ script: buildEvoScript(ctx.standardScripts.registrySpend.compiledCode) });
-          tx2 = tx2.attachScript({ script: buildEvoScript(scripts.issuerAdmin.compiledCode) });
-          tx2 = tx2.attachScript({ script: buildEvoScript(scripts.issuanceMint.compiledCode) });
-          tx2 = tx2.attachScript({ script: buildEvoScript(ctx.standardScripts.registryMint.compiledCode) });
-          tx2 = tx2.addSigner({ keyHash: KeyHash.fromHex(config.deployment.adminPkh) });
-          const buildOpts2: Record<string, unknown> = { changeAddress: EvoAddress.fromBech32(feePayerAddress), evaluator: loggingEvaluator };
-          if (useChaining) { buildOpts2.availableUtxos = chainedUtxos; buildOpts2.passAdditionalUtxos = true; }
-          await tx2.build(buildOpts2);
-        } catch (e2) {
-          console.error("[FES register] capture build error (may be expected):", (e2 as Error)?.message?.slice(0, 200));
-        }
-        throw e;
-      }
-      console.log("[FES register] tx CBOR hex:", built.cbor);
+      const built = await buildAndSerialize(
+        tx, feePayerAddress,
+        useChaining ? chainedUtxos : undefined,
+        useChaining,
+      );
       return {
         cbor: built.cbor,
         txHash: built.txHash,
