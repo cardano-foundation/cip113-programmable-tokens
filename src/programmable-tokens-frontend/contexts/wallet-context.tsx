@@ -66,6 +66,8 @@ export interface WalletContextValue {
   name: string;
   /** The CIP-30 wallet API (always non-null — throws if not connected) */
   wallet: WalletApi;
+  /** Raw CIP-30 API from entry.enable() — for Evolution SDK withCip30() */
+  rawApi: unknown | null;
   /** Connect to a wallet by its CIP-30 key (e.g., "eternl") */
   connect(walletKey: string): Promise<void>;
   /** Disconnect the current wallet */
@@ -94,6 +96,7 @@ const WalletContext = createContext<WalletContextValue | null>(null);
 export function WalletProvider({ children }: { children: ReactNode }) {
   const [walletApi, setWalletApi] = useState<WalletApi>(DISCONNECTED_WALLET);
   const [walletName, setWalletName] = useState("");
+  const [rawCip30Api, setRawCip30Api] = useState<unknown | null>(null);
 
   const connect = useCallback(async (walletKey: string) => {
     const entry = getCardano()?.[walletKey];
@@ -136,9 +139,49 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         return balance;
       },
       async signTxs(txs: string[], partialSign?: boolean) {
-        if (typeof api.signTxs === "function") {
+        // Check multiple locations where wallets expose batch signing:
+        // 1. CIP-103 namespace: api.cip103.signTxs
+        // 2. Eternl experimental: api.experimental.signTxs
+        // 3. Direct: api.signTxs
+        const cip103 = (api as any).cip103;
+        const experimental = (api as any).experimental;
+
+        if (cip103 && typeof cip103.signTxs === "function") {
           console.log("[Wallet] Using CIP-103 signTxs (batch signing)");
-          const witnessSets = await api.signTxs(txs, partialSign);
+          const requests = txs.map(cbor => ({ cbor, partialSign: partialSign ?? false }));
+          const witnessSets = await cip103.signTxs(requests);
+          return txs.map((tx, i) => assembleSignedTx(tx, witnessSets[i]));
+        }
+        if (experimental && typeof experimental.signTxs === "function") {
+          console.log("[Wallet] Using experimental.signTxs (Eternl batch signing)");
+          try {
+            // Eternl experimental.signTxs expects: [{ cbor, partialSign }]
+            const requests = txs.map(cbor => ({ cbor, partialSign: partialSign ?? false }));
+            const witnessSets = await experimental.signTxs(requests);
+            console.log("[Wallet] experimental.signTxs returned:", typeof witnessSets, Array.isArray(witnessSets) ? `array[${witnessSets.length}]` : '');
+            if (Array.isArray(witnessSets) && witnessSets.length === txs.length) {
+              // Each element is a witness set hex string — assemble with unsigned tx
+              const assembled: string[] = [];
+              for (let i = 0; i < txs.length; i++) {
+                const ws = witnessSets[i];
+                console.log(`[Wallet] witness[${i}] type:`, typeof ws, ws === "" ? "(empty)" : `length:${ws?.length}`);
+                if (ws === "" || ws == null) {
+                  // Empty witness = tx doesn't need signing (shouldn't happen but handle it)
+                  assembled.push(txs[i]);
+                } else {
+                  assembled.push(assembleSignedTx(txs[i], ws));
+                }
+              }
+              return assembled;
+            }
+          } catch (e) {
+            console.warn("[Wallet] experimental.signTxs failed:", (e as Error)?.message);
+          }
+          // Fall through to sequential if experimental failed
+        }
+        if (typeof (api as any).signTxs === "function") {
+          console.log("[Wallet] Using direct signTxs");
+          const witnessSets = await (api as any).signTxs(txs, partialSign);
           return txs.map((tx, i) => assembleSignedTx(tx, witnessSets[i]));
         }
         console.log("[Wallet] signTxs not available, falling back to sequential signTx");
@@ -153,11 +196,13 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
     setWalletApi(wrappedApi);
     setWalletName(entry.name);
+    setRawCip30Api(api);
   }, []);
 
   const disconnect = useCallback(() => {
     setWalletApi(DISCONNECTED_WALLET);
     setWalletName("");
+    setRawCip30Api(null);
   }, []);
 
   const value = useMemo<WalletContextValue>(
@@ -165,10 +210,11 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       connected: walletApi !== DISCONNECTED_WALLET,
       name: walletName,
       wallet: walletApi,
+      rawApi: rawCip30Api,
       connect,
       disconnect,
     }),
-    [walletApi, walletName, connect, disconnect]
+    [walletApi, walletName, rawCip30Api, connect, disconnect]
   );
 
   return (

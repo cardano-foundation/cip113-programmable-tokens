@@ -90,8 +90,8 @@ export interface SubstandardContext {
   standardScripts: ResolvedStandardScripts;
   deployment: DeploymentParams;
   network: string;
-  /** Backend API base URL (e.g., http://localhost:8080/api/v1) for stake registration checks */
-  backendUrl?: string;
+  /** Check if a stake address is registered on-chain. If not provided, assumes not registered. */
+  checkStakeRegistration?: (stakeAddress: string) => Promise<boolean>;
 }
 
 // ---------------------------------------------------------------------------

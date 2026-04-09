@@ -30,6 +30,7 @@ import {
   preprodChain,
   mainnetChain,
   EvoAddress,
+  EvoAssets,
   EvoTransactionHash,
 } from "@cip113/sdk";
 import { dummySubstandard } from "@cip113/sdk/dummy";
@@ -62,6 +63,8 @@ interface CIP113ContextValue {
     assetName: string;
     quantity: string;
     recipientAddress?: string;
+    /** Raw CIP-30 API from wallet.enable() — needed for SigningClient with chainResult */
+    rawWalletApi?: unknown;
   }): Promise<{
     initCbor: string;
     regCbor: string;
@@ -277,11 +280,25 @@ export function CIP113Provider({ children }: { children: ReactNode }) {
     assetName: string;
     quantity: string;
     recipientAddress?: string;
+    rawWalletApi?: unknown;
   }) => {
     const protocol = await getProtocol();
-    const client = protocol.client;
     const assetNameHex = stringToHex(params.assetName);
     const adminPkh = paymentCredentialHash(params.adminAddress);
+
+    // Create a SigningClient with CIP-30 wallet for tx chaining support.
+    // SigningClient.newTx().build() returns SignBuilder with chainResult().
+    const chain = getChain();
+    let client = protocol.client;
+    if (params.rawWalletApi) {
+      client = evoClient(chain)
+        .withCip30(params.rawWalletApi as any)
+        .withBlockfrost({
+          projectId: blockfrostKey,
+          baseUrl: blockfrostUrl || `https://cardano-${network}.blockfrost.io/api/v0`,
+        });
+      console.log("[CIP-113] Created SigningClient with CIP-30 wallet");
+    }
 
     // Fetch FES blueprint
     if (!fesBlueprintRef.current) {
@@ -289,10 +306,12 @@ export function CIP113Provider({ children }: { children: ReactNode }) {
       fesBlueprintRef.current = substandardToSdkBlueprint(fesBp);
     }
 
-    // Step 1: Compute blacklistInitTxInput from first wallet UTxO
+    // Step 1: Compute blacklistInitTxInput from first wallet UTxO — pick largest
     const walletUtxos = await client.getUtxos(EvoAddress.fromBech32(params.adminAddress));
     if (walletUtxos.length === 0) throw new Error("No wallet UTxOs");
-    const bootstrapUtxo = walletUtxos[0];
+    const bootstrapUtxo = walletUtxos.reduce((best: any, u: any) =>
+      EvoAssets.lovelaceOf(u.assets) > EvoAssets.lovelaceOf(best.assets) ? u : best
+    );
     const blacklistInitTxInput = {
       txHash: EvoTransactionHash.toHex(bootstrapUtxo.transactionId),
       outputIndex: Number(bootstrapUtxo.index),
@@ -315,11 +334,26 @@ export function CIP113Provider({ children }: { children: ReactNode }) {
       },
     });
 
+    const baseUrl = process.env.NEXT_PUBLIC_API_URL || "";
+    const apiPrefix = process.env.NEXT_PUBLIC_API_PREFIX || "/api/v1";
+
     fes.init({
       client,
       standardScripts: protocol.scripts,
       deployment: protocol.deployment,
       network: network,
+      checkStakeRegistration: async (stakeAddress: string) => {
+        try {
+          const res = await fetch(
+            `${baseUrl}${apiPrefix}/script-registration/check?stakeAddress=${encodeURIComponent(stakeAddress)}`
+          );
+          if (!res.ok) return false;
+          const data = await res.json();
+          return data.isRegistered === true;
+        } catch {
+          return false;
+        }
+      },
     });
 
     // Step 1: Build blacklist init tx

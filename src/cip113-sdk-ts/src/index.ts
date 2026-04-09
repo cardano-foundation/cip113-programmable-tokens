@@ -322,6 +322,7 @@ export {
   preprod as preprodChain,
   mainnet as mainnetChain,
   Address as EvoAddress,
+  Assets as EvoAssets,
   TransactionHash as EvoTransactionHash,
   Transaction as EvoTransaction,
   Data as EvoData,

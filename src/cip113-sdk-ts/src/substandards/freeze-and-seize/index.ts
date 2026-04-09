@@ -76,25 +76,8 @@ import {
 import { createFESScripts } from "./scripts.js";
 import type { FESDeploymentParams } from "./types.js";
 
-/**
- * Check if a stake address is registered on-chain via the backend API.
- * GET /script-registration/check?stakeAddress=...
- */
-async function isStakeRegistered(
-  backendUrl: string,
-  stakeAddress: string,
-): Promise<boolean> {
-  try {
-    const res = await fetch(
-      `${backendUrl}/script-registration/check?stakeAddress=${encodeURIComponent(stakeAddress)}`
-    );
-    if (!res.ok) return false;
-    const data = await res.json();
-    return data.isRegistered === true;
-  } catch {
-    return false;
-  }
-}
+// Stake registration check is provided via ctx.checkStakeRegistration callback.
+// No direct HTTP calls from the SDK — the caller provides the implementation.
 
 // ---------------------------------------------------------------------------
 // Resolved scripts — computed once at init, reused for all operations
@@ -285,7 +268,18 @@ export function freezeAndSeizeSubstandard(config: {
 
       // 1. Find covering registry node
       const registrySpendAddr = scriptAddress(networkId, ctx.standardScripts.registrySpend.hash);
+      console.log("[FES register] registrySpend hash:", ctx.standardScripts.registrySpend.hash);
+      console.log("[FES register] registrySpend addr:", registrySpendAddr);
+      console.log("[FES register] tokenPolicyId to insert:", scripts.tokenPolicyId);
       const registryUtxos = await client.getUtxos(EvoAddress.fromBech32(registrySpendAddr));
+      console.log("[FES register] registry UTxOs found:", registryUtxos.length);
+      for (const u of registryUtxos) {
+        const d = getInlineDatum(u);
+        const k = d ? extractConstrBytesField(d, 0) : undefined;
+        const n = d ? extractConstrBytesField(d, 1) : undefined;
+        console.log("[FES register]   utxo datum: key=", JSON.stringify(k), "next=", JSON.stringify(n),
+          "covers?", k !== undefined && n !== undefined && k < scripts.tokenPolicyId && scripts.tokenPolicyId < n);
+      }
       const coveringNodeUtxo = findCoveringNode(registryUtxos, scripts.tokenPolicyId);
       if (!coveringNodeUtxo) throw new Error("Could not find covering registry node for insertion");
 
@@ -737,9 +731,9 @@ export function freezeAndSeizeSubstandard(config: {
       ];
       for (const s of stakeScripts) {
         const stakeAddr = rewardAddress(networkId, s.hash);
-        const registered = ctx.backendUrl
-          ? await isStakeRegistered(ctx.backendUrl, stakeAddr)
-          : false; // no backend → assume not registered → register
+        const registered = ctx.checkStakeRegistration
+          ? await ctx.checkStakeRegistration(stakeAddr)
+          : false; // no callback → assume not registered → register
         console.log(`[CIP-113] Stake ${stakeAddr}: registered=${registered}`);
         if (!registered) {
           tx = tx.registerStake({

@@ -47,7 +47,7 @@ export function CombinedBuildSignSubmitStep({
   setProcessing,
   wizardState,
 }: StepComponentProps<Record<string, unknown>, CombinedResult>) {
-  const { connected, wallet } = useWallet();
+  const { connected, wallet, rawApi } = useWallet();
   const { toast: showToast } = useToast();
   const { selectedVersion } = useProtocolVersion();
   const { buildFESRegistration, registerTokenCallback, available: sdkAvailable } = useCIP113();
@@ -128,6 +128,7 @@ export function CombinedBuildSignSubmitStep({
           assetName: tokenDetails.assetName,
           quantity: tokenDetails.quantity,
           recipientAddress: tokenDetails.recipientAddress,
+          rawWalletApi: rawApi,
         });
 
         setBlacklistNodePolicyId(sdkResult.blacklistNodePolicyId);
@@ -229,20 +230,15 @@ export function CombinedBuildSignSubmitStep({
         variant: 'default',
       });
 
+      // Sign both txs — try batch first, fall back to sequential (two popups)
       let signedTxs: string[];
       try {
         signedTxs = await wallet.signTxs([initUnsignedCbor, regUnsignedCbor], true);
       } catch (err) {
-        const errMsg = err instanceof Error ? err.message : String(err);
-        console.warn("[CIP-113] signTxs failed, checking if fallback needed:", errMsg);
-        if (errMsg.includes('signTxs') || errMsg.includes('not a function') || errMsg.includes('not supported')) {
-          console.log("[CIP-113] Falling back to sequential signTx");
-          const signed1 = await wallet.signTx(initUnsignedCbor, true);
-          const signed2 = await wallet.signTx(regUnsignedCbor, true);
-          signedTxs = [signed1, signed2];
-        } else {
-          throw err;
-        }
+        console.warn("[CIP-113] signTxs failed, falling back to sequential signTx:", (err as Error)?.message);
+        const signed1 = await wallet.signTx(initUnsignedCbor, true);
+        const signed2 = await wallet.signTx(regUnsignedCbor, true);
+        signedTxs = [signed1, signed2];
       }
 
       setSignedInitTx(signedTxs[0]);

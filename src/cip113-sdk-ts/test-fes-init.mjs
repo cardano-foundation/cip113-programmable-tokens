@@ -148,7 +148,16 @@ fes.init({
   standardScripts: protocol.scripts,
   deployment,
   network: 'preview',
-  backendUrl: BACKEND,
+  checkStakeRegistration: async (stakeAddress) => {
+    try {
+      const res = await fetch(`${BACKEND}/script-registration/check?stakeAddress=${encodeURIComponent(stakeAddress)}`);
+      if (!res.ok) return false;
+      const data = await res.json();
+      return data.isRegistered === true;
+    } catch {
+      return false;
+    }
+  },
 });
 console.log('FES substandard initialized\n');
 
