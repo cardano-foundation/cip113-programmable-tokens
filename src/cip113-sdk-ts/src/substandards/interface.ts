@@ -4,11 +4,10 @@
  * Each substandard (dummy, freeze-and-seize, CMTAT, etc.) implements this
  * interface to provide transaction builders for its operations.
  *
- * Substandards are initialized with the standard scripts and provider,
- * then registered with the CIP113 protocol instance.
+ * Substandards receive the Evolution SDK client directly — no adapter layer.
  */
 
-import type { CIP113Adapter } from "../provider/interface.js";
+import type { ReadOnlyClient, SigningClient } from "@evolution-sdk/evolution/sdk/client/Client";
 import type { ResolvedStandardScripts } from "../standard/scripts.js";
 import type {
   Address,
@@ -18,6 +17,19 @@ import type {
   PolicyId,
   ScriptHash,
 } from "../types.js";
+
+// ---------------------------------------------------------------------------
+// Client type — either ReadOnlyClient or SigningClient
+// ---------------------------------------------------------------------------
+
+/**
+ * The SDK accepts either a ReadOnlyClient (for CIP-30 wallets) or a
+ * SigningClient (for seed-phrase / private-key wallets).
+ *
+ * Both have getUtxos(), getUtxosWithUnit(), newTx(), chain, etc.
+ * The difference is build() return type: TransactionResultBase vs SignBuilder.
+ */
+export type EvoClient = ReadOnlyClient | SigningClient;
 
 // ---------------------------------------------------------------------------
 // Plugin interface
@@ -73,7 +85,8 @@ export interface SubstandardPlugin {
 // ---------------------------------------------------------------------------
 
 export interface SubstandardContext {
-  adapter: CIP113Adapter;
+  /** Evolution SDK client (ReadOnlyClient or SigningClient) */
+  client: EvoClient;
   standardScripts: ResolvedStandardScripts;
   deployment: DeploymentParams;
   network: string;
@@ -90,6 +103,8 @@ export interface RegisterParams {
   recipientAddress?: Address;
   /** Substandard-specific config (e.g., adminPkh for FES) */
   config?: Record<string, unknown>;
+  /** Available UTxOs from a chained transaction (e.g., initCompliance) */
+  chainedUtxos?: unknown[];
 }
 
 export interface MintParams {
@@ -149,8 +164,8 @@ export interface InitComplianceParams {
   feePayerAddress: Address;
   adminAddress: Address;
   assetName: string;
-  /** Skip stake address registration (handle separately if already registered) */
-  skipStakeRegistration?: boolean;
+  /** The bootstrap UTxO to consume (one-shot). If provided, skips fetching. */
+  bootstrapUtxo?: unknown;
 }
 
 // ---------------------------------------------------------------------------
@@ -166,6 +181,11 @@ export interface UnsignedTx {
   tokenPolicyId?: PolicyId;
   /** Additional metadata from the operation */
   metadata?: Record<string, unknown>;
+  /** Available UTxOs for chaining (from SignBuilder.chainResult().available) */
+  chainAvailable?: unknown[];
+  /** Internal: the SignBuilder for direct sign+submit (seed wallets) */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  _signBuilder?: any;
 }
 
 // ---------------------------------------------------------------------------

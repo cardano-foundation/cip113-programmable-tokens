@@ -1,17 +1,27 @@
 /**
  * Freeze-and-Seize substandard.
  *
- * Each instance manages ONE programmable token. The deployment params
- * (adminPkh, assetName, blacklistNodePolicyId) are provided at init
- * and used to parameterize all FES scripts once.
+ * Uses Evolution SDK directly — no adapter abstraction.
  *
  * Capabilities: register, mint, burn, transfer, freeze, unfreeze, seize.
  */
 
-import type { PlutusBlueprint, PlutusScript, UTxO } from "../../types.js";
+import {
+  Address as EvoAddress,
+  Assets,
+  Data,
+  Transaction,
+  TransactionHash as EvoTransactionHash,
+  TransactionInput as EvoTransactionInput,
+} from "@evolution-sdk/evolution";
+
+import type { UTxO as EvoUTxO } from "@evolution-sdk/evolution";
+
+import type { PlutusBlueprint, PlutusScript, DeploymentParams, HexString } from "../../types.js";
 import type {
   SubstandardPlugin,
   SubstandardContext,
+  EvoClient,
   RegisterParams,
   MintParams,
   BurnParams,
@@ -22,8 +32,25 @@ import type {
   InitComplianceParams,
   UnsignedTx,
 } from "../interface.js";
-import { Data, registryNodeDatum, blacklistNodeDatum } from "../../core/datums.js";
 import {
+  sortTxInputs,
+  findRefInputIndex,
+  findRegistryNode,
+  findCoveringNode,
+  utxoToTxInput,
+} from "../../core/registry.js";
+import {
+  buildEvoScript,
+  scriptAddress,
+  rewardAddress,
+  baseAddress,
+  stakingCredentialHash,
+  paymentCredentialHash,
+  stringToHex,
+  MAX_NEXT,
+  voidData,
+  registryNodeDatum,
+  blacklistNodeDatum,
   issuanceRedeemerFirstMint,
   issuanceRedeemerRefInput,
   registryInsertRedeemer,
@@ -32,20 +59,22 @@ import {
   blacklistInitRedeemer,
   blacklistAddRedeemer,
   blacklistRemoveRedeemer,
-  spendRedeemer,
-} from "../../core/redeemers.js";
-import {
-  sortTxInputs,
-  findRefInputIndex,
-  findRegistryNode,
-  findCoveringNode,
-} from "../../core/registry.js";
-import { stringToHex, MAX_NEXT } from "../../core/utils.js";
+  extractConstrBytesField,
+  extractCredentialField,
+  getInlineDatum,
+  utxoHasUnit,
+  utxoUnitQty,
+  utxoLovelace,
+  utxoTxHash,
+  utxoOutputIndex,
+  outputAssets,
+  mintAssetsFromMap,
+  Credential,
+  KeyHash,
+  InlineDatum,
+} from "../../core/evo-utils.js";
 import { createFESScripts } from "./scripts.js";
 import type { FESDeploymentParams } from "./types.js";
-
-import type { CardanoProvider } from "../../provider/interface.js";
-import type { Address, DeploymentParams, HexString } from "../../types.js";
 
 // ---------------------------------------------------------------------------
 // Resolved scripts — computed once at init, reused for all operations
@@ -56,10 +85,131 @@ interface ResolvedFESScripts {
   transfer: PlutusScript;
   blacklistMint: PlutusScript;
   blacklistSpend: PlutusScript;
-  /** The issuance_mint policy for this token */
   issuanceMint: PlutusScript;
-  /** Token's policy ID (= issuanceMint hash) */
   tokenPolicyId: string;
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Build the transaction and extract unsigned CBOR + txHash.
+ * Works with both ReadOnlyClient (TransactionResultBase) and SigningClient (SignBuilder).
+ */
+async function buildAndSerialize(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  builder: any,
+  changeAddress: string,
+  availableUtxos?: EvoUTxO.UTxO[],
+  passAdditionalUtxos = false,
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+): Promise<{ cbor: string; txHash: string; chainAvailable?: EvoUTxO.UTxO[]; _signBuilder?: any }> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const buildOpts: any = {
+    changeAddress: EvoAddress.fromBech32(changeAddress),
+  };
+  if (availableUtxos) {
+    buildOpts.availableUtxos = availableUtxos;
+  }
+  if (passAdditionalUtxos) {
+    buildOpts.passAdditionalUtxos = true;
+  }
+  const result = await builder.build(buildOpts);
+
+  const tx = await result.toTransaction();
+  const cbor = Transaction.toCBORHex(tx);
+
+  // Extract txHash and chainResult — SignBuilder has chainResult
+  let txHash = "";
+  let chainAvailable: EvoUTxO.UTxO[] | undefined;
+  if (typeof result.chainResult === "function") {
+    const cr = result.chainResult();
+    txHash = cr.txHash;
+    chainAvailable = cr.available as EvoUTxO.UTxO[];
+  }
+
+  return { cbor, txHash, chainAvailable, _signBuilder: result };
+}
+
+function selectUtxosForAmount(
+  utxos: EvoUTxO.UTxO[],
+  unit: string,
+  requiredAmount: bigint
+): { selected: EvoUTxO.UTxO[]; totalTokenAmount: bigint } {
+  const selected: EvoUTxO.UTxO[] = [];
+  let total = 0n;
+
+  for (const utxo of utxos) {
+    const amount = utxoUnitQty(utxo, unit);
+    if (amount <= 0n) continue;
+    selected.push(utxo);
+    total += amount;
+    if (total >= requiredAmount) break;
+  }
+
+  if (total < requiredAmount) {
+    throw new Error(`Insufficient token balance: have ${total}, need ${requiredAmount}`);
+  }
+
+  return { selected, totalTokenAmount: total };
+}
+
+/** Find protocol params UTxO by searching for the protocol params NFT */
+async function findProtocolParamsUtxo(
+  client: EvoClient,
+  networkId: number,
+  deployment: DeploymentParams
+): Promise<EvoUTxO.UTxO> {
+  const ppUnit = deployment.protocolParams.policyId + stringToHex("ProtocolParams");
+  const addr = EvoAddress.fromBech32(
+    scriptAddress(networkId, deployment.protocolParams.alwaysFailScriptHash)
+  );
+  const utxos = await client.getUtxosWithUnit(addr, ppUnit);
+  if (utxos.length > 0) return utxos[0];
+  throw new Error(`Protocol params UTxO not found (unit: ${ppUnit})`);
+}
+
+/** Find issuance CBOR hex UTxO */
+async function findIssuanceCborHexUtxo(
+  client: EvoClient,
+  networkId: number,
+  deployment: DeploymentParams
+): Promise<EvoUTxO.UTxO> {
+  const icUnit = deployment.issuance.policyId + stringToHex("IssuanceCborHex");
+  const addr = EvoAddress.fromBech32(
+    scriptAddress(networkId, deployment.issuance.alwaysFailScriptHash)
+  );
+  const utxos = await client.getUtxosWithUnit(addr, icUnit);
+  if (utxos.length > 0) return utxos[0];
+  throw new Error(`Issuance CBOR hex UTxO not found (unit: ${icUnit})`);
+}
+
+/** Find the NFT unit in a covering node's value that belongs to a given policy */
+function findCoveringNodeNftUnit(utxo: EvoUTxO.UTxO, policyId: string): string | undefined {
+  const units = Assets.getUnits(utxo.assets);
+  for (const unit of units) {
+    if (unit === "lovelace" || unit === "") continue;
+    if (unit.startsWith(policyId)) return unit;
+  }
+  return undefined;
+}
+
+/**
+ * Find a blacklist node proving non-membership for a given staking credential.
+ * Non-membership: node.key < stakingHash < node.next
+ */
+function findBlacklistCoveringNode(
+  blacklistUtxos: EvoUTxO.UTxO[],
+  stakingHash: string
+): EvoUTxO.UTxO | undefined {
+  return blacklistUtxos.find((utxo) => {
+    const datum = getInlineDatum(utxo);
+    if (!datum) return false;
+    const key = extractConstrBytesField(datum, 0) ?? "";
+    const next = extractConstrBytesField(datum, 1) ?? MAX_NEXT;
+    return key < stakingHash && stakingHash < next;
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -72,6 +222,7 @@ export function freezeAndSeizeSubstandard(config: {
 }): SubstandardPlugin {
   let ctx: SubstandardContext;
   let scripts: ResolvedFESScripts;
+  let networkId: number;
 
   return {
     id: "freeze-and-seize",
@@ -80,11 +231,11 @@ export function freezeAndSeizeSubstandard(config: {
 
     init(context) {
       ctx = context;
+      networkId = ctx.client.chain.id;
       const { adminPkh, assetName, blacklistNodePolicyId, blacklistInitTxInput } = config.deployment;
-      const fes = createFESScripts(config.blueprint, ctx.adapter);
+      const fes = createFESScripts(config.blueprint);
       const plbHash = ctx.standardScripts.programmableLogicBase.hash;
 
-      // Parameterize ALL FES scripts once
       const issuerAdmin = fes.buildIssuerAdmin(adminPkh, assetName);
       const transfer = fes.buildTransfer(plbHash, blacklistNodePolicyId);
       const blacklistMint = fes.buildBlacklistMint(blacklistInitTxInput, adminPkh);
@@ -103,35 +254,38 @@ export function freezeAndSeizeSubstandard(config: {
 
     // ====================================================================
     // REGISTER — first mint + registry insert
-    // Java ref: FreezeAndSeizeHandler.buildRegistrationTransaction()
     // ====================================================================
     async register(params: RegisterParams): Promise<UnsignedTx> {
       const { feePayerAddress, assetName, quantity, recipientAddress } = params;
       const recipient = recipientAddress || feePayerAddress;
+      const chainedUtxos = (params.chainedUtxos ?? []) as EvoUTxO.UTxO[];
       const assetNameHex = stringToHex(assetName);
       const unit = scripts.tokenPolicyId + assetNameHex;
-      const adapter = ctx.adapter;
+      const client = ctx.client;
 
-      // 1. Find covering registry node for insertion
-      const registrySpendAddress = adapter.scriptAddress(ctx.standardScripts.registrySpend.hash);
-      const coveringNodeUtxo = await findCoveringNode(adapter, registrySpendAddress, scripts.tokenPolicyId);
+      // 1. Find covering registry node
+      const registrySpendAddr = scriptAddress(networkId, ctx.standardScripts.registrySpend.hash);
+      const registryUtxos = await client.getUtxos(EvoAddress.fromBech32(registrySpendAddr));
+      const coveringNodeUtxo = findCoveringNode(registryUtxos, scripts.tokenPolicyId);
       if (!coveringNodeUtxo) throw new Error("Could not find covering registry node for insertion");
 
-      // Parse covering node datum to get its key and next
-      const coveringDatum = coveringNodeUtxo.datum;
+      const coveringDatum = getInlineDatum(coveringNodeUtxo);
       const coveringKey = extractConstrBytesField(coveringDatum, 0) ?? "";
       const coveringNext = extractConstrBytesField(coveringDatum, 1) ?? MAX_NEXT;
 
-      // 2. Get reference inputs (protocol params + issuance CBOR hex)
-      const protocolParamsUtxo = await findProtocolParamsUtxo(adapter, ctx.deployment);
-      const issuanceCborHexUtxo = await findIssuanceCborHexUtxo(adapter, ctx.deployment);
+      // 2. Get reference inputs
+      const protocolParamsUtxo = await findProtocolParamsUtxo(client, networkId, ctx.deployment);
+      const issuanceCborHexUtxo = await findIssuanceCborHexUtxo(client, networkId, ctx.deployment);
 
-      // 3. Build registry node datums
+      // 3. Build datums
+      const coveringTransferCred = extractCredentialField(coveringDatum, 2) ?? { type: "key" as const, hash: "" };
+      const coveringThirdPartyCred = extractCredentialField(coveringDatum, 3) ?? { type: "key" as const, hash: "" };
+
       const updatedCoveringDatum = registryNodeDatum({
         key: coveringKey,
         next: scripts.tokenPolicyId,
-        transferLogicScript: { type: "script", hash: extractConstrBytesField(coveringDatum, 2, true) ?? "" },
-        thirdPartyTransferLogicScript: { type: "script", hash: extractConstrBytesField(coveringDatum, 3, true) ?? "" },
+        transferLogicScript: coveringTransferCred,
+        thirdPartyTransferLogicScript: coveringThirdPartyCred,
         globalStateCs: extractConstrBytesField(coveringDatum, 4) ?? "",
       });
 
@@ -144,92 +298,81 @@ export function freezeAndSeizeSubstandard(config: {
       });
 
       // 4. Build redeemers
-      // Output layout: [0] token, [1] updated covering node, [2] new registry node
       const issuanceRedeemer = issuanceRedeemerFirstMint(scripts.issuerAdmin.hash, 2);
       const registryMintRedeemer = registryInsertRedeemer(scripts.issuanceMint.hash, scripts.issuerAdmin.hash);
-      const tokenDatum = Data.void();
+      const tokenDatum = voidData();
 
-      // 5. Get wallet UTxOs
-      const walletUtxos = await adapter.getUtxos(feePayerAddress);
+      // 5. Determine if chaining from initCompliance
+      const useChaining = chainedUtxos.length > 0;
 
-      // 6. Build PLB recipient address
+      // 6. Build addresses
       const plbHash = ctx.standardScripts.programmableLogicBase.hash;
-      const recipientPlbAddress = adapter.baseAddress(plbHash, recipient);
-
-      // 7. Build registry spend address for outputs
+      const recipientPlbAddr = baseAddress(networkId, plbHash, recipient);
       const registryMintPolicyId = ctx.standardScripts.registryMint.hash;
 
-      // 8. Build token + NFT assets
-      const tokenAssets = new Map<string, bigint>();
-      tokenAssets.set(unit, quantity);
-
+      // 7. Build asset maps
+      const tokenAssets = mintAssetsFromMap(new Map([[unit, quantity]]));
       const registryNftUnit = registryMintPolicyId + scripts.tokenPolicyId;
-      const registryNftAssets = new Map<string, bigint>();
-      registryNftAssets.set(registryNftUnit, 1n);
-
-      // Get the covering node's existing NFT unit for the updated output
+      const registryNftAssets = mintAssetsFromMap(new Map([[registryNftUnit, 1n]]));
       const coveringNftUnit = findCoveringNodeNftUnit(coveringNodeUtxo, registryMintPolicyId);
 
-      // 9. Build transaction
-      let tx = adapter.newTx();
+      // 8. Build transaction — let coin selection use chained UTxOs or auto-fetch
+      let tx = client.newTx();
 
-      tx = tx.collectFrom({ inputs: walletUtxos.slice(0, 3) }); // fee payer
-      tx = tx.collectFrom({ inputs: [coveringNodeUtxo], redeemer: spendRedeemer() }); // spend covering node
+      tx = tx.collectFrom({ inputs: [coveringNodeUtxo], redeemer: voidData() });
 
-      tx = tx.withdraw({ stakeCredential: scripts.issuerAdmin.hash, amount: 0n, redeemer: Data.void() }); // issuer admin
+      tx = tx.withdraw({
+        stakeCredential: Credential.makeScriptHash(new Uint8Array(Buffer.from(scripts.issuerAdmin.hash, "hex"))),
+        amount: 0n,
+        redeemer: voidData(),
+      });
 
-      // Mint programmable token
       tx = tx.mintAssets({ assets: tokenAssets, redeemer: issuanceRedeemer });
-      // Mint registry NFT
       tx = tx.mintAssets({ assets: registryNftAssets, redeemer: registryMintRedeemer });
 
       // Output 0: token to recipient
       tx = tx.payToAddress({
-        address: recipientPlbAddress,
-        value: { lovelace: 1_300_000n, assets: tokenAssets },
-        datum: tokenDatum,
-        inlineDatum: true,
+        address: EvoAddress.fromBech32(recipientPlbAddr),
+        assets: outputAssets(1_300_000n, new Map([[unit, quantity]])),
+        datum: new InlineDatum.InlineDatum({ data: tokenDatum }),
       });
 
       // Output 1: updated covering node
-      const coveringNodeAssets = new Map<string, bigint>();
-      if (coveringNftUnit) coveringNodeAssets.set(coveringNftUnit, 1n);
+      const coveringNodeTokenMap = new Map<string, bigint>();
+      if (coveringNftUnit) coveringNodeTokenMap.set(coveringNftUnit, 1n);
       tx = tx.payToAddress({
-        address: registrySpendAddress,
-        value: { lovelace: coveringNodeUtxo.value.lovelace, assets: coveringNodeAssets },
-        datum: updatedCoveringDatum,
-        inlineDatum: true,
+        address: EvoAddress.fromBech32(registrySpendAddr),
+        assets: outputAssets(utxoLovelace(coveringNodeUtxo), coveringNodeTokenMap),
+        datum: new InlineDatum.InlineDatum({ data: updatedCoveringDatum }),
       });
 
       // Output 2: new registry node
-      const newNodeAssets = new Map<string, bigint>();
-      newNodeAssets.set(registryNftUnit, 1n);
       tx = tx.payToAddress({
-        address: registrySpendAddress,
-        value: { lovelace: 1_300_000n, assets: newNodeAssets },
-        datum: newRegistryNodeDatum,
-        inlineDatum: true,
+        address: EvoAddress.fromBech32(registrySpendAddr),
+        assets: outputAssets(1_300_000n, new Map([[registryNftUnit, 1n]])),
+        datum: new InlineDatum.InlineDatum({ data: newRegistryNodeDatum }),
       });
 
       // Reference inputs
       tx = tx.readFrom({ referenceInputs: [protocolParamsUtxo, issuanceCborHexUtxo] });
 
       // Attach scripts
-      tx = tx.attachScript({ script: ctx.standardScripts.registrySpend });
-      tx = tx.attachScript({ script: scripts.issuerAdmin });
-      tx = tx.attachScript({ script: scripts.issuanceMint });
-      tx = tx.attachScript({ script: ctx.standardScripts.registryMint });
+      tx = tx.attachScript({ script: buildEvoScript(ctx.standardScripts.registrySpend.compiledCode) });
+      tx = tx.attachScript({ script: buildEvoScript(scripts.issuerAdmin.compiledCode) });
+      tx = tx.attachScript({ script: buildEvoScript(scripts.issuanceMint.compiledCode) });
+      tx = tx.attachScript({ script: buildEvoScript(ctx.standardScripts.registryMint.compiledCode) });
 
       // Required signer
-      tx = tx.addSigner({ keyHash: config.deployment.adminPkh });
+      tx = tx.addSigner({ keyHash: KeyHash.fromHex(config.deployment.adminPkh) });
 
-      tx = tx.provideUtxos(walletUtxos);
-      tx = tx.setChangeAddress(feePayerAddress);
-
-      const built = await tx.build();
+      const { cbor, txHash } = await buildAndSerialize(
+        tx, feePayerAddress,
+        useChaining ? chainedUtxos : undefined,
+        useChaining,
+      );
       return {
-        cbor: built.toCbor(),
-        txHash: built.txHash(),
+        cbor,
+        txHash,
         tokenPolicyId: scripts.tokenPolicyId,
         metadata: {
           issuerAdminScriptHash: scripts.issuerAdmin.hash,
@@ -240,74 +383,73 @@ export function freezeAndSeizeSubstandard(config: {
 
     // ====================================================================
     // MINT — subsequent mint with RefInput proof
-    // Java ref: FreezeAndSeizeHandler.buildMintingTransaction()
     // ====================================================================
     async mint(params: MintParams): Promise<UnsignedTx> {
       const { feePayerAddress, tokenPolicyId, assetName, quantity, recipientAddress } = params;
       const recipient = recipientAddress || feePayerAddress;
       const assetNameHex = stringToHex(assetName);
       const unit = tokenPolicyId + assetNameHex;
-      const adapter = ctx.adapter;
+      const client = ctx.client;
 
       if (tokenPolicyId !== scripts.tokenPolicyId) {
         throw new Error(`Token policy ${tokenPolicyId} does not match this FES instance (${scripts.tokenPolicyId})`);
       }
 
       // 1. Find registry node as RefInput proof
-      const registrySpendAddress = adapter.scriptAddress(ctx.standardScripts.registrySpend.hash);
-      const registryUtxo = await findRegistryNode(adapter, registrySpendAddress, tokenPolicyId);
+      const registrySpendAddr = scriptAddress(networkId, ctx.standardScripts.registrySpend.hash);
+      const registryUtxos = await client.getUtxos(EvoAddress.fromBech32(registrySpendAddr));
+      const registryUtxo = findRegistryNode(registryUtxos, tokenPolicyId);
       if (!registryUtxo) throw new Error(`Registry node not found for ${tokenPolicyId}`);
 
-      // 2. Sort reference inputs and compute index
-      const refInputs = [{ txHash: registryUtxo.txHash, outputIndex: registryUtxo.outputIndex }];
-      const sortedRefInputs = sortTxInputs(refInputs);
-      const registryRefIdx = findRefInputIndex(sortedRefInputs, { txHash: registryUtxo.txHash, outputIndex: registryUtxo.outputIndex });
+      // 2. Sort reference inputs
+      const regRef = utxoToTxInput(registryUtxo);
+      const sortedRefInputs = sortTxInputs([regRef]);
+      const registryRefIdx = findRefInputIndex(sortedRefInputs, regRef);
 
       // 3. Build redeemers
       const issuanceRedeemer = issuanceRedeemerRefInput(scripts.issuerAdmin.hash, registryRefIdx);
-      const tokenDatum = Data.void();
+      const tokenDatum = voidData();
 
       // 4. Build PLB address
       const plbHash = ctx.standardScripts.programmableLogicBase.hash;
-      const recipientPlbAddress = adapter.baseAddress(plbHash, recipient);
+      const recipientPlbAddr = baseAddress(networkId, plbHash, recipient);
 
       // 5. Get wallet UTxOs
-      const walletUtxos = await adapter.getUtxos(feePayerAddress);
+      const walletUtxos = await client.getUtxos(EvoAddress.fromBech32(feePayerAddress));
 
       // 6. Build transaction
-      const tokenAssets = new Map<string, bigint>();
-      tokenAssets.set(unit, quantity);
+      const tokenAssets = mintAssetsFromMap(new Map([[unit, quantity]]));
 
-      let tx = adapter.newTx();
+      let tx = client.newTx();
       tx = tx.collectFrom({ inputs: walletUtxos.slice(0, 2) });
-      tx = tx.withdraw({ stakeCredential: scripts.issuerAdmin.hash, amount: 0n, redeemer: Data.void() });
+      tx = tx.withdraw({
+        stakeCredential: Credential.makeScriptHash(new Uint8Array(Buffer.from(scripts.issuerAdmin.hash, "hex"))),
+        amount: 0n,
+        redeemer: voidData(),
+      });
       tx = tx.mintAssets({ assets: tokenAssets, redeemer: issuanceRedeemer });
       tx = tx.payToAddress({
-        address: recipientPlbAddress,
-        value: { lovelace: 1_300_000n, assets: tokenAssets },
-        datum: tokenDatum,
-        inlineDatum: true,
+        address: EvoAddress.fromBech32(recipientPlbAddr),
+        assets: outputAssets(1_300_000n, new Map([[unit, quantity]])),
+        datum: new InlineDatum.InlineDatum({ data: tokenDatum }),
       });
       tx = tx.readFrom({ referenceInputs: [registryUtxo] });
-      tx = tx.attachScript({ script: scripts.issuerAdmin });
-      tx = tx.attachScript({ script: scripts.issuanceMint });
-      tx = tx.addSigner({ keyHash: config.deployment.adminPkh });
-      tx = tx.provideUtxos(walletUtxos);
-      tx = tx.setChangeAddress(feePayerAddress);
+      tx = tx.attachScript({ script: buildEvoScript(scripts.issuerAdmin.compiledCode) });
+      tx = tx.attachScript({ script: buildEvoScript(scripts.issuanceMint.compiledCode) });
+      tx = tx.addSigner({ keyHash: KeyHash.fromHex(config.deployment.adminPkh) });
 
-      const built = await tx.build();
-      return { cbor: built.toCbor(), txHash: built.txHash(), tokenPolicyId };
+      const { cbor, txHash } = await buildAndSerialize(tx, feePayerAddress, walletUtxos);
+      return { cbor, txHash, tokenPolicyId };
     },
 
     // ====================================================================
-    // BURN — burn + PLGlobal ThirdPartyAct
-    // Java ref: FreezeAndSeizeHandler.buildBurnTransaction()
+    // BURN
     // ====================================================================
     async burn(params: BurnParams): Promise<UnsignedTx> {
-      const { feePayerAddress, tokenPolicyId, assetName, utxoTxHash, utxoOutputIndex } = params;
+      const { feePayerAddress, tokenPolicyId, assetName, utxoTxHash: targetTxHash, utxoOutputIndex: targetIdx } = params;
       const assetNameHex = stringToHex(assetName);
       const unit = tokenPolicyId + assetNameHex;
-      const adapter = ctx.adapter;
+      const client = ctx.client;
 
       if (tokenPolicyId !== scripts.tokenPolicyId) {
         throw new Error(`Token policy ${tokenPolicyId} does not match this FES instance`);
@@ -315,108 +457,104 @@ export function freezeAndSeizeSubstandard(config: {
 
       // 1. Find UTxO to burn
       const plbHash = ctx.standardScripts.programmableLogicBase.hash;
-      // Search at the PLB address derived from the fee payer's staking cred
-      const senderPlbAddress = adapter.baseAddress(plbHash, feePayerAddress);
-      const allUtxos = await adapter.getUtxos(senderPlbAddress);
-      const utxoToBurn = allUtxos.find(u => u.txHash === utxoTxHash && u.outputIndex === utxoOutputIndex);
-      if (!utxoToBurn) throw new Error(`UTxO ${utxoTxHash}#${utxoOutputIndex} not found`);
+      const senderPlbAddr = baseAddress(networkId, plbHash, feePayerAddress);
+      const allUtxos = await client.getUtxos(EvoAddress.fromBech32(senderPlbAddr));
+      const utxoToBurn = allUtxos.find(u =>
+        utxoTxHash(u) === targetTxHash && utxoOutputIndex(u) === targetIdx
+      );
+      if (!utxoToBurn) throw new Error(`UTxO ${targetTxHash}#${targetIdx} not found`);
 
-      // 2. Get burn amount (entire policy from UTxO, as per Java handler)
-      const burnAmount = utxoToBurn.value.assets?.get(unit) ?? 0n;
+      const burnAmount = utxoUnitQty(utxoToBurn, unit);
       if (burnAmount <= 0n) throw new Error(`No tokens of ${unit} in UTxO`);
 
-      // 3. Find reference inputs
-      const protocolParamsUtxo = await findProtocolParamsUtxo(adapter, ctx.deployment);
-      const registrySpendAddress = adapter.scriptAddress(ctx.standardScripts.registrySpend.hash);
-      const registryUtxo = await findRegistryNode(adapter, registrySpendAddress, tokenPolicyId);
+      // 2. Find reference inputs
+      const protocolParamsUtxo = await findProtocolParamsUtxo(client, networkId, ctx.deployment);
+      const registrySpendAddr = scriptAddress(networkId, ctx.standardScripts.registrySpend.hash);
+      const registryUtxos = await client.getUtxos(EvoAddress.fromBech32(registrySpendAddr));
+      const registryUtxo = findRegistryNode(registryUtxos, tokenPolicyId);
       if (!registryUtxo) throw new Error(`Registry node not found for ${tokenPolicyId}`);
 
-      // 4. Sort reference inputs
-      const allRefInputRefs = [
-        { txHash: protocolParamsUtxo.txHash, outputIndex: protocolParamsUtxo.outputIndex },
-        { txHash: registryUtxo.txHash, outputIndex: registryUtxo.outputIndex },
-      ];
+      // 3. Sort reference inputs
+      const allRefInputRefs = [utxoToTxInput(protocolParamsUtxo), utxoToTxInput(registryUtxo)];
       const sortedRefInputs = sortTxInputs(allRefInputRefs);
-      const registryIdx = findRefInputIndex(sortedRefInputs, { txHash: registryUtxo.txHash, outputIndex: registryUtxo.outputIndex });
+      const registryIdx = findRefInputIndex(sortedRefInputs, utxoToTxInput(registryUtxo));
 
-      // 5. Build redeemers
+      // 4. Build redeemers
       const issuanceRedeemer = issuanceRedeemerRefInput(scripts.issuerAdmin.hash, registryIdx);
-      const plgRedeemer = thirdPartyActRedeemer(registryIdx, 0); // outputs_start_idx = 0
-      const tokenDatum = Data.void();
+      const plgRedeemer = thirdPartyActRedeemer(registryIdx, 0);
+      const tokenDatum = voidData();
 
-      // 6. Compute remaining value (remove entire policy from UTxO)
-      const remainingAssets = new Map<string, bigint>();
-      if (utxoToBurn.value.assets) {
-        for (const [u, qty] of utxoToBurn.value.assets) {
-          // Skip all assets under the burned policy
-          if (!u.startsWith(tokenPolicyId)) {
-            remainingAssets.set(u, qty);
-          }
-        }
+      // 5. Compute remaining assets (remove burned token's policy)
+      const remainingTokens = new Map<string, bigint>();
+      const allUnits = Assets.getUnits(utxoToBurn.assets);
+      for (const u of allUnits) {
+        if (u === "lovelace" || u === "") continue;
+        if (u.startsWith(tokenPolicyId)) continue;
+        const qty = Assets.getByUnit(utxoToBurn.assets, u);
+        if (qty > 0n) remainingTokens.set(u, qty);
       }
 
-      // 7. Build burn assets (negative quantity)
-      const burnAssets = new Map<string, bigint>();
-      burnAssets.set(unit, -burnAmount);
+      // 6. Build burn assets
+      const burnAssets = mintAssetsFromMap(new Map([[unit, -burnAmount]]));
 
-      // 8. Get wallet UTxOs
-      const walletUtxos = await adapter.getUtxos(feePayerAddress);
+      // 7. Get wallet UTxOs
+      const walletUtxos = await client.getUtxos(EvoAddress.fromBech32(feePayerAddress));
 
-      // 9. Build transaction
-      let tx = adapter.newTx();
+      // 8. Build transaction
+      let tx = client.newTx();
       tx = tx.collectFrom({ inputs: walletUtxos.slice(0, 2) });
-      tx = tx.collectFrom({ inputs: [utxoToBurn], redeemer: spendRedeemer() });
-      tx = tx.withdraw({ stakeCredential: scripts.issuerAdmin.hash, amount: 0n, redeemer: Data.void() });
-      tx = tx.withdraw({ stakeCredential: ctx.standardScripts.programmableLogicGlobal.hash, amount: 0n, redeemer: plgRedeemer });
+      tx = tx.collectFrom({ inputs: [utxoToBurn], redeemer: voidData() });
+      tx = tx.withdraw({
+        stakeCredential: Credential.makeScriptHash(new Uint8Array(Buffer.from(scripts.issuerAdmin.hash, "hex"))),
+        amount: 0n,
+        redeemer: voidData(),
+      });
+      tx = tx.withdraw({
+        stakeCredential: Credential.makeScriptHash(new Uint8Array(Buffer.from(ctx.standardScripts.programmableLogicGlobal.hash, "hex"))),
+        amount: 0n,
+        redeemer: plgRedeemer,
+      });
       tx = tx.payToAddress({
-        address: utxoToBurn.address, // Return to original address
-        value: { lovelace: utxoToBurn.value.lovelace, assets: remainingAssets.size > 0 ? remainingAssets : undefined },
-        datum: tokenDatum,
-        inlineDatum: true,
+        address: utxoToBurn.address,
+        assets: outputAssets(utxoLovelace(utxoToBurn), remainingTokens.size > 0 ? remainingTokens : undefined),
+        datum: new InlineDatum.InlineDatum({ data: tokenDatum }),
       });
       tx = tx.mintAssets({ assets: burnAssets, redeemer: issuanceRedeemer });
       tx = tx.readFrom({ referenceInputs: [protocolParamsUtxo, registryUtxo] });
-      tx = tx.attachScript({ script: ctx.standardScripts.programmableLogicBase });
-      tx = tx.attachScript({ script: ctx.standardScripts.programmableLogicGlobal });
-      tx = tx.attachScript({ script: scripts.issuerAdmin });
-      tx = tx.attachScript({ script: scripts.issuanceMint });
-      tx = tx.addSigner({ keyHash: config.deployment.adminPkh });
-      tx = tx.provideUtxos(walletUtxos);
-      tx = tx.setChangeAddress(feePayerAddress);
+      tx = tx.attachScript({ script: buildEvoScript(ctx.standardScripts.programmableLogicBase.compiledCode) });
+      tx = tx.attachScript({ script: buildEvoScript(ctx.standardScripts.programmableLogicGlobal.compiledCode) });
+      tx = tx.attachScript({ script: buildEvoScript(scripts.issuerAdmin.compiledCode) });
+      tx = tx.attachScript({ script: buildEvoScript(scripts.issuanceMint.compiledCode) });
+      tx = tx.addSigner({ keyHash: KeyHash.fromHex(config.deployment.adminPkh) });
 
-      const built = await tx.build();
-      return { cbor: built.toCbor(), txHash: built.txHash() };
+      const { cbor, txHash } = await buildAndSerialize(tx, feePayerAddress, walletUtxos);
+      return { cbor, txHash };
     },
 
     // ====================================================================
-    // TRANSFER — with blacklist non-membership proofs
+    // TRANSFER
     // ====================================================================
     async transfer(params: TransferParams): Promise<UnsignedTx> {
       const { senderAddress, recipientAddress, tokenPolicyId, assetName, quantity } = params;
       const assetNameHex = stringToHex(assetName);
       const unit = tokenPolicyId + assetNameHex;
+      const client = ctx.client;
 
-      // Sanity check: the token must match this substandard instance
       if (tokenPolicyId !== scripts.tokenPolicyId) {
-        throw new Error(
-          `Token policy ${tokenPolicyId} does not match this FES instance (${scripts.tokenPolicyId})`
-        );
+        throw new Error(`Token policy ${tokenPolicyId} does not match this FES instance (${scripts.tokenPolicyId})`);
       }
 
-      const adapter = ctx.adapter;
       const plbHash = ctx.standardScripts.programmableLogicBase.hash;
 
       // 1. Build PLB addresses
-      const senderPlbAddress = adapter.baseAddress(plbHash, senderAddress);
-      const recipientPlbAddress = adapter.baseAddress(plbHash, recipientAddress);
+      const senderPlbAddr = baseAddress(networkId, plbHash, senderAddress);
+      const recipientPlbAddr = baseAddress(networkId, plbHash, recipientAddress);
 
       // 2. Find sender's token UTxOs
-      const allUtxos = await adapter.getUtxos(senderPlbAddress);
-      const tokenUtxos = allUtxos.filter(
-        (u) => u.value.assets?.has(unit) && (u.value.assets.get(unit) ?? 0n) > 0n
-      );
+      const allUtxos = await client.getUtxos(EvoAddress.fromBech32(senderPlbAddr));
+      const tokenUtxos = allUtxos.filter(u => utxoUnitQty(u, unit) > 0n);
       if (tokenUtxos.length === 0) {
-        throw new Error(`No token UTxOs found at ${senderPlbAddress} for ${unit}`);
+        throw new Error(`No token UTxOs found at ${senderPlbAddr} for ${unit}`);
       }
 
       // 3. Select enough UTxOs
@@ -424,207 +562,186 @@ export function freezeAndSeizeSubstandard(config: {
       const returningAmount = totalTokenAmount - quantity;
 
       // 4. Find registry node reference input
-      const registrySpendAddress = adapter.scriptAddress(ctx.standardScripts.registrySpend.hash);
-      const registryUtxo = await findRegistryNode(adapter, registrySpendAddress, tokenPolicyId);
+      const registrySpendAddr = scriptAddress(networkId, ctx.standardScripts.registrySpend.hash);
+      const registryUtxos = await client.getUtxos(EvoAddress.fromBech32(registrySpendAddr));
+      const registryUtxo = findRegistryNode(registryUtxos, tokenPolicyId);
       if (!registryUtxo) throw new Error(`Registry node not found for ${tokenPolicyId}`);
 
       // 5. Find protocol params reference input
-      const protocolParamsUtxos = await adapter.getUtxos(
-        adapter.scriptAddress(ctx.deployment.protocolParams.alwaysFailScriptHash)
-      );
-      const ppUnit = ctx.deployment.protocolParams.policyId + stringToHex("ProtocolParams");
-      const protocolParamsUtxo = protocolParamsUtxos.find((u) => u.value.assets?.has(ppUnit));
-      if (!protocolParamsUtxo) throw new Error("Protocol params UTxO not found");
+      const protocolParamsUtxo = await findProtocolParamsUtxo(client, networkId, ctx.deployment);
 
       // 6. Find blacklist non-membership proofs
-      const senderStakingHash = adapter.stakingCredentialHash(senderAddress);
-      const blacklistSpendAddress = adapter.scriptAddress(scripts.blacklistSpend.hash);
-      const blacklistUtxos = await adapter.getUtxos(blacklistSpendAddress);
+      const senderStakingHash = stakingCredentialHash(senderAddress);
+      const blacklistSpendAddr = scriptAddress(networkId, scripts.blacklistSpend.hash);
+      const blacklistUtxos = await client.getUtxos(EvoAddress.fromBech32(blacklistSpendAddr));
 
-      // For each selected input, find covering node proving sender is NOT blacklisted
-      const proofUtxos: UTxO[] = [];
+      const proofUtxos: EvoUTxO.UTxO[] = [];
       for (const _inputUtxo of selected) {
         const proofUtxo = findBlacklistCoveringNode(blacklistUtxos, senderStakingHash);
         if (!proofUtxo) {
           throw new Error(`Sender ${senderStakingHash} is blacklisted — transfer denied`);
         }
-        // Deduplicate: same proof covers all inputs from same sender
-        if (!proofUtxos.some(
-          (p) => p.txHash === proofUtxo.txHash && p.outputIndex === proofUtxo.outputIndex
+        if (!proofUtxos.some(p =>
+          utxoTxHash(p) === utxoTxHash(proofUtxo) && utxoOutputIndex(p) === utxoOutputIndex(proofUtxo)
         )) {
           proofUtxos.push(proofUtxo);
         }
       }
 
-      // 7. Sort ALL reference inputs and compute indices
+      // 7. Sort ALL reference inputs
       const allRefInputRefs = [
-        ...proofUtxos.map((u) => ({ txHash: u.txHash, outputIndex: u.outputIndex })),
-        { txHash: protocolParamsUtxo.txHash, outputIndex: protocolParamsUtxo.outputIndex },
-        { txHash: registryUtxo.txHash, outputIndex: registryUtxo.outputIndex },
+        ...proofUtxos.map(utxoToTxInput),
+        utxoToTxInput(protocolParamsUtxo),
+        utxoToTxInput(registryUtxo),
       ];
       const sortedRefInputs = sortTxInputs(allRefInputRefs);
 
-      // Proof indices: one per selected input
       const proofIndices: number[] = selected.map(() =>
-        findRefInputIndex(sortedRefInputs, {
-          txHash: proofUtxos[0].txHash,
-          outputIndex: proofUtxos[0].outputIndex,
-        })
+        findRefInputIndex(sortedRefInputs, utxoToTxInput(proofUtxos[0]))
       );
 
-      const registryIdx = findRefInputIndex(sortedRefInputs, {
-        txHash: registryUtxo.txHash,
-        outputIndex: registryUtxo.outputIndex,
-      });
+      const registryIdx = findRefInputIndex(sortedRefInputs, utxoToTxInput(registryUtxo));
 
-      // 8. Get sender's wallet UTxOs for fee coverage + collateral
-      const senderWalletUtxos = await adapter.getUtxos(senderAddress);
+      // 8. Get sender's wallet UTxOs
+      const senderWalletUtxos = await client.getUtxos(EvoAddress.fromBech32(senderAddress));
 
       // 9. Build redeemers
       const fesTransferRedeemer = Data.list(
-        proofIndices.map((idx) => Data.constr(0, [Data.integer(idx)]))
+        proofIndices.map((idx) => Data.constr(0n, [Data.int(BigInt(idx))]))
       );
-      const plgRedeemer = transferActRedeemer([
-        { type: "exists", nodeIdx: registryIdx },
-      ]);
-      const spendRdmr = spendRedeemer();
-      const tokenDatum = Data.void();
+      const plgRedeemer = transferActRedeemer([{ type: "exists", nodeIdx: registryIdx }]);
+      const spendRdmr = voidData();
+      const tokenDatum = voidData();
 
-      // 9. Build transaction
-      let tx = adapter.newTx();
+      // 10. Build transaction
+      let tx = client.newTx();
 
-      // Spend token UTxOs
       tx = tx.collectFrom({ inputs: selected, redeemer: spendRdmr });
 
-      // Withdraw-zero: PLGlobal (TransferAct)
       tx = tx.withdraw({
-        stakeCredential: ctx.standardScripts.programmableLogicGlobal.hash,
+        stakeCredential: Credential.makeScriptHash(new Uint8Array(Buffer.from(ctx.standardScripts.programmableLogicGlobal.hash, "hex"))),
         amount: 0n,
         redeemer: plgRedeemer,
       });
 
-      // Withdraw-zero: FES transfer logic (blacklist proofs)
       tx = tx.withdraw({
-        stakeCredential: scripts.transfer.hash,
+        stakeCredential: Credential.makeScriptHash(new Uint8Array(Buffer.from(scripts.transfer.hash, "hex"))),
         amount: 0n,
         redeemer: fesTransferRedeemer,
       });
 
-      // Output: remaining tokens back to sender (if any)
       if (returningAmount > 0n) {
-        const senderAssets = new Map<string, bigint>();
-        senderAssets.set(unit, returningAmount);
         tx = tx.payToAddress({
-          address: senderPlbAddress,
-          value: { lovelace: 1_300_000n, assets: senderAssets },
-          datum: tokenDatum,
-          inlineDatum: true,
+          address: EvoAddress.fromBech32(senderPlbAddr),
+          assets: outputAssets(1_300_000n, new Map([[unit, returningAmount]])),
+          datum: new InlineDatum.InlineDatum({ data: tokenDatum }),
         });
       }
 
-      // Output: transferred tokens to recipient
-      const recipientAssets = new Map<string, bigint>();
-      recipientAssets.set(unit, quantity);
       tx = tx.payToAddress({
-        address: recipientPlbAddress,
-        value: { lovelace: 1_300_000n, assets: recipientAssets },
-        datum: tokenDatum,
-        inlineDatum: true,
+        address: EvoAddress.fromBech32(recipientPlbAddr),
+        assets: outputAssets(1_300_000n, new Map([[unit, quantity]])),
+        datum: new InlineDatum.InlineDatum({ data: tokenDatum }),
       });
 
-      // Reference inputs
-      const allRefUtxos = [...proofUtxos, protocolParamsUtxo, registryUtxo];
-      tx = tx.readFrom({ referenceInputs: allRefUtxos });
+      tx = tx.readFrom({ referenceInputs: [...proofUtxos, protocolParamsUtxo, registryUtxo] });
+      tx = tx.attachScript({ script: buildEvoScript(ctx.standardScripts.programmableLogicBase.compiledCode) });
+      tx = tx.attachScript({ script: buildEvoScript(ctx.standardScripts.programmableLogicGlobal.compiledCode) });
+      tx = tx.attachScript({ script: buildEvoScript(scripts.transfer.compiledCode) });
 
-      // Attach scripts
-      tx = tx.attachScript({ script: ctx.standardScripts.programmableLogicBase });
-      tx = tx.attachScript({ script: ctx.standardScripts.programmableLogicGlobal });
-      tx = tx.attachScript({ script: scripts.transfer });
+      tx = tx.addSigner({ keyHash: KeyHash.fromHex(senderStakingHash) });
 
-      // Required signer: sender's staking credential
-      tx = tx.addSigner({ keyHash: senderStakingHash });
-
-      // Provide wallet UTxOs for coin selection + collateral
-      tx = tx.provideUtxos(senderWalletUtxos);
-
-      // Change address: sender's wallet address
-      tx = tx.setChangeAddress(senderAddress);
-
-      const built = await tx.build();
-      return {
-        cbor: built.toCbor(),
-        txHash: built.txHash(),
-      };
+      const { cbor, txHash } = await buildAndSerialize(tx, senderAddress, senderWalletUtxos);
+      return { cbor, txHash };
     },
 
     // ====================================================================
     // INIT COMPLIANCE — initialize blacklist
-    // Java ref: FreezeAndSeizeHandler.buildBlacklistInitTransaction()
     // ====================================================================
     async initCompliance(params: InitComplianceParams): Promise<UnsignedTx> {
       const { feePayerAddress, adminAddress, assetName } = params;
-      const adapter = ctx.adapter;
-      const assetNameHex = stringToHex(assetName);
+      const client = ctx.client;
 
-      // 1. Get bootstrap UTxO from fee payer
-      const walletUtxos = await adapter.getUtxos(feePayerAddress);
-      if (walletUtxos.length === 0) throw new Error("No UTxOs at fee payer address");
-
-      // 2. Build blacklist origin node
+      // 1. Build blacklist origin node
       const originDatum = blacklistNodeDatum("", MAX_NEXT);
 
-      // 3. Compute blacklist spend address
-      const blacklistSpendAddress = adapter.scriptAddress(scripts.blacklistSpend.hash);
+      // 2. Compute addresses
+      const blacklistSpendAddr = scriptAddress(networkId, scripts.blacklistSpend.hash);
 
-      // 4. Compute stake addresses for registration
-      const issuerAdminRewardAddr = adapter.rewardAddress(scripts.issuerAdmin.hash);
-      const transferRewardAddr = adapter.rewardAddress(scripts.transfer.hash);
+      // 3. Build blacklist origin NFT
+      const blacklistOriginUnit = scripts.blacklistMint.hash + "";
+      const blacklistOriginAssets = mintAssetsFromMap(new Map([[blacklistOriginUnit, 1n]]));
 
-      // 5. Build blacklist origin NFT
-      const blacklistOriginUnit = scripts.blacklistMint.hash + ""; // empty token name
-      const blacklistOriginAssets = new Map<string, bigint>();
-      blacklistOriginAssets.set(blacklistOriginUnit, 1n);
+      // 4. Get the bootstrap UTxO (must be consumed for one-shot minting policy)
+      let bootstrapUtxos: EvoUTxO.UTxO[];
+      if (params.bootstrapUtxo) {
+        bootstrapUtxos = [params.bootstrapUtxo as EvoUTxO.UTxO];
+      } else {
+        const { blacklistInitTxInput } = config.deployment;
+        bootstrapUtxos = await client.getUtxosByOutRef([
+          new EvoTransactionInput.TransactionInput({
+            transactionId: EvoTransactionHash.fromHex(blacklistInitTxInput.txHash),
+            index: BigInt(blacklistInitTxInput.outputIndex),
+          }),
+        ]);
+      }
+      if (bootstrapUtxos.length === 0) throw new Error("Bootstrap UTxO not found on-chain");
 
-      // 6. Build transaction
-      let tx = adapter.newTx();
+      // 5. Build transaction
+      let tx = client.newTx();
 
-      tx = tx.collectFrom({ inputs: walletUtxos.slice(0, 3) }); // wallet UTxOs including bootstrap
+      // Must consume bootstrap UTxO (one-shot check in blacklist mint validator)
+      tx = tx.collectFrom({ inputs: bootstrapUtxos });
 
-      // Mint blacklist origin NFT
       tx = tx.mintAssets({ assets: blacklistOriginAssets, redeemer: blacklistInitRedeemer() });
 
       // Output: chain output (40 ADA for next tx)
       tx = tx.payToAddress({
-        address: feePayerAddress,
-        value: { lovelace: 40_000_000n },
+        address: EvoAddress.fromBech32(feePayerAddress),
+        assets: outputAssets(40_000_000n),
       });
 
       // Output: blacklist origin node
-      const originNodeAssets = new Map<string, bigint>();
-      originNodeAssets.set(blacklistOriginUnit, 1n);
       tx = tx.payToAddress({
-        address: blacklistSpendAddress,
-        value: { lovelace: 1_300_000n, assets: originNodeAssets },
-        datum: originDatum,
-        inlineDatum: true,
+        address: EvoAddress.fromBech32(blacklistSpendAddr),
+        assets: outputAssets(1_300_000n, new Map([[blacklistOriginUnit, 1n]])),
+        datum: new InlineDatum.InlineDatum({ data: originDatum }),
       });
 
-      // Register stake addresses (issuer admin + transfer) unless skipped
-      // Uses simple stake registration (no script witness) — same as Java backend
-      if (!params.skipStakeRegistration) {
-        tx = tx.registerStake({ stakeCredential: scripts.issuerAdmin.hash });
-        tx = tx.registerStake({ stakeCredential: scripts.transfer.hash });
+      // Register stake addresses only if not already registered on-chain.
+      // Check via Blockfrost accounts endpoint (404 = not registered).
+      const stakeScripts = [
+        { hash: scripts.issuerAdmin.hash, code: scripts.issuerAdmin.compiledCode },
+        { hash: scripts.transfer.hash, code: scripts.transfer.compiledCode },
+      ];
+      for (const s of stakeScripts) {
+        const stakeAddr = rewardAddress(networkId, s.hash);
+        let isRegistered = false;
+        try {
+          // getDelegation returns the delegation info; if it doesn't throw, the address is registered
+          await client.getDelegation(stakeAddr as any);
+          isRegistered = true;
+        } catch {
+          isRegistered = false;
+        }
+        console.log(`[CIP-113] Stake ${stakeAddr}: registered=${isRegistered}`);
+        if (!isRegistered) {
+          tx = tx.registerStake({
+            stakeCredential: Credential.makeScriptHash(new Uint8Array(Buffer.from(s.hash, "hex"))),
+            redeemer: voidData(),
+          });
+          tx = tx.attachScript({ script: buildEvoScript(s.code) });
+        }
       }
 
-      // Only the blacklist mint script needs to be attached for init
-      tx = tx.attachScript({ script: scripts.blacklistMint });
-      tx = tx.provideUtxos(walletUtxos);
-      tx = tx.setChangeAddress(feePayerAddress);
+      tx = tx.attachScript({ script: buildEvoScript(scripts.blacklistMint.compiledCode) });
 
-      const built = await tx.build();
+      const built = await buildAndSerialize(tx, feePayerAddress);
       return {
-        cbor: built.toCbor(),
-        txHash: built.txHash(),
+        cbor: built.cbor,
+        txHash: built.txHash,
+        chainAvailable: built.chainAvailable,
+        _signBuilder: built._signBuilder,
         metadata: {
           blacklistNodePolicyId: scripts.blacklistMint.hash,
           blacklistSpendScriptHash: scripts.blacklistSpend.hash,
@@ -636,252 +753,227 @@ export function freezeAndSeizeSubstandard(config: {
 
     // ====================================================================
     // FREEZE — add address to blacklist
-    // Java ref: FreezeAndSeizeHandler.buildAddToBlacklistTransaction()
     // ====================================================================
     async freeze(params: FreezeParams): Promise<UnsignedTx> {
-      const { feePayerAddress, tokenPolicyId, assetName, targetAddress } = params;
-      const adapter = ctx.adapter;
+      const { feePayerAddress, tokenPolicyId: _tokenPolicyId, assetName: _assetName, targetAddress } = params;
+      const client = ctx.client;
 
-      // 1. Get target's staking credential hash
-      const targetStakingHash = adapter.stakingCredentialHash(targetAddress);
+      const targetStakingHash = stakingCredentialHash(targetAddress);
 
-      // 2. Find covering node in blacklist
-      const blacklistSpendAddress = adapter.scriptAddress(scripts.blacklistSpend.hash);
-      const blacklistUtxos = await adapter.getUtxos(blacklistSpendAddress);
+      const blacklistSpendAddr = scriptAddress(networkId, scripts.blacklistSpend.hash);
+      const blacklistUtxos = await client.getUtxos(EvoAddress.fromBech32(blacklistSpendAddr));
       const coveringNode = findBlacklistCoveringNode(blacklistUtxos, targetStakingHash);
       if (!coveringNode) throw new Error(`Cannot find blacklist covering node for ${targetStakingHash} — may already be blacklisted`);
 
-      // Parse covering node datum
-      const coveringKey = extractConstrBytesField(coveringNode.datum, 0) ?? "";
-      const coveringNext = extractConstrBytesField(coveringNode.datum, 1) ?? MAX_NEXT;
+      const coveringDatum = getInlineDatum(coveringNode);
+      const coveringKey = extractConstrBytesField(coveringDatum, 0) ?? "";
+      const coveringNext = extractConstrBytesField(coveringDatum, 1) ?? MAX_NEXT;
 
-      // 3. Build updated covering node (next → target) and new node (key = target, next = old next)
       const updatedCoveringDatum = blacklistNodeDatum(coveringKey, targetStakingHash);
       const newNodeDatum = blacklistNodeDatum(targetStakingHash, coveringNext);
 
-      // 4. Build blacklist NFT (token name = target staking hash)
       const nftUnit = scripts.blacklistMint.hash + targetStakingHash;
-      const nftAssets = new Map<string, bigint>();
-      nftAssets.set(nftUnit, 1n);
+      const nftAssets = mintAssetsFromMap(new Map([[nftUnit, 1n]]));
 
-      // 5. Get wallet UTxOs
-      const walletUtxos = await adapter.getUtxos(feePayerAddress);
+      const walletUtxos = await client.getUtxos(EvoAddress.fromBech32(feePayerAddress));
 
-      // 6. Build transaction
-      let tx = adapter.newTx();
-      tx = tx.collectFrom({ inputs: walletUtxos.slice(0, 2) }); // fee payer
-      tx = tx.collectFrom({ inputs: [coveringNode], redeemer: spendRedeemer() }); // spend covering node
+      let tx = client.newTx();
+      tx = tx.collectFrom({ inputs: walletUtxos.slice(0, 2) });
+      tx = tx.collectFrom({ inputs: [coveringNode], redeemer: voidData() });
 
       tx = tx.mintAssets({ assets: nftAssets, redeemer: blacklistAddRedeemer(targetStakingHash) });
 
       // Output 0: updated covering node
       const coveringNftUnit = findCoveringNodeNftUnit(coveringNode, scripts.blacklistMint.hash);
-      const coveringAssets = new Map<string, bigint>();
-      if (coveringNftUnit) coveringAssets.set(coveringNftUnit, 1n);
+      const coveringTokenMap = new Map<string, bigint>();
+      if (coveringNftUnit) coveringTokenMap.set(coveringNftUnit, 1n);
       tx = tx.payToAddress({
-        address: blacklistSpendAddress,
-        value: { lovelace: coveringNode.value.lovelace, assets: coveringAssets },
-        datum: updatedCoveringDatum,
-        inlineDatum: true,
+        address: EvoAddress.fromBech32(blacklistSpendAddr),
+        assets: outputAssets(utxoLovelace(coveringNode), coveringTokenMap),
+        datum: new InlineDatum.InlineDatum({ data: updatedCoveringDatum }),
       });
 
       // Output 1: new blacklist node
-      const newNodeAssets = new Map<string, bigint>();
-      newNodeAssets.set(nftUnit, 1n);
       tx = tx.payToAddress({
-        address: blacklistSpendAddress,
-        value: { lovelace: 1_300_000n, assets: newNodeAssets },
-        datum: newNodeDatum,
-        inlineDatum: true,
+        address: EvoAddress.fromBech32(blacklistSpendAddr),
+        assets: outputAssets(1_300_000n, new Map([[nftUnit, 1n]])),
+        datum: new InlineDatum.InlineDatum({ data: newNodeDatum }),
       });
 
-      tx = tx.attachScript({ script: scripts.blacklistSpend });
-      tx = tx.attachScript({ script: scripts.blacklistMint });
-      // Manager signs (payment key hash of fee payer)
-      const managerPkh = extractPaymentKeyHash(adapter, feePayerAddress);
-      tx = tx.addSigner({ keyHash: managerPkh });
-      tx = tx.provideUtxos(walletUtxos);
-      tx = tx.setChangeAddress(feePayerAddress);
+      tx = tx.attachScript({ script: buildEvoScript(scripts.blacklistSpend.compiledCode) });
+      tx = tx.attachScript({ script: buildEvoScript(scripts.blacklistMint.compiledCode) });
+      const managerPkh = paymentCredentialHash(feePayerAddress);
+      tx = tx.addSigner({ keyHash: KeyHash.fromHex(managerPkh) });
 
-      const built = await tx.build();
-      return { cbor: built.toCbor(), txHash: built.txHash() };
+      const { cbor, txHash } = await buildAndSerialize(tx, feePayerAddress, walletUtxos);
+      return { cbor, txHash };
     },
 
     // ====================================================================
     // UNFREEZE — remove address from blacklist
-    // Java ref: FreezeAndSeizeHandler.buildRemoveFromBlacklistTransaction()
     // ====================================================================
     async unfreeze(params: UnfreezeParams): Promise<UnsignedTx> {
-      const { feePayerAddress, tokenPolicyId, assetName, targetAddress } = params;
-      const adapter = ctx.adapter;
+      const { feePayerAddress, tokenPolicyId: _tokenPolicyId, assetName: _assetName, targetAddress } = params;
+      const client = ctx.client;
 
-      const targetStakingHash = adapter.stakingCredentialHash(targetAddress);
+      const targetStakingHash = stakingCredentialHash(targetAddress);
 
-      // 1. Find the node to remove (key = target) and the preceding node (next = target)
-      const blacklistSpendAddress = adapter.scriptAddress(scripts.blacklistSpend.hash);
-      const blacklistUtxos = await adapter.getUtxos(blacklistSpendAddress);
+      const blacklistSpendAddr = scriptAddress(networkId, scripts.blacklistSpend.hash);
+      const blacklistUtxos = await client.getUtxos(EvoAddress.fromBech32(blacklistSpendAddr));
 
-      const nodeToRemove = blacklistUtxos.find(u => extractConstrBytesField(u.datum, 0) === targetStakingHash);
+      const nodeToRemove = blacklistUtxos.find(u => {
+        const datum = getInlineDatum(u);
+        return datum ? extractConstrBytesField(datum, 0) === targetStakingHash : false;
+      });
       if (!nodeToRemove) throw new Error(`Blacklist node not found for ${targetStakingHash}`);
 
-      const precedingNode = blacklistUtxos.find(u => extractConstrBytesField(u.datum, 1) === targetStakingHash);
+      const precedingNode = blacklistUtxos.find(u => {
+        const datum = getInlineDatum(u);
+        return datum ? extractConstrBytesField(datum, 1) === targetStakingHash : false;
+      });
       if (!precedingNode) throw new Error(`Preceding blacklist node not found for ${targetStakingHash}`);
 
-      // 2. Build updated preceding node (next skips removed node)
-      const precedingKey = extractConstrBytesField(precedingNode.datum, 0) ?? "";
-      const removedNext = extractConstrBytesField(nodeToRemove.datum, 1) ?? MAX_NEXT;
+      const precedingDatum = getInlineDatum(precedingNode);
+      const precedingKey = extractConstrBytesField(precedingDatum, 0) ?? "";
+      const removedDatum = getInlineDatum(nodeToRemove);
+      const removedNext = extractConstrBytesField(removedDatum, 1) ?? MAX_NEXT;
       const updatedPrecedingDatum = blacklistNodeDatum(precedingKey, removedNext);
 
-      // 3. Build burn NFT (negative quantity)
       const nftUnit = scripts.blacklistMint.hash + targetStakingHash;
-      const burnAssets = new Map<string, bigint>();
-      burnAssets.set(nftUnit, -1n);
+      const burnAssets = mintAssetsFromMap(new Map([[nftUnit, -1n]]));
 
-      // 4. Get wallet UTxOs
-      const walletUtxos = await adapter.getUtxos(feePayerAddress);
+      const walletUtxos = await client.getUtxos(EvoAddress.fromBech32(feePayerAddress));
 
-      // 5. Build transaction
-      let tx = adapter.newTx();
+      let tx = client.newTx();
       tx = tx.collectFrom({ inputs: walletUtxos.slice(0, 2) });
-      tx = tx.collectFrom({ inputs: [nodeToRemove], redeemer: spendRedeemer() });
-      tx = tx.collectFrom({ inputs: [precedingNode], redeemer: spendRedeemer() });
+      tx = tx.collectFrom({ inputs: [nodeToRemove], redeemer: voidData() });
+      tx = tx.collectFrom({ inputs: [precedingNode], redeemer: voidData() });
 
       tx = tx.mintAssets({ assets: burnAssets, redeemer: blacklistRemoveRedeemer(targetStakingHash) });
 
       // Output: updated preceding node
       const precedingNftUnit = findCoveringNodeNftUnit(precedingNode, scripts.blacklistMint.hash);
-      const precedingAssets = new Map<string, bigint>();
-      if (precedingNftUnit) precedingAssets.set(precedingNftUnit, 1n);
+      const precedingTokenMap = new Map<string, bigint>();
+      if (precedingNftUnit) precedingTokenMap.set(precedingNftUnit, 1n);
       tx = tx.payToAddress({
-        address: blacklistSpendAddress,
-        value: { lovelace: precedingNode.value.lovelace, assets: precedingAssets },
-        datum: updatedPrecedingDatum,
-        inlineDatum: true,
+        address: EvoAddress.fromBech32(blacklistSpendAddr),
+        assets: outputAssets(utxoLovelace(precedingNode), precedingTokenMap),
+        datum: new InlineDatum.InlineDatum({ data: updatedPrecedingDatum }),
       });
 
-      tx = tx.attachScript({ script: scripts.blacklistSpend });
-      tx = tx.attachScript({ script: scripts.blacklistMint });
-      const managerPkh = extractPaymentKeyHash(adapter, feePayerAddress);
-      tx = tx.addSigner({ keyHash: managerPkh });
-      tx = tx.provideUtxos(walletUtxos);
-      tx = tx.setChangeAddress(feePayerAddress);
+      tx = tx.attachScript({ script: buildEvoScript(scripts.blacklistSpend.compiledCode) });
+      tx = tx.attachScript({ script: buildEvoScript(scripts.blacklistMint.compiledCode) });
+      const managerPkh = paymentCredentialHash(feePayerAddress);
+      tx = tx.addSigner({ keyHash: KeyHash.fromHex(managerPkh) });
 
-      const built = await tx.build();
-      return { cbor: built.toCbor(), txHash: built.txHash() };
+      const { cbor, txHash } = await buildAndSerialize(tx, feePayerAddress, walletUtxos);
+      return { cbor, txHash };
     },
 
     // ====================================================================
-    // SEIZE — seize tokens via PLGlobal ThirdPartyAct
-    // Java ref: FreezeAndSeizeHandler.buildSeizeTransaction()
+    // SEIZE
     // ====================================================================
     async seize(params: SeizeParams): Promise<UnsignedTx> {
-      const { feePayerAddress, tokenPolicyId, assetName, utxoTxHash, utxoOutputIndex, destinationAddress } = params;
+      const { feePayerAddress, tokenPolicyId, assetName, utxoTxHash: targetTxHash, utxoOutputIndex: targetIdx, destinationAddress } = params;
       const assetNameHex = stringToHex(assetName);
       const unit = tokenPolicyId + assetNameHex;
-      const adapter = ctx.adapter;
+      const client = ctx.client;
 
       if (tokenPolicyId !== scripts.tokenPolicyId) {
         throw new Error(`Token policy ${tokenPolicyId} does not match this FES instance`);
       }
 
       // 1. Find UTxO to seize
-      // We need to search broadly — the UTxO could be at any PLB address
-      // Use the specific txHash + outputIndex from params
       const plbHash = ctx.standardScripts.programmableLogicBase.hash;
+      let utxoToSeize: EvoUTxO.UTxO | undefined;
 
-      // Try to find the UTxO — it might be at various PLB addresses
-      // The most reliable: query by the exact output reference
-      // For now, search at a few likely addresses
-      let utxoToSeize: UTxO | undefined;
-
-      // Search across known addresses or use a broad search
       const searchAddresses = [
-        adapter.baseAddress(plbHash, feePayerAddress),
-        adapter.baseAddress(plbHash, destinationAddress),
+        baseAddress(networkId, plbHash, feePayerAddress),
+        baseAddress(networkId, plbHash, destinationAddress),
       ];
 
       for (const addr of searchAddresses) {
-        const utxos = await adapter.getUtxos(addr);
-        utxoToSeize = utxos.find(u => u.txHash === utxoTxHash && u.outputIndex === utxoOutputIndex);
+        const utxos = await client.getUtxos(EvoAddress.fromBech32(addr));
+        utxoToSeize = utxos.find(u =>
+          utxoTxHash(u) === targetTxHash && utxoOutputIndex(u) === targetIdx
+        );
         if (utxoToSeize) break;
       }
 
-      if (!utxoToSeize) throw new Error(`UTxO ${utxoTxHash}#${utxoOutputIndex} not found`);
+      if (!utxoToSeize) throw new Error(`UTxO ${targetTxHash}#${targetIdx} not found`);
 
-      // 2. Get seized token amount
-      const seizedAmount = utxoToSeize.value.assets?.get(unit) ?? 0n;
+      const seizedAmount = utxoUnitQty(utxoToSeize, unit);
       if (seizedAmount <= 0n) throw new Error(`No tokens of ${unit} in UTxO`);
 
-      // 3. Find reference inputs
-      const protocolParamsUtxo = await findProtocolParamsUtxo(adapter, ctx.deployment);
-      const registrySpendAddress = adapter.scriptAddress(ctx.standardScripts.registrySpend.hash);
-      const registryUtxo = await findRegistryNode(adapter, registrySpendAddress, tokenPolicyId);
+      // 2. Find reference inputs
+      const protocolParamsUtxo = await findProtocolParamsUtxo(client, networkId, ctx.deployment);
+      const registrySpendAddr = scriptAddress(networkId, ctx.standardScripts.registrySpend.hash);
+      const registryUtxos = await client.getUtxos(EvoAddress.fromBech32(registrySpendAddr));
+      const registryUtxo = findRegistryNode(registryUtxos, tokenPolicyId);
       if (!registryUtxo) throw new Error(`Registry node not found for ${tokenPolicyId}`);
 
-      // 4. Sort reference inputs
-      const allRefInputRefs = [
-        { txHash: protocolParamsUtxo.txHash, outputIndex: protocolParamsUtxo.outputIndex },
-        { txHash: registryUtxo.txHash, outputIndex: registryUtxo.outputIndex },
-      ];
+      // 3. Sort reference inputs
+      const allRefInputRefs = [utxoToTxInput(protocolParamsUtxo), utxoToTxInput(registryUtxo)];
       const sortedRefInputs = sortTxInputs(allRefInputRefs);
-      const registryIdx = findRefInputIndex(sortedRefInputs, { txHash: registryUtxo.txHash, outputIndex: registryUtxo.outputIndex });
+      const registryIdx = findRefInputIndex(sortedRefInputs, utxoToTxInput(registryUtxo));
 
-      // 5. Build redeemers
-      const plgRedeemer = thirdPartyActRedeemer(registryIdx, 1); // outputs_start_idx = 1
-      const tokenDatum = Data.void();
+      // 4. Build redeemers
+      const plgRedeemer = thirdPartyActRedeemer(registryIdx, 1);
+      const tokenDatum = voidData();
 
-      // 6. Build recipient PLB address
-      const recipientPlbAddress = adapter.baseAddress(plbHash, destinationAddress);
+      // 5. Build recipient PLB address
+      const recipientPlbAddr = baseAddress(networkId, plbHash, destinationAddress);
 
-      // 7. Compute seized + remaining values
-      const seizedAssets = new Map<string, bigint>();
-      seizedAssets.set(unit, seizedAmount);
-
-      const remainingAssets = new Map<string, bigint>();
-      if (utxoToSeize.value.assets) {
-        for (const [u, qty] of utxoToSeize.value.assets) {
-          if (u === unit) continue; // Remove seized token
-          remainingAssets.set(u, qty);
-        }
+      // 6. Compute remaining assets
+      const remainingTokens = new Map<string, bigint>();
+      const allUnits = Assets.getUnits(utxoToSeize.assets);
+      for (const u of allUnits) {
+        if (u === "lovelace" || u === "" || u === unit) continue;
+        const qty = Assets.getByUnit(utxoToSeize.assets, u);
+        if (qty > 0n) remainingTokens.set(u, qty);
       }
 
-      // 8. Get wallet UTxOs
-      const walletUtxos = await adapter.getUtxos(feePayerAddress);
+      // 7. Get wallet UTxOs
+      const walletUtxos = await client.getUtxos(EvoAddress.fromBech32(feePayerAddress));
 
-      // 9. Build transaction
-      let tx = adapter.newTx();
+      // 8. Build transaction
+      let tx = client.newTx();
       tx = tx.collectFrom({ inputs: walletUtxos.slice(0, 2) });
-      tx = tx.collectFrom({ inputs: [utxoToSeize], redeemer: spendRedeemer() });
+      tx = tx.collectFrom({ inputs: [utxoToSeize], redeemer: voidData() });
 
-      tx = tx.withdraw({ stakeCredential: scripts.issuerAdmin.hash, amount: 0n, redeemer: Data.void() });
-      tx = tx.withdraw({ stakeCredential: ctx.standardScripts.programmableLogicGlobal.hash, amount: 0n, redeemer: plgRedeemer });
+      tx = tx.withdraw({
+        stakeCredential: Credential.makeScriptHash(new Uint8Array(Buffer.from(scripts.issuerAdmin.hash, "hex"))),
+        amount: 0n,
+        redeemer: voidData(),
+      });
+      tx = tx.withdraw({
+        stakeCredential: Credential.makeScriptHash(new Uint8Array(Buffer.from(ctx.standardScripts.programmableLogicGlobal.hash, "hex"))),
+        amount: 0n,
+        redeemer: plgRedeemer,
+      });
 
       // Output 0: seized tokens to recipient
       tx = tx.payToAddress({
-        address: recipientPlbAddress,
-        value: { lovelace: 1_300_000n, assets: seizedAssets },
-        datum: tokenDatum,
-        inlineDatum: true,
+        address: EvoAddress.fromBech32(recipientPlbAddr),
+        assets: outputAssets(1_300_000n, new Map([[unit, seizedAmount]])),
+        datum: new InlineDatum.InlineDatum({ data: tokenDatum }),
       });
 
       // Output 1: remaining value to original address
       tx = tx.payToAddress({
         address: utxoToSeize.address,
-        value: { lovelace: utxoToSeize.value.lovelace, assets: remainingAssets.size > 0 ? remainingAssets : undefined },
-        datum: tokenDatum,
-        inlineDatum: true,
+        assets: outputAssets(utxoLovelace(utxoToSeize), remainingTokens.size > 0 ? remainingTokens : undefined),
+        datum: new InlineDatum.InlineDatum({ data: tokenDatum }),
       });
 
       tx = tx.readFrom({ referenceInputs: [protocolParamsUtxo, registryUtxo] });
-      tx = tx.attachScript({ script: ctx.standardScripts.programmableLogicBase });
-      tx = tx.attachScript({ script: ctx.standardScripts.programmableLogicGlobal });
-      tx = tx.attachScript({ script: scripts.issuerAdmin });
-      tx = tx.addSigner({ keyHash: config.deployment.adminPkh });
-      tx = tx.provideUtxos(walletUtxos);
-      tx = tx.setChangeAddress(feePayerAddress);
+      tx = tx.attachScript({ script: buildEvoScript(ctx.standardScripts.programmableLogicBase.compiledCode) });
+      tx = tx.attachScript({ script: buildEvoScript(ctx.standardScripts.programmableLogicGlobal.compiledCode) });
+      tx = tx.attachScript({ script: buildEvoScript(scripts.issuerAdmin.compiledCode) });
+      tx = tx.addSigner({ keyHash: KeyHash.fromHex(config.deployment.adminPkh) });
 
-      const built = await tx.build();
-      return { cbor: built.toCbor(), txHash: built.txHash() };
+      const { cbor, txHash } = await buildAndSerialize(tx, feePayerAddress, walletUtxos);
+      return { cbor, txHash };
     },
   };
 }
@@ -889,128 +981,3 @@ export function freezeAndSeizeSubstandard(config: {
 // Re-export types and utilities
 export type { FESDeploymentParams } from "./types.js";
 export { createFESScripts } from "./scripts.js";
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function selectUtxosForAmount(
-  utxos: UTxO[],
-  unit: string,
-  requiredAmount: bigint
-): { selected: UTxO[]; totalTokenAmount: bigint } {
-  const selected: UTxO[] = [];
-  let total = 0n;
-
-  for (const utxo of utxos) {
-    const amount = utxo.value.assets?.get(unit) ?? 0n;
-    if (amount <= 0n) continue;
-    selected.push(utxo);
-    total += amount;
-    if (total >= requiredAmount) break;
-  }
-
-  if (total < requiredAmount) {
-    throw new Error(`Insufficient token balance: have ${total}, need ${requiredAmount}`);
-  }
-
-  return { selected, totalTokenAmount: total };
-}
-
-/** Find protocol params UTxO by searching for the protocol params NFT */
-async function findProtocolParamsUtxo(
-  adapter: CardanoProvider,
-  deployment: DeploymentParams
-): Promise<UTxO> {
-  const ppUnit = deployment.protocolParams.policyId + stringToHex("ProtocolParams");
-
-  // Search at the always-fail script address
-  const utxos = await adapter.getUtxosWithUnit(
-    adapter.scriptAddress(deployment.protocolParams.alwaysFailScriptHash),
-    ppUnit
-  );
-  if (utxos.length > 0) return utxos[0];
-
-  throw new Error(`Protocol params UTxO not found (unit: ${ppUnit})`);
-}
-
-/** Find issuance CBOR hex UTxO */
-async function findIssuanceCborHexUtxo(
-  adapter: CardanoProvider,
-  deployment: DeploymentParams
-): Promise<UTxO> {
-  const icUnit = deployment.issuance.policyId + stringToHex("IssuanceCborHex");
-  const utxos = await adapter.getUtxosWithUnit(
-    adapter.scriptAddress(deployment.issuance.alwaysFailScriptHash),
-    icUnit
-  );
-  if (utxos.length > 0) return utxos[0];
-
-  throw new Error(`Issuance CBOR hex UTxO not found (unit: ${icUnit})`);
-}
-
-/** Extract a bytes field from a constr datum at a given index */
-function extractConstrBytesField(datum: unknown, fieldIndex: number, isCredential = false): string | undefined {
-  if (!datum || typeof datum !== "object") return undefined;
-
-  // Evolution SDK format: { index: bigint, fields: Data[] } or { constr: number, fields: [] }
-  const d = datum as any;
-  const fields = d.fields ?? [];
-  const field = fields[fieldIndex];
-  if (!field) return undefined;
-
-  if (isCredential) {
-    // Credential is Constr(0|1, [bytes]) — extract the inner bytes
-    const innerFields = field.fields ?? [];
-    const inner = innerFields[0];
-    if (!inner) return undefined;
-    if (inner instanceof Uint8Array) return Array.from(inner).map((b: number) => b.toString(16).padStart(2, "0")).join("");
-    if (typeof inner === "object" && "bytes" in inner) return inner.bytes;
-    return undefined;
-  }
-
-  // Direct bytes field
-  if (field instanceof Uint8Array) return Array.from(field).map((b: number) => b.toString(16).padStart(2, "0")).join("");
-  if (typeof field === "object" && "bytes" in field) return field.bytes;
-  if (typeof field === "string") return field;
-  return undefined;
-}
-
-/** Find the NFT unit in a covering node's value that belongs to a given policy */
-function findCoveringNodeNftUnit(utxo: UTxO, policyId: string): string | undefined {
-  if (!utxo.value.assets) return undefined;
-  for (const [unit] of utxo.value.assets) {
-    if (unit.startsWith(policyId)) return unit;
-  }
-  return undefined;
-}
-
-/** Extract payment key hash from a Cardano address */
-function extractPaymentKeyHash(adapter: CardanoProvider, address: Address): HexString {
-  return adapter.paymentCredentialHash(address);
-}
-
-/**
- * Find a blacklist node proving non-membership for a given staking credential.
- * Non-membership: node.key < stakingHash < node.next
- */
-function findBlacklistCoveringNode(
-  blacklistUtxos: UTxO[],
-  stakingHash: string
-): UTxO | undefined {
-  return blacklistUtxos.find((utxo) => {
-    if (!utxo.datum) return false;
-
-    const datum = utxo.datum as { constr?: number; fields?: unknown[] };
-    if (!datum.fields || datum.fields.length < 2) return false;
-
-    const keyField = datum.fields[0] as { bytes?: string };
-    const nextField = datum.fields[1] as { bytes?: string };
-    if (!keyField || !nextField) return false;
-
-    const key = keyField.bytes ?? "";
-    const next = nextField.bytes ?? "";
-
-    return key < stakingHash && stakingHash < next;
-  });
-}

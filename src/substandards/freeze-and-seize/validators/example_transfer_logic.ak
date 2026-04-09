@@ -5,6 +5,7 @@ use aiken/collection/list
 
 use cardano/address.{Credential, Inline, Script, VerificationKey}
 use cardano/assets.{PolicyId, quantity_of}
+use cardano/certificate.{Certificate}
 use cardano/transaction.{Input, Transaction, Withdraw}
 use types.{BlacklistProof, NonmembershipProof}
 use utils
@@ -34,6 +35,10 @@ validator issuer_admin_contract(
         )
       }
     }
+  }
+
+  publish(_r: Data, _c: Certificate, _s: Transaction) {
+    True
   }
 
   else(_) {
@@ -153,6 +158,10 @@ validator transfer(
         witnesses,
       ),
     }
+  }
+
+  publish(_r: Data, _c: Certificate, _s: Transaction) {
+    True
   }
 
   else(_) {

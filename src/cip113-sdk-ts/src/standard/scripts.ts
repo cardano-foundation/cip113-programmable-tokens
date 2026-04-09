@@ -2,8 +2,7 @@
  * Standard script parameterization.
  *
  * Replicates the parameterization chain from ProtocolScriptBuilderService.java.
- * Each function takes a provider (for applyParamsToScript + scriptHash) and
- * returns a parameterized PlutusScript.
+ * Uses Evolution SDK directly for UPLC.applyParamsToScript and ScriptHash.
  *
  * Dependency graph:
  *
@@ -17,7 +16,7 @@
  *   issuance_mint(Script(plb_hash), registry_mint_hash, Script(minting_logic_hash)) → hash
  */
 
-import type { CardanoProvider } from "../provider/interface.js";
+import { Data } from "@evolution-sdk/evolution";
 import type {
   DeploymentParams,
   HexString,
@@ -27,7 +26,11 @@ import type {
   TxInput,
 } from "../types.js";
 import { getValidatorCode, STANDARD_VALIDATORS } from "./blueprint.js";
-import { Data } from "../core/datums.js";
+import {
+  parameterizeScript,
+  outputReference,
+  scriptCredential,
+} from "../core/evo-utils.js";
 
 // ---------------------------------------------------------------------------
 // Script builders
@@ -46,69 +49,67 @@ export interface StandardScripts {
 
 /**
  * Create standard script builders from a blueprint.
+ * Uses Evolution SDK directly for parameterization and hashing.
  */
 export function createStandardScripts(
   blueprint: PlutusBlueprint,
-  provider: CardanoProvider
 ): StandardScripts {
-  function parameterize(validatorTitle: string, params: unknown[]): PlutusScript {
+  function parameterize(validatorTitle: string, params: Data.Data[]): PlutusScript {
     const code = getValidatorCode(blueprint, validatorTitle);
-    const parameterized = provider.applyParamsToScript(code, params);
-    const hash = provider.scriptHash(parameterized);
-    return { type: "PlutusV3", compiledCode: parameterized, hash };
+    return parameterizeScript(code, params);
   }
 
   return {
     alwaysFail(nonce) {
       return parameterize(STANDARD_VALIDATORS.ALWAYS_FAIL, [
-        Data.bytes(nonce),
+        Data.bytearray(nonce),
       ]);
     },
 
     protocolParamsMint(utxoRef, alwaysFailHash) {
       return parameterize(STANDARD_VALIDATORS.PROTOCOL_PARAMS_MINT, [
-        Data.outputReference(utxoRef),
-        Data.bytes(alwaysFailHash),
+        outputReference(utxoRef),
+        Data.bytearray(alwaysFailHash),
       ]);
     },
 
     programmableLogicGlobal(protocolParamsHash) {
       return parameterize(STANDARD_VALIDATORS.PROGRAMMABLE_LOGIC_GLOBAL, [
-        Data.bytes(protocolParamsHash),
+        Data.bytearray(protocolParamsHash),
       ]);
     },
 
     programmableLogicBase(plgHash) {
       return parameterize(STANDARD_VALIDATORS.PROGRAMMABLE_LOGIC_BASE, [
-        Data.scriptCredential(plgHash),
+        scriptCredential(plgHash),
       ]);
     },
 
     issuanceCborHexMint(utxoRef, alwaysFailHash) {
       return parameterize(STANDARD_VALIDATORS.ISSUANCE_CBOR_HEX_MINT, [
-        Data.outputReference(utxoRef),
-        Data.bytes(alwaysFailHash),
+        outputReference(utxoRef),
+        Data.bytearray(alwaysFailHash),
       ]);
     },
 
     registryMint(utxoRef, issuanceCborHexHash) {
       return parameterize(STANDARD_VALIDATORS.REGISTRY_MINT, [
-        Data.outputReference(utxoRef),
-        Data.bytes(issuanceCborHexHash),
+        outputReference(utxoRef),
+        Data.bytearray(issuanceCborHexHash),
       ]);
     },
 
     registrySpend(protocolParamsHash) {
       return parameterize(STANDARD_VALIDATORS.REGISTRY_SPEND, [
-        Data.bytes(protocolParamsHash),
+        Data.bytearray(protocolParamsHash),
       ]);
     },
 
     issuanceMint(plbHash, registryMintHash, mintingLogicHash) {
       return parameterize(STANDARD_VALIDATORS.ISSUANCE_MINT, [
-        Data.scriptCredential(plbHash),
-        Data.bytes(registryMintHash),
-        Data.scriptCredential(mintingLogicHash),
+        scriptCredential(plbHash),
+        Data.bytearray(registryMintHash),
+        scriptCredential(mintingLogicHash),
       ]);
     },
   };
@@ -118,37 +119,27 @@ export function createStandardScripts(
  * Build resolved standard scripts from deployment params.
  *
  * IMPORTANT: Uses the known hashes from DeploymentParams (the source of truth)
- * rather than re-deriving them from the blueprint. Re-derivation can produce
- * different CBOR encoding → different hashes → wrong addresses.
- *
- * The compiled code is still parameterized from the blueprint when needed
- * (e.g., to attach a script to a transaction), but the hashes come from
- * the deployment.
+ * rather than re-deriving them from the blueprint.
  */
 export function buildDeploymentScripts(
   blueprint: PlutusBlueprint,
   deployment: DeploymentParams,
-  provider: CardanoProvider
 ): ResolvedStandardScripts {
-  const builders = createStandardScripts(blueprint, provider);
-
-  // Use KNOWN hashes from deployment — these are the actual on-chain values
-  // Re-parameterize scripts for their compiled code, but override hashes
+  const builders = createStandardScripts(blueprint);
 
   const protocolParamsMint = builders.protocolParamsMint(
     deployment.protocolParams.txInput,
     deployment.protocolParams.alwaysFailScriptHash
   );
-  // Override hash with the known deployment value
   protocolParamsMint.hash = deployment.protocolParams.policyId;
 
   const programmableLogicGlobal = builders.programmableLogicGlobal(
-    deployment.protocolParams.policyId // Use known hash, not derived
+    deployment.protocolParams.policyId
   );
   programmableLogicGlobal.hash = deployment.programmableLogicGlobal.scriptHash;
 
   const programmableLogicBase = builders.programmableLogicBase(
-    deployment.programmableLogicGlobal.scriptHash // Use known hash
+    deployment.programmableLogicGlobal.scriptHash
   );
   programmableLogicBase.hash = deployment.programmableLogicBase.scriptHash;
 
@@ -160,12 +151,12 @@ export function buildDeploymentScripts(
 
   const registryMint = builders.registryMint(
     deployment.directoryMint.txInput,
-    deployment.issuance.policyId // Use known hash
+    deployment.issuance.policyId
   );
   registryMint.hash = deployment.directoryMint.scriptHash;
 
   const registrySpend = builders.registrySpend(
-    deployment.protocolParams.policyId // Use known hash
+    deployment.protocolParams.policyId
   );
   registrySpend.hash = deployment.directorySpend.scriptHash;
 
@@ -176,11 +167,10 @@ export function buildDeploymentScripts(
     issuanceCborHexMint,
     registryMint,
     registrySpend,
-    /** Build an issuance_mint script for a specific minting logic credential */
     buildIssuanceMint(mintingLogicHash: ScriptHash) {
       return builders.issuanceMint(
-        deployment.programmableLogicBase.scriptHash, // Known PLB hash
-        deployment.directoryMint.scriptHash, // Known registry mint hash
+        deployment.programmableLogicBase.scriptHash,
+        deployment.directoryMint.scriptHash,
         mintingLogicHash
       );
     },

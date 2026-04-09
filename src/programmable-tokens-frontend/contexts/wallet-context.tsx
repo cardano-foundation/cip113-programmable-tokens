@@ -137,10 +137,11 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       },
       async signTxs(txs: string[], partialSign?: boolean) {
         if (typeof api.signTxs === "function") {
-          // CIP-103 signTxs returns witness sets
+          console.log("[Wallet] Using CIP-103 signTxs (batch signing)");
           const witnessSets = await api.signTxs(txs, partialSign);
           return txs.map((tx, i) => assembleSignedTx(tx, witnessSets[i]));
         }
+        console.log("[Wallet] signTxs not available, falling back to sequential signTx");
         // Fallback: sequential signing (each already assembled via our signTx wrapper above)
         const signed: string[] = [];
         for (const tx of txs) {

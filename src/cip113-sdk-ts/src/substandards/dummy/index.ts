@@ -6,12 +6,22 @@
  * - transfer: redeemer == 200
  *
  * No compliance features, no blacklist.
+ * Uses Evolution SDK directly — no adapter abstraction.
  */
 
-import type { PlutusBlueprint, PlutusScript, ScriptHash } from "../../types.js";
+import {
+  Address as EvoAddress,
+  Data,
+  Transaction,
+} from "@evolution-sdk/evolution";
+
+import type { UTxO as EvoUTxO } from "@evolution-sdk/evolution";
+
+import type { PlutusBlueprint, PlutusScript } from "../../types.js";
 import type {
   SubstandardPlugin,
   SubstandardContext,
+  EvoClient,
   RegisterParams,
   MintParams,
   BurnParams,
@@ -19,17 +29,27 @@ import type {
   UnsignedTx,
 } from "../interface.js";
 import { getValidatorCode } from "../../standard/blueprint.js";
-import { Data } from "../../core/datums.js";
-import {
-  transferActRedeemer,
-  spendRedeemer,
-} from "../../core/redeemers.js";
 import {
   sortTxInputs,
   findRefInputIndex,
   findRegistryNode,
+  utxoToTxInput,
 } from "../../core/registry.js";
-import { stringToHex } from "../../core/utils.js";
+import {
+  buildEvoScript,
+  computeScriptHash,
+  scriptAddress,
+  baseAddress,
+  stakingCredentialHash,
+  stringToHex,
+  voidData,
+  transferActRedeemer,
+  utxoUnitQty,
+  outputAssets,
+  Credential,
+  KeyHash,
+  InlineDatum,
+} from "../../core/evo-utils.js";
 
 const DUMMY_VALIDATORS = {
   ISSUE: "transfer.issue.withdraw",
@@ -42,10 +62,11 @@ export function dummySubstandard(config: {
   let ctx: SubstandardContext;
   let issueScript: PlutusScript;
   let transferScript: PlutusScript;
+  let networkId: number;
 
   function buildScript(validatorTitle: string): PlutusScript {
     const code = getValidatorCode(config.blueprint, validatorTitle);
-    const hash = ctx.adapter.scriptHash(code);
+    const hash = computeScriptHash(code);
     return { type: "PlutusV3", compiledCode: code, hash };
   }
 
@@ -56,6 +77,7 @@ export function dummySubstandard(config: {
 
     init(context) {
       ctx = context;
+      networkId = ctx.client.chain.id;
       issueScript = buildScript(DUMMY_VALIDATORS.ISSUE);
       transferScript = buildScript(DUMMY_VALIDATORS.TRANSFER);
     },
@@ -76,193 +98,114 @@ export function dummySubstandard(config: {
       const { senderAddress, recipientAddress, tokenPolicyId, assetName, quantity } = params;
       const assetNameHex = stringToHex(assetName);
       const unit = tokenPolicyId + assetNameHex;
+      const client = ctx.client;
 
-      const adapter = ctx.adapter;
       const plbHash = ctx.standardScripts.programmableLogicBase.hash;
 
-      // 1. Build PLB addresses for sender and recipient
-      const senderPlbAddress = adapter.baseAddress(plbHash, senderAddress);
-      const recipientPlbAddress = adapter.baseAddress(plbHash, recipientAddress);
+      // 1. Build PLB addresses
+      const senderPlbAddr = baseAddress(networkId, plbHash, senderAddress);
+      const recipientPlbAddr = baseAddress(networkId, plbHash, recipientAddress);
 
-      // 2. Find sender's token UTxOs at PLB address
-      const allUtxos = await adapter.getUtxos(senderPlbAddress);
-      const tokenUtxos = allUtxos.filter(
-        (u) => u.value.assets?.has(unit) && (u.value.assets.get(unit) ?? 0n) > 0n
-      );
+      // 2. Find sender's token UTxOs
+      const allUtxos = await client.getUtxos(EvoAddress.fromBech32(senderPlbAddr));
+      const tokenUtxos = allUtxos.filter(u => utxoUnitQty(u, unit) > 0n);
 
       if (tokenUtxos.length === 0) {
-        throw new Error(`No token UTxOs found at ${senderPlbAddress} for ${unit}`);
+        throw new Error(`No token UTxOs found at ${senderPlbAddr} for ${unit}`);
       }
 
-      // 3. Select enough UTxOs to cover the transfer amount
+      // 3. Select enough UTxOs
       const { selected, totalTokenAmount } = selectUtxosForAmount(tokenUtxos, unit, quantity);
       const returningAmount = totalTokenAmount - quantity;
 
-      // 4. Find registry node as reference input
-      const registrySpendAddress = adapter.scriptAddress(ctx.standardScripts.registrySpend.hash);
-      const registryUtxo = await findRegistryNode(adapter, registrySpendAddress, tokenPolicyId);
+      // 4. Find registry node reference input
+      const registrySpendAddr = scriptAddress(networkId, ctx.standardScripts.registrySpend.hash);
+      const registryUtxos = await client.getUtxos(EvoAddress.fromBech32(registrySpendAddr));
+      const registryUtxo = findRegistryNode(registryUtxos, tokenPolicyId);
       if (!registryUtxo) {
         throw new Error(`Registry node not found for policy ${tokenPolicyId}`);
       }
 
-      // 5. Get protocol params UTxO as reference input
-      // Protocol params NFT was locked at an always-fail address during bootstrap.
-      // Look it up by its unique unit (policyId + "ProtocolParams") across all UTxOs
-      // at the bootstrap tx output (index 0).
+      // 5. Get protocol params UTxO
       const ppUnit = ctx.deployment.protocolParams.policyId + stringToHex("ProtocolParams");
-      // Try fetching by the bootstrap tx output first (most reliable)
-      let protocolParamsUtxo: import("../../types.js").UTxO | undefined;
-      const bootstrapUtxos = await adapter.getUtxos(
-        adapter.scriptAddress(ctx.deployment.directorySpend.scriptHash)
+      const ppAddr = EvoAddress.fromBech32(
+        scriptAddress(networkId, ctx.deployment.protocolParams.alwaysFailScriptHash)
       );
-      // Search more broadly — the protocol params live at the always-fail script address
-      // which is parameterized and may differ from registrySpend
-      const allPossibleAddresses = [
-        // The protocol params are at bootstrap tx output 0, which is at the
-        // always-fail address. We need to find them.
-      ];
-      // Simplest approach: search by unit across known addresses
-      for (const utxo of bootstrapUtxos) {
-        if (utxo.value.assets?.has(ppUnit)) {
-          protocolParamsUtxo = utxo;
-          break;
-        }
-      }
-      // If not found at registry address, try the programmable base ref input
-      if (!protocolParamsUtxo) {
-        // The bootstrap params tell us exactly where the protocol params are
-        const ppRefInput = ctx.deployment.programmableBaseRefInput;
-        // Fetch UTxOs at every possible address until we find the NFT
-        // Last resort: use getUtxosWithUnit if the adapter supports it
-        const ppSearch = await adapter.getUtxosWithUnit(
-          adapter.scriptAddress(ctx.deployment.protocolParams.alwaysFailScriptHash),
-          ppUnit
-        );
-        protocolParamsUtxo = ppSearch[0];
-      }
-      if (!protocolParamsUtxo) {
-        throw new Error(`Protocol params UTxO not found (unit: ${ppUnit})`);
-      }
+      const ppUtxos = await client.getUtxosWithUnit(ppAddr, ppUnit);
+      if (ppUtxos.length === 0) throw new Error(`Protocol params UTxO not found (unit: ${ppUnit})`);
+      const protocolParamsUtxo = ppUtxos[0];
 
-      // 6. Sort reference inputs and compute registry index
-      const refInputs = [
-        { txHash: protocolParamsUtxo.txHash, outputIndex: protocolParamsUtxo.outputIndex },
-        { txHash: registryUtxo.txHash, outputIndex: registryUtxo.outputIndex },
-      ];
+      // 6. Sort reference inputs
+      const refInputs = [utxoToTxInput(protocolParamsUtxo), utxoToTxInput(registryUtxo)];
       const sortedRefInputs = sortTxInputs(refInputs);
-      const registryIdx = findRefInputIndex(sortedRefInputs, {
-        txHash: registryUtxo.txHash,
-        outputIndex: registryUtxo.outputIndex,
-      });
+      const registryIdx = findRefInputIndex(sortedRefInputs, utxoToTxInput(registryUtxo));
 
       // 7. Build redeemers
-      const plgRedeemer = transferActRedeemer([
-        { type: "exists", nodeIdx: registryIdx },
-      ]);
-      const dummyTransferRedeemer = Data.integer(200); // Dummy: redeemer == 200
-      const spendRdmr = spendRedeemer();
-      const tokenDatum = Data.void();
+      const plgRedeemer = transferActRedeemer([{ type: "exists", nodeIdx: registryIdx }]);
+      const dummyTransferRedeemer = Data.int(200n);
+      const spendRdmr = voidData();
+      const tokenDatum = voidData();
 
-      // 8. Get sender's staking credential for required signer
-      const senderStakingHash = adapter.stakingCredentialHash(senderAddress);
+      // 8. Get sender's staking credential
+      const senderStakingHash = stakingCredentialHash(senderAddress);
 
-      // 9. Get sender's wallet UTxOs for fee coverage
-      const senderWalletUtxos = await adapter.getUtxos(senderAddress);
+      // 9. Get sender's wallet UTxOs
+      const senderWalletUtxos = await client.getUtxos(EvoAddress.fromBech32(senderAddress));
 
-      // 10. Compute output values
-      // Sum ADA from all selected token UTxOs (to preserve in outputs)
-      const totalInputLovelace = selected.reduce((acc, u) => acc + u.value.lovelace, 0n);
-      const minUtxoLovelace = 1_300_000n;
+      // 10. Build transaction
+      let tx = client.newTx();
 
-      // 11. Build transaction (matching Java DummySubstandardHandler order)
-      let tx = adapter.newTx();
-
-      // Collect wallet UTxOs for fees (no redeemer — regular UTxOs)
       tx = tx.collectFrom({ inputs: senderWalletUtxos.slice(0, 2) });
-
-      // Collect script-locked token UTxOs (with spend redeemer)
       tx = tx.collectFrom({ inputs: selected, redeemer: spendRdmr });
 
-      // Withdraw-zero: dummy transfer logic (redeemer = 200)
       tx = tx.withdraw({
-        stakeCredential: transferScript.hash,
+        stakeCredential: Credential.makeScriptHash(new Uint8Array(Buffer.from(transferScript.hash, "hex"))),
         amount: 0n,
         redeemer: dummyTransferRedeemer,
       });
 
-      // Withdraw-zero: PLGlobal (TransferAct with registry proof)
       tx = tx.withdraw({
-        stakeCredential: ctx.standardScripts.programmableLogicGlobal.hash,
+        stakeCredential: Credential.makeScriptHash(new Uint8Array(Buffer.from(ctx.standardScripts.programmableLogicGlobal.hash, "hex"))),
         amount: 0n,
         redeemer: plgRedeemer,
       });
 
-      // Output: remaining tokens back to sender (if any)
       if (returningAmount > 0n) {
-        const senderAssets = new Map<string, bigint>();
-        senderAssets.set(unit, returningAmount);
         tx = tx.payToAddress({
-          address: senderPlbAddress,
-          value: { lovelace: totalInputLovelace > minUtxoLovelace ? totalInputLovelace : minUtxoLovelace, assets: senderAssets },
-          datum: tokenDatum,
-          inlineDatum: true,
+          address: EvoAddress.fromBech32(senderPlbAddr),
+          assets: outputAssets(1_300_000n, new Map([[unit, returningAmount]])),
+          datum: new InlineDatum.InlineDatum({ data: tokenDatum }),
         });
       }
 
-      // Output: transferred tokens to recipient
-      const recipientAssets = new Map<string, bigint>();
-      recipientAssets.set(unit, quantity);
       tx = tx.payToAddress({
-        address: recipientPlbAddress,
-        value: { lovelace: minUtxoLovelace, assets: recipientAssets },
-        datum: tokenDatum,
-        inlineDatum: true,
+        address: EvoAddress.fromBech32(recipientPlbAddr),
+        assets: outputAssets(1_300_000n, new Map([[unit, quantity]])),
+        datum: new InlineDatum.InlineDatum({ data: tokenDatum }),
       });
 
-      // Reference inputs
       tx = tx.readFrom({ referenceInputs: [protocolParamsUtxo, registryUtxo] });
+      tx = tx.attachScript({ script: buildEvoScript(ctx.standardScripts.programmableLogicGlobal.compiledCode) });
+      tx = tx.attachScript({ script: buildEvoScript(transferScript.compiledCode) });
+      tx = tx.attachScript({ script: buildEvoScript(ctx.standardScripts.programmableLogicBase.compiledCode) });
 
-      // Attach scripts (Java order: reward validators first, then spending)
-      tx = tx.attachScript({ script: ctx.standardScripts.programmableLogicGlobal });
-      tx = tx.attachScript({ script: transferScript });
-      tx = tx.attachScript({ script: ctx.standardScripts.programmableLogicBase });
-
-      // Required signer: sender's staking credential
-      tx = tx.addSigner({ keyHash: senderStakingHash });
-
-      // Provide remaining wallet UTxOs for coin selection + collateral
-      tx = tx.provideUtxos(senderWalletUtxos);
-
-      // Change address: sender's wallet address (not PLB address)
-      tx = tx.setChangeAddress(senderAddress);
-
-      // Debug: log tx structure before building
-      console.log("[CIP113 DEBUG] Transfer tx structure:", {
-        selectedInputs: selected.length,
-        senderPlbAddress,
-        recipientPlbAddress,
-        registrySpendAddress: adapter.scriptAddress(ctx.standardScripts.registrySpend.hash),
-        registryUtxoRef: `${registryUtxo.txHash}#${registryUtxo.outputIndex}`,
-        protocolParamsRef: `${protocolParamsUtxo.txHash}#${protocolParamsUtxo.outputIndex}`,
-        registryIdx,
-        plbHash,
-        plgHash: ctx.standardScripts.programmableLogicGlobal.hash,
-        transferScriptHash: transferScript.hash,
-        senderStakingHash,
-        quantity: quantity.toString(),
-        returningAmount: returningAmount.toString(),
-      });
+      tx = tx.addSigner({ keyHash: KeyHash.fromHex(senderStakingHash) });
 
       // Build
-      const built = await tx.build();
-      const cbor = built.toCbor();
+      const result = await (tx as any).build({
+        changeAddress: EvoAddress.fromBech32(senderAddress),
+        availableUtxos: senderWalletUtxos,
+      });
 
-      console.log("[CIP113 DEBUG] Unsigned tx CBOR hex:", cbor);
+      const txObj = await result.toTransaction();
+      const cbor = Transaction.toCBORHex(txObj);
 
-      return {
-        cbor,
-        txHash: built.txHash(),
-      };
+      let txHash = "";
+      if (typeof result.chainResult === "function") {
+        txHash = result.chainResult().txHash;
+      }
+
+      return { cbor, txHash };
     },
   };
 }
@@ -272,15 +215,15 @@ export function dummySubstandard(config: {
 // ---------------------------------------------------------------------------
 
 function selectUtxosForAmount(
-  utxos: import("../../types.js").UTxO[],
+  utxos: EvoUTxO.UTxO[],
   unit: string,
   requiredAmount: bigint
-): { selected: import("../../types.js").UTxO[]; totalTokenAmount: bigint } {
-  const selected: import("../../types.js").UTxO[] = [];
+): { selected: EvoUTxO.UTxO[]; totalTokenAmount: bigint } {
+  const selected: EvoUTxO.UTxO[] = [];
   let total = 0n;
 
   for (const utxo of utxos) {
-    const amount = utxo.value.assets?.get(unit) ?? 0n;
+    const amount = utxoUnitQty(utxo, unit);
     if (amount <= 0n) continue;
     selected.push(utxo);
     total += amount;
@@ -288,9 +231,7 @@ function selectUtxosForAmount(
   }
 
   if (total < requiredAmount) {
-    throw new Error(
-      `Insufficient token balance: have ${total}, need ${requiredAmount}`
-    );
+    throw new Error(`Insufficient token balance: have ${total}, need ${requiredAmount}`);
   }
 
   return { selected, totalTokenAmount: total };

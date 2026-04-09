@@ -4,22 +4,27 @@
  * @example
  * ```ts
  * import { CIP113 } from '@cip113/sdk';
- * import { evolutionAdapter } from '@cip113/sdk/evolution';
+ * import { dummySubstandard } from '@cip113/sdk/dummy';
  * import { freezeAndSeizeSubstandard } from '@cip113/sdk/freeze-and-seize';
  *
+ * // Create Evolution SDK client
+ * const evoClient = client(preprod)
+ *   .withBlockfrost({ projectId: '...' })
+ *   .withAddress(walletAddress);
+ *
  * const protocol = CIP113.init({
- *   adapter: evolutionAdapter({ network: 'preprod', provider: { type: 'blockfrost', projectId: '...' } }),
+ *   client: evoClient,
  *   standard: { blueprint: standardBlueprint, deployment: deploymentParams },
- *   substandards: [freezeAndSeizeSubstandard({ blueprint: fesBlueprint })],
+ *   substandards: [dummySubstandard({ blueprint: dummyBlueprint })],
  * });
  *
- * const tx = await protocol.register('freeze-and-seize', { assetName: 'MyToken', quantity: 1000n, ... });
+ * const tx = await protocol.register('freeze-and-seize', { ... });
  * ```
  */
 
-import type { CIP113Adapter } from "./provider/interface.js";
 import type { DeploymentParams, PlutusBlueprint, PolicyId } from "./types.js";
 import type {
+  EvoClient,
   SubstandardPlugin,
   RegisterParams,
   MintParams,
@@ -39,8 +44,8 @@ import { buildDeploymentScripts, type ResolvedStandardScripts } from "./standard
 // ---------------------------------------------------------------------------
 
 export interface CIP113Config {
-  /** Adapter providing blockchain queries and tx building */
-  adapter: CIP113Adapter;
+  /** Evolution SDK client (ReadOnlyClient or SigningClient) */
+  client: EvoClient;
 
   /** Standard protocol configuration */
   standard: {
@@ -63,8 +68,8 @@ export interface CIP113Protocol {
   /** The deployment parameters */
   readonly deployment: DeploymentParams;
 
-  /** The adapter */
-  readonly adapter: CIP113Adapter;
+  /** The Evolution SDK client */
+  readonly client: EvoClient;
 
   // -- Operations (delegated to substandards) --
 
@@ -123,11 +128,10 @@ export const CIP113 = {
     // Validate standard blueprint has all required validators
     validateStandardBlueprint(config.standard.blueprint);
 
-    // Build parameterized standard scripts
+    // Build parameterized standard scripts (uses Evolution SDK directly)
     const scripts = buildDeploymentScripts(
       config.standard.blueprint,
       config.standard.deployment,
-      config.adapter
     );
 
     // Registry of substandard plugins
@@ -135,10 +139,10 @@ export const CIP113 = {
 
     // Build the substandard context
     const substandardContext = {
-      adapter: config.adapter,
+      client: config.client,
       standardScripts: scripts,
       deployment: config.standard.deployment,
-      network: "preprod", // TODO: derive from adapter
+      network: config.client.chain.id === 1 ? "mainnet" : "preprod",
     };
 
     // Initialize and register provided substandards
@@ -149,7 +153,7 @@ export const CIP113 = {
       }
     }
 
-    // Helper: try all substandards (fallback when substandardId not provided)
+    // Helper: try all substandards
     async function tryAllSubstandards(
       operation: string,
       policyId: string,
@@ -172,7 +176,6 @@ export const CIP113 = {
       );
     }
 
-    // Helper to get substandard or throw
     function requireSubstandard(id: string): SubstandardPlugin {
       const plugin = substandards.get(id);
       if (!plugin) {
@@ -183,17 +186,10 @@ export const CIP113 = {
       return plugin;
     }
 
-    // Helper to resolve substandard from policyId
-    // TODO: implement lookup from registry
-    function resolveSubstandard(_policyId: PolicyId): SubstandardPlugin {
-      // For now, require explicit substandard ID
-      throw new Error("Substandard resolution from policyId not yet implemented");
-    }
-
     return {
       scripts,
       deployment: config.standard.deployment,
-      adapter: config.adapter,
+      client: config.client,
 
       async register(substandardId, params) {
         return requireSubstandard(substandardId).register(params);
@@ -230,7 +226,6 @@ export const CIP113 = {
         },
 
         async freeze(params) {
-          // FES tokens have a registered substandard — route via tokenPolicyId match
           return tryAllSubstandards("freeze", params.tokenPolicyId, (p) => {
             if (!p.freeze) throw new Error(`${p.id} does not support freeze`);
             return p.freeze(params);
@@ -272,8 +267,8 @@ export const CIP113 = {
 // Re-exports
 // ---------------------------------------------------------------------------
 
-export type { CIP113Adapter, CardanoProvider, TxBuilder, TxPlan } from "./provider/interface.js";
 export type {
+  EvoClient,
   SubstandardPlugin,
   SubstandardFactory,
   SubstandardContext,
@@ -293,15 +288,41 @@ export type {
   PlutusScript,
   TxInput,
   UTxO,
-  Value,
   Network,
   PolicyId,
   ScriptHash,
   HexString,
+  Assets,
 } from "./types.js";
-export { Data } from "./core/datums.js";
-export * from "./core/redeemers.js";
+export {
+  buildEvoScript,
+  computeScriptHash,
+  parameterizeScript,
+  scriptAddress,
+  rewardAddress,
+  baseAddress,
+  stakingCredentialHash,
+  paymentCredentialHash,
+  stringToHex,
+  MAX_NEXT,
+  voidData,
+  outputReference,
+  scriptCredential,
+  keyCredential,
+} from "./core/evo-utils.js";
 export { sortTxInputs, findRefInputIndex } from "./core/registry.js";
 export { addressHexToBech32 } from "./provider/address-utils.js";
 export { assembleSignedTx } from "./provider/tx-utils.js";
 export type { FESDeploymentParams } from "./substandards/freeze-and-seize/types.js";
+
+// Re-export Evolution SDK essentials so consumers don't need a direct dependency
+export {
+  client as evoClient,
+  preview as previewChain,
+  preprod as preprodChain,
+  mainnet as mainnetChain,
+  Address as EvoAddress,
+  TransactionHash as EvoTransactionHash,
+  Transaction as EvoTransaction,
+  Data as EvoData,
+} from "@evolution-sdk/evolution";

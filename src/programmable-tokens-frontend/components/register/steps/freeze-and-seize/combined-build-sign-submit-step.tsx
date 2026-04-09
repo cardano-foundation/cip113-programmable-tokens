@@ -233,9 +233,10 @@ export function CombinedBuildSignSubmitStep({
       try {
         signedTxs = await wallet.signTxs([initUnsignedCbor, regUnsignedCbor], true);
       } catch (err) {
-        // Fallback: sequential signTx if signTxs is not supported
         const errMsg = err instanceof Error ? err.message : String(err);
+        console.warn("[CIP-113] signTxs failed, checking if fallback needed:", errMsg);
         if (errMsg.includes('signTxs') || errMsg.includes('not a function') || errMsg.includes('not supported')) {
+          console.log("[CIP-113] Falling back to sequential signTx");
           const signed1 = await wallet.signTx(initUnsignedCbor, true);
           const signed2 = await wallet.signTx(regUnsignedCbor, true);
           signedTxs = [signed1, signed2];

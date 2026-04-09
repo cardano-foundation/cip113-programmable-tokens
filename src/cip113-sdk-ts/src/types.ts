@@ -1,9 +1,19 @@
 /**
  * Core types for the CIP-113 SDK.
+ *
+ * String aliases (HexString, Address, etc.) kept for readability.
+ * Evolution SDK types used directly where possible.
  */
 
+import type {
+  Data as EvoData,
+  UTxO as EvoUTxO,
+  Script as EvoScript,
+  Assets as EvoAssets,
+} from "@evolution-sdk/evolution";
+
 // ---------------------------------------------------------------------------
-// Primitives
+// Primitives (string aliases for readability)
 // ---------------------------------------------------------------------------
 
 /** Hex-encoded byte string */
@@ -22,7 +32,23 @@ export type Address = string;
 export type TxHash = HexString;
 
 // ---------------------------------------------------------------------------
-// Transaction References
+// Re-exports from Evolution SDK
+// ---------------------------------------------------------------------------
+
+/** PlutusData — Evolution SDK's Data.Data type */
+export type PlutusData = EvoData.Data;
+
+/** UTxO — Evolution SDK's UTxO type */
+export type UTxO = EvoUTxO.UTxO;
+
+/** Script — Evolution SDK's Script type */
+export type Script = EvoScript.Script;
+
+/** Assets — Evolution SDK's Assets type */
+export type Assets = EvoAssets.Assets;
+
+// ---------------------------------------------------------------------------
+// Domain types
 // ---------------------------------------------------------------------------
 
 export interface TxInput {
@@ -30,32 +56,12 @@ export interface TxInput {
   outputIndex: number;
 }
 
-export interface UTxO {
-  txHash: TxHash;
-  outputIndex: number;
-  address: Address;
-  value: Value;
-  datum?: PlutusData;
-  datumHash?: HexString;
-  referenceScript?: PlutusScript;
-}
-
-export interface Value {
-  lovelace: bigint;
-  assets?: Map<string, bigint>; // unit (policyId + assetName) -> quantity
-}
-
-// ---------------------------------------------------------------------------
-// Scripts
-// ---------------------------------------------------------------------------
-
+/** Script metadata: compiled code + hash for parameterization and attachment */
 export interface PlutusScript {
   type: "PlutusV3";
   compiledCode: HexString;
   hash: ScriptHash;
 }
-
-export type PlutusData = unknown; // Adapter-specific, opaque to core logic
 
 // ---------------------------------------------------------------------------
 // Blueprint (CIP-57)

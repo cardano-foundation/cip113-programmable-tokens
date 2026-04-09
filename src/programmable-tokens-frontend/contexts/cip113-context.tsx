@@ -5,6 +5,8 @@
  *
  * Provides a lazily-initialized CIP113Protocol to components.
  * Fetches blueprints and deployment params from the backend API on first use.
+ *
+ * Uses Evolution SDK client directly — no adapter abstraction.
  */
 
 import {
@@ -21,10 +23,17 @@ import {
   type CIP113Protocol,
   type DeploymentParams,
   type PlutusBlueprint,
+  paymentCredentialHash,
+  stringToHex,
+  evoClient,
+  previewChain,
+  preprodChain,
+  mainnetChain,
+  EvoAddress,
+  EvoTransactionHash,
 } from "@cip113/sdk";
-import { evolutionAdapter } from "@cip113/sdk/evolution";
 import { dummySubstandard } from "@cip113/sdk/dummy";
-import { freezeAndSeizeSubstandard } from "@cip113/sdk/freeze-and-seize";
+import { freezeAndSeizeSubstandard, createFESScripts } from "@cip113/sdk/freeze-and-seize";
 import type { FESDeploymentParams } from "@cip113/sdk";
 import {
   getProtocolBlueprint,
@@ -32,7 +41,6 @@ import {
   getSubstandardBlueprint,
   getTokenContext,
 } from "@/lib/api/protocol";
-import { stringToHex } from "@/lib/api/minting";
 import type { ProtocolBootstrapParams } from "@/types/protocol";
 
 // ---------------------------------------------------------------------------
@@ -40,23 +48,8 @@ import type { ProtocolBootstrapParams } from "@/types/protocol";
 // ---------------------------------------------------------------------------
 
 interface CIP113ContextValue {
-  /**
-   * Get or lazily initialize the CIP-113 protocol.
-   * First call fetches blueprints + params from backend — subsequent calls return cached.
-   */
   getProtocol(): Promise<CIP113Protocol>;
-
-  /**
-   * Ensure the right substandard is registered for a given token.
-   * Fetches token context from backend, registers FES substandard if needed.
-   * Returns the substandardId for direct routing.
-   */
   ensureSubstandard(policyId: string, assetName: string): Promise<string>;
-
-  /**
-   * Register a token in the backend DB after SDK-built on-chain registration.
-   * This is a callback — no tx building, just persists to backend DB.
-   */
   registerTokenCallback(params: {
     policyId: string;
     substandardId: string;
@@ -64,11 +57,6 @@ interface CIP113ContextValue {
     issuerAdminPkh?: string;
     blacklistNodePolicyId?: string;
   }): Promise<void>;
-
-  /**
-   * Build a FES registration flow (blacklist init + token registration).
-   * Returns two unsigned tx CBORs that must be signed and submitted in order.
-   */
   buildFESRegistration(params: {
     adminAddress: string;
     assetName: string;
@@ -80,8 +68,6 @@ interface CIP113ContextValue {
     blacklistNodePolicyId: string;
     tokenPolicyId: string;
   }>;
-
-  /** Whether the SDK is available (has Blockfrost key) */
   available: boolean;
 }
 
@@ -97,13 +83,6 @@ const CIP113Context = createContext<CIP113ContextValue>({
 // Convert backend bootstrap params to SDK DeploymentParams
 // ---------------------------------------------------------------------------
 
-/**
- * Convert backend bootstrap params to SDK DeploymentParams.
- *
- * The frontend types are a subset of what the Java backend provides.
- * Fields not available in the frontend types use the bootstrap txHash
- * as a reasonable default (bootstrap tx outputs are at fixed indices).
- */
 function toDeploymentParams(bp: ProtocolBootstrapParams): DeploymentParams {
   return {
     txHash: bp.txHash,
@@ -176,25 +155,28 @@ export function CIP113Provider({ children }: { children: ReactNode }) {
 
   const protocolRef = useRef<CIP113Protocol | null>(null);
   const initPromiseRef = useRef<Promise<CIP113Protocol> | null>(null);
-  /** Track which FES tokens have been registered (by policyId) */
   const registeredFESTokens = useRef<Set<string>>(new Set());
-  /** Cache FES blueprint to avoid re-fetching */
   const fesBlueprintRef = useRef<PlutusBlueprint | null>(null);
 
   const available = !!blockfrostKey;
 
-  const getProtocol = useCallback(async (): Promise<CIP113Protocol> => {
-    // Return cached protocol if available
-    if (protocolRef.current) return protocolRef.current;
+  /** Get the Evolution SDK chain preset for the configured network */
+  const getChain = useCallback(() => {
+    switch (network) {
+      case "mainnet": return mainnetChain;
+      case "preprod": return preprodChain;
+      case "preview": return previewChain;
+    }
+  }, [network]);
 
-    // Return in-progress initialization if one is running
+  const getProtocol = useCallback(async (): Promise<CIP113Protocol> => {
+    if (protocolRef.current) return protocolRef.current;
     if (initPromiseRef.current) return initPromiseRef.current;
 
     if (!blockfrostKey) {
       throw new Error("CIP-113 SDK not available: NEXT_PUBLIC_BLOCKFROST_API_KEY not set");
     }
 
-    // Start initialization
     const promise = (async () => {
       console.log("[CIP-113] Initializing SDK...");
 
@@ -205,26 +187,27 @@ export function CIP113Provider({ children }: { children: ReactNode }) {
         getSubstandardBlueprint("dummy"),
       ]);
 
-      // 2. Create Evolution adapter
-      const adapter = evolutionAdapter({
-        network,
-        provider: {
-          type: "blockfrost",
-          projectId: blockfrostKey,
-          ...(blockfrostUrl ? { baseUrl: blockfrostUrl } : {}),
-        },
+      // 2. Create Evolution SDK client (ReadOnlyClient — no wallet for CIP-30 flow)
+      const chain = getChain();
+      const readClient = evoClient(chain).withBlockfrost({
+        projectId: blockfrostKey,
+        baseUrl: blockfrostUrl || `https://cardano-${network}.blockfrost.io/api/v0`,
       });
+      // Use a dummy address to give the client network context
+      const dummyAddr = chain.id === 1
+        ? "addr1qx2kd28nq8ac5prwg32hhvudlwggpgfp8utlyqxu6wqgz62f79qsdmm5dsknt9ecr5w468r9ey0fxwkdrwh08ly3tu9sy0f4qd"
+        : "addr_test1qzx9hu8j4ah3auytk0mwcupd69hpc52t0cw39a65ndrah86djs784u92a3m5w475w3w35tyd6v3qumkze80j8a6h5tuqq5xe8y";
+      const clientWithAddr = readClient.withAddress(dummyAddr);
 
       // 3. Initialize CIP-113 protocol
       const protocol = CIP113.init({
-        adapter,
+        client: clientWithAddr,
         standard: {
           blueprint: toSdkBlueprint(protocolBp),
           deployment: toDeploymentParams(bootstrapParams),
         },
         substandards: [
           dummySubstandard({ blueprint: substandardToSdkBlueprint(dummyBp) }),
-          // FES substandards are per-token — they'll be registered dynamically
         ],
       });
 
@@ -238,25 +221,17 @@ export function CIP113Provider({ children }: { children: ReactNode }) {
     try {
       return await promise;
     } catch (e) {
-      initPromiseRef.current = null; // Allow retry on failure
+      initPromiseRef.current = null;
       throw e;
     }
-  }, [blockfrostKey, blockfrostUrl, network, selectedVersion?.txHash]);
+  }, [blockfrostKey, blockfrostUrl, network, selectedVersion?.txHash, getChain]);
 
-  /**
-   * Ensure the right substandard is registered for a token.
-   * For FES tokens: fetches context from backend, registers FES substandard dynamically.
-   * Returns the substandardId for direct routing.
-   */
   const ensureSubstandard = useCallback(async (policyId: string, assetName: string): Promise<string> => {
-    // 1. Fetch token context from backend
     const tokenCtx = await getTokenContext(policyId);
 
-    // 2. If FES and not already registered, register dynamically
     if (tokenCtx.substandardId === "freeze-and-seize" && !registeredFESTokens.current.has(policyId)) {
       const protocol = await getProtocol();
 
-      // Fetch FES blueprint (cached)
       if (!fesBlueprintRef.current) {
         const fesBp = await getSubstandardBlueprint("freeze-and-seize");
         fesBlueprintRef.current = substandardToSdkBlueprint(fesBp);
@@ -280,9 +255,6 @@ export function CIP113Provider({ children }: { children: ReactNode }) {
     return tokenCtx.substandardId;
   }, [getProtocol]);
 
-  /**
-   * Register a token in the backend DB after SDK-built on-chain registration.
-   */
   const registerTokenCallback = useCallback(async (params: {
     policyId: string;
     substandardId: string;
@@ -300,10 +272,6 @@ export function CIP113Provider({ children }: { children: ReactNode }) {
     console.log(`[CIP-113] Token ${params.policyId} registered in backend DB`);
   }, []);
 
-  /**
-   * Build a FES registration flow (blacklist init + token registration).
-   * Creates a temporary FES substandard instance for the registration.
-   */
   const buildFESRegistration = useCallback(async (params: {
     adminAddress: string;
     assetName: string;
@@ -311,9 +279,9 @@ export function CIP113Provider({ children }: { children: ReactNode }) {
     recipientAddress?: string;
   }) => {
     const protocol = await getProtocol();
-    const adapter = protocol.adapter;
+    const client = protocol.client;
     const assetNameHex = stringToHex(params.assetName);
-    const adminPkh = adapter.paymentCredentialHash(params.adminAddress);
+    const adminPkh = paymentCredentialHash(params.adminAddress);
 
     // Fetch FES blueprint
     if (!fesBlueprintRef.current) {
@@ -321,20 +289,17 @@ export function CIP113Provider({ children }: { children: ReactNode }) {
       fesBlueprintRef.current = substandardToSdkBlueprint(fesBp);
     }
 
-    // Step 1: We need blacklistInitTxInput — use the first wallet UTxO
-    const walletUtxos = await adapter.getUtxos(params.adminAddress);
+    // Step 1: Compute blacklistInitTxInput from first wallet UTxO
+    const walletUtxos = await client.getUtxos(EvoAddress.fromBech32(params.adminAddress));
     if (walletUtxos.length === 0) throw new Error("No wallet UTxOs");
     const bootstrapUtxo = walletUtxos[0];
     const blacklistInitTxInput = {
-      txHash: bootstrapUtxo.txHash,
-      outputIndex: bootstrapUtxo.outputIndex,
+      txHash: EvoTransactionHash.toHex(bootstrapUtxo.transactionId),
+      outputIndex: Number(bootstrapUtxo.index),
     };
 
-    // Pre-compute the blacklist mint policy ID deterministically
-    // It's derived from: blacklistMint(bootstrapTxInput, adminPkh)
-    // We need to parameterize just the blacklist mint script to get its hash
-    const { createFESScripts } = await import("@cip113/sdk/freeze-and-seize");
-    const tempFesScripts = createFESScripts(fesBlueprintRef.current, adapter);
+    // Pre-compute the blacklist mint policy ID
+    const tempFesScripts = createFESScripts(fesBlueprintRef.current);
     const blacklistMintScript = tempFesScripts.buildBlacklistMint(blacklistInitTxInput, adminPkh);
     const blacklistNodePolicyId = blacklistMintScript.hash;
     console.log("[CIP-113] Pre-computed blacklistNodePolicyId:", blacklistNodePolicyId);
@@ -351,7 +316,7 @@ export function CIP113Provider({ children }: { children: ReactNode }) {
     });
 
     fes.init({
-      adapter,
+      client,
       standardScripts: protocol.scripts,
       deployment: protocol.deployment,
       network: network,
@@ -363,29 +328,50 @@ export function CIP113Provider({ children }: { children: ReactNode }) {
       feePayerAddress: params.adminAddress,
       adminAddress: params.adminAddress,
       assetName: params.assetName,
-      skipStakeRegistration: true, // Stake registration handled separately
+      bootstrapUtxo: bootstrapUtxo,
     });
 
     console.log("[CIP-113] Blacklist init built. PolicyId:", initResult.metadata?.blacklistNodePolicyId);
+    console.log("[CIP-113] Init CBOR hex:", initResult.cbor);
+    console.log("[CIP-113] Init txHash:", initResult.txHash);
+    console.log("[CIP-113] Init metadata:", JSON.stringify(initResult.metadata));
 
+    // Step 2: Build registration tx — chain from init using available UTxOs
     console.log("[CIP-113] Building registration tx...");
-    const regResult = await fes.register({
-      feePayerAddress: params.adminAddress,
-      assetName: params.assetName,
-      quantity: BigInt(params.quantity),
-      recipientAddress: params.recipientAddress,
-      config: { adminPkh, blacklistNodePolicyId },
-    });
+    console.log("[CIP-113] Chaining with", initResult.chainAvailable?.length ?? 0, "available UTxOs from init");
+    try {
+      const regResult = await fes.register({
+        feePayerAddress: params.adminAddress,
+        assetName: params.assetName,
+        quantity: BigInt(params.quantity),
+        recipientAddress: params.recipientAddress,
+        config: { adminPkh, blacklistNodePolicyId },
+        chainedUtxos: initResult.chainAvailable,
+      });
 
-    const tokenPolicyId = regResult.tokenPolicyId ?? "";
-    console.log("[CIP-113] Registration built. TokenPolicyId:", tokenPolicyId);
+      const tokenPolicyId = regResult.tokenPolicyId ?? "";
+      console.log("[CIP-113] Registration built. TokenPolicyId:", tokenPolicyId);
+      console.log("[CIP-113] Reg CBOR hex:", regResult.cbor);
+      console.log("[CIP-113] Reg txHash:", regResult.txHash);
 
-    return {
-      initCbor: initResult.cbor,
-      regCbor: regResult.cbor,
-      blacklistNodePolicyId,
-      tokenPolicyId,
-    };
+      return {
+        initCbor: initResult.cbor,
+        regCbor: regResult.cbor,
+        blacklistNodePolicyId,
+        tokenPolicyId,
+      };
+    } catch (regError) {
+      console.error("[CIP-113] Registration build FAILED:", regError);
+      console.error("[CIP-113] Reg error message:", (regError as Error)?.message);
+      let cause = (regError as any)?.cause;
+      let depth = 0;
+      while (cause && depth < 5) {
+        console.error(`[CIP-113] Reg cause[${depth}]:`, cause?.message ?? JSON.stringify(cause)?.slice(0, 500));
+        cause = cause?.cause;
+        depth++;
+      }
+      throw regError;
+    }
   }, [getProtocol, network]);
 
   const value = useMemo(
