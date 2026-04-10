@@ -15,6 +15,7 @@ import {
 // ---------------------------------------------------------------------------
 
 import { addressHexToBech32, assembleSignedTx } from "@cip113/sdk";
+import * as cbor from "cbor";
 
 // ---------------------------------------------------------------------------
 // CIP-30 Wallet API types
@@ -132,11 +133,21 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         return assembleSignedTx(tx, witnessSetHex);
       },
       async getLovelace() {
-        if (typeof api.getLovelace === "function") {
-          return api.getLovelace();
+        // CIP-30 getBalance() returns CBOR-encoded Value:
+        // either a simple integer (lovelace only) or [lovelace, multiasset_map]
+        const balanceCborHex = await api.getBalance();
+        try {
+          const decoded = cbor.decode(Buffer.from(balanceCborHex, "hex"));
+          if (typeof decoded === "bigint" || typeof decoded === "number") {
+            return decoded.toString();
+          }
+          if (Array.isArray(decoded) && decoded.length >= 1) {
+            return decoded[0].toString();
+          }
+          return "0";
+        } catch {
+          return balanceCborHex;
         }
-        const balance = await api.getBalance();
-        return balance;
       },
       async signTxs(txs: string[], partialSign?: boolean) {
         // Check multiple locations where wallets expose batch signing:

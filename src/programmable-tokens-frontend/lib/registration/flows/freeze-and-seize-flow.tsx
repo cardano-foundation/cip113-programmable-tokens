@@ -86,7 +86,7 @@ const freezeAndSeizeFlow: RegistrationFlow = {
     return {
       policyId: combinedResult.tokenPolicyId,
       substandardId: 'freeze-and-seize',
-      // Use CIP-67-labeled hex when available (CIP-68 tokens), otherwise plain hex
+      // Store the full asset name hex (including CIP-67 label if present)
       assetName: combinedResult.userAssetNameHex || stringToHex(tokenDetails?.assetName || ''),
       blacklistNodePolicyId: combinedResult.blacklistNodePolicyId,
       // issuerAdminPkh is added by WizardStepContainer from the connected wallet

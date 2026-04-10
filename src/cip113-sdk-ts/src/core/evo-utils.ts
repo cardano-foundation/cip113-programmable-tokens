@@ -447,6 +447,35 @@ export function labeledAssetName(label: number, assetNameHex: HexString): HexStr
   return Label.toLabel(label) + assetNameHex;
 }
 
+/** Strip a CIP-67 label prefix from an asset name hex, if present. Returns the stripped (unlabeled) name. */
+export function stripCIP67Label(assetNameHex: HexString): HexString {
+  // CIP-67 labels are 4 bytes = 8 hex chars
+  if (!assetNameHex || assetNameHex.length <= 8) return assetNameHex || "";
+  try {
+    const labelHex = assetNameHex.substring(0, 8);
+    // Label.fromLabel will throw/return null if not a valid CIP-67 label
+    const label = Label.fromLabel(labelHex);
+    if (label !== undefined && label !== null) {
+      return assetNameHex.substring(8);
+    }
+  } catch {
+    // Not a valid CIP-67 label prefix — return as-is
+  }
+  return assetNameHex;
+}
+
+/** Check if an asset name hex starts with a CIP-67 label prefix. */
+export function hasCIP67Label(assetNameHex: HexString): boolean {
+  if (!assetNameHex || assetNameHex.length <= 8) return false;
+  try {
+    const labelHex = assetNameHex.substring(0, 8);
+    const label = Label.fromLabel(labelHex);
+    return label !== undefined && label !== null;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Build CIP-68 FT metadata datum: Constr(0, [metadata_map, version, extra]).
  *

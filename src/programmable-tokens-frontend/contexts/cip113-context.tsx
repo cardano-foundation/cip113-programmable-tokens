@@ -25,6 +25,7 @@ import {
   type PlutusBlueprint,
   paymentCredentialHash,
   stringToHex,
+  labeledAssetName,
   evoClient,
   previewChain,
   preprodChain,
@@ -83,6 +84,9 @@ interface CIP113ContextValue {
     regCbor: string;
     blacklistNodePolicyId: string;
     tokenPolicyId: string;
+    adminPkh: string;
+    blacklistInitTxInput: { txHash: string; outputIndex: number };
+    userAssetNameHex?: string;
   }>;
   available: boolean;
 }
@@ -301,7 +305,12 @@ export function CIP113Provider({ children }: { children: ReactNode }) {
     };
   }) => {
     const protocol = await getProtocol();
-    const assetNameHex = stringToHex(params.assetName);
+    const baseAssetNameHex = stringToHex(params.assetName);
+    // For CIP-68 tokens, the raw on-chain asset name includes the CIP-67 label prefix.
+    // This prefixed name is what gets baked into buildIssuerAdmin (and thus the policyId).
+    const assetNameHex = params.cip68Metadata
+      ? labeledAssetName(333, baseAssetNameHex)
+      : baseAssetNameHex;
     const adminPkh = paymentCredentialHash(params.adminAddress);
 
     // Create a SigningClient with CIP-30 wallet for tx chaining support.

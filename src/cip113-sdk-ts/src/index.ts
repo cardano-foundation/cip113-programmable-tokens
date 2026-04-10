@@ -311,6 +311,8 @@ export {
   scriptCredential,
   keyCredential,
   labeledAssetName,
+  stripCIP67Label,
+  hasCIP67Label,
   buildCIP68FTDatum,
 } from "./core/evo-utils.js";
 export { sortTxInputs, findRefInputIndex } from "./core/registry.js";
