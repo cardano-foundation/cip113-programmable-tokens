@@ -4,12 +4,14 @@ import { useState } from "react";
 import { useWallet } from "@/hooks/use-wallet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { TxBuilderToggle, type TransactionBuilder } from "@/components/ui/tx-builder-toggle";
 import { Coins, CheckCircle, ExternalLink } from "lucide-react";
 import { AdminTokenSelector } from "./AdminTokenSelector";
 import { AdminTokenInfo } from "@/lib/api/admin";
 import { mintToken, stringToHex } from "@/lib/api";
 import { MintTokenRequest } from "@/types/api";
 import { useProtocolVersion } from "@/contexts/protocol-version-context";
+import { useCIP113 } from "@/contexts/cip113-context";
 import { useToast } from "@/components/ui/use-toast";
 import { getExplorerTxUrl } from "@/lib/utils";
 
@@ -24,6 +26,8 @@ export function MintSection({ tokens, feePayerAddress }: MintSectionProps) {
   const { wallet } = useWallet();
   const { toast: showToast } = useToast();
   const { selectedVersion } = useProtocolVersion();
+  const { getProtocol, ensureSubstandard, available: sdkAvailable } = useCIP113();
+  const [txBuilder, setTxBuilder] = useState<TransactionBuilder>(sdkAvailable ? "sdk" : "backend");
   const network = process.env.NEXT_PUBLIC_NETWORK || "preview";
 
   // Filter tokens where user has ISSUER_ADMIN role or is a dummy token (anyone can mint)
@@ -84,15 +88,30 @@ export function MintSection({ tokens, feePayerAddress }: MintSectionProps) {
     try {
       setIsBuilding(true);
 
-      const request: MintTokenRequest = {
-        feePayerAddress,
-        tokenPolicyId: selectedToken.policyId,
-        assetName: selectedToken.assetName,
-        quantity,
-        recipientAddress: recipientAddress.trim(),
-      };
+      let unsignedCborTx: string;
 
-      const unsignedCborTx = await mintToken(request, selectedVersion?.txHash);
+      if (txBuilder === "sdk") {
+        const substandardId = await ensureSubstandard(selectedToken.policyId, selectedToken.assetName);
+        const protocol = await getProtocol();
+        const result = await protocol.mint({
+          feePayerAddress,
+          tokenPolicyId: selectedToken.policyId,
+          assetName: selectedToken.assetName,
+          quantity: BigInt(quantity),
+          recipientAddress: recipientAddress.trim(),
+          substandardId,
+        });
+        unsignedCborTx = result.cbor;
+      } else {
+        const request: MintTokenRequest = {
+          feePayerAddress,
+          tokenPolicyId: selectedToken.policyId,
+          assetName: selectedToken.assetName,
+          quantity,
+          recipientAddress: recipientAddress.trim(),
+        };
+        unsignedCborTx = await mintToken(request, selectedVersion?.txHash);
+      }
 
       setIsBuilding(false);
       setStep("signing");
@@ -207,6 +226,8 @@ export function MintSection({ tokens, feePayerAddress }: MintSectionProps) {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
+      <TxBuilderToggle value={txBuilder} onChange={setTxBuilder} sdkAvailable={sdkAvailable} />
+
       {/* Token Selector */}
       <div>
         <AdminTokenSelector

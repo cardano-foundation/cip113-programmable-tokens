@@ -25,7 +25,7 @@ import {
   Transaction,
 } from "@evolution-sdk/evolution";
 
-import { PlutusV3 } from "@evolution-sdk/evolution/PlutusV3";
+const PlutusV3 = Script.Script.members[3] as { new (opts: { bytes: Uint8Array }): Script.Script };
 import * as Label from "@evolution-sdk/evolution/Assets/Label";
 
 import type { HexString, PlutusScript, ScriptHash, TxInput } from "../types.js";
@@ -48,10 +48,10 @@ export function buildEvoScript(compiledCode: HexString): Script.Script {
     const additionalInfo = raw[0] & 0x1f;
     const headerLen = additionalInfo < 24 ? 1 : additionalInfo === 24 ? 2 : additionalInfo === 25 ? 3 : 5;
     const innerBytes = raw.slice(headerLen);
-    return new PlutusV3({ bytes: innerBytes }) as unknown as Script.Script;
+    return new PlutusV3({ bytes: innerBytes });
   }
 
-  return new PlutusV3({ bytes: Bytes.fromHex(compiledCode) }) as unknown as Script.Script;
+  return new PlutusV3({ bytes: Bytes.fromHex(compiledCode) });
 }
 
 /**

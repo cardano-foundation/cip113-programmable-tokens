@@ -320,7 +320,6 @@ export type { FESDeploymentParams } from "./substandards/freeze-and-seize/types.
 
 // Re-export Evolution SDK essentials so consumers don't need a direct dependency
 export {
-  client as evoClient,
   preview as previewChain,
   preprod as preprodChain,
   mainnet as mainnetChain,
@@ -330,3 +329,7 @@ export {
   Transaction as EvoTransaction,
   Data as EvoData,
 } from "@evolution-sdk/evolution";
+
+// In 0.4.0 `client(chain)` became `Client.make(chain)` — re-export a compatible wrapper
+import { Client } from "@evolution-sdk/evolution";
+export const evoClient = Client.make;

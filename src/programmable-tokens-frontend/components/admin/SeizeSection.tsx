@@ -4,10 +4,12 @@ import { useState } from "react";
 import { useWallet } from "@/hooks/use-wallet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { TxBuilderToggle, type TransactionBuilder } from "@/components/ui/tx-builder-toggle";
 import { AlertTriangle, CheckCircle, ExternalLink } from "lucide-react";
 import { AdminTokenSelector } from "./AdminTokenSelector";
 import { AdminTokenInfo } from "@/lib/api/admin";
 import { useProtocolVersion } from "@/contexts/protocol-version-context";
+import { useCIP113 } from "@/contexts/cip113-context";
 import { useToast } from "@/components/ui/use-toast";
 import { getExplorerTxUrl } from "@/lib/utils";
 
@@ -22,6 +24,8 @@ export function SeizeSection({ tokens, adminAddress }: SeizeSectionProps) {
   const { wallet } = useWallet();
   const { toast: showToast } = useToast();
   const { selectedVersion } = useProtocolVersion();
+  const { getProtocol, ensureSubstandard, available: sdkAvailable } = useCIP113();
+  const [txBuilder, setTxBuilder] = useState<TransactionBuilder>(sdkAvailable ? "sdk" : "backend");
   const network = process.env.NEXT_PUBLIC_NETWORK || "preview";
 
   // Filter tokens where user has ISSUER_ADMIN role (seize requires issuer admin)
@@ -86,19 +90,32 @@ export function SeizeSection({ tokens, adminAddress }: SeizeSectionProps) {
         throw new Error("Invalid UTxO index");
       }
 
-      // Import compliance API dynamically
-      const { seizeTokens } = await import("@/lib/api/compliance");
+      let unsignedCborTx: string;
 
-      const request = {
-        feePayerAddress: adminAddress,
-        unit: `${selectedToken.policyId}.${selectedToken.assetName}`,
-        utxoTxHash: txHashPart,
-        utxoOutputIndex: outputIndex,
-        destinationAddress: recipientAddress.trim(),
-      };
-
-      const response = await seizeTokens(request, selectedVersion?.txHash);
-      const unsignedCborTx = response.unsignedCborTx;
+      if (txBuilder === "sdk") {
+        await ensureSubstandard(selectedToken.policyId, selectedToken.assetName);
+        const protocol = await getProtocol();
+        const result = await protocol.compliance.seize({
+          feePayerAddress: adminAddress,
+          tokenPolicyId: selectedToken.policyId,
+          assetName: selectedToken.assetName,
+          utxoTxHash: txHashPart,
+          utxoOutputIndex: outputIndex,
+          destinationAddress: recipientAddress.trim(),
+        });
+        unsignedCborTx = result.cbor;
+      } else {
+        const { seizeTokens } = await import("@/lib/api/compliance");
+        const request = {
+          feePayerAddress: adminAddress,
+          unit: `${selectedToken.policyId}.${selectedToken.assetName}`,
+          utxoTxHash: txHashPart,
+          utxoOutputIndex: outputIndex,
+          destinationAddress: recipientAddress.trim(),
+        };
+        const response = await seizeTokens(request, selectedVersion?.txHash);
+        unsignedCborTx = response.unsignedCborTx;
+      }
 
       setIsBuilding(false);
       setStep("signing");
@@ -213,6 +230,8 @@ export function SeizeSection({ tokens, adminAddress }: SeizeSectionProps) {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
+      <TxBuilderToggle value={txBuilder} onChange={setTxBuilder} sdkAvailable={sdkAvailable} />
+
       {/* Warning Banner */}
       <div className="px-4 py-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
         <div className="flex gap-3">
