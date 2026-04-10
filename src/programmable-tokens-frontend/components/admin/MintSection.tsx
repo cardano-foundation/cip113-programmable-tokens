@@ -8,6 +8,7 @@ import { TxBuilderToggle, type TransactionBuilder } from "@/components/ui/tx-bui
 import { Coins, CheckCircle, ExternalLink } from "lucide-react";
 import { AdminTokenSelector } from "./AdminTokenSelector";
 import { AdminTokenInfo } from "@/lib/api/admin";
+import { decodeAssetNameDisplay } from "@/lib/utils/cip68";
 import { mintToken, stringToHex } from "@/lib/api";
 import { MintTokenRequest } from "@/types/api";
 import { useProtocolVersion } from "@/contexts/protocol-version-context";
@@ -126,7 +127,7 @@ export function MintSection({ tokens, feePayerAddress }: MintSectionProps) {
 
       showToast({
         title: "Mint Successful",
-        description: `Minted ${quantity} ${selectedToken.assetNameDisplay} tokens`,
+        description: `Minted ${quantity} ${decodeAssetNameDisplay(selectedToken.assetName)} tokens`,
         variant: "success",
       });
     } catch (error) {
@@ -182,7 +183,7 @@ export function MintSection({ tokens, feePayerAddress }: MintSectionProps) {
         </div>
         <h3 className="text-lg font-semibold text-white mb-2">Mint Complete!</h3>
         <p className="text-sm text-dark-400 text-center mb-4">
-          Successfully minted {quantity} {selectedToken?.assetNameDisplay} tokens
+          Successfully minted {quantity} {selectedToken ? decodeAssetNameDisplay(selectedToken.assetName) : ''} tokens
         </p>
 
         <div className="w-full px-4 py-3 bg-dark-900 rounded-lg mb-4">

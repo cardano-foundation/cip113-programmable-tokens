@@ -230,15 +230,6 @@ export function freezeAndSeizeSubstandard(config: {
   let scripts: ResolvedFESScripts;
   let networkId: number;
 
-  // Whether the deployment asset name carries a CIP-67 label (i.e., this is a CIP-68 token).
-  const deploymentIsCIP68 = hasCIP67Label(config.deployment.assetName);
-
-  /** Convert a human-readable asset name to the on-chain hex, adding CIP-67 (333) label for CIP-68 tokens. */
-  function toOnChainAssetNameHex(assetName: string): HexString {
-    const hex = stringToHex(assetName);
-    return deploymentIsCIP68 ? labeledAssetName(333, hex) : hex;
-  }
-
   return {
     id: "freeze-and-seize",
     version: "0.1.0",
@@ -432,8 +423,7 @@ export function freezeAndSeizeSubstandard(config: {
     async mint(params: MintParams): Promise<UnsignedTx> {
       const { feePayerAddress, tokenPolicyId, assetName, quantity, recipientAddress } = params;
       const recipient = recipientAddress || feePayerAddress;
-      const assetNameHex = toOnChainAssetNameHex(assetName);
-      const unit = tokenPolicyId + assetNameHex;
+      const unit = tokenPolicyId + assetName;
       const client = ctx.client;
 
       if (tokenPolicyId !== scripts.tokenPolicyId) {
@@ -492,8 +482,7 @@ export function freezeAndSeizeSubstandard(config: {
     // ====================================================================
     async burn(params: BurnParams): Promise<UnsignedTx> {
       const { feePayerAddress, tokenPolicyId, assetName, utxoTxHash: targetTxHash, utxoOutputIndex: targetIdx } = params;
-      const assetNameHex = toOnChainAssetNameHex(assetName);
-      const unit = tokenPolicyId + assetNameHex;
+      const unit = tokenPolicyId + assetName;
       const client = ctx.client;
 
       if (tokenPolicyId !== scripts.tokenPolicyId) {
@@ -581,8 +570,7 @@ export function freezeAndSeizeSubstandard(config: {
     // ====================================================================
     async transfer(params: TransferParams): Promise<UnsignedTx> {
       const { senderAddress, recipientAddress, tokenPolicyId, assetName, quantity } = params;
-      const assetNameHex = toOnChainAssetNameHex(assetName);
-      const unit = tokenPolicyId + assetNameHex;
+      const unit = tokenPolicyId + assetName;
       const client = ctx.client;
 
       if (tokenPolicyId !== scripts.tokenPolicyId) {
@@ -915,8 +903,7 @@ export function freezeAndSeizeSubstandard(config: {
     // ====================================================================
     async seize(params: SeizeParams): Promise<UnsignedTx> {
       const { feePayerAddress, tokenPolicyId, assetName, utxoTxHash: targetTxHash, utxoOutputIndex: targetIdx, destinationAddress } = params;
-      const assetNameHex = toOnChainAssetNameHex(assetName);
-      const unit = tokenPolicyId + assetNameHex;
+      const unit = tokenPolicyId + assetName;
       const client = ctx.client;
 
       if (tokenPolicyId !== scripts.tokenPolicyId) {

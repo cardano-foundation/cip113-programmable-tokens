@@ -5,6 +5,7 @@ import { ChevronDown, Coins } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { AdminTokenInfo, AdminRole } from "@/lib/api/admin";
+import { TokenName } from "@/components/ui/token-name";
 
 interface AdminTokenSelectorProps {
   tokens: AdminTokenInfo[];
@@ -83,7 +84,7 @@ export function AdminTokenSelector({
               <Coins className="h-5 w-5 text-primary-500 flex-shrink-0" />
               <div className="text-left flex-1 min-w-0">
                 <p className="text-sm font-medium truncate">
-                  {selectedToken.assetNameDisplay}
+                  <TokenName assetNameHex={selectedToken.assetName} assetName={selectedToken.assetNameDisplay} />
                 </p>
                 <p className="text-xs text-dark-400 truncate">
                   {selectedToken.policyId.substring(0, 20)}...
@@ -133,7 +134,7 @@ export function AdminTokenSelector({
               <div className="flex items-center justify-between gap-2">
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-white truncate">
-                    {token.assetNameDisplay}
+                    <TokenName assetNameHex={token.assetName} assetName={token.assetNameDisplay} />
                   </p>
                   <p
                     className="text-xs text-dark-400 truncate"

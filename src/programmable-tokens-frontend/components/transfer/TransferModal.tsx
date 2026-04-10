@@ -112,7 +112,7 @@ export function TransferModal({
         });
 
         // Resolve substandard from backend + register if needed
-        const substandardId = await ensureSubstandard(asset.policyId, asset.assetName);
+        const substandardId = await ensureSubstandard(asset.policyId, asset.assetNameHex);
 
         const protocol = await getProtocol();
 
@@ -126,7 +126,7 @@ export function TransferModal({
           senderAddress,
           recipientAddress: recipientAddress.trim(),
           tokenPolicyId: asset.policyId,
-          assetName: asset.assetName,
+          assetName: asset.assetNameHex,
           quantity: BigInt(quantity),
           substandardId, // Route directly — no try/catch guessing
         });

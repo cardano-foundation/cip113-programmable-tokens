@@ -96,8 +96,7 @@ export function dummySubstandard(config: {
 
     async transfer(params: TransferParams): Promise<UnsignedTx> {
       const { senderAddress, recipientAddress, tokenPolicyId, assetName, quantity } = params;
-      const assetNameHex = stringToHex(assetName);
-      const unit = tokenPolicyId + assetNameHex;
+      const unit = tokenPolicyId + assetName;
       const client = ctx.client;
 
       const plbHash = ctx.standardScripts.programmableLogicBase.hash;

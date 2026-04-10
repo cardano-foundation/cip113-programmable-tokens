@@ -134,7 +134,8 @@ export interface RegisterParams {
 export interface MintParams {
   feePayerAddress: Address;
   tokenPolicyId: PolicyId;
-  assetName: string;
+  /** Raw asset name hex (including CIP-67 label if CIP-68) */
+  assetName: HexString;
   quantity: bigint;
   recipientAddress?: Address;
   /** Optional: route directly to this substandard instead of trying all */
@@ -144,7 +145,8 @@ export interface MintParams {
 export interface BurnParams {
   feePayerAddress: Address;
   tokenPolicyId: PolicyId;
-  assetName: string;
+  /** Raw asset name hex (including CIP-67 label if CIP-68) */
+  assetName: HexString;
   utxoTxHash: HexString;
   utxoOutputIndex: number;
   /** Optional: route directly to this substandard instead of trying all */
@@ -155,7 +157,8 @@ export interface TransferParams {
   senderAddress: Address;
   recipientAddress: Address;
   tokenPolicyId: PolicyId;
-  assetName: string;
+  /** Raw asset name hex (including CIP-67 label if CIP-68) */
+  assetName: HexString;
   quantity: bigint;
   /** Optional: route directly to this substandard instead of trying all */
   substandardId?: string;
@@ -164,21 +167,24 @@ export interface TransferParams {
 export interface FreezeParams {
   feePayerAddress: Address;
   tokenPolicyId: PolicyId;
-  assetName: string;
+  /** Raw asset name hex (including CIP-67 label if CIP-68) */
+  assetName: HexString;
   targetAddress: Address;
 }
 
 export interface UnfreezeParams {
   feePayerAddress: Address;
   tokenPolicyId: PolicyId;
-  assetName: string;
+  /** Raw asset name hex (including CIP-67 label if CIP-68) */
+  assetName: HexString;
   targetAddress: Address;
 }
 
 export interface SeizeParams {
   feePayerAddress: Address;
   tokenPolicyId: PolicyId;
-  assetName: string;
+  /** Raw asset name hex (including CIP-67 label if CIP-68) */
+  assetName: HexString;
   utxoTxHash: HexString;
   utxoOutputIndex: number;
   destinationAddress: Address;
