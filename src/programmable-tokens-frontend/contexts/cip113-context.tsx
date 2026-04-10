@@ -33,10 +33,10 @@ import {
   EvoAddress,
   EvoAssets,
   EvoTransactionHash,
-} from "@cip113/sdk";
-import { dummySubstandard } from "@cip113/sdk/dummy";
-import { freezeAndSeizeSubstandard, createFESScripts } from "@cip113/sdk/freeze-and-seize";
-import type { FESDeploymentParams } from "@cip113/sdk";
+} from "@easy1staking/cip113-sdk-ts";
+import { dummySubstandard } from "@easy1staking/cip113-sdk-ts/dummy";
+import { freezeAndSeizeSubstandard, createFESScripts } from "@easy1staking/cip113-sdk-ts/freeze-and-seize";
+import type { FESDeploymentParams } from "@easy1staking/cip113-sdk-ts";
 import {
   getProtocolBlueprint,
   getProtocolBootstrap,

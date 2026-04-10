@@ -14,7 +14,7 @@ import {
 // Uses Evolution SDK via our CIP-113 SDK
 // ---------------------------------------------------------------------------
 
-import { addressHexToBech32, assembleSignedTx } from "@cip113/sdk";
+import { addressHexToBech32, assembleSignedTx } from "@easy1staking/cip113-sdk-ts";
 import * as cbor from "cbor";
 
 // ---------------------------------------------------------------------------
