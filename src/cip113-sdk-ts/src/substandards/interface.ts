@@ -149,6 +149,8 @@ export interface BurnParams {
   assetName: HexString;
   utxoTxHash: HexString;
   utxoOutputIndex: number;
+  /** Address of the token holder (where the UTxO sits). Defaults to feePayerAddress if omitted. */
+  holderAddress?: Address;
   /** Optional: route directly to this substandard instead of trying all */
   substandardId?: string;
 }
@@ -188,6 +190,8 @@ export interface SeizeParams {
   utxoTxHash: HexString;
   utxoOutputIndex: number;
   destinationAddress: Address;
+  /** Address of the token holder whose tokens are being seized. */
+  holderAddress?: Address;
 }
 
 export interface InitComplianceParams {

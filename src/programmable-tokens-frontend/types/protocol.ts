@@ -85,4 +85,6 @@ export interface TokenContext {
   assetName?: string;
   blacklistNodePolicyId?: string;
   issuerAdminPkh?: string;
+  blacklistInitTxHash?: string;
+  blacklistInitOutputIndex?: number;
 }

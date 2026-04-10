@@ -482,6 +482,7 @@ export function freezeAndSeizeSubstandard(config: {
     // ====================================================================
     async burn(params: BurnParams): Promise<UnsignedTx> {
       const { feePayerAddress, tokenPolicyId, assetName, utxoTxHash: targetTxHash, utxoOutputIndex: targetIdx } = params;
+      const holder = params.holderAddress || feePayerAddress;
       const unit = tokenPolicyId + assetName;
       const client = ctx.client;
 
@@ -489,10 +490,10 @@ export function freezeAndSeizeSubstandard(config: {
         throw new Error(`Token policy ${tokenPolicyId} does not match this FES instance`);
       }
 
-      // 1. Find UTxO to burn
+      // 1. Find UTxO to burn at the holder's PLB address
       const plbHash = ctx.standardScripts.programmableLogicBase.hash;
-      const senderPlbAddr = baseAddress(networkId, plbHash, feePayerAddress);
-      const allUtxos = await client.getUtxos(EvoAddress.fromBech32(senderPlbAddr));
+      const holderPlbAddr = baseAddress(networkId, plbHash, holder);
+      const allUtxos = await client.getUtxos(EvoAddress.fromBech32(holderPlbAddr));
       const utxoToBurn = allUtxos.find(u =>
         utxoTxHash(u) === targetTxHash && utxoOutputIndex(u) === targetIdx
       );
@@ -824,7 +825,7 @@ export function freezeAndSeizeSubstandard(config: {
       // Output 1: new blacklist node
       tx = tx.payToAddress({
         address: EvoAddress.fromBech32(blacklistSpendAddr),
-        assets: outputAssets(1_300_000n, new Map([[nftUnit, 1n]])),
+        assets: outputAssets(2_000_000n, new Map([[nftUnit, 1n]])),
         datum: new InlineDatum.InlineDatum({ data: newNodeDatum }),
       });
 
@@ -914,12 +915,19 @@ export function freezeAndSeizeSubstandard(config: {
       const plbHash = ctx.standardScripts.programmableLogicBase.hash;
       let utxoToSeize: EvoUTxO.UTxO | undefined;
 
-      const searchAddresses = [
+      // Search the holder's PLB address first, then fall back to feePayer and destination
+      const searchAddresses: string[] = [];
+      if (params.holderAddress) {
+        searchAddresses.push(baseAddress(networkId, plbHash, params.holderAddress));
+      }
+      searchAddresses.push(
         baseAddress(networkId, plbHash, feePayerAddress),
         baseAddress(networkId, plbHash, destinationAddress),
-      ];
+      );
+      // Deduplicate
+      const uniqueAddresses = [...new Set(searchAddresses)];
 
-      for (const addr of searchAddresses) {
+      for (const addr of uniqueAddresses) {
         const utxos = await client.getUtxos(EvoAddress.fromBech32(addr));
         utxoToSeize = utxos.find(u =>
           utxoTxHash(u) === targetTxHash && utxoOutputIndex(u) === targetIdx

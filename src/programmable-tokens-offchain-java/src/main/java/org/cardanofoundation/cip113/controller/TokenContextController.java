@@ -40,6 +40,8 @@ public class TokenContextController {
         var assetName = entry.getAssetName();
         String blacklistNodePolicyId = null;
         String issuerAdminPkh = null;
+        String blacklistInitTxHash = null;
+        Integer blacklistInitOutputIndex = null;
 
         if ("freeze-and-seize".equals(substandardId)) {
             var tokenRegistration = freezeAndSeizeTokenRegistrationRepository
@@ -51,6 +53,8 @@ public class TokenContextController {
                 var blacklistInit = fesReg.getBlacklistInit();
                 if (blacklistInit != null) {
                     blacklistNodePolicyId = blacklistInit.getBlacklistNodePolicyId();
+                    blacklistInitTxHash = blacklistInit.getTxHash();
+                    blacklistInitOutputIndex = blacklistInit.getOutputIndex();
                 }
             }
         }
@@ -60,7 +64,9 @@ public class TokenContextController {
                 substandardId,
                 assetName,
                 blacklistNodePolicyId,
-                issuerAdminPkh
+                issuerAdminPkh,
+                blacklistInitTxHash,
+                blacklistInitOutputIndex
         ));
     }
 

@@ -134,6 +134,7 @@ export function BurnSection({ adminTokens, feePayerAddress }: BurnSectionProps) 
           assetName: selectedToken.assetName,
           utxoTxHash: utxo.txHash,
           utxoOutputIndex: utxo.outputIndex,
+          holderAddress: targetAddress,
           substandardId,
         });
         unsignedTx = result.cbor;

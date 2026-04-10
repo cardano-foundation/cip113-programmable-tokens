@@ -33,6 +33,7 @@ export function SeizeSection({ tokens, adminAddress }: SeizeSectionProps) {
 
   const [selectedToken, setSelectedToken] = useState<AdminTokenInfo | null>(null);
   const [targetUtxo, setTargetUtxo] = useState("");
+  const [holderAddress, setHolderAddress] = useState("");
   const [recipientAddress, setRecipientAddress] = useState(adminAddress);
   const [step, setStep] = useState<SeizeStep>("form");
   const [isBuilding, setIsBuilding] = useState(false);
@@ -42,6 +43,7 @@ export function SeizeSection({ tokens, adminAddress }: SeizeSectionProps) {
   const [errors, setErrors] = useState({
     token: "",
     targetUtxo: "",
+    holderAddress: "",
     recipientAddress: "",
   });
 
@@ -49,6 +51,7 @@ export function SeizeSection({ tokens, adminAddress }: SeizeSectionProps) {
     const newErrors = {
       token: "",
       targetUtxo: "",
+      holderAddress: "",
       recipientAddress: "",
     };
 
@@ -60,6 +63,12 @@ export function SeizeSection({ tokens, adminAddress }: SeizeSectionProps) {
       newErrors.targetUtxo = "Target UTxO is required";
     } else if (!targetUtxo.includes("#")) {
       newErrors.targetUtxo = "Invalid UTxO format. Use: txHash#index";
+    }
+
+    if (!holderAddress.trim()) {
+      newErrors.holderAddress = "Holder address is required";
+    } else if (!holderAddress.startsWith("addr")) {
+      newErrors.holderAddress = "Invalid Cardano address format";
     }
 
     if (!recipientAddress.trim()) {
@@ -102,6 +111,7 @@ export function SeizeSection({ tokens, adminAddress }: SeizeSectionProps) {
           utxoTxHash: txHashPart,
           utxoOutputIndex: outputIndex,
           destinationAddress: recipientAddress.trim(),
+          holderAddress: holderAddress.trim(),
         });
         unsignedCborTx = result.cbor;
       } else {
@@ -163,7 +173,7 @@ export function SeizeSection({ tokens, adminAddress }: SeizeSectionProps) {
     setTargetUtxo("");
     setRecipientAddress(adminAddress);
     setTxHash(null);
-    setErrors({ token: "", targetUtxo: "", recipientAddress: "" });
+    setErrors({ token: "", targetUtxo: "", holderAddress: "", recipientAddress: "" });
   };
 
   if (seizableTokens.length === 0) {
@@ -277,6 +287,20 @@ export function SeizeSection({ tokens, adminAddress }: SeizeSectionProps) {
         disabled={isBuilding || !selectedToken}
         error={errors.targetUtxo}
         helperText="The UTxO containing tokens to seize (format: txHash#index)"
+      />
+
+      {/* Holder Address */}
+      <Input
+        label="Holder Address"
+        value={holderAddress}
+        onChange={(e) => {
+          setHolderAddress(e.target.value);
+          setErrors((prev) => ({ ...prev, holderAddress: "" }));
+        }}
+        placeholder="addr1..."
+        disabled={isBuilding || !selectedToken}
+        error={errors.holderAddress}
+        helperText="The address of the token holder whose tokens are being seized"
       />
 
       {/* Recipient Address */}

@@ -5,5 +5,7 @@ public record TokenContextResponse(
         String substandardId,
         String assetName,
         String blacklistNodePolicyId,
-        String issuerAdminPkh
+        String issuerAdminPkh,
+        String blacklistInitTxHash,
+        Integer blacklistInitOutputIndex
 ) {}

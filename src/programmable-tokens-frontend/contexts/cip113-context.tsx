@@ -263,7 +263,10 @@ export function CIP113Provider({ children }: { children: ReactNode }) {
           adminPkh: tokenCtx.issuerAdminPkh || "",
           assetName: tokenCtx.assetName || assetName,
           blacklistNodePolicyId: tokenCtx.blacklistNodePolicyId || "",
-          blacklistInitTxInput: { txHash: "", outputIndex: 0 },
+          blacklistInitTxInput: {
+            txHash: tokenCtx.blacklistInitTxHash || "",
+            outputIndex: tokenCtx.blacklistInitOutputIndex ?? 0,
+          },
         },
       });
 
