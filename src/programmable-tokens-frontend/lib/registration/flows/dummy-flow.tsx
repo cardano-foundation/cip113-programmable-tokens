@@ -4,7 +4,8 @@
  */
 
 import { registerFlow, isFlowEnabled } from '../flow-registry';
-import type { RegistrationFlow, WizardState, DummyRegistrationData } from '@/types/registration';
+import type { RegistrationFlow, WizardState, DummyRegistrationData, TokenRegistrationCallbackData } from '@/types/registration';
+import { stringToHex } from '@/lib/api';
 import { TokenDetailsStep } from '@/components/register/steps/token-details-step';
 import { PreRegistrationStep } from '@/components/register/steps/pre-registration-step';
 import { SuccessStep } from '@/components/register/steps/success-step';
@@ -83,6 +84,18 @@ const dummyFlow: RegistrationFlow = {
     },
   ],
   getInitialData: () => ({}),
+  getRegistrationCallbackData: (state: WizardState): TokenRegistrationCallbackData | null => {
+    const tokenDetails = state.stepStates['token-details']?.data as { assetName?: string } | undefined;
+    const buildResult = state.stepStates['build-preview']?.result?.data as { policyId?: string } | undefined;
+    const signResult = state.stepStates['sign-submit']?.result?.data as { policyId?: string } | undefined;
+    const policyId = signResult?.policyId || buildResult?.policyId;
+    if (!policyId) return null;
+    return {
+      policyId,
+      substandardId: 'dummy',
+      assetName: stringToHex(tokenDetails?.assetName || ''),
+    };
+  },
   buildRegistrationRequest: (state: WizardState): DummyRegistrationData => {
     const tokenDetails = state.stepStates['token-details']?.data as {
       assetName?: string;

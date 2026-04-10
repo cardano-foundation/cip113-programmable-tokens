@@ -34,6 +34,8 @@ interface CombinedResult {
   initTxHash: string;
   tokenPolicyId: string;
   regTxHash: string;
+  adminPkh?: string;
+  blacklistInitTxInput?: { txHash: string; outputIndex: number };
 }
 
 const TX_POLL_INTERVAL = 10000; // 10 seconds
@@ -50,7 +52,7 @@ export function CombinedBuildSignSubmitStep({
   const { connected, wallet, rawApi } = useWallet();
   const { toast: showToast } = useToast();
   const { selectedVersion } = useProtocolVersion();
-  const { buildFESRegistration, registerTokenCallback, available: sdkAvailable } = useCIP113();
+  const { buildFESRegistration, available: sdkAvailable } = useCIP113();
   const [useSDK, setUseSDK] = useState(sdkAvailable);
 
   const [status, setStatus] = useState<CombinedStatus>('idle');
@@ -64,6 +66,9 @@ export function CombinedBuildSignSubmitStep({
   const [tokenPolicyId, setTokenPolicyId] = useState('');
   const [initTxHash, setInitTxHash] = useState('');
   const [regTxHash, setRegTxHash] = useState('');
+  // SDK-specific: admin PKH and bootstrap UTxO ref for blacklist init persistence
+  const [adminPkh, setAdminPkh] = useState('');
+  const [blacklistInitTxInput, setBlacklistInitTxInput] = useState<{ txHash: string; outputIndex: number } | undefined>();
   // Derived from unsigned CBOR at build time (for preview display)
   const [derivedInitTxHash, setDerivedInitTxHash] = useState('');
   const [derivedRegTxHash, setDerivedRegTxHash] = useState('');
@@ -144,6 +149,8 @@ export function CombinedBuildSignSubmitStep({
         });
 
         setBlacklistNodePolicyId(sdkResult.blacklistNodePolicyId);
+        setAdminPkh(sdkResult.adminPkh);
+        setBlacklistInitTxInput(sdkResult.blacklistInitTxInput);
         setInitUnsignedCbor(sdkResult.initCbor);
         setDerivedInitTxHash(await resolveTxHash(sdkResult.initCbor));
 
@@ -311,25 +318,8 @@ export function CombinedBuildSignSubmitStep({
         variant: 'success',
       });
 
-      // Register token in backend DB (callback for SDK-built registrations)
-      if (useSDK && tokenPolicyId) {
-        try {
-          const addresses = await wallet.getUsedAddresses();
-          const adminAddr = addresses?.[0] ?? '';
-          await registerTokenCallback({
-            policyId: tokenPolicyId,
-            substandardId: 'freeze-and-seize',
-            assetName: stringToHex(tokenDetails.assetName || ''),
-            issuerAdminPkh: adminAddr ? getPaymentKeyHash(adminAddr) : '',
-            blacklistNodePolicyId,
-          });
-          console.log('[CIP-113] Token registered in backend DB');
-        } catch (e) {
-          console.warn('[CIP-113] Failed to register token in backend DB:', e);
-        }
-      }
-
       // Complete the wizard step
+      // (backend DB registration is handled centrally by WizardStepContainer)
       onComplete({
         stepId: 'combined-build-sign',
         data: {
@@ -337,6 +327,8 @@ export function CombinedBuildSignSubmitStep({
           initTxHash: hash1,
           tokenPolicyId,
           regTxHash: hash2,
+          adminPkh: adminPkh || undefined,
+          blacklistInitTxInput,
         },
         txHash: hash2,
         completedAt: Date.now(),

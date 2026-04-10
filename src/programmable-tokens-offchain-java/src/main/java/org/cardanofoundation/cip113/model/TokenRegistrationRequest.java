@@ -14,5 +14,11 @@ public record TokenRegistrationRequest(
         /** Issuer admin PKH (FES only, nullable) */
         String issuerAdminPkh,
         /** Blacklist node policy ID (FES only, nullable) */
-        String blacklistNodePolicyId
+        String blacklistNodePolicyId,
+        /** Blacklist admin PKH — for blacklist init insertion (FES only, nullable) */
+        String blacklistAdminPkh,
+        /** Bootstrap UTxO tx hash consumed by blacklist one-shot mint (FES only, nullable) */
+        String blacklistInitTxHash,
+        /** Bootstrap UTxO output index (FES only, nullable) */
+        Integer blacklistInitOutputIndex
 ) {}

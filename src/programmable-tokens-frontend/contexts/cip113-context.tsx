@@ -42,6 +42,7 @@ import {
   getSubstandardBlueprint,
   getTokenContext,
 } from "@/lib/api/protocol";
+import { apiGet, apiPost } from "@/lib/api/client";
 import type { ProtocolBootstrapParams } from "@/types/protocol";
 
 // ---------------------------------------------------------------------------
@@ -57,6 +58,9 @@ interface CIP113ContextValue {
     assetName: string;
     issuerAdminPkh?: string;
     blacklistNodePolicyId?: string;
+    blacklistAdminPkh?: string;
+    blacklistInitTxHash?: string;
+    blacklistInitOutputIndex?: number;
   }): Promise<void>;
   buildFESRegistration(params: {
     adminAddress: string;
@@ -273,14 +277,11 @@ export function CIP113Provider({ children }: { children: ReactNode }) {
     assetName: string;
     issuerAdminPkh?: string;
     blacklistNodePolicyId?: string;
+    blacklistAdminPkh?: string;
+    blacklistInitTxHash?: string;
+    blacklistInitOutputIndex?: number;
   }) => {
-    const baseUrl = process.env.NEXT_PUBLIC_API_URL || "";
-    const apiPrefix = process.env.NEXT_PUBLIC_API_PREFIX || "/api/v1";
-    await fetch(`${baseUrl}${apiPrefix}/token-context/register`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(params),
-    });
+    await apiPost("/token-context/register", params);
     console.log(`[CIP-113] Token ${params.policyId} registered in backend DB`);
   }, []);
 
@@ -351,9 +352,6 @@ export function CIP113Provider({ children }: { children: ReactNode }) {
       },
     });
 
-    const baseUrl = process.env.NEXT_PUBLIC_API_URL || "";
-    const apiPrefix = process.env.NEXT_PUBLIC_API_PREFIX || "/api/v1";
-
     fes.init({
       client,
       standardScripts: protocol.scripts,
@@ -361,11 +359,9 @@ export function CIP113Provider({ children }: { children: ReactNode }) {
       network: network,
       checkStakeRegistration: async (stakeAddress: string) => {
         try {
-          const res = await fetch(
-            `${baseUrl}${apiPrefix}/script-registration/check?stakeAddress=${encodeURIComponent(stakeAddress)}`
+          const data = await apiGet<{ isRegistered: boolean }>(
+            `/script-registration/check?stakeAddress=${encodeURIComponent(stakeAddress)}`
           );
-          if (!res.ok) return false;
-          const data = await res.json();
           return data.isRegistered === true;
         } catch {
           return false;
@@ -411,6 +407,8 @@ export function CIP113Provider({ children }: { children: ReactNode }) {
         regCbor: regResult.cbor,
         blacklistNodePolicyId,
         tokenPolicyId,
+        adminPkh,
+        blacklistInitTxInput,
       };
     } catch (regError) {
       console.error("[CIP-113] Registration build FAILED:", regError);

@@ -2,6 +2,7 @@ package org.cardanofoundation.cip113.controller;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.cardanofoundation.cip113.entity.BlacklistInitEntity;
 import org.cardanofoundation.cip113.entity.FreezeAndSeizeTokenRegistrationEntity;
 import org.cardanofoundation.cip113.entity.ProgrammableTokenRegistryEntity;
 import org.cardanofoundation.cip113.model.TokenContextResponse;
@@ -85,21 +86,34 @@ public class TokenContextController {
                 .assetName(request.assetName() != null ? request.assetName() : "")
                 .build());
 
-        // 2. For FES: save substandard-specific registration data
-        if ("freeze-and-seize".equals(request.substandardId())) {
-            if (request.blacklistNodePolicyId() != null) {
-                var blacklistInitOpt = blacklistInitRepository
-                        .findByBlacklistNodePolicyId(request.blacklistNodePolicyId());
+        // 2. For FES: insert blacklist init (if not already present), then token registration
+        if ("freeze-and-seize".equals(request.substandardId()) && request.blacklistNodePolicyId() != null) {
+            // 2a. Insert blacklist init row if it doesn't exist yet (SDK-built registrations)
+            var blacklistInitOpt = blacklistInitRepository
+                    .findByBlacklistNodePolicyId(request.blacklistNodePolicyId());
 
-                if (blacklistInitOpt.isPresent()) {
-                    freezeAndSeizeTokenRegistrationRepository.save(FreezeAndSeizeTokenRegistrationEntity.builder()
-                            .programmableTokenPolicyId(request.policyId())
-                            .issuerAdminPkh(request.issuerAdminPkh() != null ? request.issuerAdminPkh() : "")
-                            .blacklistInit(blacklistInitOpt.get())
-                            .build());
-                } else {
-                    log.warn("BlacklistInit not found for blacklistNodePolicyId: {}", request.blacklistNodePolicyId());
-                }
+            if (blacklistInitOpt.isEmpty() && request.blacklistInitTxHash() != null) {
+                log.info("Inserting blacklist init for policyId={}, bootstrapUtxo={}#{}",
+                        request.blacklistNodePolicyId(), request.blacklistInitTxHash(), request.blacklistInitOutputIndex());
+                var newBlacklistInit = BlacklistInitEntity.builder()
+                        .blacklistNodePolicyId(request.blacklistNodePolicyId())
+                        .adminPkh(request.blacklistAdminPkh() != null ? request.blacklistAdminPkh() : "")
+                        .txHash(request.blacklistInitTxHash())
+                        .outputIndex(request.blacklistInitOutputIndex() != null ? request.blacklistInitOutputIndex() : 0)
+                        .build();
+                blacklistInitRepository.save(newBlacklistInit);
+                blacklistInitOpt = java.util.Optional.of(newBlacklistInit);
+            }
+
+            // 2b. Insert FES token registration (FK to blacklist init)
+            if (blacklistInitOpt.isPresent()) {
+                freezeAndSeizeTokenRegistrationRepository.save(FreezeAndSeizeTokenRegistrationEntity.builder()
+                        .programmableTokenPolicyId(request.policyId())
+                        .issuerAdminPkh(request.issuerAdminPkh() != null ? request.issuerAdminPkh() : "")
+                        .blacklistInit(blacklistInitOpt.get())
+                        .build());
+            } else {
+                log.warn("BlacklistInit not found and no init data provided for blacklistNodePolicyId: {}", request.blacklistNodePolicyId());
             }
         }
 
