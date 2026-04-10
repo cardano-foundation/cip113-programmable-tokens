@@ -13,6 +13,7 @@ import { useTransactionHistory } from "@/hooks/use-transaction-history";
 import { getWalletBalance } from "@/lib/api";
 import { TransactionType } from "@/types/api";
 import { truncateAddress, formatDate, getExplorerTxUrl } from "@/lib/utils/format";
+import { decodeAssetNameDisplay } from "@/lib/utils/cip68";
 
 // Force dynamic rendering and disable prerendering for WASM compatibility
 export const dynamic = 'force-dynamic';
@@ -329,8 +330,12 @@ function BalanceDiffDisplay({ balanceDiff }: { balanceDiff: Record<string, strin
         const isPositive = amount.startsWith('+');
         const isNegative = amount.startsWith('-');
 
-        // Decode asset name for display
-        const displayUnit = unit === 'lovelace' ? 'ADA' : unit;
+        // Decode asset name for display (strip CIP-67 prefix if present)
+        let displayUnit = 'ADA';
+        if (unit !== 'lovelace') {
+          const assetNameHex = unit.length > 56 ? unit.substring(56) : unit;
+          displayUnit = decodeAssetNameDisplay(assetNameHex) || truncateAddress(unit);
+        }
 
         return (
           <div
@@ -343,7 +348,7 @@ function BalanceDiffDisplay({ balanceDiff }: { balanceDiff: Record<string, strin
                 : 'text-dark-300'
             }`}
           >
-            {amount} {displayUnit === 'ADA' ? 'ADA' : truncateAddress(displayUnit)}
+            {amount} {displayUnit}
           </div>
         );
       })}

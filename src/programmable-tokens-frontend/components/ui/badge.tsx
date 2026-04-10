@@ -1,12 +1,12 @@
 import { HTMLAttributes, forwardRef } from "react";
 import { cn } from "@/lib/utils";
 
-export interface BadgeProps extends HTMLAttributes<HTMLDivElement> {
+export interface BadgeProps extends HTMLAttributes<HTMLSpanElement> {
   variant?: "default" | "success" | "error" | "warning" | "info";
   size?: "sm" | "md";
 }
 
-const Badge = forwardRef<HTMLDivElement, BadgeProps>(
+const Badge = forwardRef<HTMLSpanElement, BadgeProps>(
   ({ className, variant = "default", size = "md", ...props }, ref) => {
     const variants = {
       default: "bg-dark-700 text-dark-200 border-dark-600",
@@ -22,7 +22,7 @@ const Badge = forwardRef<HTMLDivElement, BadgeProps>(
     };
 
     return (
-      <div
+      <span
         ref={ref}
         className={cn(
           "inline-flex items-center gap-1 rounded-full border font-medium",

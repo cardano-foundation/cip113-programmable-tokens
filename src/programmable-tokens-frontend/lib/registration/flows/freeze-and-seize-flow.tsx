@@ -80,12 +80,14 @@ const freezeAndSeizeFlow: RegistrationFlow = {
       blacklistNodePolicyId?: string;
       adminPkh?: string;
       blacklistInitTxInput?: { txHash: string; outputIndex: number };
+      userAssetNameHex?: string;
     } | undefined;
     if (!combinedResult?.tokenPolicyId) return null;
     return {
       policyId: combinedResult.tokenPolicyId,
       substandardId: 'freeze-and-seize',
-      assetName: stringToHex(tokenDetails?.assetName || ''),
+      // Use CIP-67-labeled hex when available (CIP-68 tokens), otherwise plain hex
+      assetName: combinedResult.userAssetNameHex || stringToHex(tokenDetails?.assetName || ''),
       blacklistNodePolicyId: combinedResult.blacklistNodePolicyId,
       // issuerAdminPkh is added by WizardStepContainer from the connected wallet
       blacklistAdminPkh: combinedResult.adminPkh,

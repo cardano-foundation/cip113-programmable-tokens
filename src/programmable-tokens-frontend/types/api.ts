@@ -175,11 +175,13 @@ export interface ParsedBalance {
 export interface ParsedAsset {
   unit: string;           // Full unit (policyId + assetName hex)
   policyId: string;       // Policy ID (56 chars)
-  assetNameHex: string;   // Asset name in hex
-  assetName: string;      // Decoded asset name (UTF-8, or hex if decode fails)
+  assetNameHex: string;   // Asset name in hex (may include CIP-67 label prefix)
+  assetName: string;      // Decoded asset name (CIP-67 prefix stripped, UTF-8 decoded)
   amount: string;         // Amount as string
   isProgrammable: boolean; // Whether this is a registered programmable token
   isBlacklisted?: boolean; // Whether this token is frozen/blacklisted for the user
+  isCIP68?: boolean;      // Whether this asset has a CIP-67 label (CIP-68 token)
+  cip68Label?: number;    // CIP-67 label number (333=FT, 100=Reference, 222=NFT)
 }
 
 // ============================================================================

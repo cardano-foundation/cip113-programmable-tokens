@@ -36,6 +36,8 @@ interface CombinedResult {
   regTxHash: string;
   adminPkh?: string;
   blacklistInitTxInput?: { txHash: string; outputIndex: number };
+  /** CIP-67-labeled asset name hex (e.g., 0014df10 + name) when CIP-68 enabled */
+  userAssetNameHex?: string;
 }
 
 const TX_POLL_INTERVAL = 10000; // 10 seconds
@@ -66,9 +68,10 @@ export function CombinedBuildSignSubmitStep({
   const [tokenPolicyId, setTokenPolicyId] = useState('');
   const [initTxHash, setInitTxHash] = useState('');
   const [regTxHash, setRegTxHash] = useState('');
-  // SDK-specific: admin PKH and bootstrap UTxO ref for blacklist init persistence
+  // SDK-specific: admin PKH, bootstrap UTxO ref, and CIP-67-labeled asset name
   const [adminPkh, setAdminPkh] = useState('');
   const [blacklistInitTxInput, setBlacklistInitTxInput] = useState<{ txHash: string; outputIndex: number } | undefined>();
+  const [userAssetNameHex, setUserAssetNameHex] = useState<string | undefined>();
   // Derived from unsigned CBOR at build time (for preview display)
   const [derivedInitTxHash, setDerivedInitTxHash] = useState('');
   const [derivedRegTxHash, setDerivedRegTxHash] = useState('');
@@ -151,6 +154,7 @@ export function CombinedBuildSignSubmitStep({
         setBlacklistNodePolicyId(sdkResult.blacklistNodePolicyId);
         setAdminPkh(sdkResult.adminPkh);
         setBlacklistInitTxInput(sdkResult.blacklistInitTxInput);
+        setUserAssetNameHex(sdkResult.userAssetNameHex);
         setInitUnsignedCbor(sdkResult.initCbor);
         setDerivedInitTxHash(await resolveTxHash(sdkResult.initCbor));
 
@@ -329,6 +333,7 @@ export function CombinedBuildSignSubmitStep({
           regTxHash: hash2,
           adminPkh: adminPkh || undefined,
           blacklistInitTxInput,
+          userAssetNameHex,
         },
         txHash: hash2,
         completedAt: Date.now(),

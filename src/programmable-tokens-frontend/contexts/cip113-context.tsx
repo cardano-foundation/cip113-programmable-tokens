@@ -409,6 +409,7 @@ export function CIP113Provider({ children }: { children: ReactNode }) {
         tokenPolicyId,
         adminPkh,
         blacklistInitTxInput,
+        userAssetNameHex: (regResult.metadata as any)?.userAssetNameHex as string | undefined,
       };
     } catch (regError) {
       console.error("[CIP-113] Registration build FAILED:", regError);

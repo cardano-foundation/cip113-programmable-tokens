@@ -5,6 +5,7 @@ import { useWallet } from "@/hooks/use-wallet";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { TokenName } from "@/components/ui/token-name";
 import { Copy, LogOut, Wallet, Coins, RefreshCw, Send, Snowflake } from "lucide-react";
 import { truncateAddress, formatADAWithSymbol, getNetworkDisplayName } from "@/lib/utils";
 import { useToast } from "@/components/ui/toast";
@@ -275,7 +276,7 @@ export function WalletInfo() {
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-2 mb-1">
                                 <p className="text-sm font-medium text-white truncate">
-                                  {asset.assetName || asset.assetNameHex}
+                                  <TokenName assetNameHex={asset.assetNameHex} assetName={asset.assetName} />
                                 </p>
                                 {asset.isProgrammable && (
                                   <Badge variant="success" size="sm">Programmable</Badge>
@@ -305,7 +306,7 @@ export function WalletInfo() {
                                 <button
                                   onClick={() => handleOpenTransferModal(asset)}
                                   className="p-1.5 hover:bg-dark-700 rounded transition-colors"
-                                  title={`Transfer ${asset.assetName}`}
+                                  title={`Transfer ${asset.assetName || asset.assetNameHex}`}
                                 >
                                   <Send className="h-4 w-4 text-primary-400 hover:text-primary-300" />
                                 </button>

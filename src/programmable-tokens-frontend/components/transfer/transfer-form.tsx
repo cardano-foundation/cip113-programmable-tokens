@@ -5,6 +5,7 @@ import { useWallet } from "@/hooks/use-wallet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { TokenName } from "@/components/ui/token-name";
 import {
   transferToken,
   getWalletBalance,
@@ -258,7 +259,7 @@ export function TransferForm({ onTransactionBuilt }: TransferFormProps) {
                   <Coins className="h-5 w-5 text-primary-500 flex-shrink-0" />
                   <div className="text-left flex-1 min-w-0">
                     <p className="text-sm font-medium truncate">
-                      {selectedAsset.assetName}
+                      <TokenName assetNameHex={selectedAsset.assetNameHex} assetName={selectedAsset.assetName} />
                     </p>
                     <p className="text-xs text-dark-400">
                       Balance: {selectedAsset.amount}
@@ -333,7 +334,7 @@ export function TransferForm({ onTransactionBuilt }: TransferFormProps) {
                       <div className="flex items-center justify-between gap-2">
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-medium text-white truncate">
-                            {asset.assetName}
+                            <TokenName assetNameHex={asset.assetNameHex} assetName={asset.assetName} />
                           </p>
                           <p
                             className="text-xs text-dark-400 truncate"
