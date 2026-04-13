@@ -14,7 +14,7 @@ import {
 // Uses Evolution SDK via our CIP-113 SDK
 // ---------------------------------------------------------------------------
 
-import { addressHexToBech32, assembleSignedTx } from "@easy1staking/cip113-sdk-ts";
+import { addressHexToBech32, assembleSignedTx, evoClient, preprodChain, previewChain, mainnetChain, EvoTransactionWitnessSet } from "@easy1staking/cip113-sdk-ts";
 import * as cbor from "cbor";
 
 // ---------------------------------------------------------------------------
@@ -150,58 +150,23 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         }
       },
       async signTxs(txs: string[], partialSign?: boolean) {
-        // Check multiple locations where wallets expose batch signing:
-        // 1. CIP-103 namespace: api.cip103.signTxs
-        // 2. Eternl experimental: api.experimental.signTxs
-        // 3. Direct: api.signTxs
-        const cip103 = (api as any).cip103;
-        const experimental = (api as any).experimental;
+        // Use Evolution SDK's native CIP-103 signTxs — it probes
+        // api.cip103.signTxs, api.experimental.signTxs, and falls back
+        // to sequential api.signTx automatically.
+        const network = process.env.NEXT_PUBLIC_NETWORK || "preprod";
+        const chain = network === "mainnet" ? mainnetChain
+          : network === "preview" ? previewChain
+          : preprodChain;
+        const evoSigner = evoClient(chain).withCip30(api as any);
 
-        if (cip103 && typeof cip103.signTxs === "function") {
-          console.log("[Wallet] Using CIP-103 signTxs (batch signing)");
-          const requests = txs.map(cbor => ({ cbor, partialSign: partialSign ?? false }));
-          const witnessSets = await cip103.signTxs(requests);
-          return txs.map((tx, i) => assembleSignedTx(tx, witnessSets[i]));
-        }
-        if (experimental && typeof experimental.signTxs === "function") {
-          console.log("[Wallet] Using experimental.signTxs (Eternl batch signing)");
-          try {
-            // Eternl experimental.signTxs expects: [{ cbor, partialSign }]
-            const requests = txs.map(cbor => ({ cbor, partialSign: partialSign ?? false }));
-            const witnessSets = await experimental.signTxs(requests);
-            console.log("[Wallet] experimental.signTxs returned:", typeof witnessSets, Array.isArray(witnessSets) ? `array[${witnessSets.length}]` : '');
-            if (Array.isArray(witnessSets) && witnessSets.length === txs.length) {
-              // Each element is a witness set hex string — assemble with unsigned tx
-              const assembled: string[] = [];
-              for (let i = 0; i < txs.length; i++) {
-                const ws = witnessSets[i];
-                console.log(`[Wallet] witness[${i}] type:`, typeof ws, ws === "" ? "(empty)" : `length:${ws?.length}`);
-                if (ws === "" || ws == null) {
-                  // Empty witness = tx doesn't need signing (shouldn't happen but handle it)
-                  assembled.push(txs[i]);
-                } else {
-                  assembled.push(assembleSignedTx(txs[i], ws));
-                }
-              }
-              return assembled;
-            }
-          } catch (e) {
-            console.warn("[Wallet] experimental.signTxs failed:", (e as Error)?.message);
-          }
-          // Fall through to sequential if experimental failed
-        }
-        if (typeof (api as any).signTxs === "function") {
-          console.log("[Wallet] Using direct signTxs");
-          const witnessSets = await (api as any).signTxs(txs, partialSign);
-          return txs.map((tx, i) => assembleSignedTx(tx, witnessSets[i]));
-        }
-        console.log("[Wallet] signTxs not available, falling back to sequential signTx");
-        // Fallback: sequential signing (each already assembled via our signTx wrapper above)
-        const signed: string[] = [];
-        for (const tx of txs) {
-          signed.push(await wrappedApi.signTx(tx, partialSign));
-        }
-        return signed;
+        console.log("[Wallet] Signing", txs.length, "txs via Evolution SDK CIP-103");
+        const witnessSets = await evoSigner.signTxs(txs);
+
+        // Assemble each: merge witness set into unsigned tx CBOR
+        return txs.map((txCbor, i) => {
+          const wsHex = EvoTransactionWitnessSet.toCBORHex(witnessSets[i]);
+          return assembleSignedTx(txCbor, wsHex);
+        });
       },
     };
 
