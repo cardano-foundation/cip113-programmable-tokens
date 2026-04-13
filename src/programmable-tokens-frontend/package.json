@@ -13,7 +13,7 @@
     "test:parameterization": "node test-parameterization.js"
   },
   "dependencies": {
-    "@easy1staking/cip113-sdk-ts": "file:../../../cip113-sdk-ts",
+    "@easy1staking/cip113-sdk-ts": "^0.3.1",
     "@hookform/resolvers": "^3.9.0",
     "@utxorpc/sdk": "^0.7.0",
     "@utxorpc/spec": "^0.18.1",
