@@ -2,48 +2,48 @@
   {
     "protocolParams": {
       "txInput": {
-        "txHash": "72286cb222fb335c8c3854f1d1de42fbe831e01048b759c3508e3825fdf8a4fa",
+        "txHash": "b3caeebb532da1710df96b93577a25292c9a8f96615974e808ce525f92dd378d",
         "outputIndex": 0
       },
-      "scriptHash": "d4230b10ba4c8a4350212f9e9af80084aa3b886ac33b683a722b6ea9",
+      "scriptHash": "871d83640d1067b16abfd1f7647a9740d78c2cec7dcac3a9ec8229a4",
       "alwaysFailScriptHash": "7df9369eb2ded40f5eac15bcb1ee0562d3dc53def0dab4ad26bae4e9"
     },
     "programmableLogicGlobalPrams": {
-      "protocolParamsScriptHash": "d4230b10ba4c8a4350212f9e9af80084aa3b886ac33b683a722b6ea9",
-      "scriptHash": "d0a12c8a72ecfa08457987ba294fada31eaac764a1772e9ee07ddcf7"
+      "protocolParamsScriptHash": "871d83640d1067b16abfd1f7647a9740d78c2cec7dcac3a9ec8229a4",
+      "scriptHash": "09250b65e7d7cca0bd23b8a24e9520b8df5d7693b56b9dc48fc307e3"
     },
     "programmableLogicBaseParams": {
-      "programmableLogicGlobalScriptHash": "d0a12c8a72ecfa08457987ba294fada31eaac764a1772e9ee07ddcf7",
-      "scriptHash": "c8b055ef3e2c0ba8b5c016e86fc59381f4397e375d250da9ea4758b9"
+      "programmableLogicGlobalScriptHash": "09250b65e7d7cca0bd23b8a24e9520b8df5d7693b56b9dc48fc307e3",
+      "scriptHash": "a48744c1584c58c2995cba1fa26b37f3999ee8cedac0ef241662f53d"
     },
     "issuanceParams": {
       "txInput": {
-        "txHash": "72286cb222fb335c8c3854f1d1de42fbe831e01048b759c3508e3825fdf8a4fa",
+        "txHash": "b3caeebb532da1710df96b93577a25292c9a8f96615974e808ce525f92dd378d",
         "outputIndex": 1
       },
-      "scriptHash": "203ac50ec29d7f7739781e42f02e0ec103f439677ec3be03cb9e7809",
+      "scriptHash": "1f5214929f644ec5c55c5bd25f73644089efd79bf223a2ceb26e7c85",
       "alwaysFailScriptHash": "5ff3439ab5b059889fbaf360195275d8471de9ad939e1bb6c3a7b74c"
     },
     "directoryMintParams": {
       "txInput": {
-        "txHash": "72286cb222fb335c8c3854f1d1de42fbe831e01048b759c3508e3825fdf8a4fa",
+        "txHash": "b3caeebb532da1710df96b93577a25292c9a8f96615974e808ce525f92dd378d",
         "outputIndex": 0
       },
-      "issuanceScriptHash": "203ac50ec29d7f7739781e42f02e0ec103f439677ec3be03cb9e7809",
-      "scriptHash": "b9b19dc682ed108590277bb5301132b8b2c357cfbdb9138c01af5d1d"
+      "issuanceScriptHash": "1f5214929f644ec5c55c5bd25f73644089efd79bf223a2ceb26e7c85",
+      "scriptHash": "31703c5b28d6d13f4e79a7bd8512ab76c17d50e68c7c3d79e120f61c"
     },
     "directorySpendParams": {
-      "protocolParamsPolicyId": "d4230b10ba4c8a4350212f9e9af80084aa3b886ac33b683a722b6ea9",
-      "scriptHash": "116a5de7080ea7428a04aac13fa7e1c4d55544c019386b1dd91bfdef"
+      "protocolParamsPolicyId": "871d83640d1067b16abfd1f7647a9740d78c2cec7dcac3a9ec8229a4",
+      "scriptHash": "d45fd8ca33f28e820542e6775937f428b63c3d4b47f00de408df584d"
     },
     "programmableBaseRefInput": {
-      "txHash": "d01ae47ef64aa13282296aabf9283da869ba70697438052cad8a630abf140517",
+      "txHash": "24c6c79c2c66a3a40bb1438d0bf2879fdf2423af1a57a490324388f2c96a27b9",
       "outputIndex": 3
     },
     "programmableGlobalRefInput": {
-      "txHash": "d01ae47ef64aa13282296aabf9283da869ba70697438052cad8a630abf140517",
+      "txHash": "24c6c79c2c66a3a40bb1438d0bf2879fdf2423af1a57a490324388f2c96a27b9",
       "outputIndex": 4
     },
-    "txHash": "d01ae47ef64aa13282296aabf9283da869ba70697438052cad8a630abf140517"
+    "txHash": "24c6c79c2c66a3a40bb1438d0bf2879fdf2423af1a57a490324388f2c96a27b9"
   }
 ]
