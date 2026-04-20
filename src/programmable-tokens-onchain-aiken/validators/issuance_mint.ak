@@ -71,29 +71,24 @@ validator issuance_mint(
           expect
             verify_registry_node(ref_input.output, registry_node_cs, own_policy)
 
-          // Can we delegate to PLGlobal?
-          let plb_spent =
+          or {
+            // Can we delegate to PLGlobal?
+            // PLGlobal is mint-aware — delegate all validation
+            // (handles both minting and burning accounting)
             list.any(
               self.inputs,
               fn(input) {
                 input.output.address.payment_credential == programmable_logic_base
               },
-            )
-
-          if plb_spent {
-            // PLGlobal is mint-aware — delegate all validation
-            // (handles both minting and burning accounting)
-            True
-          } else {
+            ),
             // No PLB spend → can only be pure minting
             // (burn requires spending PLB UTxOs → plb_spent would be True)
-            let minted = self.mint |> assets.tokens(own_policy)
             validate_mint_outputs(
               self.outputs,
               programmable_logic_base,
               own_policy,
-              minted,
-            )?
+              self.mint |> assets.tokens(own_policy),
+            )?,
           }
         }
       }
