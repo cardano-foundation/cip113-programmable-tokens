@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useWallet } from "@meshsdk/react";
+import { useWallet } from "@/hooks/use-wallet";
 import dynamicImport from "next/dynamic";
 import { PageContainer } from "@/components/layout";
 import { Card, CardContent } from "@/components/ui/card";

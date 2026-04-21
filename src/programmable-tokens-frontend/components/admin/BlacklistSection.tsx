@@ -1,13 +1,15 @@
 "use client";
 
 import { useState } from "react";
-import { useWallet } from "@meshsdk/react";
+import { useWallet } from "@/hooks/use-wallet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { TxBuilderToggle, type TransactionBuilder } from "@/components/ui/tx-builder-toggle";
 import { Shield, Plus, Minus, CheckCircle, ExternalLink } from "lucide-react";
 import { AdminTokenSelector } from "./AdminTokenSelector";
 import { AdminTokenInfo } from "@/lib/api/admin";
 import { useProtocolVersion } from "@/contexts/protocol-version-context";
+import { useCIP113 } from "@/contexts/cip113-context";
 import { useToast } from "@/components/ui/use-toast";
 import { getExplorerTxUrl } from "@/lib/utils";
 import { cn } from "@/lib/utils";
@@ -24,6 +26,8 @@ export function BlacklistSection({ tokens, adminAddress }: BlacklistSectionProps
   const { wallet } = useWallet();
   const { toast: showToast } = useToast();
   const { selectedVersion } = useProtocolVersion();
+  const { getProtocol, ensureSubstandard, available: sdkAvailable } = useCIP113();
+  const [txBuilder, setTxBuilder] = useState<TransactionBuilder>(sdkAvailable ? "sdk" : "backend");
   const network = process.env.NEXT_PUBLIC_NETWORK || "preview";
 
   // Filter tokens where user has BLACKLIST_MANAGER role
@@ -74,25 +78,41 @@ export function BlacklistSection({ tokens, adminAddress }: BlacklistSectionProps
     try {
       setIsBuilding(true);
 
-      // Import compliance API dynamically to avoid issues during Phase 2
-      const { addToBlacklist, removeFromBlacklist } = await import(
-        "@/lib/api/compliance"
-      );
-
-      const request = {
-        tokenPolicyId: selectedToken.policyId,
-        assetName: selectedToken.assetName,
-        targetAddress: targetAddress.trim(),
-        feePayerAddress: adminAddress,
-      };
-
       let unsignedCborTx: string;
-      if (action === "add") {
-        const response = await addToBlacklist(request, selectedVersion?.txHash);
-        unsignedCborTx = response.unsignedCborTx;
+
+      if (txBuilder === "sdk") {
+        await ensureSubstandard(selectedToken.policyId, selectedToken.assetName);
+        const protocol = await getProtocol();
+        const params = {
+          feePayerAddress: adminAddress,
+          tokenPolicyId: selectedToken.policyId,
+          assetName: selectedToken.assetName,
+          targetAddress: targetAddress.trim(),
+        };
+        if (action === "add") {
+          const result = await protocol.compliance.freeze(params);
+          unsignedCborTx = result.cbor;
+        } else {
+          const result = await protocol.compliance.unfreeze(params);
+          unsignedCborTx = result.cbor;
+        }
       } else {
-        const response = await removeFromBlacklist(request, selectedVersion?.txHash);
-        unsignedCborTx = response.unsignedCborTx;
+        const { addToBlacklist, removeFromBlacklist } = await import(
+          "@/lib/api/compliance"
+        );
+        const request = {
+          tokenPolicyId: selectedToken.policyId,
+          assetName: selectedToken.assetName,
+          targetAddress: targetAddress.trim(),
+          feePayerAddress: adminAddress,
+        };
+        if (action === "add") {
+          const response = await addToBlacklist(request, selectedVersion?.txHash);
+          unsignedCborTx = response.unsignedCborTx;
+        } else {
+          const response = await removeFromBlacklist(request, selectedVersion?.txHash);
+          unsignedCborTx = response.unsignedCborTx;
+        }
       }
 
       setIsBuilding(false);
@@ -211,6 +231,8 @@ export function BlacklistSection({ tokens, adminAddress }: BlacklistSectionProps
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
+      <TxBuilderToggle value={txBuilder} onChange={setTxBuilder} sdkAvailable={sdkAvailable} />
+
       {/* Token Selector */}
       <div>
         <AdminTokenSelector

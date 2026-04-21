@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from 'react';
-import { useWallet } from '@meshsdk/react';
+import { useWallet } from '@/hooks/use-wallet';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import type { StepComponentProps, TokenDetailsData } from '@/types/registration';
@@ -19,11 +19,18 @@ export function TokenDetailsStep({
   const [assetName, setAssetName] = useState(stepData.assetName || '');
   const [quantity, setQuantity] = useState(stepData.quantity || '');
   const [recipientAddress, setRecipientAddress] = useState(stepData.recipientAddress || '');
-  const [errors, setErrors] = useState({
-    assetName: '',
-    quantity: '',
-    recipientAddress: '',
-  });
+
+  // CIP-68 metadata state
+  const [cip68Enabled, setCip68Enabled] = useState(stepData.cip68Metadata?.enabled || false);
+  const [cip68Name, setCip68Name] = useState(stepData.cip68Metadata?.name || '');
+  const [cip68Description, setCip68Description] = useState(stepData.cip68Metadata?.description || '');
+  const [cip68Ticker, setCip68Ticker] = useState(stepData.cip68Metadata?.ticker || '');
+  const [cip68Decimals, setCip68Decimals] = useState(stepData.cip68Metadata?.decimals || '0');
+  const [cip68Url, setCip68Url] = useState(stepData.cip68Metadata?.url || '');
+  const [cip68Logo, setCip68Logo] = useState(stepData.cip68Metadata?.logo || '');
+  const [cip68NameEdited, setCip68NameEdited] = useState(false);
+
+  const [errors, setErrors] = useState<Record<string, string>>({});
 
   // Auto-fill recipient with wallet address if empty
   useEffect(() => {
@@ -43,12 +50,15 @@ export function TokenDetailsStep({
     fillWalletAddress();
   }, [connected, wallet, recipientAddress, onDataChange]);
 
+  // Sync CIP-68 name with assetName when not manually edited
+  useEffect(() => {
+    if (cip68Enabled && !cip68NameEdited) {
+      setCip68Name(assetName);
+    }
+  }, [assetName, cip68Enabled, cip68NameEdited]);
+
   const validateForm = (): boolean => {
-    const newErrors = {
-      assetName: '',
-      quantity: '',
-      recipientAddress: '',
-    };
+    const newErrors: Record<string, string> = {};
 
     if (!assetName.trim()) {
       newErrors.assetName = 'Token name is required';
@@ -68,8 +78,20 @@ export function TokenDetailsStep({
       newErrors.recipientAddress = 'Invalid Cardano address format';
     }
 
+    if (cip68Enabled) {
+      if (!cip68Name.trim()) {
+        newErrors.cip68Name = 'Display name is required for CIP-68 metadata';
+      }
+      if (cip68Decimals) {
+        const dec = parseInt(cip68Decimals);
+        if (isNaN(dec) || dec < 0 || dec > 19) {
+          newErrors.cip68Decimals = 'Decimals must be 0-19';
+        }
+      }
+    }
+
     setErrors(newErrors);
-    return !Object.values(newErrors).some((error) => error !== '');
+    return Object.keys(newErrors).length === 0;
   };
 
   const handleChange = (field: keyof TokenDetailsData, value: string) => {
@@ -86,20 +108,41 @@ export function TokenDetailsStep({
     }
     onDataChange({ [field]: value });
 
-    // Clear error when user starts typing
     if (errors[field]) {
       setErrors((prev) => ({ ...prev, [field]: '' }));
+    }
+  };
+
+  const buildCip68Data = () => cip68Enabled ? {
+    enabled: true,
+    name: cip68Name.trim(),
+    description: cip68Description.trim(),
+    ticker: cip68Ticker.trim(),
+    decimals: cip68Decimals.trim(),
+    url: cip68Url.trim(),
+    logo: cip68Logo.trim(),
+  } : undefined;
+
+  const handleCip68Toggle = (enabled: boolean) => {
+    setCip68Enabled(enabled);
+    if (enabled && !cip68NameEdited) {
+      setCip68Name(assetName);
     }
   };
 
   const handleContinue = () => {
     if (!validateForm()) return;
 
+    const cip68Metadata = buildCip68Data();
     const data: TokenDetailsData = {
       assetName: assetName.trim(),
       quantity: quantity.trim(),
       recipientAddress: recipientAddress.trim() || undefined,
+      cip68Metadata,
     };
+
+    // Ensure step data includes CIP-68 metadata before completing
+    onDataChange({ cip68Metadata });
 
     onComplete({
       stepId: 'token-details',
@@ -149,6 +192,89 @@ export function TokenDetailsStep({
           helperText="Address to receive initial tokens (defaults to your wallet)"
         />
       </div>
+
+      {/* CIP-68 Metadata Section */}
+      <div className="border-t border-dark-700 pt-4">
+        <label className="flex items-center gap-3 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={cip68Enabled}
+            onChange={(e) => handleCip68Toggle(e.target.checked)}
+            disabled={isProcessing}
+            className="w-4 h-4 rounded border-dark-600 bg-dark-800 text-primary-500 focus:ring-primary-500"
+          />
+          <div>
+            <span className="text-sm font-medium text-white">Enable CIP-68 Metadata</span>
+            <p className="text-xs text-dark-400">
+              Attach on-chain metadata (name, ticker, decimals, etc.) via a CIP-68 reference token
+            </p>
+          </div>
+        </label>
+      </div>
+
+      {cip68Enabled && (
+        <div className="space-y-4 p-4 bg-dark-800/50 rounded-lg border border-dark-700">
+          <Input
+            label="Display Name"
+            value={cip68Name}
+            onChange={(e) => {
+              setCip68Name(e.target.value);
+              setCip68NameEdited(true);
+            }}
+            placeholder="e.g., My Token"
+            disabled={isProcessing}
+            error={errors.cip68Name}
+            helperText="Token display name stored on-chain (required)"
+          />
+
+          <Input
+            label="Description"
+            value={cip68Description}
+            onChange={(e) => setCip68Description(e.target.value)}
+            placeholder="A brief description of your token"
+            disabled={isProcessing}
+            helperText="Brief description of your token (optional)"
+          />
+
+          <div className="grid grid-cols-2 gap-4">
+            <Input
+              label="Ticker"
+              value={cip68Ticker}
+              onChange={(e) => setCip68Ticker(e.target.value)}
+              placeholder="e.g., MYTKN"
+              disabled={isProcessing}
+              helperText="Short symbol"
+            />
+            <Input
+              label="Decimals"
+              type="number"
+              value={cip68Decimals}
+              onChange={(e) => setCip68Decimals(e.target.value)}
+              disabled={isProcessing}
+              error={errors.cip68Decimals}
+              helperText="Decimal places (0-19)"
+            />
+          </div>
+
+          <Input
+            label="URL"
+            value={cip68Url}
+            onChange={(e) => setCip68Url(e.target.value)}
+            placeholder="https://..."
+            disabled={isProcessing}
+            helperText="Project website (optional)"
+          />
+
+          <Input
+            label="Logo URL"
+            value={cip68Logo}
+            onChange={(e) => setCip68Logo(e.target.value)}
+            placeholder="https://..."
+            disabled={isProcessing}
+            helperText="Token logo image URL (optional)"
+          />
+        </div>
+      )}
 
       <div className="flex gap-3">
         {onBack && (

@@ -1,29 +1,18 @@
 "use client";
 
 import { useState } from "react";
-import { useWallet } from "@meshsdk/react";
+import { useWallet } from "@/hooks/use-wallet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ValidatorTripleSelector } from "./validator-triple-selector";
-import {
-  TransactionBuilderToggle,
-  TransactionBuilder,
-} from "@/components/mint/transaction-builder-toggle";
 import { Substandard, DummyRegisterRequest, FreezeAndSeizeRegisterRequest } from "@/types/api";
 import { getPaymentKeyHash } from "@/lib/utils/address";
 import {
   registerToken,
   stringToHex,
-  getProtocolBlueprint,
-  getProtocolBootstrap,
-  getSubstandardBlueprint,
 } from "@/lib/api";
 import { useToast } from "@/components/ui/use-toast";
 import { useProtocolVersion } from "@/contexts/protocol-version-context";
-import { getSubstandardHandler } from "@/lib/mesh-sdk/standard/factory";
-import type { RegisterTransactionParams } from "@/lib/mesh-sdk/standard/factory";
-import type { IWallet } from "@meshsdk/core";
-import { getNetworkId } from "@/lib/mesh-sdk/config";
 
 interface RegistrationFormProps {
   substandards: Substandard[];
@@ -53,8 +42,6 @@ export function RegistrationForm({
   const [issueContract, setIssueContract] = useState("");
   const [transferContract, setTransferContract] = useState("");
   const [thirdPartyContract, setThirdPartyContract] = useState("");
-  const [transactionBuilder, setTransactionBuilder] =
-    useState<TransactionBuilder>("backend");
   const [isBuilding, setIsBuilding] = useState(false);
 
   const [errors, setErrors] = useState({
@@ -143,92 +130,40 @@ export function RegistrationForm({
       }
       const registrarAddress = addresses[0];
 
-      let unsignedCborTx: string;
-      let policyId: string;
+      let request: DummyRegisterRequest | FreezeAndSeizeRegisterRequest;
 
-      if (transactionBuilder === "frontend") {
-        // Client-side transaction building
-        showToast({
-          title: "Building Transaction",
-          description: "Building transaction on client side...",
-          variant: "default",
-        });
-
-        // Fetch protocol data
-        const protocolTxHash = selectedVersion?.txHash;
-        const [protocolBlueprint, protocolBootstrap, substandardBlueprint] =
-          await Promise.all([
-            getProtocolBlueprint(),
-            getProtocolBootstrap(protocolTxHash),
-            getSubstandardBlueprint(substandardId),
-          ]);
-
-        // Get substandard handler
-        const handler = getSubstandardHandler(
-          substandardId as "dummy" | "bafin"
-        );
-
-        // Prepare register parameters
-        const registerParams: RegisterTransactionParams = {
-          assetName: tokenName,
+      if (substandardId === 'freeze-and-seize') {
+        // Freeze-and-seize requires blacklist initialization step
+        // Use the wizard flow for full freeze-and-seize registration
+        const adminPubKeyHash = getPaymentKeyHash(registrarAddress);
+        request = {
+          substandardId: 'freeze-and-seize',
+          feePayerAddress: registrarAddress,
+          assetName: stringToHex(tokenName),
           quantity,
-          registrarAddress,
-          recipientAddress: recipientAddress.trim() || undefined,
-          substandardName: substandardId,
-          substandardIssueContractName: issueContract,
-          substandardTransferContractName: transferContract,
-          substandardThirdPartyContractName: thirdPartyContract || undefined,
-          networkId: getNetworkId(),
+          recipientAddress: recipientAddress.trim() || "",
+          adminPubKeyHash,
+          blacklistNodePolicyId: "", // Not available in legacy form - must use wizard
         };
-
-        // Build transaction client-side
-        const { unsignedTx, policy_Id } =
-          await handler.buildRegisterTransaction(
-            registerParams,
-            protocolBootstrap,
-            protocolBlueprint,
-            substandardBlueprint,
-            wallet as IWallet
-          );
-        unsignedCborTx = unsignedTx;
-        policyId = policy_Id;
       } else {
-        // Server-side transaction building (existing logic)
-        let request: DummyRegisterRequest | FreezeAndSeizeRegisterRequest;
-
-        if (substandardId === 'freeze-and-seize') {
-          // Freeze-and-seize requires blacklist initialization step
-          // Use the wizard flow for full freeze-and-seize registration
-          const adminPubKeyHash = getPaymentKeyHash(registrarAddress);
-          request = {
-            substandardId: 'freeze-and-seize',
-            feePayerAddress: registrarAddress,
-            assetName: stringToHex(tokenName),
-            quantity,
-            recipientAddress: recipientAddress.trim() || "",
-            adminPubKeyHash,
-            blacklistNodePolicyId: "", // Not available in legacy form - must use wizard
-          };
-        } else {
-          // Dummy or other simple substandards
-          request = {
-            substandardId: 'dummy',
-            feePayerAddress: registrarAddress,
-            assetName: stringToHex(tokenName),
-            quantity,
-            recipientAddress: recipientAddress.trim() || "",
-          };
-        }
-
-        // Call backend to build registration transaction
-        const response = await registerToken(request, selectedVersion?.txHash);
-        unsignedCborTx = response.unsignedCborTx;
-        policyId = response.policyId;
+        // Dummy or other simple substandards
+        request = {
+          substandardId: 'dummy',
+          feePayerAddress: registrarAddress,
+          assetName: stringToHex(tokenName),
+          quantity,
+          recipientAddress: recipientAddress.trim() || "",
+        };
       }
+
+      // Call backend to build registration transaction
+      const response = await registerToken(request, selectedVersion?.txHash);
+      const unsignedCborTx = response.unsignedCborTx;
+      const policyId = response.policyId;
 
       showToast({
         title: "Transaction Built",
-        description: `Transaction built successfully using ${transactionBuilder} builder`,
+        description: "Transaction built successfully",
         variant: "success",
       });
 
@@ -341,13 +276,6 @@ export function RegistrationForm({
           />
         </div>
       </div>
-
-      {/* Transaction Builder Toggle */}
-      <TransactionBuilderToggle
-        value={transactionBuilder}
-        onChange={setTransactionBuilder}
-        disabled={isBuilding}
-      />
 
       {/* Submit Button */}
       <Button

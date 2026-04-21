@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from 'react';
-import { useWallet } from '@meshsdk/react';
+import { useWallet } from '@/hooks/use-wallet';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -18,18 +18,14 @@ interface TransferPreviewProps {
   onCancel: () => void;
 }
 
-// Helper to decode asset name from unit
+import { decodeAssetNameDisplay } from '@/lib/utils/cip68';
+
+// Helper to decode asset name from unit, stripping CIP-67 prefix if present
 function getAssetNameFromUnit(unit: string): string {
   if (unit.length <= 56) return unit;
   const assetNameHex = unit.substring(56);
   if (!assetNameHex) return unit;
-
-  try {
-    const decoded = Buffer.from(assetNameHex, 'hex').toString('utf8');
-    return decoded || assetNameHex;
-  } catch {
-    return assetNameHex;
-  }
+  return decodeAssetNameDisplay(assetNameHex);
 }
 
 export function TransferPreview({

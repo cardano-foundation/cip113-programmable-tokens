@@ -270,16 +270,31 @@ public class AdminController {
     }
 
     /**
-     * Convert hex-encoded string to human-readable string.
+     * Strip CIP-67 label prefix (4 bytes = 8 hex chars) from asset name if present.
+     * Labels: 333 (0014df10) = FT, 100 (000643b0) = Reference, 222 (000de140) = NFT.
+     */
+    private String stripCIP67Label(String hex) {
+        if (hex != null && hex.length() > 8) {
+            String prefix = hex.substring(0, 8).toLowerCase();
+            if ("0014df10".equals(prefix) || "000643b0".equals(prefix) || "000de140".equals(prefix)) {
+                return hex.substring(8);
+            }
+        }
+        return hex;
+    }
+
+    /**
+     * Convert hex-encoded string to human-readable string, stripping CIP-67 label prefix if present.
      */
     private String hexToString(String hex) {
         if (hex == null || hex.isEmpty()) {
             return "";
         }
         try {
+            String cleanHex = stripCIP67Label(hex);
             StringBuilder sb = new StringBuilder();
-            for (int i = 0; i < hex.length(); i += 2) {
-                String str = hex.substring(i, i + 2);
+            for (int i = 0; i < cleanHex.length(); i += 2) {
+                String str = cleanHex.substring(i, i + 2);
                 sb.append((char) Integer.parseInt(str, 16));
             }
             return sb.toString();

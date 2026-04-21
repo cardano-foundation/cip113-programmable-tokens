@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useWallet } from "@meshsdk/react";
+import { useWallet } from "@/hooks/use-wallet";
 import {
   Card,
   CardHeader,
@@ -13,7 +13,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/components/ui/use-toast";
-import { hexToString } from "@/lib/api";
+import { decodeAssetNameDisplay } from "@/lib/utils/cip68";
 
 interface TransactionPreviewProps {
   unsignedTxCborHex: string;
@@ -93,7 +93,7 @@ export function TransactionPreview({
             <div className="text-right">
               <p className="text-sm font-medium text-white">{assetName}</p>
               <p className="text-xs text-dark-500 font-mono">
-                {hexToString(assetName)}
+                {decodeAssetNameDisplay(assetName)}
               </p>
             </div>
           </div>

@@ -1,15 +1,17 @@
 "use client";
 
 import { useState } from "react";
-import { useWallet } from "@meshsdk/react";
+import { useWallet } from "@/hooks/use-wallet";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { TxBuilderToggle, type TransactionBuilder } from "@/components/ui/tx-builder-toggle";
 import { Flame, Loader2, ExternalLink, AlertTriangle } from "lucide-react";
 import { UtxoInfo } from "@/types/api";
 import { AdminTokenInfo, getUtxosForBurning } from "@/lib/api/admin";
 import { AdminTokenSelector } from "./AdminTokenSelector";
 import { burnToken } from "@/lib/api/minting";
 import { useProtocolVersion } from "@/contexts/protocol-version-context";
+import { useCIP113 } from "@/contexts/cip113-context";
 import { useToast } from "@/components/ui/use-toast";
 
 interface BurnSectionProps {
@@ -23,6 +25,8 @@ export function BurnSection({ adminTokens, feePayerAddress }: BurnSectionProps) 
   const { wallet } = useWallet();
   const { selectedVersion } = useProtocolVersion();
   const { toast: showToast } = useToast();
+  const { getProtocol, ensureSubstandard, available: sdkAvailable } = useCIP113();
+  const [txBuilder, setTxBuilder] = useState<TransactionBuilder>(sdkAvailable ? "sdk" : "backend");
 
   const [selectedToken, setSelectedToken] = useState<AdminTokenInfo | null>(null);
   const [targetAddress, setTargetAddress] = useState("");
@@ -119,15 +123,31 @@ export function BurnSection({ adminTokens, feePayerAddress }: BurnSectionProps) 
     setStep("signing");
 
     try {
-      // Build burn transaction
-      const unsignedTx = await burnToken({
-        feePayerAddress,
-        tokenPolicyId: selectedToken.policyId,
-        assetName: selectedToken.assetName,
-        quantity: burnAmount,
-        utxoTxHash: utxo.txHash,
-        utxoOutputIndex: utxo.outputIndex,
-      }, selectedVersion?.txHash);
+      let unsignedTx: string;
+
+      if (txBuilder === "sdk") {
+        const substandardId = await ensureSubstandard(selectedToken.policyId, selectedToken.assetName);
+        const protocol = await getProtocol();
+        const result = await protocol.burn({
+          feePayerAddress,
+          tokenPolicyId: selectedToken.policyId,
+          assetName: selectedToken.assetName,
+          utxoTxHash: utxo.txHash,
+          utxoOutputIndex: utxo.outputIndex,
+          holderAddress: targetAddress,
+          substandardId,
+        });
+        unsignedTx = result.cbor;
+      } else {
+        unsignedTx = await burnToken({
+          feePayerAddress,
+          tokenPolicyId: selectedToken.policyId,
+          assetName: selectedToken.assetName,
+          quantity: burnAmount,
+          utxoTxHash: utxo.txHash,
+          utxoOutputIndex: utxo.outputIndex,
+        }, selectedVersion?.txHash);
+      }
 
       // Sign & submit
       const signedTx = await wallet.signTx(unsignedTx);
@@ -211,6 +231,8 @@ export function BurnSection({ adminTokens, feePayerAddress }: BurnSectionProps) 
       </CardHeader>
 
       <CardContent className="space-y-6">
+        <TxBuilderToggle value={txBuilder} onChange={setTxBuilder} sdkAvailable={sdkAvailable} />
+
         {/* Warning Banner */}
         <div className="p-4 bg-yellow-900/20 border border-yellow-600/30 rounded-lg flex items-start gap-3">
           <AlertTriangle className="h-5 w-5 text-yellow-500 flex-shrink-0 mt-0.5" />

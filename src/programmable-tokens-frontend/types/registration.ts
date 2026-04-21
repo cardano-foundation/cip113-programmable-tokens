@@ -66,6 +66,27 @@ export interface WizardStep {
 }
 
 /**
+ * Data sent to the backend to register a token in the DB after on-chain registration.
+ * Matches the shape of the backend's TokenRegistrationRequest record.
+ */
+export interface TokenRegistrationCallbackData {
+  policyId: string;
+  substandardId: string;
+  /** Hex-encoded asset name */
+  assetName: string;
+  /** Issuer admin public key hash (FES only) */
+  issuerAdminPkh?: string;
+  /** Blacklist node policy ID (FES only) */
+  blacklistNodePolicyId?: string;
+  /** Blacklist admin public key hash — for blacklist init insertion (FES only) */
+  blacklistAdminPkh?: string;
+  /** Bootstrap UTxO tx hash consumed by blacklist one-shot mint (FES only) */
+  blacklistInitTxHash?: string;
+  /** Bootstrap UTxO output index (FES only) */
+  blacklistInitOutputIndex?: number;
+}
+
+/**
  * Definition of a registration flow (sequence of steps)
  */
 export interface RegistrationFlow {
@@ -83,6 +104,8 @@ export interface RegistrationFlow {
   getInitialData: () => Record<string, unknown>;
   /** Build the final registration request from wizard state */
   buildRegistrationRequest: (state: WizardState) => RegistrationRequest;
+  /** Extract data for backend registration callback from completed wizard state */
+  getRegistrationCallbackData?: (state: WizardState) => TokenRegistrationCallbackData | null;
 }
 
 // ============================================================================
@@ -194,12 +217,26 @@ export interface SubstandardSelectionData {
 }
 
 /**
+ * CIP-68 metadata form data (string values for form state).
+ */
+export interface CIP68MetadataFormData {
+  enabled: boolean;
+  name: string;
+  description: string;
+  ticker: string;
+  decimals: string;
+  url: string;
+  logo: string;
+}
+
+/**
  * Data for token details step
  */
 export interface TokenDetailsData {
   assetName: string;
   quantity: string;
   recipientAddress?: string;
+  cip68Metadata?: CIP68MetadataFormData;
 }
 
 /**

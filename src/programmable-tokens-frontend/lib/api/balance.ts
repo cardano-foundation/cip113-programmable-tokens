@@ -5,6 +5,7 @@
 
 import { apiGet } from './client';
 import { WalletBalanceResponse, ParsedBalance, ParsedAsset } from '@/types/api';
+import { parseCIP68AssetName, isReferenceToken } from '@/lib/utils/cip68';
 
 /**
  * Get comprehensive wallet balance including all programmable token addresses
@@ -155,11 +156,12 @@ export async function parseWalletBalance(
     }
   }
 
-  // Convert to ParsedAsset array
-  const assets: ParsedAsset[] = await Promise.all(
+  // Convert to ParsedAsset array, filtering out CIP-68 reference tokens (label 100)
+  const allAssets: ParsedAsset[] = await Promise.all(
     Array.from(assetMap.values()).map(async ({ unit, amount }) => {
       const { policyId, assetNameHex } = splitUnit(unit);
-      const assetName = decodeAssetName(assetNameHex);
+      const cip68 = parseCIP68AssetName(assetNameHex);
+      const assetName = cip68.isCIP68 ? cip68.displayName : decodeAssetName(assetNameHex);
 
       // For now, assume all tokens in programmable token addresses are programmable
       // TODO: Call isProgrammableToken(policyId) for accurate check
@@ -176,9 +178,14 @@ export async function parseWalletBalance(
         amount: amount.toString(),
         isProgrammable,
         isBlacklisted,
+        isCIP68: cip68.isCIP68,
+        cip68Label: cip68.label ?? undefined,
       };
     })
   );
+
+  // Hide reference tokens (label 100) — they hold metadata, not user value
+  const assets = allAssets.filter((a) => !isReferenceToken(a.assetNameHex));
 
   return {
     lovelace: totalLovelace.toString(),

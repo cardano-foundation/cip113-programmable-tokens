@@ -88,12 +88,10 @@ export async function extractPkhFromAddress(address: string): Promise<string | n
   }
 
   try {
-    // Dynamic import to avoid WASM issues during SSR
-    const { deserializeAddress } = await import('@meshsdk/core');
-    const deserialized = deserializeAddress(address);
-    return deserialized.pubKeyHash || null;
+    const { getPaymentKeyHash } = await import('@/lib/utils/address');
+    return getPaymentKeyHash(address);
   } catch (error) {
-    console.error("Failed to deserialize address:", error);
+    console.error("Failed to extract PKH from address:", error);
     return null;
   }
 }

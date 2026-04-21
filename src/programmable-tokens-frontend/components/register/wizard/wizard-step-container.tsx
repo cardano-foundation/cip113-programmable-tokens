@@ -2,6 +2,9 @@
 
 import { useState, useCallback, useMemo } from 'react';
 import { useRegistrationWizard } from '@/contexts/registration-wizard-context';
+import { useCIP113 } from '@/contexts/cip113-context';
+import { useWallet } from '@/hooks/use-wallet';
+import { getPaymentKeyHash } from '@/lib/utils/address';
 import type { StepResult, StepComponentProps } from '@/types/registration';
 
 export function WizardStepContainer() {
@@ -14,6 +17,8 @@ export function WizardStepContainer() {
     canGoBack,
   } = useRegistrationWizard();
 
+  const { registerTokenCallback } = useCIP113();
+  const { wallet } = useWallet();
   const [isProcessing, setIsProcessing] = useState(false);
 
   // Get current step data
@@ -37,7 +42,7 @@ export function WizardStepContainer() {
 
   // Handle step completion
   const handleComplete = useCallback(
-    (result: StepResult) => {
+    async (result: StepResult) => {
       if (!currentStep || !currentFlow) return;
 
       // Mark step as complete
@@ -47,13 +52,42 @@ export function WizardStepContainer() {
         result,
       });
 
-      // Move to next step if not the last one
+      // Check if this is the submission step (step right before "success")
       const currentIndex = currentFlow.steps.findIndex((s) => s.id === currentStep.id);
+      const isSubmissionStep = currentIndex === currentFlow.steps.length - 2;
+
+      // Fire backend registration callback after submission step
+      if (isSubmissionStep && currentFlow.getRegistrationCallbackData) {
+        try {
+          // Build updated state with this step's result included
+          const updatedState = {
+            ...state,
+            stepStates: {
+              ...state.stepStates,
+              [currentStep.id]: { ...state.stepStates[currentStep.id], status: 'completed' as const, result },
+            },
+          };
+          const callbackData = currentFlow.getRegistrationCallbackData(updatedState);
+          if (callbackData) {
+            // Add issuerAdminPkh from wallet if needed (FES requires it)
+            if (!callbackData.issuerAdminPkh && callbackData.substandardId === 'freeze-and-seize') {
+              const addresses = await wallet?.getUsedAddresses();
+              callbackData.issuerAdminPkh = addresses?.[0] ? getPaymentKeyHash(addresses[0]) : '';
+            }
+            await registerTokenCallback(callbackData);
+            console.log('[Registration] Token registered in backend DB');
+          }
+        } catch (e) {
+          console.warn('[Registration] Backend registration callback failed:', e);
+        }
+      }
+
+      // Move to next step if not the last one
       if (currentIndex < currentFlow.steps.length - 1) {
         dispatch({ type: 'NEXT_STEP' });
       }
     },
-    [currentStep, currentFlow, dispatch]
+    [currentStep, currentFlow, dispatch, state, registerTokenCallback, wallet]
   );
 
   // Handle error

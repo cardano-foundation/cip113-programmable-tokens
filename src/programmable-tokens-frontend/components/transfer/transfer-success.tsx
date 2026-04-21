@@ -13,18 +13,14 @@ interface TransferSuccessProps {
   recipientAddress: string;
 }
 
-// Helper to decode asset name from unit
+import { decodeAssetNameDisplay } from '@/lib/utils/cip68';
+
+// Helper to decode asset name from unit, stripping CIP-67 prefix if present
 function getAssetNameFromUnit(unit: string): string {
   if (unit.length <= 56) return unit;
   const assetNameHex = unit.substring(56);
   if (!assetNameHex) return unit;
-
-  try {
-    const decoded = Buffer.from(assetNameHex, 'hex').toString('utf8');
-    return decoded || assetNameHex;
-  } catch {
-    return assetNameHex;
-  }
+  return decodeAssetNameDisplay(assetNameHex);
 }
 
 export function TransferSuccess({

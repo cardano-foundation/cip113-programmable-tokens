@@ -12,7 +12,9 @@ import type {
   WizardState,
   FreezeAndSeizeRegistrationData,
   StepComponentProps,
+  TokenRegistrationCallbackData,
 } from '@/types/registration';
+import { stringToHex } from '@/lib/api';
 import { TokenDetailsStep } from '@/components/register/steps/token-details-step';
 import { CombinedBuildSignSubmitStep } from '@/components/register/steps/freeze-and-seize';
 import { SuccessStep } from '@/components/register/steps/success-step';
@@ -71,6 +73,28 @@ const freezeAndSeizeFlow: RegistrationFlow = {
     },
   ],
   getInitialData: () => ({}),
+  getRegistrationCallbackData: (state: WizardState): TokenRegistrationCallbackData | null => {
+    const tokenDetails = state.stepStates['token-details']?.data as { assetName?: string } | undefined;
+    const combinedResult = state.stepStates['combined-build-sign']?.result?.data as {
+      tokenPolicyId?: string;
+      blacklistNodePolicyId?: string;
+      adminPkh?: string;
+      blacklistInitTxInput?: { txHash: string; outputIndex: number };
+      userAssetNameHex?: string;
+    } | undefined;
+    if (!combinedResult?.tokenPolicyId) return null;
+    return {
+      policyId: combinedResult.tokenPolicyId,
+      substandardId: 'freeze-and-seize',
+      // Store the full asset name hex (including CIP-67 label if present)
+      assetName: combinedResult.userAssetNameHex || stringToHex(tokenDetails?.assetName || ''),
+      blacklistNodePolicyId: combinedResult.blacklistNodePolicyId,
+      // issuerAdminPkh is added by WizardStepContainer from the connected wallet
+      blacklistAdminPkh: combinedResult.adminPkh,
+      blacklistInitTxHash: combinedResult.blacklistInitTxInput?.txHash,
+      blacklistInitOutputIndex: combinedResult.blacklistInitTxInput?.outputIndex,
+    };
+  },
   buildRegistrationRequest: (state: WizardState): FreezeAndSeizeRegistrationData => {
     const tokenDetails = state.stepStates['token-details']?.data as {
       assetName?: string;

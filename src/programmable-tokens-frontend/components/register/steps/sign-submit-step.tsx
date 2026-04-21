@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { useWallet } from '@meshsdk/react';
+import { useWallet } from '@/hooks/use-wallet';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import type { StepComponentProps, SignSubmitResult } from '@/types/registration';
