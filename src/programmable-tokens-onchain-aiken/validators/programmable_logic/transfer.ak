@@ -31,7 +31,8 @@ pub fn validate_transfer(
 
   // Collect all outputs that carry programmable tokens. We use them to ensure that
   // prog tokens cannot escape their fate.
-  let output_assets = collect_output_assets(self.outputs, prog_logic_cred)
+  let output_assets =
+    assets.collect_output_assets(self.outputs, prog_logic_cred)
 
   // Check transfer logic for each programmable token type and filter to only programmable tokens.
   [] == verify_proofs(
@@ -79,24 +80,6 @@ fn collect_input_assets(
             expect has_withdrawal(stake_cred)
           }
         }
-        select(output)
-      } else {
-        discard()
-      }
-    },
-  )
-}
-
-fn collect_output_assets(
-  outputs: List<Output>,
-  prog_logic_cred: Credential,
-) -> Assets {
-  assets.collect(
-    outputs,
-    [],
-    fn(output, select, discard) {
-      if output.address.payment_credential == prog_logic_cred {
-        expect Some(Inline(..)) = output.address.stake_credential
         select(output)
       } else {
         discard()

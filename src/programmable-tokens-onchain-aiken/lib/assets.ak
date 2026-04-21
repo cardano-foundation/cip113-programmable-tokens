@@ -1,6 +1,7 @@
 use aiken/builtin.{less_than_bytearray, less_than_equals_bytearray}
 use aiken/collection/dict
-use cardano/assets.{PolicyId, Value}
+use cardano/address.{Credential, Inline}
+use cardano/assets.{AssetName, PolicyId, Value}
 use cardano/transaction.{Output}
 use env
 use list
@@ -153,4 +154,32 @@ fn do_insert(self: Assets, k1: PolicyId, v1: Tokens) -> Assets {
         [head, ..do_insert(rest, k1, v1)]
       }
   }
+}
+
+pub fn has_policy_nft_strictly(
+  value: Value,
+  policy_id: PolicyId,
+  asset_name: AssetName,
+) -> Bool {
+  expect Some(policy_assets) = assets.to_dict(value) |> dict.get(policy_id)
+  expect [Pair(actual_asset_name, 1)] = dict.to_pairs(policy_assets)
+  actual_asset_name == asset_name
+}
+
+pub fn collect_output_assets(
+  outputs: List<Output>,
+  prog_logic_cred: Credential,
+) -> Assets {
+  collect(
+    outputs,
+    [],
+    fn(output, select, discard) {
+      if output.address.payment_credential == prog_logic_cred {
+        expect Some(Inline(..)) = output.address.stake_credential
+        select(output)
+      } else {
+        discard()
+      }
+    },
+  )
 }

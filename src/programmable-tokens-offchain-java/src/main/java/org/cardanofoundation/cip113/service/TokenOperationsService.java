@@ -155,6 +155,7 @@ public class TokenOperationsService {
                 var blacklistInitEntity = data.second();
                 yield FreezeAndSeizeContext.builder()
                         .issuerAdminPkh(tokenRegistration.getIssuerAdminPkh())
+                        .assetName(request.assetName())
                         .blacklistManagerPkh(blacklistInitEntity.getAdminPkh())
                         .blacklistInitTxInput(TransactionInput.builder()
                                 .transactionId(blacklistInitEntity.getTxHash())
@@ -216,6 +217,7 @@ public class TokenOperationsService {
                 var blacklistInitEntity = data.second();
                 yield FreezeAndSeizeContext.builder()
                         .issuerAdminPkh(tokenRegistration.getIssuerAdminPkh())
+                        .assetName(request.assetName())
                         .blacklistManagerPkh(blacklistInitEntity.getAdminPkh())
                         .blacklistInitTxInput(TransactionInput.builder()
                                 .transactionId(blacklistInitEntity.getTxHash())
@@ -280,6 +282,7 @@ public class TokenOperationsService {
                 var blacklistInitEntity = data.second();
                 yield FreezeAndSeizeContext.builder()
                         .issuerAdminPkh(tokenRegistration.getIssuerAdminPkh())
+                        .assetName(programmableToken.assetName())
                         .blacklistManagerPkh(blacklistInitEntity.getAdminPkh())
                         .blacklistInitTxInput(TransactionInput.builder()
                                 .transactionId(blacklistInitEntity.getTxHash())

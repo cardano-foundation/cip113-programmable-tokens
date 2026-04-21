@@ -5,41 +5,8 @@ use aiken/collection/list
 // Migrated from various Plutarch utility modules
 
 use cardano/address.{Credential}
-use cardano/assets.{PolicyId, Value, flatten, quantity_of}
+use cardano/assets.{PolicyId, Value}
 use cardano/transaction.{InlineDatum, Input, Output, Transaction}
-
-/// Check if a value contains at least the required amount of a specific asset
-pub fn value_contains(value: Value, required: Value) -> Bool {
-  list.all(
-    flatten(required),
-    fn(asset) {
-      let (policy, name, req_qty) = asset
-      quantity_of(value, policy, name) >= req_qty
-    },
-  )
-}
-
-// Is there any chance values have same assets.....
-pub fn value_contains_v2(value: Value, required: Value) -> Bool {
-  assets.reduce(
-    required,
-    True,
-    fn(policy, name, req_qty, acc) {
-      acc && quantity_of(value, policy, name) >= req_qty
-    },
-  )
-}
-
-// Is there any chance values have same assets.....
-pub fn expect_value_contains_v3(value: Value, required: Value) -> Void {
-  assets.reduce(
-    required,
-    Void,
-    fn(policy, name, req_qty, _acc) {
-      expect quantity_of(value, policy, name) >= req_qty
-    },
-  )
-}
 
 /// Get the datum from an output, expecting an inline datum
 pub fn expect_inline_datum(output: Output) -> Data {
@@ -160,32 +127,4 @@ pub fn apply_hashed_parameter(
 
   // Hash with blake2b_224 to get the policy ID (28 bytes)
   builtin.blake2b_224(script_bytes)
-}
-
-/// Check if a currency symbol is a valid programmable token registration
-/// Validates that:
-/// 1. Tokens with this policy ID are being minted in the transaction
-/// 2. The computed policy ID (from prefix + hashed_param + postfix) matches the currency symbol
-pub fn is_programmable_token_registration(
-  cs_to_insert: ByteArray,
-  prefix: ByteArray,
-  postfix: ByteArray,
-  hashed_param: ByteArray,
-  mint_value: Value,
-) -> Bool {
-  // Check 1: The policy must be minting tokens in this transaction
-  let has_minting =
-    list.any(
-      flatten(mint_value),
-      fn(asset) {
-        let (policy, _tn, amt) = asset
-        policy == cs_to_insert && amt > 0
-      },
-    )
-
-  // Check 2: The computed policy ID must match the currency symbol being inserted
-  let computed_cs = apply_hashed_parameter(prefix, postfix, hashed_param)
-  let cs_matches = computed_cs == cs_to_insert
-
-  has_minting? && cs_matches?
 }

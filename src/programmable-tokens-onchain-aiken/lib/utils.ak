@@ -4,7 +4,7 @@
 use aiken/builtin.{tail_list}
 use aiken/collection/dict
 use aiken/collection/list
-use cardano/assets.{PolicyId, Value, flatten}
+use cardano/assets.{PolicyId, Value}
 use cardano/transaction.{InlineDatum, Output}
 
 /// Get the datum from an output, expecting an inline datum
@@ -77,19 +77,18 @@ pub fn is_programmable_token_registration(
   hashed_param: ByteArray,
   mint_value: Value,
 ) -> Bool {
-  // Check 1: The policy must be minting tokens in this transaction
-  let has_minting =
-    list.any(
-      flatten(mint_value),
-      fn(asset) {
-        let (policy, _tn, amt) = asset
-        policy == cs_to_insert && amt > 0
-      },
-    )
+  // Check 1: The policy must be minting (not just burning) tokens in this tx.
+  // Multiple asset names are allowed to support CIP-68 (FT label 333 + ref token label 100).
+  // Note: burn-only registration is already impossible — tokens can only exist if they were
+  // minted before, which requires prior registration, and the linked list prevents duplicates.
+  // The > 0 check makes this invariant explicit locally.
+  expect Some(assets_minted_amount) =
+    assets.to_dict(mint_value) |> dict.get(cs_to_insert)
+  expect
+    dict.to_pairs(assets_minted_amount)
+      |> list.any(fn(pair) { pair.2nd > 0 })
 
   // Check 2: The computed policy ID must match the currency symbol being inserted
   let computed_cs = apply_hashed_parameter(prefix, postfix, hashed_param)
-  let cs_matches = computed_cs == cs_to_insert
-
-  has_minting? && cs_matches?
+  computed_cs == cs_to_insert
 }

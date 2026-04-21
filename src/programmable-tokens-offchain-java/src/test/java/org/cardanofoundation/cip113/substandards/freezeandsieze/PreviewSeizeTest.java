@@ -237,9 +237,7 @@ public class PreviewSeizeTest extends AbstractPreviewTest implements PreviewFree
 
         var programmableGlobalRedeemer = ConstrPlutusData.of(1,
                 BigIntPlutusData.of(registryRefInputInex),
-                ListPlutusData.of(BigIntPlutusData.of(seizeInputIndex)),
-                BigIntPlutusData.of(2), // Index of the first output
-                BigIntPlutusData.of(1)
+                BigIntPlutusData.of(2) // outputs_start_idx
         );
 
         var tx = new ScriptTx()

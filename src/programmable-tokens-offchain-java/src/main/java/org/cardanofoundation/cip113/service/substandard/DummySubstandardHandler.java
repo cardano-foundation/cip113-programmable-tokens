@@ -331,7 +331,12 @@ public class DummySubstandardHandler implements SubstandardHandler, BasicOperati
                 log.info("directorySpendValue: {}", directorySpendValue);
 
 
-                var issuanceRedeemer = ConstrPlutusData.of(0, ConstrPlutusData.of(1, BytesPlutusData.of(substandardIssueContract.getScriptHash())));
+                // Registry node output is at index 2 in outputs:
+                // [0] PLB output (programmable token), [1] updated covering node, [2] new registry node
+                var issuanceRedeemer = ConstrPlutusData.of(0,
+                        ConstrPlutusData.of(1, BytesPlutusData.of(substandardIssueContract.getScriptHash())),
+                        ConstrPlutusData.of(1, BigIntPlutusData.of(2)) // OutputIndex { index: 2 }
+                );
 
                 // Programmable Token Mint
                 var programmableToken = Asset.builder()
@@ -457,9 +462,39 @@ public class DummySubstandardHandler implements SubstandardHandler, BasicOperati
             log.info("substandardIssueAddress: {}", substandardIssueAddress.getAddress());
 
             var issuanceContract = protocolScriptBuilderService.getParameterizedIssuanceMintScript(protocolBootstrapParams, substandardIssueContract);
-            log.info("issuanceContract: {}", issuanceContract.getPolicyId());
+            final var progTokenPolicyId = issuanceContract.getPolicyId();
+            log.info("issuanceContract: {}", progTokenPolicyId);
 
-            var issuanceRedeemer = ConstrPlutusData.of(0, ConstrPlutusData.of(1, BytesPlutusData.of(substandardIssueContract.getScriptHash())));
+            // Find the registry node for this token (must exist for subsequent mint)
+            var directorySpendContract = protocolScriptBuilderService.getParameterizedDirectorySpendScript(protocolBootstrapParams);
+            var registryEntries = utxoRepository.findUnspentByOwnerPaymentCredential(directorySpendContract.getPolicyId(), Pageable.unpaged());
+            var progTokenRegistryOpt = registryEntries.stream()
+                    .flatMap(Collection::stream)
+                    .filter(addressUtxoEntity -> registryNodeParser.parse(addressUtxoEntity.getInlineDatum())
+                            .map(registryNode -> registryNode.key().equals(progTokenPolicyId))
+                            .orElse(false))
+                    .findAny();
+
+            if (progTokenRegistryOpt.isEmpty()) {
+                return TransactionContext.error("could not find registry entry for token — is this a first mint?");
+            }
+
+            var progTokenRegistry = UtxoUtil.toUtxo(progTokenRegistryOpt.get());
+            var registryRefInput = TransactionInput.builder()
+                    .transactionId(progTokenRegistry.getTxHash())
+                    .index(progTokenRegistry.getOutputIndex())
+                    .build();
+
+            // Sort reference inputs to compute the registry node index
+            var sortedReferenceInputs = Stream.of(registryRefInput)
+                    .sorted(new TransactionInputComparator())
+                    .toList();
+            var registryRefInputIndex = sortedReferenceInputs.indexOf(registryRefInput);
+
+            var issuanceRedeemer = ConstrPlutusData.of(0,
+                    ConstrPlutusData.of(1, BytesPlutusData.of(substandardIssueContract.getScriptHash())),
+                    ConstrPlutusData.of(0, BigIntPlutusData.of(registryRefInputIndex)) // RefInput { index }
+            );
 
             // Programmable Token Mint
             var programmableToken = Asset.builder()
@@ -489,9 +524,9 @@ public class DummySubstandardHandler implements SubstandardHandler, BasicOperati
             var tx = new Tx()
                     .collectFrom(feePayerUtxos)
                     .withdraw(substandardIssueAddress.getAddress(), BigInteger.ZERO, BigIntPlutusData.of(100))
-                    // Redeemer is DirectoryInit (constr(0))
                     .mintAsset(issuanceContract, programmableToken, issuanceRedeemer)
                     .payToContract(targetAddress.getAddress(), ValueUtil.toAmountList(progammableTokenValue), ConstrPlutusData.of(0))
+                    .readFrom(registryRefInput)
                     .attachRewardValidator(substandardIssueContract)
                     .withChangeAddress(mintTokenRequest.feePayerAddress());
 

@@ -137,6 +137,7 @@ public class ComplianceController {
                     var blacklistInitEntity = data.second();
                     yield FreezeAndSeizeContext.builder()
                             .issuerAdminPkh(tokenRegistration.getIssuerAdminPkh())
+                            .assetName(request.assetName())
                             .blacklistManagerPkh(blacklistInitEntity.getAdminPkh())
                             .blacklistInitTxInput(TransactionInput.builder()
                                     .transactionId(blacklistInitEntity.getTxHash())
@@ -204,6 +205,7 @@ public class ComplianceController {
                     var blacklistInitEntity = data.second();
                     yield FreezeAndSeizeContext.builder()
                             .issuerAdminPkh(tokenRegistration.getIssuerAdminPkh())
+                            .assetName(request.assetName())
                             .blacklistManagerPkh(blacklistInitEntity.getAdminPkh())
                             .blacklistInitTxInput(TransactionInput.builder()
                                     .transactionId(blacklistInitEntity.getTxHash())
@@ -451,6 +453,7 @@ public class ComplianceController {
                     var blacklistInitEntity = data.second();
                     yield FreezeAndSeizeContext.builder()
                             .issuerAdminPkh(tokenRegistration.getIssuerAdminPkh())
+                            .assetName(progToken.assetName())
                             .blacklistManagerPkh(blacklistInitEntity.getAdminPkh())
                             .blacklistInitTxInput(TransactionInput.builder()
                                     .transactionId(blacklistInitEntity.getTxHash())

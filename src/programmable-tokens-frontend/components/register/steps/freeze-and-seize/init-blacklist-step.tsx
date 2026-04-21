@@ -8,6 +8,7 @@ import { CopyButton } from '@/components/ui/copy-button';
 import { useToast } from '@/components/ui/use-toast';
 import { useProtocolVersion } from '@/contexts/protocol-version-context';
 import { initBlacklist } from '@/lib/api/compliance';
+import { stringToHex } from '@/lib/api';
 import { waitForTxConfirmation } from '@/lib/utils/tx-confirmation';
 import type { StepComponentProps, BlacklistInitResult, TokenDetailsData } from '@/types/registration';
 
@@ -131,6 +132,7 @@ export function InitBlacklistStep({
           substandardId: 'freeze-and-seize',
           adminAddress,
           feePayerAddress: adminAddress,
+          assetName: stringToHex(tokenDetails?.assetName || ''),
         },
         selectedVersion?.txHash
       );

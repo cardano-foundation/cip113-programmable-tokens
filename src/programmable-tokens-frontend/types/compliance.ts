@@ -11,6 +11,7 @@ export interface BlacklistInitRequest {
   substandardId: string;         // Substandard ID (e.g., 'freeze-and-seize')
   adminAddress: string;          // Admin address that will manage this blacklist
   feePayerAddress: string;       // Address that pays for the transaction
+  assetName: string;             // Hex-encoded asset name of the programmable token
 }
 
 export interface BlacklistInitResponse {
@@ -24,12 +25,14 @@ export interface BlacklistInitResponse {
 
 export interface AddToBlacklistRequest {
   tokenPolicyId: string;         // Policy ID of the token
+  assetName: string;             // Hex-encoded asset name of the programmable token
   targetAddress: string;         // Address to blacklist
   feePayerAddress: string;       // Address that pays for the transaction
 }
 
 export interface RemoveFromBlacklistRequest {
   tokenPolicyId: string;         // Policy ID of the token
+  assetName: string;             // Hex-encoded asset name of the programmable token
   targetAddress: string;         // Address to un-blacklist
   feePayerAddress: string;       // Address that pays for the transaction
 }
