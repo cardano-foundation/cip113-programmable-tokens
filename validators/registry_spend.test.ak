@@ -193,10 +193,7 @@ test fails_no_inline_datum_on_params() fail {
   let bad_ref_input =
     Input {
       ..protocol_params_ref_input(),
-      output: Output {
-        ..protocol_params_ref_input().output,
-        datum: NoDatum,
-      },
+      output: Output { ..protocol_params_ref_input().output, datum: NoDatum },
     }
   let tx =
     Transaction {
