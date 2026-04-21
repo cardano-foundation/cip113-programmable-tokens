@@ -9,10 +9,10 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - uses: aiken-lang/setup-aiken@v1
         with:
-          version: v1.1.13
+          version: v1.1.21
       - run: aiken fmt --check
       - run: aiken check -D
       - run: aiken build

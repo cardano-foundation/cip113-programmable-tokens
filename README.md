@@ -1,6 +1,6 @@
 # CIP-113 Programmable Tokens — Aiken Implementation
 
-![Aiken](https://img.shields.io/badge/Aiken-v1.1.13-blue)
+![Aiken](https://img.shields.io/badge/Aiken-v1.1.21-blue)
 ![CIP-113](https://img.shields.io/badge/CIP--113-Adapted-green)
 ![Status](https://img.shields.io/badge/Status-R&D-yellow)
 
@@ -66,7 +66,7 @@ Programmable tokens are **native Cardano assets** with an additional layer of va
 
 ### Prerequisites
 
-- [Aiken](https://aiken-lang.org/installation-instructions) v1.1.13 or higher
+- [Aiken](https://aiken-lang.org/installation-instructions) v1.1.21 (pinned in `aiken.toml`)
 - [Cardano CLI](https://github.com/IntersectMBO/cardano-cli) (optional, for deployment)
 
 ### Build
@@ -259,25 +259,6 @@ This is high-quality research and development code with the following characteri
 - Extensive testing across multiple scenarios
 - Thorough review by domain experts
 
-## Migration from Plutarch
-
-This is a complete Aiken rewrite of the original Plutarch implementation ([wsc-poc](https://github.com/input-output-hk/wsc-poc)) by Phil DiSarro and the IOG team.
-
-**What changed:**
-- All validators rewritten in Aiken (from Plutarch/Haskell) with (mostly) equivalent on-chain logic:
-  - Registry proofs for mints and spends are combined in Aiken, disjoints in Plutarch; this is possible due to how Aiken counts and validates tokens in one pass.
-  - For the third-party action, we use a different input-indices approach: Aiken indices indicate inputs to be skipped, whereas Plutarch indicates relative positions. In particular, only programmable inputs must be specified in the Aiken redeemer, whereas Plutarch requires all script-locked inputs to be acknowledged. Different checks then occur on both sides to ensure both approaches remain viable, but with different trade-offs.
-  - While the resulting checks are equivalent, the logic for constructing and validating assets in particular is significantly different. The third-party validations have been mostly rewritten from the ground up to maximise code reuse with the transfer logic and reduce the overall script size.
-  - The order in which certain validations occur is also different, so execution may halt for different reasons on both implementations.
-  - Both implementations leverage some form of caching internally, using different heuristics. For example, Plutarch remembers the last withdrawal checked when asserting token proofs, whereas Aiken builds a lightweight withdrawal checker from the initial withdrawal list which is then passed around various functions.
-- Added explicit stake credential checks on minting outputs (`issuance_mint`) to prevent permanent token locking — the original did not enforce this.
-- Multi-UTxO seizure support (`ThirdPartyAct`) ported from Plutarch PR #99.
-- Aiken's `Dict`/`Pairs` types replace Plutarch's `PMap` — keys are lexicographically sorted by default, which matches the registry's sorted-list requirement.
-
-**Performance:** Comparable to Plutarch. The withdraw-zero pattern means the expensive global validator runs once per transaction regardless of language. Individual validator execution units are within ~10% of the Plutarch equivalents.
-
-**Not migrated:** The original Plutarch repo included off-chain transaction building in Haskell. Off-chain work for this project lives in the [platform repository](https://github.com/cardano-foundation/cip113-programmable-tokens-platform) as a Java/Spring Boot backend and a Next.js/Mesh SDK frontend.
-
 ## Related Components
 
 - **Off-chain platform:** [cardano-foundation/cip113-programmable-tokens-platform](https://github.com/cardano-foundation/cip113-programmable-tokens-platform) — Reference Next.js frontend, Java backend, and substandard implementations.
@@ -332,7 +313,3 @@ Special thanks to:
 - The **Aiken team** for the excellent smart contract language and tooling
 - The **CIP-143/CIP-113 authors and contributors** for standard development
 - The **Cardano developer community** for continued support and collaboration
-
----
-
-**Built with ❤️ using [Aiken](https://aiken-lang.org/)**

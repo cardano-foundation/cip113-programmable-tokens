@@ -67,7 +67,7 @@ When contributing code, it helps to have discussed the rationale and (ideally) h
 
 **Prerequisites:**
 
-- [Aiken](https://aiken-lang.org/installation-instructions) v1.1.13 or higher
+- [Aiken](https://aiken-lang.org/installation-instructions) v1.1.21 (pinned in `aiken.toml`)
 
 **Build:**
 
