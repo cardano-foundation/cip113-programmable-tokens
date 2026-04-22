@@ -4,7 +4,7 @@
 
 use cardano/address.{Credential}
 use cardano/assets.{PolicyId} as value
-use cardano/certificate.{Certificate}
+use cardano/certificate.{Certificate, RegisterCredential}
 use cardano/transaction.{Transaction}
 use programmable_logic/params.{with_programmable_logic_params}
 use programmable_logic/third_party.{validate_3rd_party}
@@ -50,8 +50,11 @@ validator programmable_logic_global(params_policy: PolicyId) {
     }
   }
 
-  publish(_r: Data, _c: Certificate, _t: Transaction) {
-    True
+  publish(_r: Data, c: Certificate, _s: Transaction) {
+    when c is {
+      RegisterCredential { .. } -> True
+      _ -> False
+    }
   }
 
   else(_) {
