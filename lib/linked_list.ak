@@ -7,9 +7,7 @@ use cardano/address.{Credential, Script, VerificationKey}
 
 use cardano/assets.{PolicyId, Value}
 use cardano/transaction.{Input, Output, Transaction}
-use registry_node.{
-  RegistryNode, origin_node, origin_node_tn, sentinel_next_key,
-}
+use registry_node.{RegistryNode, origin_node, origin_node_tn, sentinel_next_key}
 use utils.{bytearray_lt, expect_inline_datum, has_currency_symbol}
 
 /// Validate the *common* structural properties of a registry-node output and
