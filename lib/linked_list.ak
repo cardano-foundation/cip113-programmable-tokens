@@ -5,14 +5,12 @@ use cardano/address.{Credential, Script, VerificationKey}
 // Linked list validation logic for the token registry
 // Migrated from SmartTokens.LinkedList.Common
 
-use cardano/assets.{PolicyId, Value, tokens}
+use cardano/assets.{PolicyId, Value}
 use cardano/transaction.{Input, Output, Transaction}
 use registry_node.{
   RegistryNode, empty_vkey, origin_node_key, origin_node_tn, sentinel_next_key,
 }
-use utils.{
-  bytearray_lt, count_unique_tokens, expect_inline_datum, has_currency_symbol,
-}
+use utils.{bytearray_lt, expect_inline_datum, has_currency_symbol}
 
 /// Validate that a registry node output has the correct structure.
 ///

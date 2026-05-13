@@ -30,14 +30,17 @@ validator issuance_mint(
   ) {
     // Direct withdrawal scan: detect minting_logic_cred and plg_stake_cred in a
     // single pass over self.withdrawals (no intermediate list allocation).
-    let (minting_logic_invoked, plg_invoked) =
-      list.foldl(
+    let
+      minting_logic_invoked,
+      plg_invoked,
+    <-
+      list.foldl2(
         self.withdrawals,
-        (False, False),
-        fn(wdrl, acc) {
-          let (m, p) = acc
+        False,
+        False,
+        fn(wdrl, m, p, return) {
           let Pair(cred, _amount) = wdrl
-          (m || cred == minting_logic_cred, p || cred == plg_stake_cred)
+          return(m || cred == minting_logic_cred, p || cred == plg_stake_cred)
         },
       )
 
