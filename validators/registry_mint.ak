@@ -12,7 +12,7 @@ use cardano/assets.{PolicyId}
 use cardano/transaction.{OutputReference, Transaction}
 use linked_list.{
   collect_node_ios, is_inserted_directory_node, is_updated_directory_node,
-  validate_directory_init, validate_directory_node_output,
+  validate_directory_init, validate_directory_node_output, validate_mint,
 }
 use registry_node.{RegistryNode}
 use types.{IssuanceCborHex, RegistryInit, RegistryInsert, RegistryRedeemer}
@@ -86,7 +86,7 @@ validator registry_mint(
         expect covering_node: RegistryNode = covering_datum
 
         // Must mint exactly one node token with the new key
-        let just_single_mint = assets.has_nft(self.mint, policy_id, key)
+        expect validate_mint(self.mint, policy_id) == key
 
         // Must have exactly 2 outputs: the updated covering node and the new inserted node
         expect list.length(node_outputs) == 2
@@ -129,7 +129,6 @@ validator registry_mint(
           // The covering node must cover the key to insert
           bytearray_lt(covering_node.key, key)?,
           bytearray_lt(key, covering_node.next)?,
-          just_single_mint?,
           inserted_found?,
           updated_found?,
         }

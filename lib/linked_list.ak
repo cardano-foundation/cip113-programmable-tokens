@@ -5,7 +5,7 @@ use cardano/address.{Credential, Script, VerificationKey}
 // Linked list validation logic for the token registry
 // Migrated from SmartTokens.LinkedList.Common
 
-use cardano/assets.{PolicyId, Value}
+use cardano/assets.{AssetName, PolicyId, Value}
 use cardano/transaction.{Input, Output, Transaction}
 use registry_node.{RegistryNode, origin_node, origin_node_tn, sentinel_next_key}
 use utils.{bytearray_lt, expect_inline_datum, has_currency_symbol}
@@ -109,7 +109,7 @@ pub fn validate_directory_init(
     // Node must match the canonical origin shape (all fields)
     is_origin_directory_node(node)?,
     // Must mint exactly one origin token and no other tokens from this policy
-    assets.has_nft(mint, node_cs, origin_node_tn)?,
+    (validate_mint(mint, node_cs) == origin_node_tn)?,
   }
 }
 
@@ -126,8 +126,7 @@ pub fn is_origin_directory_node(node: RegistryNode) -> Bool {
 ///   * key is a 28-byte policy id (CIP-113 §RegistryNode `key`).
 ///   * next is either a 28-byte policy id OR the `sentinel_next_key` — the
 ///     latter when the inserted node becomes the new last node and inherits
-///     the sentinel from the previous last (this is the only OR left that
-///     isn't strictly spec-mandated; it follows from the linked-list design).
+///     the sentinel from the previous last.
 ///   * credentials are strict 28-byte hashes (no length-0 origin loophole).
 ///   * `global_state_cs` is 0 or 28 bytes (CIP-113 normative MAY).
 pub fn is_inserted_directory_node(
@@ -173,4 +172,10 @@ pub fn is_updated_directory_node(
   insert_key: ByteArray,
 ) -> Bool {
   node == RegistryNode { ..original, next: insert_key }
+}
+
+pub fn validate_mint(mint: Value, policy_id: PolicyId) -> AssetName {
+  expect [Pair(asset_name, 1)] =
+    assets.tokens(mint, policy_id) |> dict.to_pairs()
+  asset_name
 }
