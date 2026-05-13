@@ -20,16 +20,16 @@ use utils.{
 ///  1. CIP-113 §Registration point 7 — address has only a payment credential
 ///     (stake_credential MUST be None).
 ///  2. CIP-113 §Registration point 6 — no reference script.
-///  3. Exactly 2 unique tokens in the value: Ada + the single registry NFT.
-///  4. Exactly 1 NFT under `node_cs` (the registry policy).
-///  5. Datum parses as a `RegistryNode`.
-///  6. `node.key` length: 28 bytes (a policy id) OR the origin key (#"").
-///  7. `node.next` length: 28 bytes OR the sentinel `sentinel_next_key`.
-///  8. `node.key < node.next` in Plutus byte order.
-///  9. `transfer_logic_script` and `third_party_transfer_logic_script` are
+///  3. Value carries exactly 2 policies: Ada and `node_cs`, with exactly one
+///     NFT under `node_cs` at quantity 1.
+///  4. Datum parses as a `RegistryNode`.
+///  5. `node.key` length: 28 bytes (a policy id) OR the origin key (#"").
+///  6. `node.next` length: 28 bytes OR the sentinel `sentinel_next_key`.
+///  7. `node.key < node.next` in Plutus byte order.
+///  8. `transfer_logic_script` and `third_party_transfer_logic_script` are
 ///     well-formed (0- or 28-byte hashes).
-/// 10. `global_state_cs` length is 0 or 28.
-/// 11. NFT asset name strictly equals `node.key`. (Origin case still passes
+///  9. `global_state_cs` length is 0 or 28.
+/// 10. NFT asset name strictly equals `node.key`. (Origin case still passes
 ///     because both sides are #"".) Replaces the prior loose disjunct
 ///     `tn == node.key || tn == origin_node_tn` which would have accepted a
 ///     non-origin node bearing the origin asset name.
@@ -45,13 +45,14 @@ pub fn validate_directory_node_output(
   // No reference script (CIP-113 §Registration point 6)
   expect output.reference_script == None
 
-  // Must have exactly 2 unique tokens (Ada + node token)
-  expect count_unique_tokens(value) == 2
-
-  // Must have exactly 1 node token from this policy
-  let node_tokens = tokens(value, node_cs)
-  expect dict.size(node_tokens) == 1
-
+  // Value must carry exactly two policies — Ada and `node_cs` — with exactly
+  // one NFT under `node_cs` at quantity 1. Drops the Ada head (always first by
+  // policy-id ordering, since the Ada policy is the empty bytestring), then
+  // requires the tail to be a single (policy, asset-name -> 1) pair.
+  expect [Pair(actual_node_cs, node_nft)] =
+    assets.to_dict(value) |> dict.expect_tail() |> dict.to_pairs()
+  expect actual_node_cs == node_cs
+  expect [Pair(tn, 1)] = dict.to_pairs(node_nft)
   // Parse datum as RegistryNode
   expect node: RegistryNode = datum
 
@@ -73,9 +74,6 @@ pub fn validate_directory_node_output(
     ) == 28
 
   // Token name strictly matches the key (origin passes via #"" == #"")
-  let token_pairs = dict.to_pairs(node_tokens)
-  expect [Pair(tn, qty)] = token_pairs
-  expect qty == 1
   expect tn == node.key
 
   node
