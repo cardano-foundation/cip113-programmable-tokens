@@ -82,6 +82,15 @@ validator registry_mint(
 
         // Must have exactly one node input (the covering node)
         expect [covering_input] = node_inputs
+        // Defense-in-depth: covering input MUST be locked under registry_spend.
+        // collect_node_ios already enforces all node outputs match this address,
+        // so this also transitively anchors the inserted + updated outputs to
+        // the registry_spend address. The inductive chain (origin bound to
+        // registry_spend by validate_directory_init → every insert anchored to
+        // its covering input) is restated here so the Insert path doesn't rely
+        // on the chain being unbroken by other contracts in future revisions.
+        expect
+          covering_input.output.address.payment_credential == registry_spend_cred
         let covering_datum = expect_inline_datum(covering_input.output)
         expect covering_node: RegistryNode = covering_datum
 

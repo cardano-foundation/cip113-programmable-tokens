@@ -7,19 +7,43 @@ use cardano/address.{Credential, Script, VerificationKey}
 
 use cardano/assets.{PolicyId, Value, tokens}
 use cardano/transaction.{Input, Output, Transaction}
-use registry_node.{RegistryNode, empty_vkey, origin_node_tn}
+use registry_node.{
+  RegistryNode, empty_vkey, origin_node_key, origin_node_tn, sentinel_next_key,
+}
 use utils.{
   bytearray_lt, count_unique_tokens, expect_inline_datum, has_currency_symbol,
 }
 
-/// Validate that a registry node output has the correct structure
-/// QUESTION: should the `transfer_logic_script: Credential` and `third_party_transfer_logic_script: Credential` be empty for the origin node?
+/// Validate that a registry node output has the correct structure.
+///
+/// Enforces, in order:
+///  1. CIP-113 §Registration point 7 — address has only a payment credential
+///     (stake_credential MUST be None).
+///  2. CIP-113 §Registration point 6 — no reference script.
+///  3. Exactly 2 unique tokens in the value: Ada + the single registry NFT.
+///  4. Exactly 1 NFT under `node_cs` (the registry policy).
+///  5. Datum parses as a `RegistryNode`.
+///  6. `node.key` length: 28 bytes (a policy id) OR the origin key (#"").
+///  7. `node.next` length: 28 bytes OR the sentinel `sentinel_next_key`.
+///  8. `node.key < node.next` in Plutus byte order.
+///  9. `transfer_logic_script` and `third_party_transfer_logic_script` are
+///     well-formed (0- or 28-byte hashes).
+/// 10. `global_state_cs` length is 0 or 28.
+/// 11. NFT asset name strictly equals `node.key`. (Origin case still passes
+///     because both sides are #"".) Replaces the prior loose disjunct
+///     `tn == node.key || tn == origin_node_tn` which would have accepted a
+///     non-origin node bearing the origin asset name.
 pub fn validate_directory_node_output(
   output: Output,
   node_cs: PolicyId,
 ) -> RegistryNode {
   let value = output.value
   let datum = expect_inline_datum(output)
+
+  // Address must have only a payment credential (CIP-113 §Registration point 7)
+  expect output.address.stake_credential == None
+  // No reference script (CIP-113 §Registration point 6)
+  expect output.reference_script == None
 
   // Must have exactly 2 unique tokens (Ada + node token)
   expect count_unique_tokens(value) == 2
@@ -31,14 +55,28 @@ pub fn validate_directory_node_output(
   // Parse datum as RegistryNode
   expect node: RegistryNode = datum
 
+  // Key length: 28 bytes (policy id) OR origin key (#"")
+  expect bytearray.length(node.key) == 28 || node.key == origin_node_key
+  // Next length: 28 bytes OR the sentinel for the last node
+  expect bytearray.length(node.next) == 28 || node.next == sentinel_next_key
+
   // Node must be ordered: key < next
   expect bytearray_lt(node.key, node.next)
 
-  // Token name must match the key - convert dict to list for pattern matching
+  // Credential shapes (length 0 or 28)
+  expect is_valid_credential(node.transfer_logic_script)
+  expect is_valid_credential(node.third_party_transfer_logic_script)
+  // global_state_cs length 0 (absent) or 28 (policy id) per spec
+  expect
+    bytearray.length(node.global_state_cs) == 0 || bytearray.length(
+      node.global_state_cs,
+    ) == 28
+
+  // Token name strictly matches the key (origin passes via #"" == #"")
   let token_pairs = dict.to_pairs(node_tokens)
   expect [Pair(tn, qty)] = token_pairs
   expect qty == 1
-  expect tn == node.key || tn == origin_node_tn
+  expect tn == node.key
 
   node
 }
@@ -95,8 +133,8 @@ pub fn validate_directory_init(
     // No node inputs should be spent
     list.is_empty(node_inputs)?,
     // Node must be empty (origin node)
-    (node.key == #"")?,
-    (node.next == #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")?,
+    (node.key == origin_node_key)?,
+    (node.next == sentinel_next_key)?,
     (node.transfer_logic_script == empty_vkey)?,
     (node.third_party_transfer_logic_script == empty_vkey)?,
     (node.global_state_cs == #"")?,
