@@ -7,6 +7,7 @@ use aiken/primitive/bytearray
 // This validator maintains a registry of programmable token policies.
 // Each entry must be a valid programmable token that passes registration checks.
 
+use cardano/address.{Credential}
 use cardano/assets.{PolicyId}
 use cardano/transaction.{OutputReference, Transaction}
 use linked_list.{
@@ -22,6 +23,7 @@ use utils.{
 validator registry_mint(
   utxo_ref: OutputReference,
   issuance_cbor_hex_cs: PolicyId,
+  registry_spend_cred: Credential,
 ) {
   mint(redeemer: RegistryRedeemer, policy_id: PolicyId, self: Transaction) {
     trace @"Starting registry_mint validation"
@@ -44,6 +46,7 @@ validator registry_mint(
             node_outputs,
             self.mint,
             policy_id,
+            registry_spend_cred,
           )?,
         }
       }

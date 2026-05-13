@@ -191,6 +191,7 @@ fn call_init_validator(tx: Transaction) -> Bool {
   registry_mint.registry_mint.mint(
     test_utxo_ref,
     test_issuance_cbor_hex_cs,
+    Script(#"cccccccc"),
     RegistryInit,
     test_policy_id,
     tx,
@@ -201,6 +202,7 @@ fn call_insert_validator(redeemer: RegistryRedeemer, tx: Transaction) -> Bool {
   registry_mint.registry_mint.mint(
     test_utxo_ref,
     test_issuance_cbor_hex_cs,
+    Script(#"cccccccc"),
     redeemer,
     test_policy_id,
     tx,
@@ -502,6 +504,9 @@ const ism_registry_cs: PolicyId =
 const ism_ml_cred: Credential =
   Script(#"aa33333333333333333333333333333333333333333333333333333333")
 
+const ism_plg_cred: Credential =
+  Script(#"aa55555555555555555555555555555555555555555555555555555555")
+
 const ism_own_policy: PolicyId =
   #"aa44444444444444444444444444444444444444444444444444444444"
 
@@ -568,6 +573,7 @@ fn call_issuance_validator(
     ism_plb_cred,
     ism_registry_cs,
     ism_ml_cred,
+    ism_plg_cred,
     rdmr,
     ism_own_policy,
     tx,

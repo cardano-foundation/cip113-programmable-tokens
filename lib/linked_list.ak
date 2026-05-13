@@ -83,9 +83,12 @@ pub fn validate_directory_init(
   node_outputs: List<Output>,
   mint: Value,
   node_cs: PolicyId,
+  registry_spend_cred: Credential,
 ) -> Bool {
   // Exactly one node output
   expect [node_output] = node_outputs
+  // Origin node must be locked under registry_spend
+  expect node_output.address.payment_credential == registry_spend_cred
   let node = validate_directory_node_output(node_output, node_cs)
 
   and {
