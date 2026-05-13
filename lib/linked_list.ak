@@ -8,11 +8,14 @@ use cardano/address.{Credential, Script, VerificationKey}
 use cardano/assets.{PolicyId, Value}
 use cardano/transaction.{Input, Output, Transaction}
 use registry_node.{
-  RegistryNode, empty_vkey, origin_node_key, origin_node_tn, sentinel_next_key,
+  RegistryNode, origin_node, origin_node_tn, sentinel_next_key,
 }
 use utils.{bytearray_lt, expect_inline_datum, has_currency_symbol}
 
-/// Validate that a registry node output has the correct structure.
+/// Validate the *common* structural properties of a registry-node output and
+/// return the parsed `RegistryNode`. Role-specific shape (origin vs inserted
+/// vs updated) is **not** checked here — see the `is_*_directory_node`
+/// helpers below. The caller picks which role applies.
 ///
 /// Enforces, in order:
 ///  1. CIP-113 §Registration point 7 — address has only a payment credential
@@ -21,23 +24,13 @@ use utils.{bytearray_lt, expect_inline_datum, has_currency_symbol}
 ///  3. Value carries exactly 2 policies: Ada and `node_cs`, with exactly one
 ///     NFT under `node_cs` at quantity 1.
 ///  4. Datum parses as a `RegistryNode`.
-///  5. `node.key` length: 28 bytes (a policy id) OR the origin key (#"").
-///  6. `node.next` length: 28 bytes OR the sentinel `sentinel_next_key`.
-///  7. `node.key < node.next` in Plutus byte order.
-///  8. `transfer_logic_script` and `third_party_transfer_logic_script` are
-///     well-formed (0- or 28-byte hashes).
-///  9. `global_state_cs` length is 0 or 28.
-/// 10. NFT asset name strictly equals `node.key`. (Origin case still passes
-///     because both sides are #"".) Replaces the prior loose disjunct
-///     `tn == node.key || tn == origin_node_tn` which would have accepted a
-///     non-origin node bearing the origin asset name.
+///  5. `node.key < node.next` in Plutus byte order.
+///  6. NFT asset name strictly equals `node.key`. (Origin case passes because
+///     both sides are #"".)
 pub fn validate_directory_node_output(
   output: Output,
   node_cs: PolicyId,
 ) -> RegistryNode {
-  let value = output.value
-  let datum = expect_inline_datum(output)
-
   // Address must have only a payment credential (CIP-113 §Registration point 7)
   expect output.address.stake_credential == None
   // No reference script (CIP-113 §Registration point 6)
@@ -48,28 +41,15 @@ pub fn validate_directory_node_output(
   // policy-id ordering, since the Ada policy is the empty bytestring), then
   // requires the tail to be a single (policy, asset-name -> 1) pair.
   expect [Pair(actual_node_cs, node_nft)] =
-    assets.to_dict(value) |> dict.expect_tail() |> dict.to_pairs()
+    assets.to_dict(output.value) |> dict.expect_tail() |> dict.to_pairs()
   expect actual_node_cs == node_cs
   expect [Pair(tn, 1)] = dict.to_pairs(node_nft)
-  // Parse datum as RegistryNode
-  expect node: RegistryNode = datum
 
-  // Key length: 28 bytes (policy id) OR origin key (#"")
-  expect bytearray.length(node.key) == 28 || node.key == origin_node_key
-  // Next length: 28 bytes OR the sentinel for the last node
-  expect bytearray.length(node.next) == 28 || node.next == sentinel_next_key
+  // Parse datum as RegistryNode
+  expect node: RegistryNode = expect_inline_datum(output)
 
   // Node must be ordered: key < next
   expect bytearray_lt(node.key, node.next)
-
-  // Credential shapes (length 0 or 28)
-  expect is_valid_credential(node.transfer_logic_script)
-  expect is_valid_credential(node.third_party_transfer_logic_script)
-  // global_state_cs length 0 (absent) or 28 (policy id) per spec
-  expect
-    bytearray.length(node.global_state_cs) == 0 || bytearray.length(
-      node.global_state_cs,
-    ) == 28
 
   // Token name strictly matches the key (origin passes via #"" == #"")
   expect tn == node.key
@@ -128,18 +108,30 @@ pub fn validate_directory_init(
   and {
     // No node inputs should be spent
     list.is_empty(node_inputs)?,
-    // Node must be empty (origin node)
-    (node.key == origin_node_key)?,
-    (node.next == sentinel_next_key)?,
-    (node.transfer_logic_script == empty_vkey)?,
-    (node.third_party_transfer_logic_script == empty_vkey)?,
-    (node.global_state_cs == #"")?,
+    // Node must match the canonical origin shape (all fields)
+    is_origin_directory_node(node)?,
     // Must mint exactly one origin token and no other tokens from this policy
     assets.has_nft(mint, node_cs, origin_node_tn)?,
   }
 }
 
-/// Check if a registry node represents an insertion at a specific position
+/// True iff `node` is the canonical origin registry node. Single equality
+/// against the `origin_node` constant — future fields added to `RegistryNode`
+/// are automatically enforced without touching this helper.
+pub fn is_origin_directory_node(node: RegistryNode) -> Bool {
+  node == origin_node
+}
+
+/// True iff `node` has the shape of a freshly inserted (non-origin) registry
+/// entry. Enforces:
+///   * key/next match the expected `insert_key` / `next_key` (semantic shape).
+///   * key is a 28-byte policy id (CIP-113 §RegistryNode `key`).
+///   * next is either a 28-byte policy id OR the `sentinel_next_key` — the
+///     latter when the inserted node becomes the new last node and inherits
+///     the sentinel from the previous last (this is the only OR left that
+///     isn't strictly spec-mandated; it follows from the linked-list design).
+///   * credentials are strict 28-byte hashes (no length-0 origin loophole).
+///   * `global_state_cs` is 0 or 28 bytes (CIP-113 normative MAY).
 pub fn is_inserted_directory_node(
   node: RegistryNode,
   insert_key: ByteArray,
@@ -148,46 +140,39 @@ pub fn is_inserted_directory_node(
   and {
     (node.key == insert_key)?,
     (node.next == next_key)?,
-    // Validate credentials are properly formed
-    is_valid_credential(node.transfer_logic_script)?,
-    is_valid_credential(node.third_party_transfer_logic_script)?,
-    // Validate global_state_cs is valid (can be empty or 28 bytes)
+    // CIP-113: key is a 28-byte policy id for non-origin nodes
+    (bytearray.length(node.key) == 28)?,
+    // next is 28 bytes OR the sentinel (when this node becomes the new last)
+    (bytearray.length(node.next) == 28 || node.next == sentinel_next_key)?,
+    // CIP-113: credentials MUST be 28-byte hashes (no empty allowed here —
+    // empty credentials belong only to the origin node)
+    is_28_byte_credential(node.transfer_logic_script)?,
+    is_28_byte_credential(node.third_party_transfer_logic_script)?,
+    // CIP-113 normative MAY: global_state_cs is 0 (absent) or 28 (a policy id)
     (bytearray.length(node.global_state_cs) == 0 || bytearray.length(
       node.global_state_cs,
     ) == 28)?,
   }
 }
 
-/// Validate that a credential is properly formed
-/// Allows empty credentials (for origin node) or valid 28-byte hashes
-pub fn is_valid_credential(cred: Credential) -> Bool {
+/// Strict 28-byte credential check. Used by `is_inserted_directory_node` to
+/// reject the length-0 origin shape on a non-origin node.
+pub fn is_28_byte_credential(cred: Credential) -> Bool {
   when cred is {
-    VerificationKey(hash) -> is_valid_credential_length(hash)
-    Script(hash) -> is_valid_credential_length(hash)
+    VerificationKey(hash) -> bytearray.length(hash) == 28
+    Script(hash) -> bytearray.length(hash) == 28
   }
 }
 
-fn is_valid_credential_length(hash: ByteArray) -> Bool {
-  let length = bytearray.length(hash)
-  length == 28 || length == 0
-}
-
-/// Check if a registry node represents the covering node after insertion.
-/// Validates ALL datum fields are preserved (not just key/next).
-/// This prevents an attacker from swapping transfer_logic_script,
-/// third_party_transfer_logic_script, or global_state_cs during a
-/// RegistryInsert operation.
+/// True iff `node` is the covering node after a successful insertion: every
+/// field equals the original except `next`, which now points at the freshly
+/// inserted key. Implemented as a single record-equality check so any future
+/// field added to `RegistryNode` is automatically enforced.
 /// Fix for NEW-1 — matches Plutarch's pisInsertedOnNode strict equality.
 pub fn is_updated_directory_node(
   node: RegistryNode,
   original: RegistryNode,
   insert_key: ByteArray,
 ) -> Bool {
-  and {
-    (node.key == original.key)?,
-    (node.next == insert_key)?,
-    (node.transfer_logic_script == original.transfer_logic_script)?,
-    (node.third_party_transfer_logic_script == original.third_party_transfer_logic_script)?,
-    (node.global_state_cs == original.global_state_cs)?,
-  }
+  node == RegistryNode { ..original, next: insert_key }
 }

@@ -97,26 +97,37 @@ validator registry_mint(
         // Must mint exactly one node token with the new key
         let just_single_mint = assets.has_nft(self.mint, policy_id, key)
 
-        // Parse the outputs to find the two new nodes
-        let output_nodes =
-          list.map(
+        // Must have exactly 2 outputs: the updated covering node and the new inserted node
+        expect list.length(node_outputs) == 2
+        // Single-pass scan of node_outputs: validate each output's common
+        // structural shape, then classify it as the updated covering node
+        // or the newly inserted node. With list.length(node_outputs) == 2
+        // checked below and the registry's strict ordering invariant
+        // (covering_node.key < key, hence one node cannot satisfy both
+        // shapes), `inserted_found && updated_found` implies exactly one
+        // output of each shape.
+        let
+          inserted_found,
+          updated_found,
+        <-
+          list.foldl2(
             node_outputs,
-            fn(out) { validate_directory_node_output(out, policy_id) },
-          )
-
-        // One output must be the updated covering node (key -> insert_key)
-        let registry_node_updated =
-          list.any(
-            output_nodes,
-            fn(node) { is_updated_directory_node(node, covering_node, key) },
-          )
-
-        // One output must be the new inserted node (insert_key -> next)
-        let registry_node_inserted =
-          list.any(
-            output_nodes,
-            fn(node) {
-              is_inserted_directory_node(node, key, covering_node.next)
+            False,
+            False,
+            fn(out, found_inserted, found_updated, return) {
+              let node = validate_directory_node_output(out, policy_id)
+              return(
+                found_inserted || is_inserted_directory_node(
+                  node,
+                  key,
+                  covering_node.next,
+                ),
+                found_updated || is_updated_directory_node(
+                  node,
+                  covering_node,
+                  key,
+                ),
+              )
             },
           )
 
@@ -128,10 +139,8 @@ validator registry_mint(
           bytearray_lt(covering_node.key, key)?,
           bytearray_lt(key, covering_node.next)?,
           just_single_mint?,
-          // Must have exactly 2 outputs: the updated covering node and the new inserted node
-          (list.length(output_nodes) == 2)?,
-          registry_node_updated?,
-          registry_node_inserted?,
+          inserted_found?,
+          updated_found?,
         }
       }
     }
