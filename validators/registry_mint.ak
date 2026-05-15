@@ -81,15 +81,17 @@ validator registry_mint(
         // Must mint exactly one node token with the new key
         expect validate_mint(self.mint, policy_id) == key
 
-        // there must be exactly one node input (the covering node)
-        // no need to check address as it's checked at RegistryInit and in the outputs of the the Insert
+        // There must be exactly one node input (the covering node).
+        // No explicit address check needed: any registry-NFT-bearing UTxO is
+        // at the registry_spend address by induction (Init binds the origin's
+        // address, every Insert binds its new outputs' addresses, and
+        // registry_spend is the sole script that can spend those UTxOs).
         expect [covering_input] =
           list.filter(
             self.inputs,
             fn(input) { has_currency_symbol(input.output.value, policy_id) },
           )
 
-        // Must have exactly one node input (the covering node)
         let covering_datum = expect_inline_datum(covering_input.output)
         expect covering_node: RegistryNode = covering_datum
 

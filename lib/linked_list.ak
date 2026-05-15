@@ -16,8 +16,10 @@ use utils.{bytearray_lt, expect_inline_datum, has_currency_symbol}
 /// helpers below. The caller picks which role applies.
 ///
 /// Enforces, in order:
-///  1. CIP-113 §Registration point 7 — address has only a payment credential
-///     (stake_credential MUST be None).
+///  1. Output address strictly equals `node_address` (caller-supplied). The
+///     caller is responsible for passing an address with `stake_credential:
+///     None` per CIP-113 §Registration point 7 — equality with `node_address`
+///     transitively enforces that.
 ///  2. CIP-113 §Registration point 6 — no reference script.
 ///  3. Value carries exactly 2 policies: Ada and `node_cs`, with exactly one
 ///     NFT under `node_cs` at quantity 1.
@@ -30,9 +32,10 @@ pub fn validate_directory_node_output(
   node_cs: PolicyId,
   node_address: Address,
 ) -> RegistryNode {
+  // Full-address equality (subsumes the per-field payment-credential and
+  // stake-credential = None checks for any caller that passes a properly
+  // shaped node_address — both call sites do).
   expect output.address == node_address
-  // Address must have only a payment credential (CIP-113 §Registration point 7)
-  expect None = output.address.stake_credential
   // No reference script (CIP-113 §Registration point 6)
   expect None = output.reference_script
 
@@ -111,26 +114,31 @@ pub fn is_inserted_directory_node(
     (node.key == insert_key)?,
     (node.next == next_key)?,
     // CIP-113: key is a 28-byte policy id for non-origin nodes
-    (bytearray.length(node.key) == 28)?,
+    is_28_bytes(node.key)?,
     // next is 28 bytes OR the sentinel (when this node becomes the new last)
-    (bytearray.length(node.next) == 28 || node.next == sentinel_next_key)?,
+    (is_28_bytes(node.next) || node.next == sentinel_next_key)?,
     // CIP-113: credentials MUST be 28-byte hashes (no empty allowed here —
     // empty credentials belong only to the origin node)
     is_28_byte_credential(node.transfer_logic_script)?,
     is_28_byte_credential(node.third_party_transfer_logic_script)?,
     // CIP-113 normative MAY: global_state_cs is 0 (absent) or 28 (a policy id)
-    (bytearray.length(node.global_state_cs) == 0 || bytearray.length(
-      node.global_state_cs,
-    ) == 28)?,
+    (bytearray.length(node.global_state_cs) == 0
+      || is_28_bytes(node.global_state_cs))?,
   }
+}
+
+/// Strict 28-byte length check. Single helper so the compiler can hoist the
+/// builtin call instead of duplicating it across every usage site.
+pub fn is_28_bytes(hash: ByteArray) -> Bool {
+  bytearray.length(hash) == 28
 }
 
 /// Strict 28-byte credential check. Used by `is_inserted_directory_node` to
 /// reject the length-0 origin shape on a non-origin node.
 pub fn is_28_byte_credential(cred: Credential) -> Bool {
   when cred is {
-    VerificationKey(hash) -> bytearray.length(hash) == 28
-    Script(hash) -> bytearray.length(hash) == 28
+    VerificationKey(hash) -> is_28_bytes(hash)
+    Script(hash) -> is_28_bytes(hash)
   }
 }
 
