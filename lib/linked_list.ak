@@ -70,7 +70,6 @@ pub fn validate_directory_init(
       node_outputs,
       fn(output) { has_currency_symbol(output.value, node_cs) },
     )
-  // expect node_output.address.payment_credential == registry_spend_cred
   // Origin node must be locked under registry_spend
   let node =
     validate_directory_node_output(

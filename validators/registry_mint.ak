@@ -93,13 +93,11 @@ validator registry_mint(
         let covering_datum = expect_inline_datum(covering_input.output)
         expect covering_node: RegistryNode = covering_datum
 
-        // Single-pass scan of node_outputs: validate each output's common
-        // structural shape, then classify it as the updated covering node
-        // or the newly inserted node. With list.length(node_outputs) == 2
-        // checked below and the registry's strict ordering invariant
-        // (covering_node.key < key, hence one node cannot satisfy both
-        // shapes), `inserted_found && updated_found` implies exactly one
-        // output of each shape.
+        // Filter the two registry-node outputs and classify them. The destructure
+        // enforces exactly two such outputs. The strict ordering invariant
+        // (covering_node.key < key, asserted below) means no single output can satisfy
+        // both the inserted and the updated-covering shape, so identifying which is
+        // which by a single `is_inserted_directory_node` check is unambiguous.
         expect [out1,
           out2] =
           list.filter(
