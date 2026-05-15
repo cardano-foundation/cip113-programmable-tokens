@@ -11,13 +11,14 @@ use cardano/address.{Credential}
 use cardano/assets.{PolicyId}
 use cardano/transaction.{OutputReference, Transaction}
 use linked_list.{
-  collect_node_ios, is_inserted_directory_node, is_updated_directory_node,
-  validate_directory_init, validate_directory_node_output, validate_mint,
+  is_inserted_directory_node, is_updated_directory_node, validate_directory_init,
+  validate_directory_node_output, validate_mint,
 }
 use registry_node.{RegistryNode}
 use types.{IssuanceCborHex, RegistryInit, RegistryInsert, RegistryRedeemer}
 use utils.{
-  bytearray_lt, expect_inline_datum, is_programmable_token_registration,
+  bytearray_lt, expect_inline_datum, has_currency_symbol,
+  is_programmable_token_registration,
 }
 
 validator registry_mint(
@@ -27,8 +28,6 @@ validator registry_mint(
 ) {
   mint(redeemer: RegistryRedeemer, policy_id: PolicyId, self: Transaction) {
     trace @"Starting registry_mint validation"
-    let (node_inputs, node_outputs) = collect_node_ios(self, policy_id)
-
     when redeemer is {
       RegistryInit -> {
         // Ensure this is a one-shot minting policy by checking that utxo_ref is spent
@@ -42,8 +41,7 @@ validator registry_mint(
         and {
           is_utxo_consumed?,
           validate_directory_init(
-            node_inputs,
-            node_outputs,
+            self.outputs,
             self.mint,
             policy_id,
             registry_spend_cred,
@@ -80,16 +78,21 @@ validator registry_mint(
             self.mint,
           )
 
-        // Must have exactly one node input (the covering node)
-        expect [covering_input] = node_inputs
-        let covering_datum = expect_inline_datum(covering_input.output)
-        expect covering_node: RegistryNode = covering_datum
-
         // Must mint exactly one node token with the new key
         expect validate_mint(self.mint, policy_id) == key
 
-        // Must have exactly 2 outputs: the updated covering node and the new inserted node
-        expect list.length(node_outputs) == 2
+        // there must be exactly one node input (the covering node)
+        // no need to check address as it's checked at RegistryInit and in the outputs of the the Insert
+        expect [covering_input] =
+          list.filter(
+            self.inputs,
+            fn(input) { has_currency_symbol(input.output.value, policy_id) },
+          )
+
+        // Must have exactly one node input (the covering node)
+        let covering_datum = expect_inline_datum(covering_input.output)
+        expect covering_node: RegistryNode = covering_datum
+
         // Single-pass scan of node_outputs: validate each output's common
         // structural shape, then classify it as the updated covering node
         // or the newly inserted node. With list.length(node_outputs) == 2
@@ -97,30 +100,34 @@ validator registry_mint(
         // (covering_node.key < key, hence one node cannot satisfy both
         // shapes), `inserted_found && updated_found` implies exactly one
         // output of each shape.
-        let
-          inserted_found,
-          updated_found,
-        <-
-          list.foldl2(
-            node_outputs,
-            False,
-            False,
-            fn(out, found_inserted, found_updated, return) {
-              let node = validate_directory_node_output(out, policy_id)
-              return(
-                found_inserted || is_inserted_directory_node(
-                  node,
-                  key,
-                  covering_node.next,
-                ),
-                found_updated || is_updated_directory_node(
-                  node,
-                  covering_node,
-                  key,
-                ),
-              )
-            },
+        expect [out1,
+          out2] =
+          list.filter(
+            self.outputs,
+            fn(o) { has_currency_symbol(o.value, policy_id) },
           )
+
+        let node1 =
+          validate_directory_node_output(
+            out1,
+            policy_id,
+            covering_input.output.address,
+          )
+        let node2 =
+          validate_directory_node_output(
+            out2,
+            policy_id,
+            covering_input.output.address,
+          )
+
+        let updated =
+          if is_inserted_directory_node(node1, key, covering_node.next) {
+            node2
+          } else {
+            expect is_inserted_directory_node(node2, key, covering_node.next)
+            node1
+          }
+        expect is_updated_directory_node(updated, covering_node, key)
 
         and {
           is_token_registered?,
@@ -129,8 +136,6 @@ validator registry_mint(
           // The covering node must cover the key to insert
           bytearray_lt(covering_node.key, key)?,
           bytearray_lt(key, covering_node.next)?,
-          inserted_found?,
-          updated_found?,
         }
       }
     }

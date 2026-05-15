@@ -1,12 +1,12 @@
 use aiken/collection/dict
 use aiken/collection/list
 use aiken/primitive/bytearray
-use cardano/address.{Credential, Script, VerificationKey}
+use cardano/address.{Address, Credential, Script, VerificationKey}
 // Linked list validation logic for the token registry
 // Migrated from SmartTokens.LinkedList.Common
 
 use cardano/assets.{AssetName, PolicyId, Value}
-use cardano/transaction.{Input, Output, Transaction}
+use cardano/transaction.{Output}
 use registry_node.{RegistryNode, origin_node, origin_node_tn, sentinel_next_key}
 use utils.{bytearray_lt, expect_inline_datum, has_currency_symbol}
 
@@ -28,7 +28,9 @@ use utils.{bytearray_lt, expect_inline_datum, has_currency_symbol}
 pub fn validate_directory_node_output(
   output: Output,
   node_cs: PolicyId,
+  node_address: Address,
 ) -> RegistryNode {
+  expect output.address == node_address
   // Address must have only a payment credential (CIP-113 §Registration point 7)
   expect None = output.address.stake_credential
   // No reference script (CIP-113 §Registration point 6)
@@ -55,57 +57,29 @@ pub fn validate_directory_node_output(
   node
 }
 
-/// Get all inputs and outputs at the node validator address
-pub fn collect_node_ios(
-  tx: Transaction,
-  node_cs: PolicyId,
-) -> (List<Input>, List<Output>) {
-  // Find inputs that have the node token
-  let node_inputs =
-    list.filter(
-      tx.inputs,
-      fn(input) { has_currency_symbol(input.output.value, node_cs) },
-    )
-
-  // Find outputs that have the node token
-  let node_outputs =
-    list.filter(
-      tx.outputs,
-      fn(output) { has_currency_symbol(output.value, node_cs) },
-    )
-
-  // All node outputs must be at the same address as the first node input
-  when node_inputs is {
-    [first, ..] -> {
-      let expected_address = first.output.address
-      expect
-        list.all(
-          node_outputs,
-          fn(output) { output.address == expected_address },
-        )
-      (node_inputs, node_outputs)
-    }
-    [] -> ([], node_outputs)
-  }
-}
-
 /// Validate registry Init: no inputs, one empty origin node output, mint origin token
 pub fn validate_directory_init(
-  node_inputs: List<Input>,
   node_outputs: List<Output>,
   mint: Value,
   node_cs: PolicyId,
   registry_spend_cred: Credential,
 ) -> Bool {
-  // Exactly one node output
-  expect [node_output] = node_outputs
+  // There must be exactly one node output --- checked in validate_directory_init
+  expect [node_output] =
+    list.filter(
+      node_outputs,
+      fn(output) { has_currency_symbol(output.value, node_cs) },
+    )
+  // expect node_output.address.payment_credential == registry_spend_cred
   // Origin node must be locked under registry_spend
-  expect node_output.address.payment_credential == registry_spend_cred
-  let node = validate_directory_node_output(node_output, node_cs)
+  let node =
+    validate_directory_node_output(
+      node_output,
+      node_cs,
+      Address(registry_spend_cred, None),
+    )
 
   and {
-    // No node inputs should be spent
-    list.is_empty(node_inputs)?,
     // Node must match the canonical origin shape (all fields)
     is_origin_directory_node(node)?,
     // Must mint exactly one origin token and no other tokens from this policy
