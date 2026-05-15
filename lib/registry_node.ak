@@ -8,8 +8,34 @@ use list
 /// Constants for token names
 pub const origin_node_tn = #""
 
+/// Origin node datum key — empty bytestring, lexicographically the smallest
+/// possible value, sorts before any 28-byte policy id.
+pub const origin_node_key = #""
+
+/// Sentinel value for the *last* node's `next` field. Plutus compares
+/// bytestrings byte-by-byte, treating the longer string as greater when all
+/// shared prefix bytes are equal — so a 30-byte all-`ff` is strictly greater
+/// than any 28-byte policy id. The 30-byte length is intentional and
+/// load-bearing for the linked-list ordering invariant: do NOT "normalise" it
+/// to 28 bytes (that would collide with a hypothetical real 28-byte all-`ff`
+/// policy id).
+pub const sentinel_next_key =
+  #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+
 /// Empty Verification Key
 pub const empty_vkey = VerificationKey(#"")
+
+/// The canonical origin registry node. Used as a single equality target by
+/// `is_origin_directory_node`, so any future field added to `RegistryNode` is
+/// automatically enforced for the origin without touching the role helper.
+pub const origin_node: RegistryNode =
+  RegistryNode {
+    key: origin_node_key,
+    next: sentinel_next_key,
+    transfer_logic_script: empty_vkey,
+    third_party_transfer_logic_script: empty_vkey,
+    global_state_cs: #"",
+  }
 
 /// Registry node in the linked list of registered programmable token policies
 /// This represents an entry in the CIP-0143 registry

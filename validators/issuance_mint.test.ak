@@ -29,6 +29,9 @@ const test_registry_cs: PolicyId =
 const test_ml_cred: Credential =
   Script(#"33333333333333333333333333333333333333333333333333333333")
 
+const test_plg_cred: Credential =
+  Script(#"a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1")
+
 const test_own_policy: PolicyId =
   #"44444444444444444444444444444444444444444444444444444444"
 
@@ -139,6 +142,7 @@ fn call_validator(rdmr: SmartTokenMintingAction, tx: Transaction) -> Bool {
     test_plb_cred,
     test_registry_cs,
     test_ml_cred,
+    test_plg_cred,
     rdmr,
     test_own_policy,
     tx,
@@ -189,7 +193,7 @@ test valid_burn() {
       reference_inputs: [some_ref_input(registry_node_output(test_own_policy))],
       outputs: [],
       mint: from_asset(test_own_policy, test_token_name, -50),
-      withdrawals: [Pair(test_ml_cred, 0)],
+      withdrawals: [Pair(test_ml_cred, 0), Pair(test_plg_cred, 0)],
       redeemers: [Pair(Mint(test_own_policy), as_data(rdmr))],
     }
   call_validator(rdmr, tx)
@@ -645,7 +649,7 @@ test multi_token_burn() {
       outputs: [],
       mint: from_asset(test_own_policy, test_token_name, -100)
         |> assets.add(test_own_policy, test_token_name_2, -50),
-      withdrawals: [Pair(test_ml_cred, 0)],
+      withdrawals: [Pair(test_ml_cred, 0), Pair(test_plg_cred, 0)],
       redeemers: [Pair(Mint(test_own_policy), as_data(rdmr))],
     }
   call_validator(rdmr, tx)
@@ -670,7 +674,7 @@ test multi_token_spend_and_mint_defers() {
       outputs: [multi_mint_output(200, 100)],
       mint: from_asset(test_own_policy, test_token_name, 100)
         |> assets.add(test_own_policy, test_token_name_2, 50),
-      withdrawals: [Pair(test_ml_cred, 0)],
+      withdrawals: [Pair(test_ml_cred, 0), Pair(test_plg_cred, 0)],
       redeemers: [Pair(Mint(test_own_policy), as_data(rdmr))],
     }
   call_validator(rdmr, tx)
@@ -959,7 +963,7 @@ test case4_spend_and_mint_same_token_valid() {
       // 150 total in outputs (100 spent + 50 minted) — all at PLB
       outputs: [mint_output(150)],
       mint: from_asset(test_own_policy, test_token_name, 50),
-      withdrawals: [Pair(test_ml_cred, 0)],
+      withdrawals: [Pair(test_ml_cred, 0), Pair(test_plg_cred, 0)],
       redeemers: [Pair(Mint(test_own_policy), as_data(rdmr))],
     }
   call_validator(rdmr, tx)
@@ -1002,7 +1006,7 @@ test case4_spend_and_mint_defers_to_plglobal() {
       reference_inputs: [some_ref_input(registry_node_output(test_own_policy))],
       outputs: [mint_output(75), non_plb_output],
       mint: from_asset(test_own_policy, test_token_name, 50),
-      withdrawals: [Pair(test_ml_cred, 0)],
+      withdrawals: [Pair(test_ml_cred, 0), Pair(test_plg_cred, 0)],
       redeemers: [Pair(Mint(test_own_policy), as_data(rdmr))],
     }
   // This passes at issuance_mint level — PLGlobal would reject it on-chain
