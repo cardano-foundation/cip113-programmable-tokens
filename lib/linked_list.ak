@@ -30,9 +30,9 @@ pub fn validate_directory_node_output(
   node_cs: PolicyId,
 ) -> RegistryNode {
   // Address must have only a payment credential (CIP-113 §Registration point 7)
-  expect output.address.stake_credential == None
+  expect None = output.address.stake_credential
   // No reference script (CIP-113 §Registration point 6)
-  expect output.reference_script == None
+  expect None = output.reference_script
 
   // Value must carry exactly two policies — Ada and `node_cs` — with exactly
   // one NFT under `node_cs` at quantity 1. Drops the Ada head (always first by
