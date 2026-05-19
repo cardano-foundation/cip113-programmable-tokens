@@ -29,6 +29,9 @@ const test_registry_cs: PolicyId =
 const test_ml_cred: Credential =
   Script(#"33333333333333333333333333333333333333333333333333333333")
 
+const test_plg_cred: Credential =
+  Script(#"a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1")
+
 const test_own_policy: PolicyId =
   #"44444444444444444444444444444444444444444444444444444444"
 
@@ -105,7 +108,41 @@ fn mint_output_named(token_name: ByteArray, qty: Int) -> Output {
   }
 }
 
+/// An output holding `qty` of `(test_own_policy, token_name)` at a NON-PLB
+/// address — used by tests that exercise the "tokens escape programmable
+/// custody" failure paths.
+fn non_plb_output_named(token_name: ByteArray, qty: Int) -> Output {
+  Output {
+    address: Address {
+      payment_credential: Script(
+        #"99999999999999999999999999999999999999999999999999999999",
+      ),
+      stake_credential: Some(
+        Inline(
+          Script(#"77777777777777777777777777777777777777777777777777777777"),
+        ),
+      ),
+    },
+    value: min_ada
+      |> assets.add(test_own_policy, token_name, qty),
+    datum: NoDatum,
+    reference_script: None,
+  }
+}
+
 fn some_ref_input(output: Output) -> Input {
+  Input {
+    output_reference: OutputReference {
+      transaction_id: #"0000000000000000000000000000000000000000000000000000000000000000",
+      output_index: 0,
+    },
+    output,
+  }
+}
+
+/// Wrap an output as a placeholder input (mirror of `some_ref_input` for the
+/// spending side).
+fn some_input(output: Output) -> Input {
   Input {
     output_reference: OutputReference {
       transaction_id: #"0000000000000000000000000000000000000000000000000000000000000000",
@@ -139,6 +176,7 @@ fn call_validator(rdmr: SmartTokenMintingAction, tx: Transaction) -> Bool {
     test_plb_cred,
     test_registry_cs,
     test_ml_cred,
+    test_plg_cred,
     rdmr,
     test_own_policy,
     tx,
@@ -189,7 +227,7 @@ test valid_burn() {
       reference_inputs: [some_ref_input(registry_node_output(test_own_policy))],
       outputs: [],
       mint: from_asset(test_own_policy, test_token_name, -50),
-      withdrawals: [Pair(test_ml_cred, 0)],
+      withdrawals: [Pair(test_ml_cred, 0), Pair(test_plg_cred, 0)],
       redeemers: [Pair(Mint(test_own_policy), as_data(rdmr))],
     }
   call_validator(rdmr, tx)
@@ -645,7 +683,7 @@ test multi_token_burn() {
       outputs: [],
       mint: from_asset(test_own_policy, test_token_name, -100)
         |> assets.add(test_own_policy, test_token_name_2, -50),
-      withdrawals: [Pair(test_ml_cred, 0)],
+      withdrawals: [Pair(test_ml_cred, 0), Pair(test_plg_cred, 0)],
       redeemers: [Pair(Mint(test_own_policy), as_data(rdmr))],
     }
   call_validator(rdmr, tx)
@@ -670,7 +708,7 @@ test multi_token_spend_and_mint_defers() {
       outputs: [multi_mint_output(200, 100)],
       mint: from_asset(test_own_policy, test_token_name, 100)
         |> assets.add(test_own_policy, test_token_name_2, 50),
-      withdrawals: [Pair(test_ml_cred, 0)],
+      withdrawals: [Pair(test_ml_cred, 0), Pair(test_plg_cred, 0)],
       redeemers: [Pair(Mint(test_own_policy), as_data(rdmr))],
     }
   call_validator(rdmr, tx)
@@ -959,54 +997,55 @@ test case4_spend_and_mint_same_token_valid() {
       // 150 total in outputs (100 spent + 50 minted) — all at PLB
       outputs: [mint_output(150)],
       mint: from_asset(test_own_policy, test_token_name, 50),
-      withdrawals: [Pair(test_ml_cred, 0)],
+      withdrawals: [Pair(test_ml_cred, 0), Pair(test_plg_cred, 0)],
       redeemers: [Pair(Mint(test_own_policy), as_data(rdmr))],
     }
   call_validator(rdmr, tx)
 }
 
+// Shared base transaction for the case-4 (RefInput proof + PLB input) tests.
+// Spends a 100-token PLB UTxO, mints 50 more, sends 75 to PLB and 25 to a
+// non-PLB address. Withdrawals include both the minting logic credential
+// AND the PLGlobal stake credential — so when consumed as-is, delegation
+// triggers and issuance_mint defers output custody to PLGlobal.
+//
+// The companion negative test below overrides ONLY `withdrawals` (removing
+// the PLG cred). Any future change to inputs/outputs/mint/refs must keep
+// both tests in lockstep — that's the entire point of building both from
+// this single fixture.
+fn case4_defers_tx() -> Transaction {
+  Transaction {
+    ..transaction.placeholder,
+    inputs: [some_input(mint_output(100))],
+    reference_inputs: [some_ref_input(registry_node_output(test_own_policy))],
+    outputs: [mint_output(75), non_plb_output_named(test_token_name, 25)],
+    mint: from_asset(test_own_policy, test_token_name, 50),
+    withdrawals: [Pair(test_ml_cred, 0), Pair(test_plg_cred, 0)],
+    redeemers: [Pair(Mint(test_own_policy), as_data(valid_redeemer()))],
+  }
+}
+
 // Spend + mint same token: tokens escaping to non-PLB — deferred to PLGlobal.
-// issuance_mint allows it because PLGlobal (invoked via PLB spend) will reject.
-// This test documents that issuance_mint trusts PLGlobal in this case.
+// issuance_mint allows it because PLGlobal (invoked via the PLG cred in
+// withdrawals) will reject it on-chain. This test documents that
+// issuance_mint trusts PLGlobal in this case.
 test case4_spend_and_mint_defers_to_plglobal() {
-  let rdmr = valid_redeemer()
-  let non_plb_output =
-    Output {
-      address: Address {
-        payment_credential: Script(
-          #"99999999999999999999999999999999999999999999999999999999",
-        ),
-        stake_credential: Some(
-          Inline(
-            Script(#"77777777777777777777777777777777777777777777777777777777"),
-          ),
-        ),
-      },
-      value: min_ada
-        |> assets.add(test_own_policy, test_token_name, 25),
-      datum: NoDatum,
-      reference_script: None,
-    }
+  call_validator(valid_redeemer(), case4_defers_tx())
+}
+
+// Finding 09 regression. Same exact transaction as the test above EXCEPT
+// the PLGlobal stake credential is removed from `tx.withdrawals` — so the
+// `..case4_defers_tx()` spread plus a single field override is the entire
+// delta visible in the source. Pre-fix, the delegation signal was "any PLB
+// input in `self.inputs`" — so this tx would have passed at issuance_mint
+// level by short-circuiting `validate_mint_outputs`. Post-fix, the signal
+// is "PLG stake credential in `tx.withdrawals`" — and since that's absent
+// here, delegation does NOT trigger, `validate_mint_outputs` runs, and the
+// escape to non-PLB is correctly rejected.
+test case4_plb_input_without_plg_cred_does_not_delegate_fails() fail {
   let tx =
-    Transaction {
-      ..transaction.placeholder,
-      inputs: [
-        Input {
-          output_reference: OutputReference {
-            transaction_id: #"0000000000000000000000000000000000000000000000000000000000000000",
-            output_index: 0,
-          },
-          output: mint_output(100),
-        },
-      ],
-      reference_inputs: [some_ref_input(registry_node_output(test_own_policy))],
-      outputs: [mint_output(75), non_plb_output],
-      mint: from_asset(test_own_policy, test_token_name, 50),
-      withdrawals: [Pair(test_ml_cred, 0)],
-      redeemers: [Pair(Mint(test_own_policy), as_data(rdmr))],
-    }
-  // This passes at issuance_mint level — PLGlobal would reject it on-chain
-  call_validator(rdmr, tx)
+    Transaction { ..case4_defers_tx(), withdrawals: [Pair(test_ml_cred, 0)] }
+  call_validator(valid_redeemer(), tx)
 }
 
 // ========================================================================

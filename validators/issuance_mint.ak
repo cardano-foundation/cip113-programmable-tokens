@@ -19,19 +19,28 @@ validator issuance_mint(
   registry_node_cs: PolicyId,
   // <- the hash of the contract of the logic for minting.
   minting_logic_cred: Credential,
+  // PLGlobal stake credential. Used as a direct delegation signal: when PLGlobal
+  // is invoked (withdraw-zero), issuance_mint may delegate mint-output custody.
+  plg_stake_cred: Credential,
 ) {
   mint(
     redeemer: SmartTokenMintingAction,
     own_policy: PolicyId,
     self: Transaction,
   ) {
-    // Collect all invoked scripts (withdraw-zero pattern)
-    let invoked_scripts =
-      list.map(
+    // Direct withdrawal scan: detect minting_logic_cred and plg_stake_cred in a
+    // single pass over self.withdrawals (no intermediate list allocation).
+    let
+      minting_logic_invoked,
+      plg_invoked,
+    <-
+      list.foldl2(
         self.withdrawals,
-        fn(wdrl) {
+        False,
+        False,
+        fn(wdrl, m, p, return) {
           let Pair(cred, _amount) = wdrl
-          cred
+          return(m || cred == minting_logic_cred, p || cred == plg_stake_cred)
         },
       )
 
@@ -40,13 +49,13 @@ validator issuance_mint(
     //   OutputIndex → First mint. PLGlobal doesn't know or see the registry entry for this token.
     //                 issuance_mint MUST validate outputs. Qty always > 0.
     //
-    //   RefInput + PLB spent → PLGlobal is mint-aware and will validate
-    //                          everything (mint AND burn). Delegate.
+    //   RefInput + PLGlobal invoked → PLGlobal is mint-aware and will validate
+    //                                 everything (mint AND burn). Delegate.
     //
-    //   RefInput + no PLB spent → Pure subsequent mint. issuance_mint validates.
-    //                             (Burn is impossible here: tokens to burn must
-    //                              be in inputs, prog tokens live at PLB,
-    //                              spending PLB = PLB spent → delegate path.)
+    //   RefInput + PLGlobal not invoked → Pure subsequent mint. issuance_mint validates.
+    //                                     (Burn is impossible here: tokens to burn must
+    //                                      be in inputs, prog tokens live at PLB,
+    //                                      spending PLB → PLGlobal invoked → delegate path.)
     let valid_minting =
       when redeemer.minting_registry_proof is {
         OutputIndex { index } -> {
@@ -72,17 +81,17 @@ validator issuance_mint(
             verify_registry_node(ref_input.output, registry_node_cs, own_policy)
 
           or {
-            // Can we delegate to PLGlobal?
-            // PLGlobal is mint-aware — delegate all validation
-            // (handles both minting and burning accounting)
-            list.any(
-              self.inputs,
-              fn(input) {
-                input.output.address.payment_credential == programmable_logic_base
-              },
-            ),
-            // No PLB spend → can only be pure minting
-            // (burn requires spending PLB UTxOs → plb_spent would be True)
+            // Direct delegation signal: PLGlobal is being invoked.
+            // PLGlobal is mint-aware (TransferAct path) and will validate
+            // mint AND burn accounting.
+            //
+            // NOTE: PLGlobal's ThirdPartyAct path does NOT enforce custody for
+            // policies other than its registry_node_idx. This delegation is
+            // therefore only sound when PLGlobal runs TransferAct. The escape
+            // is tracked in audit Finding 04.
+            plg_invoked,
+            // No PLGlobal invocation → can only be pure minting
+            // (burn requires spending PLB UTxOs → PLGlobal invoked → delegate path)
             validate_mint_outputs(
               self.outputs,
               programmable_logic_base,
@@ -97,7 +106,7 @@ validator issuance_mint(
       // Validate that the redeemer matches the minting logic credential
       (redeemer.minting_logic_cred == minting_logic_cred)?,
       // substandard minting invoked?
-      list.has(invoked_scripts, minting_logic_cred)?,
+      minting_logic_invoked?,
       // Check that exactly one minting redeemer matches the minting logic credential
       // This prevents multiple concurrent mints with the same minting logic in one transaction
       single_mint_with_credential(self.redeemers, redeemer)?,
@@ -176,7 +185,10 @@ fn verify_registry_node(
   registry_node_cs: PolicyId,
   own_policy: PolicyId,
 ) -> Bool {
-  expect assets.has_any_nft(output.value, registry_node_cs)?
+  // Strict: registry NFT's asset name MUST equal own_policy. This binds the
+  // NFT identity to the datum key and removes implicit trust on the linked-list
+  // invariant (asset_name == datum.key) enforced elsewhere.
+  expect assets.has_nft(output.value, registry_node_cs, own_policy)?
   let registry_datum = expect_inline_datum(output)
   expect registry: RegistryNode = registry_datum
   registry.key == own_policy

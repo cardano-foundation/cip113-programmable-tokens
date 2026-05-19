@@ -191,6 +191,7 @@ fn call_init_validator(tx: Transaction) -> Bool {
   registry_mint.registry_mint.mint(
     test_utxo_ref,
     test_issuance_cbor_hex_cs,
+    Script(#"cccccccc"),
     RegistryInit,
     test_policy_id,
     tx,
@@ -201,6 +202,7 @@ fn call_insert_validator(redeemer: RegistryRedeemer, tx: Transaction) -> Bool {
   registry_mint.registry_mint.mint(
     test_utxo_ref,
     test_issuance_cbor_hex_cs,
+    Script(#"cccccccc"),
     redeemer,
     test_policy_id,
     tx,
@@ -211,16 +213,24 @@ fn call_insert_validator(redeemer: RegistryRedeemer, tx: Transaction) -> Bool {
 // RegistryInit tests
 // =========================================================================
 
+// Shared base transaction for the RegistryInit pair. Used by:
+//   * registry_init_valid             — positive
+//   * registry_init_fails_wrong_origin_address — Finding 03 negative, spread
+//     with the `outputs` field overridden.
+// Anything that would change for one of those two tests must be edited here
+// so they stay in lockstep.
+fn valid_init_tx() -> Transaction {
+  Transaction {
+    ..transaction.placeholder,
+    inputs: [utxo_ref_input()],
+    outputs: [origin_node_output()],
+    mint: from_asset(test_policy_id, origin_node_tn, 1),
+  }
+}
+
 // Happy path: consume utxo_ref, one origin node output, mint origin token
 test registry_init_valid() {
-  let tx =
-    Transaction {
-      ..transaction.placeholder,
-      inputs: [utxo_ref_input()],
-      outputs: [origin_node_output()],
-      mint: from_asset(test_policy_id, origin_node_tn, 1),
-    }
-  call_init_validator(tx)
+  call_init_validator(valid_init_tx())
 }
 
 // utxo_ref not consumed in inputs
@@ -287,6 +297,20 @@ test registry_init_fails_no_mint() fail {
       outputs: [origin_node_output()],
       mint: assets.zero,
     }
+  call_init_validator(tx)
+}
+
+// Finding 03 regression: origin output sent to an address other than the
+// configured registry_spend credential. Pre-fix this would have passed
+// (validate_directory_init did not bind the address), allowing the origin
+// registry NFT to live at an attacker-controlled address.
+//
+// Companion to registry_init_valid — the only delta visible at the test
+// body is the `outputs` override (wrong-address origin).
+test registry_init_fails_wrong_origin_address() fail {
+  let wrong_address_origin =
+    Output { ..origin_node_output(), address: test_input_address }
+  let tx = Transaction { ..valid_init_tx(), outputs: [wrong_address_origin] }
   call_init_validator(tx)
 }
 
@@ -414,6 +438,22 @@ test registry_insert_fails_single_output() fail {
   call_insert_validator(valid_insert_redeemer(), tx)
 }
 
+// Finding 03 regression (Insert side): one of the new node outputs sits at
+// a different address than the covering input. Pre-fix the address binding
+// only kicked in at Init; the Insert path's inductive chain was undocumented
+// and untested. Post-fix `validate_directory_node_output` asserts
+// `output.address == covering_input.output.address`, so any drift fails.
+test registry_insert_fails_wrong_output_address() fail {
+  let wrong_inserted =
+    Output { ..inserted_node_output(), address: test_input_address }
+  let tx =
+    Transaction {
+      ..valid_insert_tx(),
+      outputs: [updated_covering_node_output(), wrong_inserted],
+    }
+  call_insert_validator(valid_insert_redeemer(), tx)
+}
+
 // =========================================================================
 // CIP-68 multi-asset registration
 //
@@ -502,6 +542,9 @@ const ism_registry_cs: PolicyId =
 const ism_ml_cred: Credential =
   Script(#"aa33333333333333333333333333333333333333333333333333333333")
 
+const ism_plg_cred: Credential =
+  Script(#"aa55555555555555555555555555555555555555555555555555555555")
+
 const ism_own_policy: PolicyId =
   #"aa44444444444444444444444444444444444444444444444444444444"
 
@@ -568,6 +611,7 @@ fn call_issuance_validator(
     ism_plb_cred,
     ism_registry_cs,
     ism_ml_cred,
+    ism_plg_cred,
     rdmr,
     ism_own_policy,
     tx,

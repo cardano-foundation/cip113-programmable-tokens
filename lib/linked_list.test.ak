@@ -68,8 +68,10 @@ test is_updated_directory_node_negative() {
 
 // Test is_inserted_directory_node
 test is_inserted_directory_node_works() {
-  let insert_key = #"bb"
-  let next_key = #"cc"
+  // Strict 28-byte policy-id key/next per CIP-113. Previous fixture used
+  // 1-byte placeholders, which the tightened helper now correctly rejects.
+  let insert_key = #"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  let next_key = #"cccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
   let transfer_logic =
     Script(#"11111111111111111111111111111111111111111111111111111111")
   let third_party_transfer_logic =

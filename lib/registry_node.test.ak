@@ -1,12 +1,15 @@
 use aiken/collection/list
 use aiken/fuzz
+use aiken/primitive/bytearray
 use cardano/assets.{PolicyId, ada_asset_name, ada_policy_id} as value
 use cardano/fuzz as cardano
 use cardano/transaction.{InlineDatum, Input, Output}
 use registry_node.{
-  RegistryNode, new_registry_node_getter, with_key_and_3rd_party_logic,
-  with_key_and_next_key, with_key_and_transfer_logic,
+  RegistryNode, new_registry_node_getter, sentinel_next_key,
+  with_key_and_3rd_party_logic, with_key_and_next_key,
+  with_key_and_transfer_logic,
 }
+use utils.{bytearray_lt}
 
 // ---------------------------------------------------- new_registry_node_getter
 
@@ -127,4 +130,49 @@ test prop_with_key_and_3rd_party_roundtrip(node via any_registry_node()) {
     (key == node.key)?,
     (third_party_transfer_logic_script == node.third_party_transfer_logic_script)?,
   }
+}
+
+// -------------------------------------- sentinel_next_key ordering invariant
+//
+// `sentinel_next_key` is intentionally LONGER than a CIP-113 policy id (28
+// bytes) — its 30-byte all-`ff` content guarantees it sorts strictly above
+// any 28-byte value in Plutus byte order. If anyone ever shortens it to 28
+// bytes — or to anything that doesn't strictly exceed every plausible policy
+// id — the linked-list ordering invariant breaks and the `expect bytearray_lt(
+// node.key, node.next)` check in `validate_directory_node_output` can fail
+// on legitimate last-node configurations.
+//
+// These tests pin the property to the actual constant (not a copy of the
+// literal), so a future edit to the constant either trips the tests or fails
+// to compile.
+
+/// Largest possible 28-byte (policy-id-sized) value. Local test constant; not
+/// load-bearing — only used to assert the sentinel sorts above it.
+const max_28_byte_value =
+  #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+
+test sentinel_is_longer_than_a_policy_id() {
+  bytearray.length(sentinel_next_key) > 28
+}
+
+test max_28_byte_value_is_28_bytes() {
+  // Sanity: catch a future typo in the local constant before it masks a real
+  // regression in the test below.
+  bytearray.length(max_28_byte_value) == 28
+}
+
+test sentinel_greater_than_28_byte_all_ff() {
+  // Plutus byte comparison: when all shared prefix bytes are equal, the
+  // longer string is greater. A 30-byte all-`ff` therefore sorts strictly
+  // above a 28-byte all-`ff`.
+  bytearray_lt(max_28_byte_value, sentinel_next_key)
+}
+
+test prop_sentinel_greater_than_any_28_byte_value(
+  policy via fuzz.bytearray_between(28, 28),
+) {
+  // Property: every 28-byte value (regardless of content) sorts strictly
+  // below `sentinel_next_key`. This is what makes the sentinel safe as the
+  // `next` field of the last registry node.
+  bytearray_lt(policy, sentinel_next_key)
 }
