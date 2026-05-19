@@ -122,8 +122,9 @@ pub fn is_inserted_directory_node(
     is_28_byte_credential(node.transfer_logic_script)?,
     is_28_byte_credential(node.third_party_transfer_logic_script)?,
     // CIP-113 normative MAY: global_state_cs is 0 (absent) or 28 (a policy id)
-    (bytearray.length(node.global_state_cs) == 0
-      || is_28_bytes(node.global_state_cs))?,
+    (bytearray.length(node.global_state_cs) == 0 || is_28_bytes(
+      node.global_state_cs,
+    ))?,
   }
 }
 

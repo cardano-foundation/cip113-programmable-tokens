@@ -310,8 +310,7 @@ test registry_init_fails_no_mint() fail {
 test registry_init_fails_wrong_origin_address() fail {
   let wrong_address_origin =
     Output { ..origin_node_output(), address: test_input_address }
-  let tx =
-    Transaction { ..valid_init_tx(), outputs: [wrong_address_origin] }
+  let tx = Transaction { ..valid_init_tx(), outputs: [wrong_address_origin] }
   call_init_validator(tx)
 }
 

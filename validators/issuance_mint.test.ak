@@ -1044,10 +1044,7 @@ test case4_spend_and_mint_defers_to_plglobal() {
 // escape to non-PLB is correctly rejected.
 test case4_plb_input_without_plg_cred_does_not_delegate_fails() fail {
   let tx =
-    Transaction {
-      ..case4_defers_tx(),
-      withdrawals: [Pair(test_ml_cred, 0)],
-    }
+    Transaction { ..case4_defers_tx(), withdrawals: [Pair(test_ml_cred, 0)] }
   call_validator(valid_redeemer(), tx)
 }
 
