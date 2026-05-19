@@ -10,7 +10,7 @@ use cardano/assets.{AssetName, PolicyId, Value, ada_asset_name, ada_policy_id}
 use cardano/fuzz as cardano
 use cardano/transaction.{InlineDatum, Input, NoDatum, Output, Transaction}
 use programmable_logic/params.{ProgrammableLogicGlobalParams}
-use registry_node.{RegistryNode}
+use registry_node.{RegistryNode, empty_vkey}
 use types.{ProgrammableLogicGlobalRedeemer, TokenExists, TransferAct}
 
 /// Some script credential for the transfer logic. Could also be a verification
@@ -237,6 +237,8 @@ pub fn some_reference_input_tokens_registry_node_with(
             next,
             transfer_logic_script,
             third_party_transfer_logic_script,
+            // PR-1: not exercised by transfer/3rd-party tests; placeholder.
+            minting_logic_script: empty_vkey,
             global_state_cs: "",
           },
         ),

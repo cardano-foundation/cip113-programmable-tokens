@@ -45,8 +45,23 @@ pub type MintingRegistryProof {
 pub type RegistryRedeemer {
   /// Initialize the registry with the origin node
   RegistryInit
-  /// Insert a new programmable token policy into the registry
-  RegistryInsert { key: ByteArray, hashed_param: ByteArray }
+  /// Insert a new programmable token policy into the registry.
+  ///
+  /// `minting_logic_script` is the credential of the substandard's
+  /// withdraw-0 minting logic. registry_mint enforces that:
+  ///   * the new node's datum field `minting_logic_script` equals this
+  ///     value (datum-matches-redeemer check, prevents the registrar
+  ///     from writing a different credential into the datum than they
+  ///     claim in the redeemer);
+  ///   * the issuance template parameterised with this credential hashes
+  ///     to `key` (cryptographic binding: the `hashed_param` used in the
+  ///     policy id derivation is the inner 28-byte hash of this
+  ///     credential — derived inside the validator, NOT supplied as a
+  ///     separate redeemer field).
+  RegistryInsert {
+    key: ByteArray,
+    minting_logic_script: Credential,
+  }
 }
 
 /// Issuance CBOR hex reference data

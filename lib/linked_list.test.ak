@@ -24,6 +24,7 @@ test is_updated_directory_node_works() {
       next: #"cc",
       transfer_logic_script: Script(#"11"),
       third_party_transfer_logic_script: Script(#"22"),
+      minting_logic_script: Script(#"33"),
       global_state_cs: #"",
     }
 
@@ -33,6 +34,7 @@ test is_updated_directory_node_works() {
       next: insert_key,
       transfer_logic_script: Script(#"11"),
       third_party_transfer_logic_script: Script(#"22"),
+      minting_logic_script: Script(#"33"),
       global_state_cs: #"",
     }
 
@@ -51,6 +53,7 @@ test is_updated_directory_node_negative() {
       next: #"cc",
       transfer_logic_script: Script(#"11"),
       third_party_transfer_logic_script: Script(#"22"),
+      minting_logic_script: Script(#"33"),
       global_state_cs: #"",
     }
 
@@ -60,6 +63,7 @@ test is_updated_directory_node_negative() {
       next: wrong_key,
       transfer_logic_script: Script(#"11"),
       third_party_transfer_logic_script: Script(#"22"),
+      minting_logic_script: Script(#"33"),
       global_state_cs: #"",
     }
 
@@ -76,6 +80,8 @@ test is_inserted_directory_node_works() {
     Script(#"11111111111111111111111111111111111111111111111111111111")
   let third_party_transfer_logic =
     Script(#"22222222222222222222222222222222222222222222222222222222")
+  let minting_logic =
+    Script(#"44444444444444444444444444444444444444444444444444444444")
   let global_state = #"33333333333333333333333333333333333333333333333333333333"
 
   let node =
@@ -84,6 +90,7 @@ test is_inserted_directory_node_works() {
       next: next_key,
       transfer_logic_script: transfer_logic,
       third_party_transfer_logic_script: third_party_transfer_logic,
+      minting_logic_script: minting_logic,
       global_state_cs: global_state,
     }
 
@@ -111,6 +118,7 @@ test origin_node_empty_keys() {
       next: empty,
       transfer_logic_script: Script(#"11"),
       third_party_transfer_logic_script: Script(#"22"),
+      minting_logic_script: Script(#"33"),
       global_state_cs: #"",
     }
 
@@ -135,6 +143,7 @@ test is_updated_directory_node_rejects_transfer_logic_swap() fail {
       next: #"cc",
       transfer_logic_script: Script(#"11"),
       third_party_transfer_logic_script: Script(#"22"),
+      minting_logic_script: Script(#"33"),
       global_state_cs: #"",
     }
 
@@ -145,6 +154,7 @@ test is_updated_directory_node_rejects_transfer_logic_swap() fail {
       transfer_logic_script: Script(#"deadbeef"),
       // ^^^ ATTACKER'S SCRIPT — original was Script(#"11")
       third_party_transfer_logic_script: Script(#"22"),
+      minting_logic_script: Script(#"33"),
       global_state_cs: #"",
     }
 
@@ -160,6 +170,7 @@ test is_updated_directory_node_rejects_third_party_logic_swap() fail {
       next: #"cc",
       transfer_logic_script: Script(#"11"),
       third_party_transfer_logic_script: Script(#"22"),
+      minting_logic_script: Script(#"33"),
       global_state_cs: #"",
     }
 
@@ -170,6 +181,7 @@ test is_updated_directory_node_rejects_third_party_logic_swap() fail {
       transfer_logic_script: Script(#"11"),
       third_party_transfer_logic_script: Script(#"deadbeef"),
       // ^^^ ATTACKER'S SCRIPT — original was Script(#"22")
+      minting_logic_script: Script(#"33"),
       global_state_cs: #"",
     }
 
@@ -185,6 +197,7 @@ test is_updated_directory_node_rejects_global_state_swap() fail {
       next: #"cc",
       transfer_logic_script: Script(#"11"),
       third_party_transfer_logic_script: Script(#"22"),
+      minting_logic_script: Script(#"33"),
       global_state_cs: #"",
     }
 
@@ -194,6 +207,7 @@ test is_updated_directory_node_rejects_global_state_swap() fail {
       next: #"bb",
       transfer_logic_script: Script(#"11"),
       third_party_transfer_logic_script: Script(#"22"),
+      minting_logic_script: Script(#"33"),
       global_state_cs: #"deaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddead",
     }
 

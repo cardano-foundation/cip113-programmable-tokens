@@ -48,7 +48,7 @@ validator registry_mint(
           )?,
         }
       }
-      RegistryInsert { key, hashed_param } -> {
+      RegistryInsert { key, minting_logic_script } -> {
         // Find the issuance CBOR hex reference input
         expect Some(issuance_ref_input) =
           //should this be a find.any instead of find.some?
@@ -65,16 +65,17 @@ validator registry_mint(
         let issuance_datum = expect_inline_datum(issuance_ref_input.output)
         expect issuance_cbor: IssuanceCborHex = issuance_datum
 
-        // Validate that the key being inserted is a valid programmable token
-        // This checks:
-        // 1. The computed policy ID (from prefix + hashed_param + postfix) matches the key
-        // 2. Tokens with this policy ID are being minted in this transaction
+        // Validate that the key being inserted is a valid programmable token.
+        // The `hashed_param` for the policy id derivation is the inner 28-byte
+        // hash of `minting_logic_script` — extracted inside the helper. This
+        // is the cryptographic binding that ties the registered credential
+        // to the policy id. Also checks that tokens of `key` are being minted.
         let is_token_registered =
           is_programmable_token_registration(
             key,
             issuance_cbor.prefix_cbor_hex,
             issuance_cbor.postfix_cbor_hex,
-            hashed_param,
+            minting_logic_script,
             self.mint,
           )
 
@@ -120,14 +121,20 @@ validator registry_mint(
             covering_input.output.address,
           )
 
-        let updated =
+        let (inserted, updated) =
           if is_inserted_directory_node(node1, key, covering_node.next) {
-            node2
+            (node1, node2)
           } else {
             expect is_inserted_directory_node(node2, key, covering_node.next)
-            node1
+            (node2, node1)
           }
         expect is_updated_directory_node(updated, covering_node, key)
+
+        // Defense-in-depth #2: the new node's `minting_logic_script` datum
+        // field MUST equal the redeemer's `minting_logic_script`. Prevents a
+        // benign-looking redeemer from producing a node datum that points at
+        // a different substandard credential than the one claimed.
+        expect inserted.minting_logic_script == minting_logic_script
 
         and {
           is_token_registered?,

@@ -47,9 +47,23 @@ const test_prefix = #"0102"
 
 const test_postfix = #"0304"
 
-/// A valid hashed_param (arbitrary 28 bytes)
+/// The 28-byte hash that the issuance template is parameterised with.
+/// Doubles as:
+///   * the inner hash of `test_inserted_minting_logic_cred` (see below),
+///   * the `hashed_param` value used by `apply_hashed_parameter` to derive
+///     `computed_key()`.
+/// Keeping a single constant for both forces the cryptographic-binding
+/// invariant `hash(minting_logic_script) == apply_hashed_parameter input`
+/// to hold by construction in every test.
 const test_hashed_param =
   #"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+
+/// Substandard minting-logic credential placed in the new RegistryNode's
+/// `minting_logic_script` field AND in the matching `RegistryInsert`
+/// redeemer. Its inner 28-byte hash equals `test_hashed_param`, so the
+/// `is_programmable_token_registration` check passes.
+const test_inserted_minting_logic_cred: Credential =
+  Script(test_hashed_param)
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -73,6 +87,7 @@ fn origin_node_output() -> Output {
           next: #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
           transfer_logic_script: empty_vkey,
           third_party_transfer_logic_script: empty_vkey,
+          minting_logic_script: empty_vkey,
           global_state_cs: #"",
         },
       ),
@@ -96,6 +111,7 @@ fn covering_node_input() -> Input {
             next: #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
             transfer_logic_script: empty_vkey,
             third_party_transfer_logic_script: empty_vkey,
+            minting_logic_script: empty_vkey,
             global_state_cs: #"",
           },
         ),
@@ -119,6 +135,7 @@ fn updated_covering_node_output() -> Output {
           next: key,
           transfer_logic_script: empty_vkey,
           third_party_transfer_logic_script: empty_vkey,
+          minting_logic_script: empty_vkey,
           global_state_cs: #"",
         },
       ),
@@ -145,6 +162,7 @@ fn inserted_node_output() -> Output {
           third_party_transfer_logic_script: Script(
             #"66666666666666666666666666666666666666666666666666666666",
           ),
+          minting_logic_script: test_inserted_minting_logic_cred,
           global_state_cs: #"",
         },
       ),
@@ -272,6 +290,7 @@ test registry_init_fails_wrong_origin_key() fail {
             next: #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
             transfer_logic_script: empty_vkey,
             third_party_transfer_logic_script: empty_vkey,
+            minting_logic_script: empty_vkey,
             global_state_cs: #"",
           },
         ),
@@ -319,7 +338,10 @@ test registry_init_fails_wrong_origin_address() fail {
 // =========================================================================
 
 fn valid_insert_redeemer() -> RegistryRedeemer {
-  RegistryInsert { key: computed_key(), hashed_param: test_hashed_param }
+  RegistryInsert {
+    key: computed_key(),
+    minting_logic_script: test_inserted_minting_logic_cred,
+  }
 }
 
 fn valid_insert_tx() -> Transaction {
@@ -371,6 +393,7 @@ test registry_insert_fails_key_not_covered() fail {
               third_party_transfer_logic_script: Script(
                 #"66666666666666666666666666666666666666666666666666666666",
               ),
+              minting_logic_script: test_inserted_minting_logic_cred,
               global_state_cs: #"",
             },
           ),
@@ -385,7 +408,11 @@ test registry_insert_fails_key_not_covered() fail {
 // Key not 28 bytes
 test registry_insert_fails_wrong_key_length() fail {
   let short_key = #"aabb"
-  let rdmr = RegistryInsert { key: short_key, hashed_param: test_hashed_param }
+  let rdmr =
+    RegistryInsert {
+      key: short_key,
+      minting_logic_script: test_inserted_minting_logic_cred,
+    }
   call_insert_validator(rdmr, valid_insert_tx())
 }
 
@@ -408,6 +435,7 @@ test registry_insert_fails_updated_node_modified() fail {
               #"99999999999999999999999999999999999999999999999999999999",
             ),
             third_party_transfer_logic_script: empty_vkey,
+            minting_logic_script: empty_vkey,
             global_state_cs: #"",
           },
         ),
@@ -569,6 +597,10 @@ fn ism_registry_node_output() -> Output {
           third_party_transfer_logic_script: Script(
             #"aa77777777777777777777777777777777777777777777777777777777",
           ),
+          // Must match the `ism_ml_cred` parameter passed to call_issuance_validator
+          // (defense-in-depth #3: issuance_mint asserts this equals its
+          // `minting_logic_cred` parameter).
+          minting_logic_script: ism_ml_cred,
           global_state_cs: #"",
         },
       ),

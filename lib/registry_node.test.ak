@@ -6,8 +6,8 @@ use cardano/fuzz as cardano
 use cardano/transaction.{InlineDatum, Input, Output}
 use registry_node.{
   RegistryNode, new_registry_node_getter, sentinel_next_key,
-  with_key_and_3rd_party_logic, with_key_and_next_key,
-  with_key_and_transfer_logic,
+  with_key_and_3rd_party_logic, with_key_and_minting_logic,
+  with_key_and_next_key, with_key_and_transfer_logic,
 }
 use utils.{bytearray_lt}
 
@@ -93,6 +93,7 @@ fn any_registry_node() -> Fuzzer<RegistryNode> {
   let next <- fuzz.and_then(fuzz.bytearray_between(0, 32))
   let transfer_logic_script <- fuzz.and_then(cardano.credential())
   let third_party_transfer_logic_script <- fuzz.and_then(cardano.credential())
+  let minting_logic_script <- fuzz.and_then(cardano.credential())
   let global_state_cs <- fuzz.and_then(cardano.policy_id())
   fuzz.constant(
     RegistryNode {
@@ -100,6 +101,7 @@ fn any_registry_node() -> Fuzzer<RegistryNode> {
       next,
       transfer_logic_script,
       third_party_transfer_logic_script,
+      minting_logic_script,
       global_state_cs,
     },
   )
@@ -129,6 +131,14 @@ test prop_with_key_and_3rd_party_roundtrip(node via any_registry_node()) {
   and {
     (key == node.key)?,
     (third_party_transfer_logic_script == node.third_party_transfer_logic_script)?,
+  }
+}
+
+test prop_with_key_and_minting_logic_roundtrip(node via any_registry_node()) {
+  let key, minting_logic_script <- with_key_and_minting_logic(node)
+  and {
+    (key == node.key)?,
+    (minting_logic_script == node.minting_logic_script)?,
   }
 }
 

@@ -4,6 +4,7 @@
 use aiken/builtin.{tail_list}
 use aiken/collection/dict
 use aiken/collection/list
+use cardano/address.{Credential, Script, VerificationKey}
 use cardano/assets.{PolicyId, Value}
 use cardano/transaction.{InlineDatum, Output}
 
@@ -66,15 +67,25 @@ pub fn apply_hashed_parameter(
   builtin.blake2b_224(script_bytes)
 }
 
-/// Check if a currency symbol is a valid programmable token registration
+/// Check if a currency symbol is a valid programmable token registration.
+///
 /// Validates that:
-/// 1. Tokens with this policy ID are being minted in the transaction
-/// 2. The computed policy ID (from prefix + hashed_param + postfix) matches the currency symbol
+/// 1. Tokens with this policy ID are being minted in the transaction.
+/// 2. The computed policy ID (from `prefix + hashed_param + postfix`) matches
+///    the currency symbol being inserted, where `hashed_param` is the
+///    28-byte inner hash extracted from `minting_logic_script` (the
+///    substandard's `Credential`). The off-chain bootstrap places the
+///    `Constr` wrapper for `VerificationKey` / `Script` into the prefix; the
+///    on-chain code therefore only needs to sandwich the inner hash bytes.
+///
+/// This is the *cryptographic binding* that ties the registered credential
+/// to the policy id derivation — there is no separate, free-form
+/// `hashed_param` field in the redeemer.
 pub fn is_programmable_token_registration(
   cs_to_insert: ByteArray,
   prefix: ByteArray,
   postfix: ByteArray,
-  hashed_param: ByteArray,
+  minting_logic_script: Credential,
   mint_value: Value,
 ) -> Bool {
   // Check 1: The policy must be minting (not just burning) tokens in this tx.
@@ -88,7 +99,15 @@ pub fn is_programmable_token_registration(
     dict.to_pairs(assets_minted_amount)
       |> list.any(fn(pair) { pair.2nd > 0 })
 
-  // Check 2: The computed policy ID must match the currency symbol being inserted
+  // Check 2: extract the inner 28-byte hash from the credential and verify it
+  // is the value the issuance template was parameterised with. The Constr
+  // variant tag (VerificationKey vs Script) is embedded in `prefix`, so the
+  // policy id derivation indirectly enforces variant agreement too.
+  let hashed_param =
+    when minting_logic_script is {
+      VerificationKey(h) -> h
+      Script(h) -> h
+    }
   let computed_cs = apply_hashed_parameter(prefix, postfix, hashed_param)
   computed_cs == cs_to_insert
 }

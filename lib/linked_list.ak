@@ -104,6 +104,8 @@ pub fn is_origin_directory_node(node: RegistryNode) -> Bool {
 ///     latter when the inserted node becomes the new last node and inherits
 ///     the sentinel from the previous last.
 ///   * credentials are strict 28-byte hashes (no length-0 origin loophole).
+///     Applies to `transfer_logic_script`, `third_party_transfer_logic_script`
+///     and `minting_logic_script`.
 ///   * `global_state_cs` is 0 or 28 bytes (CIP-113 normative MAY).
 pub fn is_inserted_directory_node(
   node: RegistryNode,
@@ -121,6 +123,7 @@ pub fn is_inserted_directory_node(
     // empty credentials belong only to the origin node)
     is_28_byte_credential(node.transfer_logic_script)?,
     is_28_byte_credential(node.third_party_transfer_logic_script)?,
+    is_28_byte_credential(node.minting_logic_script)?,
     // CIP-113 normative MAY: global_state_cs is 0 (absent) or 28 (a policy id)
     (bytearray.length(node.global_state_cs) == 0 || is_28_bytes(
       node.global_state_cs,
