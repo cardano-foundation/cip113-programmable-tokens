@@ -41,6 +41,27 @@ pub type MintingRegistryProof {
   OutputIndex { index: Int }
 }
 
+/// Selects which registration flow `RegistryInsert` is exercising.
+///
+/// * `RegisterOnly` — the substandard authorises the registration but no
+///   programmable tokens of the new policy are minted. Useful for
+///   real-world-asset issuance, supply-aware substandards that need to
+///   initialise global state before any token exists, or any scenario
+///   where minting cannot happen at registration time.
+///
+/// * `RegisterAndMint` — registration AND a first mint of the new policy
+///   happen in the same transaction. Current behaviour, now explicit.
+///
+/// In both modes the substandard's `minting_logic_script` MUST appear in
+/// `tx.withdrawals` (proof of instance — the substandard authorises the
+/// registration). The modes differ only in the `tx.mint` shape:
+///   * RegisterOnly  ⇒ no entries under the new policy in `tx.mint`.
+///   * RegisterAndMint ⇒ at least one entry with positive quantity.
+pub type RegistrationMode {
+  RegisterOnly
+  RegisterAndMint
+}
+
 /// Redeemer for registry minting policy (linked list operations)
 pub type RegistryRedeemer {
   /// Initialize the registry with the origin node
@@ -57,10 +78,17 @@ pub type RegistryRedeemer {
   ///     to `key` (cryptographic binding: the `hashed_param` used in the
   ///     policy id derivation is the inner 28-byte hash of this
   ///     credential — derived inside the validator, NOT supplied as a
-  ///     separate redeemer field).
+  ///     separate redeemer field);
+  ///   * the substandard's withdraw-0 logic is invoked
+  ///     (`minting_logic_script` in `tx.withdrawals`) regardless of mode.
+  ///
+  /// `mode` selects between RegisterOnly (no programmable-token mint
+  /// allowed) and RegisterAndMint (registration + first mint, current
+  /// behaviour).
   RegistryInsert {
     key: ByteArray,
     minting_logic_script: Credential,
+    mode: RegistrationMode,
   }
 }
 

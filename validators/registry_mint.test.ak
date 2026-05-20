@@ -11,8 +11,8 @@ use issuance_mint
 use registry_mint
 use registry_node.{RegistryNode, empty_vkey, origin_node_tn}
 use types.{
-  IssuanceCborHex, RefInput, RegistryInit, RegistryInsert, RegistryRedeemer,
-  SmartTokenMintingAction,
+  IssuanceCborHex, RefInput, RegisterAndMint, RegisterOnly, RegistryInit,
+  RegistryInsert, RegistryRedeemer, SmartTokenMintingAction,
 }
 use utils.{apply_hashed_parameter}
 
@@ -341,6 +341,7 @@ fn valid_insert_redeemer() -> RegistryRedeemer {
   RegistryInsert {
     key: computed_key(),
     minting_logic_script: test_inserted_minting_logic_cred,
+    mode: RegisterAndMint,
   }
 }
 
@@ -354,6 +355,9 @@ fn valid_insert_tx() -> Transaction {
     // Must mint both the registry node token AND a programmable token under `key` as policy
     mint: from_asset(test_policy_id, key, 1)
       |> assets.add(key, #"746f6b656e", 100),
+    // The substandard's withdraw-0 logic MUST be invoked at registration
+    // (always required by registry_mint, both modes).
+    withdrawals: [Pair(test_inserted_minting_logic_cred, 0)],
   }
 }
 
@@ -412,6 +416,7 @@ test registry_insert_fails_wrong_key_length() fail {
     RegistryInsert {
       key: short_key,
       minting_logic_script: test_inserted_minting_logic_cred,
+      mode: RegisterAndMint,
     }
   call_insert_validator(rdmr, valid_insert_tx())
 }
@@ -483,6 +488,181 @@ test registry_insert_fails_wrong_output_address() fail {
 }
 
 // =========================================================================
+// RegistrationMode tests
+//
+// `RegistryInsert` carries a `mode: RegistrationMode` field that selects
+// between:
+//   * `RegisterAndMint` — registration + first mint in one tx (the existing
+//     `valid_insert_tx` / `valid_insert_redeemer` flow, covered above).
+//   * `RegisterOnly`    — substandard authorises registration but no
+//     programmable tokens of `key` are minted. Useful for RWA, supply-aware
+//     substandards that need to initialise global state before any token
+//     exists, etc.
+//
+// In BOTH modes the substandard's `minting_logic_script` MUST appear in
+// `tx.withdrawals` (proof of instance, always required). The two modes
+// differ only in the `tx.mint` shape under the new policy.
+//
+// Coverage in this block:
+//   1. Mode A happy path (mirror of the Mode B happy path above).
+//   2. Mode A vs Mode B mint-shape mismatches (both directions of the
+//      mode ↔ tx.mint consistency check).
+//   3. Substandard-not-invoked failures (per mode).
+//   4. Datum-vs-redeemer mismatch on the new `minting_logic_script` field
+//      (defense-in-depth #2).
+//   5. Cryptographic binding failure (correct field shape, wrong content).
+// =========================================================================
+
+/// Mode A redeemer — same shape as `valid_insert_redeemer` but
+/// `mode = RegisterOnly`.
+fn valid_register_only_redeemer() -> RegistryRedeemer {
+  RegistryInsert {
+    key: computed_key(),
+    minting_logic_script: test_inserted_minting_logic_cred,
+    mode: RegisterOnly,
+  }
+}
+
+/// Mode A transaction — same shape as `valid_insert_tx` but the mint
+/// value carries ONLY the registry NFT (no entries under `key`).
+fn valid_register_only_tx() -> Transaction {
+  let key = computed_key()
+  Transaction {
+    ..valid_insert_tx(),
+    // RegisterOnly: only the registry node NFT is minted; no programmable
+    // tokens of `key`.
+    mint: from_asset(test_policy_id, key, 1),
+  }
+}
+
+// Mode A happy path: substandard invoked via withdraw-0, no programmable
+// tokens of `key` in mint, mode ↔ tx.mint consistency holds.
+test registry_insert_register_only_valid() {
+  call_insert_validator(valid_register_only_redeemer(), valid_register_only_tx())
+}
+
+// Mode ↔ tx.mint consistency: the redeemer claims RegisterOnly but the
+// transaction also mints programmable tokens of `key`. `registry_mint`
+// MUST reject — this catches "I said register-only but actually I'm
+// minting" misuse.
+test registry_insert_mode_a_fails_with_tokens_minted() fail {
+  // Mode A redeemer applied to a Mode B tx (mints tokens under `key`).
+  call_insert_validator(valid_register_only_redeemer(), valid_insert_tx())
+}
+
+// Mode ↔ tx.mint consistency, other direction: the redeemer claims
+// RegisterAndMint but the transaction mints no tokens of `key`. Catches
+// "I said register-and-mint but actually no tokens are being minted"
+// misuse.
+test registry_insert_mode_b_fails_without_tokens_minted() fail {
+  // Mode B redeemer applied to a Mode A tx (no tokens under `key`).
+  call_insert_validator(valid_insert_redeemer(), valid_register_only_tx())
+}
+
+// Substandard withdraw-0 not invoked (Mode A): registry_mint MUST reject
+// even though all other invariants hold. Without this check the registrar
+// could pin any substandard credential into a registry node the
+// substandard itself never authorised.
+test registry_insert_mode_a_fails_substandard_not_invoked() fail {
+  let tx = Transaction { ..valid_register_only_tx(), withdrawals: [] }
+  call_insert_validator(valid_register_only_redeemer(), tx)
+}
+
+// Substandard withdraw-0 not invoked (Mode B): same protection in Mode B.
+// In a real Mode B tx `issuance_mint` would also require the substandard
+// withdrawal (transitively, because tokens are minted), but `registry_mint`
+// MUST enforce it directly so the protection doesn't depend on
+// `issuance_mint` behaviour or on tokens actually being minted.
+test registry_insert_mode_b_fails_substandard_not_invoked() fail {
+  let tx = Transaction { ..valid_insert_tx(), withdrawals: [] }
+  call_insert_validator(valid_insert_redeemer(), tx)
+}
+
+// Defense-in-depth #2: the new node's datum `minting_logic_script` MUST
+// equal the redeemer's `minting_logic_script`. A registrar that claims
+// one credential in the redeemer but writes a different one into the
+// datum is rejected.
+test registry_insert_fails_datum_minting_logic_mismatch() fail {
+  let key = computed_key()
+  let wrong_cred =
+    Script(#"deaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddead")
+  let mismatched_inserted =
+    Output {
+      ..inserted_node_output(),
+      datum: InlineDatum(
+        as_data(
+          RegistryNode {
+            key,
+            next: #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            minting_logic_script: wrong_cred,
+            transfer_logic_script: Script(
+              #"55555555555555555555555555555555555555555555555555555555",
+            ),
+            third_party_transfer_logic_script: Script(
+              #"66666666666666666666666666666666666666666666666666666666",
+            ),
+            global_state_cs: #"",
+          },
+        ),
+      ),
+    }
+  let tx =
+    Transaction {
+      ..valid_insert_tx(),
+      outputs: [updated_covering_node_output(), mismatched_inserted],
+    }
+  call_insert_validator(valid_insert_redeemer(), tx)
+}
+
+// Cryptographic binding: the redeemer's `minting_logic_script`'s inner
+// hash MUST be the value `apply_hashed_parameter` produces the policy id
+// from. Here we supply a credential whose hash ≠ `test_hashed_param`;
+// `is_programmable_token_id_valid` rejects.
+//
+// Both the redeemer AND the datum carry the wrong credential — that
+// keeps defense-in-depth #2 satisfied so this test isolates the binding
+// failure (not the datum/redeemer mismatch).
+test registry_insert_fails_wrong_minting_logic_for_key() fail {
+  let wrong_cred =
+    Script(#"deaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddead")
+  let inserted_with_wrong_cred =
+    Output {
+      ..inserted_node_output(),
+      datum: InlineDatum(
+        as_data(
+          RegistryNode {
+            key: computed_key(),
+            next: #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            minting_logic_script: wrong_cred,
+            transfer_logic_script: Script(
+              #"55555555555555555555555555555555555555555555555555555555",
+            ),
+            third_party_transfer_logic_script: Script(
+              #"66666666666666666666666666666666666666666666666666666666",
+            ),
+            global_state_cs: #"",
+          },
+        ),
+      ),
+    }
+  let rdmr =
+    RegistryInsert {
+      key: computed_key(),
+      minting_logic_script: wrong_cred,
+      mode: RegisterAndMint,
+    }
+  let tx =
+    Transaction {
+      ..valid_insert_tx(),
+      outputs: [updated_covering_node_output(), inserted_with_wrong_cred],
+      // wrong_cred must be invoked too, otherwise the test would fail
+      // at the substandard-invocation check instead of the binding check.
+      withdrawals: [Pair(wrong_cred, 0)],
+    }
+  call_insert_validator(rdmr, tx)
+}
+
+// =========================================================================
 // CIP-68 multi-asset registration
 //
 // is_programmable_token_registration now allows multiple asset names under
@@ -500,10 +680,7 @@ test registry_insert_cip68_dual_token_mint() {
   let key = computed_key()
   let tx =
     Transaction {
-      ..transaction.placeholder,
-      inputs: [covering_node_input()],
-      outputs: [updated_covering_node_output(), inserted_node_output()],
-      reference_inputs: [issuance_ref_input()],
+      ..valid_insert_tx(),
       mint: from_asset(test_policy_id, key, 1)
         |> assets.add(key, cip68_ft_name, 1_000_000)
         |> assets.add(key, cip68_ref_name, 1),
@@ -512,40 +689,31 @@ test registry_insert_cip68_dual_token_mint() {
 }
 
 // =========================================================================
-// Burn-during-registration (defense-in-depth)
+// Mint-shape edge cases under RegisterAndMint
 //
-// Burning tokens requires prior minting, which requires prior registration,
-// and the linked list prevents duplicate inserts — so this scenario is
-// logically impossible in practice. The amount > 0 check makes the
-// invariant explicit locally.
+// `mint_has_policy` (the unified primitive) returns True iff `tx.mint`
+// contains ANY entry under the new policy id, regardless of sign. This is
+// a looser check than the previous "at least one positive quantity" — and
+// is safe because burn-only of a brand-new policy is ledger-impossible
+// (no prior tokens exist to burn). See `lib/utils.ak` for the rationale.
+//
+// Consequence: a transaction whose only entry under `key` is a burn now
+// passes the mode-consistency check at the on-chain level. The ledger
+// will reject it anyway when no inputs balance the burn. The previously
+// explicit `registry_insert_fails_burn_only` test is therefore obsolete
+// and has been removed; the property it tested is enforced by the
+// ledger, not by registry_mint.
 // =========================================================================
 
-// Burn-only: no positive mint amount for the programmable token policy — must fail
-test registry_insert_fails_burn_only() fail {
-  let key = computed_key()
-  let tx =
-    Transaction {
-      ..transaction.placeholder,
-      inputs: [covering_node_input()],
-      outputs: [updated_covering_node_output(), inserted_node_output()],
-      reference_inputs: [issuance_ref_input()],
-      // Registry node NFT is minted, but programmable token policy only burns
-      mint: from_asset(test_policy_id, key, 1)
-        |> assets.add(key, #"746f6b656e", -100),
-    }
-  call_insert_validator(valid_insert_redeemer(), tx)
-}
-
-// Mixed mint+burn: one asset name positive, another negative — should pass
-// (at least one asset name has amount > 0)
+// Mixed mint+burn under the new policy: at least one entry exists — passes
+// `mint_has_policy`. (Was also passing under the old `> 0` check
+// because the FT name has positive quantity; kept here as a sanity check
+// that mixed-sign entries don't break the new primitive.)
 test registry_insert_mixed_mint_and_burn() {
   let key = computed_key()
   let tx =
     Transaction {
-      ..transaction.placeholder,
-      inputs: [covering_node_input()],
-      outputs: [updated_covering_node_output(), inserted_node_output()],
-      reference_inputs: [issuance_ref_input()],
+      ..valid_insert_tx(),
       mint: from_asset(test_policy_id, key, 1)
         |> assets.add(key, cip68_ft_name, 1_000_000)
         |> assets.add(key, #"6f6c64746f6b656e", -50),

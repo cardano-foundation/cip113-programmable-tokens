@@ -15,10 +15,13 @@ use linked_list.{
   validate_directory_node_output, validate_mint,
 }
 use registry_node.{RegistryNode}
-use types.{IssuanceCborHex, RegistryInit, RegistryInsert, RegistryRedeemer}
+use types.{
+  IssuanceCborHex, RegisterAndMint, RegisterOnly, RegistryInit, RegistryInsert,
+  RegistryRedeemer,
+}
 use utils.{
   bytearray_lt, expect_inline_datum, has_currency_symbol,
-  is_programmable_token_registration,
+  is_programmable_token_id_valid, mint_has_policy,
 }
 
 validator registry_mint(
@@ -48,7 +51,7 @@ validator registry_mint(
           )?,
         }
       }
-      RegistryInsert { key, minting_logic_script } -> {
+      RegistryInsert { key, minting_logic_script, mode } -> {
         // Find the issuance CBOR hex reference input
         expect Some(issuance_ref_input) =
           //should this be a find.any instead of find.some?
@@ -65,19 +68,51 @@ validator registry_mint(
         let issuance_datum = expect_inline_datum(issuance_ref_input.output)
         expect issuance_cbor: IssuanceCborHex = issuance_datum
 
-        // Validate that the key being inserted is a valid programmable token.
-        // The `hashed_param` for the policy id derivation is the inner 28-byte
-        // hash of `minting_logic_script` — extracted inside the helper. This
-        // is the cryptographic binding that ties the registered credential
-        // to the policy id. Also checks that tokens of `key` are being minted.
-        let is_token_registered =
-          is_programmable_token_registration(
+        // Cryptographic binding (mode-independent): the key being inserted
+        // must be the policy id derived from the issuance template
+        // parameterised with `minting_logic_script`. The `hashed_param`
+        // for the derivation is the inner 28-byte hash of the credential,
+        // extracted inside the helper.
+        expect
+          is_programmable_token_id_valid(
             key,
             issuance_cbor.prefix_cbor_hex,
             issuance_cbor.postfix_cbor_hex,
             minting_logic_script,
-            self.mint,
           )
+
+        // Substandard authorises this registration regardless of mode.
+        // The substandard's withdraw-0 logic must appear in tx.withdrawals.
+        // This is the "proof of instance" check — replacing the old indirect
+        // proof of "tokens are being minted" which transitively required
+        // issuance_mint (and hence minting_logic_script) to run. Required
+        // explicitly here because in `RegisterOnly` mode no programmable
+        // tokens are minted and issuance_mint is never invoked.
+        expect
+          list.any(
+            self.withdrawals,
+            fn(w) {
+              let Pair(cred, _amount) = w
+              cred == minting_logic_script
+            },
+          )
+
+        // Mode-specific mint shape:
+        //   RegisterOnly      ⇒ no entries under `key` in tx.mint
+        //   RegisterAndMint   ⇒ tx.mint contains an entry under `key`
+        // The mode field in the redeemer is asserted here against the
+        // actual `tx.mint` content (defense-in-depth #1: mode ↔ mint
+        // consistency, both directions).
+        //
+        // Burn-only of a brand-new policy is ledger-impossible (no prior
+        // tokens to burn), so `mint_has_policy` not distinguishing
+        // sign of the entry is fine here. See `lib/utils.ak` for the
+        // benchmark rationale behind the unified primitive.
+        expect
+          when mode is {
+            RegisterOnly -> !mint_has_policy(self.mint, key)
+            RegisterAndMint -> mint_has_policy(self.mint, key)
+          }
 
         // Must mint exactly one node token with the new key
         expect validate_mint(self.mint, policy_id) == key
@@ -137,7 +172,6 @@ validator registry_mint(
         expect inserted.minting_logic_script == minting_logic_script
 
         and {
-          is_token_registered?,
           // Validate key is a valid currency symbol (28 bytes)
           (bytearray.length(key) == 28)?,
           // The covering node must cover the key to insert
