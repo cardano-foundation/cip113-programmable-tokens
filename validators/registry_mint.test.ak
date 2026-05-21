@@ -61,15 +61,14 @@ const test_hashed_param =
 /// Substandard minting-logic credential placed in the new RegistryNode's
 /// `minting_logic_script` field AND in the matching `RegistryInsert`
 /// redeemer. Its inner 28-byte hash equals `test_hashed_param`, so the
-/// `is_programmable_token_registration` check passes.
-const test_inserted_minting_logic_cred: Credential =
-  Script(test_hashed_param)
+/// `is_programmable_token_id_valid` check passes.
+const test_inserted_minting_logic_cred: Credential = Script(test_hashed_param)
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-/// Build the 28-byte key that `is_programmable_token_registration` expects.
+/// Build the 28-byte key that `is_programmable_token_id_valid` expects.
 fn computed_key() -> ByteArray {
   apply_hashed_parameter(test_prefix, test_postfix, test_hashed_param)
 }
@@ -455,7 +454,7 @@ test registry_insert_fails_updated_node_modified() fail {
   call_insert_validator(valid_insert_redeemer(), tx)
 }
 
-// Programmable token not being minted (fails is_programmable_token_registration)
+// Programmable token not being minted (fails is_programmable_token_id_valid)
 test registry_insert_fails_no_token_minted() fail {
   let tx = Transaction { ..valid_insert_tx(), mint: assets.zero }
   call_insert_validator(valid_insert_redeemer(), tx)
@@ -538,7 +537,10 @@ fn valid_register_only_tx() -> Transaction {
 // Mode A happy path: substandard invoked via withdraw-0, no programmable
 // tokens of `key` in mint, mode ↔ tx.mint consistency holds.
 test registry_insert_register_only_valid() {
-  call_insert_validator(valid_register_only_redeemer(), valid_register_only_tx())
+  call_insert_validator(
+    valid_register_only_redeemer(),
+    valid_register_only_tx(),
+  )
 }
 
 // Mode ↔ tx.mint consistency: the redeemer claims RegisterOnly but the
@@ -665,7 +667,7 @@ test registry_insert_fails_wrong_minting_logic_for_key() fail {
 // =========================================================================
 // CIP-68 multi-asset registration
 //
-// is_programmable_token_registration now allows multiple asset names under
+// is_programmable_token_id_valid now allows multiple asset names under
 // the same policy to support CIP-68 (FT label 333 + ref token label 100).
 // =========================================================================
 

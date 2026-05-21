@@ -192,7 +192,7 @@ fn verify_registry_node(
   // No need to compare `registry.minting_logic_script` against the validator's
   // `minting_logic_cred` parameter here. `registry_mint` already enforces that
   // the registered credential's inner hash is the one the policy id was
-  // derived from (via `is_programmable_token_registration`). Since this
+  // derived from (via `is_programmable_token_id_valid`). Since this
   // validator's `minting_logic_cred` parameter is also baked into the policy
   // id at compile time, collision-resistance of blake2b_224 implies the two
   // credentials must match. Checking again here would be redundant.

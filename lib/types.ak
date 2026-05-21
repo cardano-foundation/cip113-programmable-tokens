@@ -56,7 +56,11 @@ pub type MintingRegistryProof {
 /// `tx.withdrawals` (proof of instance — the substandard authorises the
 /// registration). The modes differ only in the `tx.mint` shape:
 ///   * RegisterOnly  ⇒ no entries under the new policy in `tx.mint`.
-///   * RegisterAndMint ⇒ at least one entry with positive quantity.
+///   * RegisterAndMint ⇒ `tx.mint` contains an entry under the new
+///     policy. Quantity sign is not checked on-chain: burn-only of a
+///     brand-new policy is ledger-impossible (no prior tokens exist
+///     before registration), so the first mint is positive by
+///     construction.
 pub type RegistrationMode {
   RegisterOnly
   RegisterAndMint

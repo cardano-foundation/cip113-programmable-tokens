@@ -56,7 +56,7 @@ pub type RegistryNode {
   /// logic finds its own registry node by equality on this field — that gives
   /// it the `key` (the policy id) without recomputing the issuance hash.
   /// `registry_mint` also cryptographically binds this field to the policy id
-  /// via `is_programmable_token_registration`, so the field cannot lie.
+  /// via `is_programmable_token_id_valid`, so the field cannot lie.
   minting_logic_script: Credential,
   /// The transfer logic script credential that validates token transfers
   transfer_logic_script: Credential,

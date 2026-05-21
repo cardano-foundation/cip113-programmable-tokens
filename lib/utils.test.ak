@@ -141,7 +141,6 @@ test bench_a3_policies_list_has_case_a() {
 test bench_a3_policies_list_has_case_b() {
   list.has(assets.policies(case_b_mint()), bench_key)
 }
-
 // Note on previously-benchmarked approaches:
 //   * The original `is_programmable_token_minted` (used `expect Some(_)` +
 //     inner-dict iteration for `> 0`) was the most expensive in the
