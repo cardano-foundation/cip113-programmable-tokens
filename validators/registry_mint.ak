@@ -156,20 +156,26 @@ validator registry_mint(
             covering_input.output.address,
           )
 
-        let (inserted, updated) =
-          if is_inserted_directory_node(node1, key, covering_node.next) {
-            (node1, node2)
+        let updated =
+          if is_inserted_directory_node(
+            node1,
+            key,
+            covering_node.next,
+            minting_logic_script,
+          ) {
+            node2
           } else {
-            expect is_inserted_directory_node(node2, key, covering_node.next)
-            (node2, node1)
+            expect
+              is_inserted_directory_node(
+                node2,
+                key,
+                covering_node.next,
+                minting_logic_script,
+              )
+            node1
           }
+        // node2 inserted ⇒ node1 is the updated covering
         expect is_updated_directory_node(updated, covering_node, key)
-
-        // Defense-in-depth #2: the new node's `minting_logic_script` datum
-        // field MUST equal the redeemer's `minting_logic_script`. Prevents a
-        // benign-looking redeemer from producing a node datum that points at
-        // a different substandard credential than the one claimed.
-        expect inserted.minting_logic_script == minting_logic_script
 
         and {
           // Validate key is a valid currency symbol (28 bytes)

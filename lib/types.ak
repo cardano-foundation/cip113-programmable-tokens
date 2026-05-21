@@ -1,4 +1,4 @@
-// Core data types for CIP-0143 programmable tokens
+// Core data types for CIP-113 programmable tokens
 // Migrated from SmartTokens.Types.PTokenDirectory and SmartTokens.Types.ProtocolParams
 
 use cardano/address.{Credential}

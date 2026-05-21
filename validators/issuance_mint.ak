@@ -196,7 +196,7 @@ fn verify_registry_node(
   // validator's `minting_logic_cred` parameter is also baked into the policy
   // id at compile time, collision-resistance of blake2b_224 implies the two
   // credentials must match. Checking again here would be redundant.
-  expect assets.has_nft(output.value, registry_node_cs, own_policy)?
+  expect assets.has_nft_strict(output.value, registry_node_cs, own_policy)?
   let registry_datum = expect_inline_datum(output)
   expect registry: RegistryNode = registry_datum
   registry.key == own_policy

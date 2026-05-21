@@ -39,7 +39,7 @@ pub const origin_node: RegistryNode =
   }
 
 /// Registry node in the linked list of registered programmable token policies
-/// This represents an entry in the CIP-0143 registry.
+/// This represents an entry in the CIP-113 registry.
 ///
 /// Field order is load-bearing: it determines the CBOR layout consumed by both
 /// on-chain and off-chain code. The three script-credential fields are ordered

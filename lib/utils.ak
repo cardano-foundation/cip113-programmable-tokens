@@ -1,9 +1,9 @@
-//// Utility functions for CIP-0143 validators
+//// Utility functions for CIP-113 validators
 //// Migrated from various Plutarch utility modules
 
 use aiken/builtin.{tail_list}
 use aiken/collection/dict
-use cardano/address.{Credential, Script, VerificationKey}
+use cardano/address.{Credential, Script}
 use cardano/assets.{PolicyId, Value}
 use cardano/transaction.{InlineDatum, Output}
 
@@ -81,11 +81,7 @@ pub fn is_programmable_token_id_valid(
   postfix: ByteArray,
   minting_logic_script: Credential,
 ) -> Bool {
-  let hashed_param =
-    when minting_logic_script is {
-      VerificationKey(h) -> h
-      Script(h) -> h
-    }
+  expect Script(hashed_param) = minting_logic_script
   apply_hashed_parameter(prefix, postfix, hashed_param) == cs_to_insert
 }
 

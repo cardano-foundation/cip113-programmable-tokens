@@ -94,7 +94,7 @@ test is_inserted_directory_node_works() {
       global_state_cs: global_state,
     }
 
-  is_inserted_directory_node(node, insert_key, next_key)
+  is_inserted_directory_node(node, insert_key, next_key, minting_logic)
 }
 
 // Test directory node ordering

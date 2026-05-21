@@ -99,9 +99,9 @@ fn any_registry_node() -> Fuzzer<RegistryNode> {
     RegistryNode {
       key,
       next,
+      minting_logic_script,
       transfer_logic_script,
       third_party_transfer_logic_script,
-      minting_logic_script,
       global_state_cs,
     },
   )

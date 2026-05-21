@@ -1,5 +1,5 @@
 //// Programmable Logic Global Stake Validator
-//// This is the core CIP-0143 validator that coordinates all programmable token transfers
+//// This is the core CIP-113 validator that coordinates all programmable token transfers
 //// Migrated from SmartTokens.Contracts.ProgrammableLogicBase (mkProgrammableLogicGlobal)
 
 use aiken/collection/dict
