@@ -2,7 +2,7 @@
 //// Invokes the validator's mint handler directly, covering both
 //// RegistryInit and RegistryInsert redeemer paths.
 
-use cardano/address.{Address, Credential, Inline, Script}
+use cardano/address.{Address, Credential, Inline, Script, VerificationKey}
 use cardano/assets.{PolicyId, ada_asset_name, ada_policy_id, from_asset}
 use cardano/transaction.{
   InlineDatum, Input, Mint, NoDatum, Output, OutputReference, Transaction,
@@ -454,7 +454,10 @@ test registry_insert_fails_updated_node_modified() fail {
   call_insert_validator(valid_insert_redeemer(), tx)
 }
 
-// Programmable token not being minted (fails is_programmable_token_id_valid)
+// RegisterAndMint redeemer applied to a tx with empty mint. Fails the
+// mode ↔ tx.mint consistency check: `mint_has_policy(self.mint, key)` is
+// False, so the `RegisterAndMint ⇒ mint_has_policy(...) == True` branch
+// rejects.
 test registry_insert_fails_no_token_minted() fail {
   let tx = Transaction { ..valid_insert_tx(), mint: assets.zero }
   call_insert_validator(valid_insert_redeemer(), tx)
@@ -664,11 +667,101 @@ test registry_insert_fails_wrong_minting_logic_for_key() fail {
   call_insert_validator(rdmr, tx)
 }
 
+// Finding 07: the substandard-invocation check matches BY credential —
+// having *some* other substandard withdraw in the same tx does not
+// authorise this registration. Companion to
+// `registry_insert_mode_b_fails_substandard_not_invoked` (which uses
+// `withdrawals: []`) — this test uses a non-empty withdrawals list
+// containing the WRONG credential, isolating the "must match
+// minting_logic_script" property.
+test registry_insert_fails_wrong_substandard_in_withdrawals() fail {
+  let other_cred =
+    Script(#"abababababababababababababababababababababababababababab")
+  let tx =
+    Transaction {
+      ..valid_insert_tx(),
+      withdrawals: [Pair(other_cred, 0)],
+    }
+  call_insert_validator(valid_insert_redeemer(), tx)
+}
+
+// Finding 07: the substandard-invocation check uses `list.any`
+// semantics — the substandard's withdrawal must be PRESENT, not SOLE.
+// Multiple reward addresses withdrawing in the same tx are fine;
+// registration succeeds as long as `minting_logic_script` appears
+// somewhere in `tx.withdrawals`. Locks in that the new check composes
+// with unrelated stake activity in the same block.
+test registry_insert_succeeds_substandard_among_other_withdrawals() {
+  let other_cred =
+    Script(#"abababababababababababababababababababababababababababab")
+  let other_vk_cred =
+    VerificationKey(#"cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd")
+  let tx =
+    Transaction {
+      ..valid_insert_tx(),
+      withdrawals: [
+        Pair(other_cred, 0),
+        Pair(test_inserted_minting_logic_cred, 0),
+        Pair(other_vk_cred, 1_000_000),
+      ],
+    }
+  call_insert_validator(valid_insert_redeemer(), tx)
+}
+
+// Finding 07 + post-fix tightening: substandards MUST be `Script`
+// credentials. A `VerificationKey`-credentialed redeemer is rejected
+// by `is_programmable_token_id_valid` (lib/utils.ak) even when all
+// structural invariants are otherwise satisfied — datum/redeemer
+// equality holds (both carry the same VK), the credential appears in
+// `tx.withdrawals`, the inner hash equals `test_hashed_param` so the
+// hash-derivation would compute the correct policy id. The only
+// failure point is the `expect Script(_)` in
+// `is_programmable_token_id_valid`.
+test registry_insert_fails_verification_key_substandard() fail {
+  let vk_cred: Credential = VerificationKey(test_hashed_param)
+  let inserted_with_vk =
+    Output {
+      ..inserted_node_output(),
+      datum: InlineDatum(
+        as_data(
+          RegistryNode {
+            key: computed_key(),
+            next: #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            minting_logic_script: vk_cred,
+            transfer_logic_script: Script(
+              #"55555555555555555555555555555555555555555555555555555555",
+            ),
+            third_party_transfer_logic_script: Script(
+              #"66666666666666666666666666666666666666666666666666666666",
+            ),
+            global_state_cs: #"",
+          },
+        ),
+      ),
+    }
+  let rdmr =
+    RegistryInsert {
+      key: computed_key(),
+      minting_logic_script: vk_cred,
+      mode: RegisterAndMint,
+    }
+  let tx =
+    Transaction {
+      ..valid_insert_tx(),
+      outputs: [updated_covering_node_output(), inserted_with_vk],
+      withdrawals: [Pair(vk_cred, 0)],
+    }
+  call_insert_validator(rdmr, tx)
+}
+
 // =========================================================================
 // CIP-68 multi-asset registration
 //
-// is_programmable_token_id_valid now allows multiple asset names under
-// the same policy to support CIP-68 (FT label 333 + ref token label 100).
+// registry_mint allows multiple asset names under the same policy in
+// `tx.mint` to support CIP-68 (FT label 333 + ref token label 100).
+// `mint_has_policy` (lib/utils.ak) checks policy presence only — asset
+// name and quantity are unconstrained — so additional CIP-68 companion
+// assets minted in the same tx do not affect the registration check.
 // =========================================================================
 
 // CIP-67 label 333 (FT) prefix + "MyToken" hex
