@@ -678,10 +678,7 @@ test registry_insert_fails_wrong_substandard_in_withdrawals() fail {
   let other_cred =
     Script(#"abababababababababababababababababababababababababababab")
   let tx =
-    Transaction {
-      ..valid_insert_tx(),
-      withdrawals: [Pair(other_cred, 0)],
-    }
+    Transaction { ..valid_insert_tx(), withdrawals: [Pair(other_cred, 0)] }
   call_insert_validator(valid_insert_redeemer(), tx)
 }
 
@@ -700,8 +697,7 @@ test registry_insert_succeeds_substandard_among_other_withdrawals() {
     Transaction {
       ..valid_insert_tx(),
       withdrawals: [
-        Pair(other_cred, 0),
-        Pair(test_inserted_minting_logic_cred, 0),
+        Pair(other_cred, 0), Pair(test_inserted_minting_logic_cred, 0),
         Pair(other_vk_cred, 1_000_000),
       ],
     }
