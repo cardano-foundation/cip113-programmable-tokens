@@ -28,14 +28,19 @@ pub type ProgrammableLogicGlobalRedeemer {
   }
 }
 
-/// Action for the minting policy
-pub type SmartTokenMintingAction {
-  /// The credential of the minting logic script that must be invoked
-  minting_logic_cred: Credential,
-  /// Minting Registry Proofs
-  minting_registry_proof: MintingRegistryProof,
-}
-
+/// Redeemer for the issuance minting policy.
+///
+/// The redeemer is the registry proof itself — a `RefInput` index for a
+/// subsequent mint (registry node already exists), or an `OutputIndex` for
+/// the first mint (registry node being created in the same tx).
+///
+/// The substandard's withdraw-0 invocation (proof of instance) is checked
+/// directly against the validator's `minting_logic_cred` parameter — no
+/// separate redeemer field needed. The validator parameter is baked into
+/// the policy id at compile time and pinned to `registry.minting_logic_script`
+/// by the cryptographic binding in `registry_mint`, so collision-resistance
+/// of blake2b_224 forces credential agreement without a runtime equality
+/// check on the redeemer.
 pub type MintingRegistryProof {
   RefInput { index: Int }
   OutputIndex { index: Int }

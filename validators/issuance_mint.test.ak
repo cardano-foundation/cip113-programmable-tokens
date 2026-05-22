@@ -14,7 +14,7 @@ use cardano/transaction.{
 }
 use issuance_mint
 use registry_node.{RegistryNode}
-use types.{OutputIndex, RefInput, SmartTokenMintingAction}
+use types.{MintingRegistryProof, OutputIndex, RefInput}
 
 // ---------------------------------------------------------------------------
 // Test constants
@@ -155,11 +155,8 @@ fn some_input(output: Output) -> Input {
   }
 }
 
-fn valid_redeemer() -> SmartTokenMintingAction {
-  SmartTokenMintingAction {
-    minting_logic_cred: test_ml_cred,
-    minting_registry_proof: RefInput(0),
-  }
+fn valid_redeemer() -> MintingRegistryProof {
+  RefInput(0)
 }
 
 fn valid_mint_tx() -> Transaction {
@@ -174,7 +171,7 @@ fn valid_mint_tx() -> Transaction {
   }
 }
 
-fn call_validator(rdmr: SmartTokenMintingAction, tx: Transaction) -> Bool {
+fn call_validator(rdmr: MintingRegistryProof, tx: Transaction) -> Bool {
   issuance_mint.issuance_mint.mint(
     test_plb_cred,
     test_registry_cs,
@@ -195,11 +192,7 @@ test valid_mint_with_ref_input() {
 }
 
 test valid_mint_with_output_index() {
-  let rdmr =
-    SmartTokenMintingAction {
-      minting_logic_cred: test_ml_cred,
-      minting_registry_proof: OutputIndex(1),
-    }
+  let rdmr = OutputIndex(1)
   let tx =
     Transaction {
       ..transaction.placeholder,
@@ -377,11 +370,7 @@ test registry_no_datum_fails() fail {
 
 // Reference input index out of bounds
 test ref_input_out_of_bounds_fails() fail {
-  let rdmr =
-    SmartTokenMintingAction {
-      minting_logic_cred: test_ml_cred,
-      minting_registry_proof: RefInput(99),
-    }
+  let rdmr = RefInput(99)
   let tx =
     Transaction {
       ..transaction.placeholder,
@@ -410,27 +399,6 @@ test minting_logic_not_invoked_fails() fail {
       outputs: [mint_output(100)],
       mint: from_asset(test_own_policy, test_token_name, 100),
       withdrawals: [Pair(other_cred, 0)],
-      redeemers: [Pair(Mint(test_own_policy), as_data(rdmr))],
-    }
-  call_validator(rdmr, tx)
-}
-
-// Redeemer minting_logic_cred doesn't match validator parameter
-test wrong_minting_logic_cred_in_redeemer_fails() fail {
-  let wrong_cred =
-    Script(#"99999999999999999999999999999999999999999999999999999999")
-  let rdmr =
-    SmartTokenMintingAction {
-      minting_logic_cred: wrong_cred,
-      minting_registry_proof: RefInput(0),
-    }
-  let tx =
-    Transaction {
-      ..transaction.placeholder,
-      reference_inputs: [some_ref_input(registry_node_output(test_own_policy))],
-      outputs: [mint_output(100)],
-      mint: from_asset(test_own_policy, test_token_name, 100),
-      withdrawals: [Pair(test_ml_cred, 0)],
       redeemers: [Pair(Mint(test_own_policy), as_data(rdmr))],
     }
   call_validator(rdmr, tx)
@@ -530,29 +498,6 @@ test output_wrong_token_quantity_fails() fail {
 }
 
 // ========================================================================
-// Single mint with credential enforcement
-// ========================================================================
-
-// Two minting redeemers with same data — prevents concurrent mints
-test duplicate_mint_redeemer_fails() fail {
-  let rdmr = valid_redeemer()
-  let other_policy = #"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-  let tx =
-    Transaction {
-      ..transaction.placeholder,
-      reference_inputs: [some_ref_input(registry_node_output(test_own_policy))],
-      outputs: [mint_output(100)],
-      mint: from_asset(test_own_policy, test_token_name, 100),
-      withdrawals: [Pair(test_ml_cred, 0)],
-      redeemers: [
-        Pair(Mint(test_own_policy), as_data(rdmr)),
-        Pair(Mint(other_policy), as_data(rdmr)),
-      ],
-    }
-  call_validator(rdmr, tx)
-}
-
-// ========================================================================
 // Multi-token minting under same policy
 //
 // These tests express desired multi-token behavior.
@@ -598,11 +543,7 @@ test multi_token_mint_ref_input() {
 
 // Multi-token first mint: two token names, OutputIndex proof
 test multi_token_mint_output_index() {
-  let rdmr =
-    SmartTokenMintingAction {
-      minting_logic_cred: test_ml_cred,
-      minting_registry_proof: OutputIndex(1),
-    }
+  let rdmr = OutputIndex(1)
   let tx =
     Transaction {
       ..transaction.placeholder,
@@ -732,11 +673,7 @@ test multi_token_spend_and_mint_defers() {
 
 // Happy path: all minted tokens go to PLB
 test case1_first_mint_valid() {
-  let rdmr =
-    SmartTokenMintingAction {
-      minting_logic_cred: test_ml_cred,
-      minting_registry_proof: OutputIndex(1),
-    }
+  let rdmr = OutputIndex(1)
   let tx =
     Transaction {
       ..transaction.placeholder,
@@ -750,11 +687,7 @@ test case1_first_mint_valid() {
 
 // First mint: multiple outputs, all at PLB
 test case1_first_mint_multiple_outputs() {
-  let rdmr =
-    SmartTokenMintingAction {
-      minting_logic_cred: test_ml_cred,
-      minting_registry_proof: OutputIndex(2),
-    }
+  let rdmr = OutputIndex(2)
   let tx =
     Transaction {
       ..transaction.placeholder,
@@ -772,11 +705,7 @@ test case1_first_mint_multiple_outputs() {
 
 // First mint: tokens sent to non-PLB address — must fail
 test case1_first_mint_tokens_to_non_plb_fails() fail {
-  let rdmr =
-    SmartTokenMintingAction {
-      minting_logic_cred: test_ml_cred,
-      minting_registry_proof: OutputIndex(1),
-    }
+  let rdmr = OutputIndex(1)
   let non_plb_output =
     Output {
       address: Address {
@@ -843,11 +772,7 @@ test case1_first_mint_with_shared_transfer_logic() {
       ),
       reference_script: None,
     }
-  let rdmr =
-    SmartTokenMintingAction {
-      minting_logic_cred: test_ml_cred,
-      minting_registry_proof: OutputIndex(1),
-    }
+  let rdmr = OutputIndex(1)
   let tx =
     Transaction {
       ..transaction.placeholder,
@@ -865,11 +790,7 @@ test case1_first_mint_with_shared_transfer_logic() {
 test case1_first_mint_with_other_tokens_transfer_logic_invoked() {
   let other_transfer_logic =
     Script(#"55555555555555555555555555555555555555555555555555555555")
-  let rdmr =
-    SmartTokenMintingAction {
-      minting_logic_cred: test_ml_cred,
-      minting_registry_proof: OutputIndex(1),
-    }
+  let rdmr = OutputIndex(1)
   let tx =
     Transaction {
       ..transaction.placeholder,
@@ -933,11 +854,7 @@ test case2_subsequent_mint_tokens_to_non_plb_fails() fail {
 
 // First mint with PLB input present: tokens to non-PLB must still fail
 test case3_first_mint_with_plb_spend_tokens_escape_fails() fail {
-  let rdmr =
-    SmartTokenMintingAction {
-      minting_logic_cred: test_ml_cred,
-      minting_registry_proof: OutputIndex(1),
-    }
+  let rdmr = OutputIndex(1)
   let non_plb_output =
     Output {
       address: Address {
@@ -1114,11 +1031,7 @@ fn cip68_ref_output() -> Output {
 
 // CIP-68 first mint: FT (label 333) + reference token (label 100), OutputIndex
 test cip68_first_mint_ft_and_ref_token() {
-  let rdmr =
-    SmartTokenMintingAction {
-      minting_logic_cred: test_ml_cred,
-      minting_registry_proof: OutputIndex(3),
-    }
+  let rdmr = OutputIndex(3)
   let tx =
     Transaction {
       ..transaction.placeholder,
@@ -1144,11 +1057,7 @@ test cip68_first_mint_ft_and_ref_token() {
 
 // CIP-68 first mint: split FT + ref across separate PLB outputs
 test cip68_first_mint_split_outputs() {
-  let rdmr =
-    SmartTokenMintingAction {
-      minting_logic_cred: test_ml_cred,
-      minting_registry_proof: OutputIndex(2),
-    }
+  let rdmr = OutputIndex(2)
   let tx =
     Transaction {
       ..transaction.placeholder,
@@ -1183,11 +1092,7 @@ test cip68_first_mint_combined_output() {
       datum: NoDatum,
       reference_script: None,
     }
-  let rdmr =
-    SmartTokenMintingAction {
-      minting_logic_cred: test_ml_cred,
-      minting_registry_proof: OutputIndex(1),
-    }
+  let rdmr = OutputIndex(1)
   let tx =
     Transaction {
       ..transaction.placeholder,
@@ -1219,11 +1124,7 @@ test cip68_ref_token_escapes_non_plb_fails() fail {
       datum: NoDatum,
       reference_script: None,
     }
-  let rdmr =
-    SmartTokenMintingAction {
-      minting_logic_cred: test_ml_cred,
-      minting_registry_proof: OutputIndex(2),
-    }
+  let rdmr = OutputIndex(2)
   let tx =
     Transaction {
       ..transaction.placeholder,
