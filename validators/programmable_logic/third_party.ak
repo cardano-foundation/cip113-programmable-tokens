@@ -140,10 +140,15 @@ fn check_seized_tokens(
     [Input { output: input, .. }, ..tail_inputs] ->
       // Validate all inputs pointing at a programmable proof
       if input.address.payment_credential == prog_logic_cred {
-        // Extract the paired output and ensures it preserves address and datum
+        // Extract the paired output and ensure it preserves address, datum,
+        // AND reference_script. Finding 13: without the reference_script
+        // equality, a third-party-act tx could swap or attach a reference
+        // script on the continuing output, dropping a legitimate one or
+        // inserting a misleading attestation while seizing tokens.
         let output = list.head(outputs)
         expect output.address == input.address
         expect output.datum == input.datum
+        expect output.reference_script == input.reference_script
 
         // Extract seized tokens as the delta between outputs and inputs for the
         // given policy, ensuring all else is equal.
