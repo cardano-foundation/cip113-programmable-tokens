@@ -174,25 +174,7 @@ validator registry_mint(
             node1
           }
         // node2 inserted ⇒ node1 is the updated covering
-        expect is_updated_directory_node(updated, covering_node, key)
-
-        // Finding 19: the previous three `and {}` checks
-        //   (bytearray.length(key) == 28)
-        //   bytearray_lt(covering_node.key, key)
-        //   bytearray_lt(key, covering_node.next)
-        // are removed as redundant:
-        //   - length 28 is implied by `is_programmable_token_id_valid` (which
-        //     equates `key` to a blake2b_224 output, always 28 bytes);
-        //   - the two ordering checks are implied by
-        //     `validate_directory_node_output`'s `node.key < node.next`
-        //     check, combined with the relationships `updated.key ==
-        //     covering_node.key`, `updated.next == key`, `inserted.key ==
-        //     key`, `inserted.next == covering_node.next` enforced by
-        //     `is_updated_directory_node` and `is_inserted_directory_node`.
-        // See registry_mint.test.ak `registry_insert_fails_covering_key_ge_*`
-        // / `_insert_key_ge_covering_next` for explicit upstream-coverage
-        // tests.
-        True
+        is_updated_directory_node(updated, covering_node, key)
       }
     }
   }
