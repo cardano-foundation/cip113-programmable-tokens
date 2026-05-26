@@ -813,6 +813,186 @@ test registry_insert_mixed_mint_and_burn() {
 }
 
 // =========================================================================
+// Finding 19: redundant ordering checks have upstream coverage
+//
+// These two tests pin the upstream invariants that make the explicit
+// `bytearray_lt(covering_node.key, key)?` and `bytearray_lt(key,
+// covering_node.next)?` checks in registry_mint.ak redundant. Each test
+// builds a scenario where the only violation is the targeted ordering
+// inequality, and confirms the validator rejects via
+// `validate_directory_node_output`'s `bytearray_lt(node.key, node.next)`
+// check on the relevant output.
+//
+// If we ever drop the upstream `node.key < node.next` check in
+// `validate_directory_node_output`, these tests will start passing
+// (failing their `fail` assertion) — that's the alarm.
+// =========================================================================
+
+// Finding 19: covering_node.key MUST be strictly less than the insert key.
+// The redundant check `bytearray_lt(covering_node.key, key)?` in
+// registry_mint.ak is implied by validate_directory_node_output on the
+// updated covering output: updated.key == covering_node.key and
+// updated.next == insert_key (per is_updated_directory_node), so the
+// per-output `bytearray_lt(node.key, node.next)` check transitively
+// asserts `covering_node.key < insert_key`.
+//
+// Uses bad_covering.key = 28 bytes of 0xff (the max 28-byte value,
+// strictly greater than any blake2b_224 output). The updated covering
+// output therefore has key = 0xff..ff (28B) and next = computed_key
+// (28B hash output, < 0xff..ff). `validate_directory_node_output`
+// rejects the updated output via bytearray_lt(0xff..ff, computed_key)
+// = False.
+test registry_insert_fails_covering_key_ge_insert_key() fail {
+  let bad_covering_key =
+    #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+  let bad_covering =
+    Input {
+      output_reference: OutputReference {
+        transaction_id: #"01",
+        output_index: 0,
+      },
+      output: Output {
+        address: test_node_address,
+        value: min_ada
+          |> assets.add(test_policy_id, bad_covering_key, 1),
+        datum: InlineDatum(
+          as_data(
+            RegistryNode {
+              key: bad_covering_key,
+              next: #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+              transfer_logic_script: empty_vkey,
+              third_party_transfer_logic_script: empty_vkey,
+              minting_logic_script: empty_vkey,
+              global_state_cs: #"",
+            },
+          ),
+        ),
+        reference_script: None,
+      },
+    }
+  let bad_updated =
+    Output {
+      address: test_node_address,
+      value: min_ada
+        |> assets.add(test_policy_id, bad_covering_key, 1),
+      datum: InlineDatum(
+        as_data(
+          RegistryNode {
+            key: bad_covering_key,
+            next: computed_key(),
+            transfer_logic_script: empty_vkey,
+            third_party_transfer_logic_script: empty_vkey,
+            minting_logic_script: empty_vkey,
+            global_state_cs: #"",
+          },
+        ),
+      ),
+      reference_script: None,
+    }
+  let tx =
+    Transaction {
+      ..valid_insert_tx(),
+      inputs: [bad_covering],
+      outputs: [bad_updated, inserted_node_output()],
+    }
+  call_insert_validator(valid_insert_redeemer(), tx)
+}
+
+// Finding 19: insert key MUST be strictly less than covering_node.next.
+// The redundant check `bytearray_lt(key, covering_node.next)?` in
+// registry_mint.ak is implied by validate_directory_node_output on the
+// inserted output: inserted.key == insert_key and inserted.next ==
+// covering_node.next (per is_inserted_directory_node), so the per-output
+// `bytearray_lt(node.key, node.next)` check transitively asserts
+// `insert_key < covering_node.next`.
+//
+// Uses bad_covering.next = 28 bytes of 0x00 (the minimum 28-byte value,
+// strictly less than any blake2b_224 output for the computed key, which
+// starts with a non-zero byte). The inserted output therefore has
+// key = computed_key (28B hash) and next = 0x00..00 (28B), and
+// `validate_directory_node_output` rejects via
+// bytearray_lt(computed_key, 0x00..00) = False.
+test registry_insert_fails_insert_key_ge_covering_next() fail {
+  let bad_covering_next =
+    #"0000000000000000000000000000000000000000000000000000000000"
+  let key = computed_key()
+  let bad_covering =
+    Input {
+      output_reference: OutputReference {
+        transaction_id: #"01",
+        output_index: 0,
+      },
+      output: Output {
+        address: test_node_address,
+        value: min_ada
+          |> assets.add(test_policy_id, origin_node_tn, 1),
+        datum: InlineDatum(
+          as_data(
+            RegistryNode {
+              key: #"",
+              next: bad_covering_next,
+              transfer_logic_script: empty_vkey,
+              third_party_transfer_logic_script: empty_vkey,
+              minting_logic_script: empty_vkey,
+              global_state_cs: #"",
+            },
+          ),
+        ),
+        reference_script: None,
+      },
+    }
+  let bad_updated =
+    Output {
+      address: test_node_address,
+      value: min_ada
+        |> assets.add(test_policy_id, origin_node_tn, 1),
+      datum: InlineDatum(
+        as_data(
+          RegistryNode {
+            key: #"",
+            next: key,
+            transfer_logic_script: empty_vkey,
+            third_party_transfer_logic_script: empty_vkey,
+            minting_logic_script: empty_vkey,
+            global_state_cs: #"",
+          },
+        ),
+      ),
+      reference_script: None,
+    }
+  let bad_inserted =
+    Output {
+      address: test_node_address,
+      value: min_ada
+        |> assets.add(test_policy_id, key, 1),
+      datum: InlineDatum(
+        as_data(
+          RegistryNode {
+            key,
+            next: bad_covering_next,
+            transfer_logic_script: Script(
+              #"55555555555555555555555555555555555555555555555555555555",
+            ),
+            third_party_transfer_logic_script: Script(
+              #"66666666666666666666666666666666666666666666666666666666",
+            ),
+            minting_logic_script: test_inserted_minting_logic_cred,
+            global_state_cs: #"",
+          },
+        ),
+      ),
+      reference_script: None,
+    }
+  let tx =
+    Transaction {
+      ..valid_insert_tx(),
+      inputs: [bad_covering],
+      outputs: [bad_updated, bad_inserted],
+    }
+  call_insert_validator(valid_insert_redeemer(), tx)
+}
+
+// =========================================================================
 // CIP-68 subsequent mint (RefInput registry proof) in issuance_mint
 //
 // Exercises issuance_mint with CIP-68 dual-token mint + RefInput proof,
