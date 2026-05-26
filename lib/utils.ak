@@ -1,9 +1,9 @@
-//// Utility functions for CIP-0143 validators
+//// Utility functions for CIP-113 validators
 //// Migrated from various Plutarch utility modules
 
 use aiken/builtin.{tail_list}
 use aiken/collection/dict
-use aiken/collection/list
+use cardano/address.{Credential, Script}
 use cardano/assets.{PolicyId, Value}
 use cardano/transaction.{InlineDatum, Output}
 
@@ -66,29 +66,42 @@ pub fn apply_hashed_parameter(
   builtin.blake2b_224(script_bytes)
 }
 
-/// Check if a currency symbol is a valid programmable token registration
-/// Validates that:
-/// 1. Tokens with this policy ID are being minted in the transaction
-/// 2. The computed policy ID (from prefix + hashed_param + postfix) matches the currency symbol
-pub fn is_programmable_token_registration(
+/// Verify that `cs_to_insert` is the policy id derived from applying the
+/// issuance template (`prefix` + `postfix`) to the inner 28-byte hash of
+/// `minting_logic_script`. This is the *cryptographic binding* tying the
+/// registered credential to the policy id; mode-independent.
+///
+/// The `Constr` variant tag (VerificationKey vs Script) is embedded in
+/// `prefix` by the off-chain bootstrap, so this on-chain code only needs
+/// to sandwich the inner hash bytes — the policy id derivation
+/// indirectly enforces variant agreement.
+pub fn is_programmable_token_id_valid(
   cs_to_insert: ByteArray,
   prefix: ByteArray,
   postfix: ByteArray,
-  hashed_param: ByteArray,
-  mint_value: Value,
+  minting_logic_script: Credential,
 ) -> Bool {
-  // Check 1: The policy must be minting (not just burning) tokens in this tx.
-  // Multiple asset names are allowed to support CIP-68 (FT label 333 + ref token label 100).
-  // Note: burn-only registration is already impossible — tokens can only exist if they were
-  // minted before, which requires prior registration, and the linked list prevents duplicates.
-  // The > 0 check makes this invariant explicit locally.
-  expect Some(assets_minted_amount) =
-    assets.to_dict(mint_value) |> dict.get(cs_to_insert)
-  expect
-    dict.to_pairs(assets_minted_amount)
-      |> list.any(fn(pair) { pair.2nd > 0 })
+  expect Script(hashed_param) = minting_logic_script
+  apply_hashed_parameter(prefix, postfix, hashed_param) == cs_to_insert
+}
 
-  // Check 2: The computed policy ID must match the currency symbol being inserted
-  let computed_cs = apply_hashed_parameter(prefix, postfix, hashed_param)
-  computed_cs == cs_to_insert
+/// True iff `mint_value` contains any entry under `policy`, regardless of
+/// quantity sign.
+///
+/// Used by `registry_mint.ak` for the mode ↔ tx.mint consistency check:
+///   * RegisterOnly  ⇒ `!mint_has_policy(self.mint, key)`
+///   * RegisterAndMint ⇒ `mint_has_policy(self.mint, key)`
+///
+/// Cheapest primitive among the candidates benchmarked in
+/// `lib/utils.test.ak` (`bench_a4_has_key_*`) — ~14–18% fewer ex-units than
+/// the previous split-helper implementation, both in the "absent" and
+/// "present" directions.
+///
+/// Note on burn-only entries: a `tx.mint` containing only negative
+/// quantities under `policy` returns `True` from this function (the
+/// outer-dict entry still exists). For a registration tx, burn-only of
+/// the new policy is impossible at the ledger level (no prior tokens to
+/// burn), so the looser semantics are safe in practice.
+pub fn mint_has_policy(mint_value: Value, policy: PolicyId) -> Bool {
+  assets.to_dict(mint_value) |> dict.has_key(policy)
 }

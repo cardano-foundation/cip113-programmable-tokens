@@ -188,7 +188,15 @@ fn verify_registry_node(
   // Strict: registry NFT's asset name MUST equal own_policy. This binds the
   // NFT identity to the datum key and removes implicit trust on the linked-list
   // invariant (asset_name == datum.key) enforced elsewhere.
-  expect assets.has_nft(output.value, registry_node_cs, own_policy)?
+  //
+  // No need to compare `registry.minting_logic_script` against the validator's
+  // `minting_logic_cred` parameter here. `registry_mint` already enforces that
+  // the registered credential's inner hash is the one the policy id was
+  // derived from (via `is_programmable_token_id_valid`). Since this
+  // validator's `minting_logic_cred` parameter is also baked into the policy
+  // id at compile time, collision-resistance of blake2b_224 implies the two
+  // credentials must match. Checking again here would be redundant.
+  expect assets.has_nft_strict(output.value, registry_node_cs, own_policy)?
   let registry_datum = expect_inline_datum(output)
   expect registry: RegistryNode = registry_datum
   registry.key == own_policy

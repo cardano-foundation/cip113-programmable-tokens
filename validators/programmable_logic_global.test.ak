@@ -12,7 +12,7 @@ use cardano/transaction.{
 use programmable_logic/fixture
 use programmable_logic/params.{ProgrammableLogicGlobalParams}
 use programmable_logic_global
-use registry_node.{RegistryNode}
+use registry_node.{RegistryNode, empty_vkey}
 use types.{ThirdPartyAct, TokenDoesNotExist, TokenExists, TransferAct}
 use utils.{bytearray_lt}
 
@@ -70,6 +70,7 @@ test registry_node_validation_for_transfer() {
       next: #"ffff",
       transfer_logic_script: test_transfer_logic_cred,
       third_party_transfer_logic_script: test_third_party_transfer_logic_cred,
+      minting_logic_script: empty_vkey,
       global_state_cs: #"",
     }
 
@@ -90,6 +91,7 @@ test covering_node_logic_for_non_existent_token() {
       next: next_key,
       transfer_logic_script: test_transfer_logic_cred,
       third_party_transfer_logic_script: test_third_party_transfer_logic_cred,
+      minting_logic_script: empty_vkey,
       global_state_cs: #"",
     }
 
@@ -297,6 +299,7 @@ fn third_party_registry_node_ref_input(
             next: #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
             transfer_logic_script: fixture.credential_transfer_logic,
             third_party_transfer_logic_script: third_party_cred,
+            minting_logic_script: empty_vkey,
             global_state_cs: "",
           },
         ),

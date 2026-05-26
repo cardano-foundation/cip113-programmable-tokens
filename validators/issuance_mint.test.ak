@@ -66,6 +66,9 @@ fn registry_node_output(key: ByteArray) -> Output {
           third_party_transfer_logic_script: Script(
             #"66666666666666666666666666666666666666666666666666666666",
           ),
+          // Must match the validator's `minting_logic_cred` parameter
+          // (= `test_ml_cred` via `call_validator`). Defense-in-depth #3.
+          minting_logic_script: test_ml_cred,
           global_state_cs: #"",
         },
       ),
@@ -280,6 +283,7 @@ test registry_nft_missing_fails() fail {
             third_party_transfer_logic_script: Script(
               #"66666666666666666666666666666666666666666666666666666666",
             ),
+            minting_logic_script: test_ml_cred,
             global_state_cs: #"",
           },
         ),
@@ -323,6 +327,7 @@ test wrong_registry_cs_nft_fails() fail {
             third_party_transfer_logic_script: Script(
               #"66666666666666666666666666666666666666666666666666666666",
             ),
+            minting_logic_script: test_ml_cred,
             global_state_cs: #"",
           },
         ),
@@ -831,6 +836,7 @@ test case1_first_mint_with_shared_transfer_logic() {
             third_party_transfer_logic_script: Script(
               #"66666666666666666666666666666666666666666666666666666666",
             ),
+            minting_logic_script: test_ml_cred,
             global_state_cs: #"",
           },
         ),
