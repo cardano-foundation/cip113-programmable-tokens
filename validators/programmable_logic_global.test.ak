@@ -1,10 +1,11 @@
 //// Integration tests for programmable logic global validator
 
 use aiken/collection/list
-use aiken/crypto.{blake2b_256}
+use aiken/crypto.{ScriptHash, blake2b_256}
 use cardano/address.{Address, Credential, Inline, Script, VerificationKey}
 use cardano/assets.{
-  PolicyId, ada_asset_name, ada_policy_id, from_asset, merge, negate, zero,
+  AssetName, PolicyId, ada_asset_name, ada_policy_id, from_asset, merge, negate,
+  zero,
 }
 use cardano/transaction.{
   InlineDatum, Input, NoDatum, Output, OutputReference, Transaction,
@@ -1587,5 +1588,174 @@ test transfer_act_mint_insufficient_output_fails() fail {
     redeemer,
     fixture.credential_validator_logic_global,
     tx,
+  )
+}
+
+// =========================================================================
+// Finding 13: reference_script preservation across ThirdPartyAct
+//
+// `check_seized_tokens` pairs each prog_logic_cred input with the next
+// continuing output and asserts address+datum equality. Without an
+// equality check on `reference_script`, a third-party-act tx could swap
+// a legitimate reference script for a malicious one (or add/remove one)
+// while seizing tokens. Post-fix, `output.reference_script ==
+// input.reference_script` is enforced per pair.
+// =========================================================================
+
+/// Sample reference-script hashes used to exercise the new equality check.
+const test_ref_script_hash: ScriptHash =
+  #"a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+
+const test_ref_script_hash_other: ScriptHash =
+  #"b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2"
+
+/// Spread an existing programmable-tokens input and override its
+/// `reference_script` field. Per CLAUDE.md test conventions: one
+/// delta from the canonical fixture, made obvious at the call site.
+fn input_with_ref_script(
+  tokens: List<(PolicyId, AssetName, Int)>,
+  label: ByteArray,
+  ref_script: Option<ScriptHash>,
+) -> Input {
+  let base = fixture.some_input_with_programmable_tokens(tokens, label)
+  Input {
+    ..base,
+    output: Output { ..base.output, reference_script: ref_script },
+  }
+}
+
+/// Spread a paired programmable-tokens output and override its
+/// `reference_script` field.
+fn output_with_ref_script(
+  tokens: List<(PolicyId, AssetName, Int)>,
+  ref_script: Option<ScriptHash>,
+) -> Output {
+  Output {
+    ..fixture.some_output_with_programmable_tokens(tokens),
+    reference_script: ref_script,
+  }
+}
+
+/// Variant of `validate_third_party_with_outputs` that also takes
+/// custom inputs, so `reference_script` on the inputs can be set
+/// per-test. Reuses the same registry-node ref input + withdrawals
+/// shape as the existing helper.
+fn validate_third_party_with_inputs_and_outputs(
+  inputs: List<Input>,
+  outputs: List<Output>,
+  outputs_start_idx: Int,
+) -> Bool {
+  let tx =
+    Transaction {
+      ..transaction.placeholder,
+      inputs,
+      outputs,
+      reference_inputs: [
+        fixture.some_reference_input_protocol_params(
+          fixture.protocol_params,
+          "protocol params",
+        ),
+        third_party_registry_node_ref_input(
+          test_third_party_policy,
+          test_third_party_cred,
+        ),
+      ],
+      withdrawals: [
+        Pair(fixture.credential_validator_logic_global, 0),
+        Pair(test_third_party_cred, 0),
+      ],
+    }
+  let redeemer = ThirdPartyAct { registry_node_idx: 1, outputs_start_idx }
+  programmable_logic_global.programmable_logic_global.withdraw(
+    fixture.policy_protocol_params,
+    redeemer,
+    fixture.credential_validator_logic_global,
+    tx,
+  )
+}
+
+// Finding 13 positive: matching `Some(script_hash)` reference scripts
+// on input and output pass the new per-pair equality check. Seizure
+// still succeeds; only the reference_script invariant is exercised.
+test third_party_act_matching_reference_script_preserved() {
+  validate_third_party_with_inputs_and_outputs(
+    [
+      input_with_ref_script(
+        [(test_third_party_policy, "FOO", 42)],
+        "ref_script_input_a",
+        Some(test_ref_script_hash),
+      ),
+      input_with_ref_script(
+        [(test_third_party_policy, "FOO", 100)],
+        "ref_script_input_b",
+        Some(test_ref_script_hash),
+      ),
+    ],
+    [
+      output_with_ref_script([], Some(test_ref_script_hash)),
+      output_with_ref_script([], Some(test_ref_script_hash)),
+      fixture.some_output_with_seized_tokens(
+        [(test_third_party_policy, "FOO", 142)],
+      ),
+    ],
+    0,
+  )
+}
+
+// Finding 13 negative (added): input has no reference_script but the
+// continuing output attaches one. Pre-fix this would have passed
+// silently — seizure would drop a "free" attestation on the
+// continuing UTxO. Post-fix, the per-pair equality rejects.
+test third_party_act_reference_script_added_fails() fail {
+  validate_third_party_with_inputs_and_outputs(
+    [
+      fixture.some_input_with_programmable_tokens(
+        [(test_third_party_policy, "FOO", 42)],
+        "no_ref_script_input_a",
+      ),
+      fixture.some_input_with_programmable_tokens(
+        [(test_third_party_policy, "FOO", 100)],
+        "no_ref_script_input_b",
+      ),
+    ],
+    [
+      // Attacker attaches a reference script to the first continuing output.
+      output_with_ref_script([], Some(test_ref_script_hash)),
+      fixture.some_output_with_programmable_tokens([]),
+      fixture.some_output_with_seized_tokens(
+        [(test_third_party_policy, "FOO", 142)],
+      ),
+    ],
+    0,
+  )
+}
+
+// Finding 13 negative (swapped): input and output both carry reference
+// scripts, but the output points at a different hash. Catches an
+// attacker swapping a legitimate attestation for a misleading one
+// during seizure.
+test third_party_act_reference_script_swapped_fails() fail {
+  validate_third_party_with_inputs_and_outputs(
+    [
+      input_with_ref_script(
+        [(test_third_party_policy, "FOO", 42)],
+        "swap_ref_script_input_a",
+        Some(test_ref_script_hash),
+      ),
+      input_with_ref_script(
+        [(test_third_party_policy, "FOO", 100)],
+        "swap_ref_script_input_b",
+        Some(test_ref_script_hash),
+      ),
+    ],
+    [
+      // First output swaps to a DIFFERENT reference-script hash.
+      output_with_ref_script([], Some(test_ref_script_hash_other)),
+      output_with_ref_script([], Some(test_ref_script_hash)),
+      fixture.some_output_with_seized_tokens(
+        [(test_third_party_policy, "FOO", 142)],
+      ),
+    ],
+    0,
   )
 }

@@ -52,9 +52,8 @@ validator registry_mint(
       }
       RegistryInsert { key, minting_logic_script, mode } -> {
         // Find the issuance CBOR hex reference input
-        expect Some(issuance_ref_input) =
-          //should this be a find.any instead of find.some?
-          list.find(
+        let issuance_ref_input =
+          list.expect_find(
             self.reference_inputs,
             fn(input) {
               let tokens =

@@ -6,10 +6,10 @@ use aiken/collection/list
 
 use cardano/address.{Credential, Inline}
 use cardano/assets.{PolicyId}
-use cardano/transaction.{Mint, Output, ScriptPurpose, Transaction}
+use cardano/transaction.{Output, Transaction}
 use registry_node.{RegistryNode}
 use tokens
-use types.{OutputIndex, RefInput, SmartTokenMintingAction}
+use types.{MintingRegistryProof, OutputIndex, RefInput}
 use utils.{expect_inline_datum}
 
 validator issuance_mint(
@@ -23,11 +23,7 @@ validator issuance_mint(
   // is invoked (withdraw-zero), issuance_mint may delegate mint-output custody.
   plg_stake_cred: Credential,
 ) {
-  mint(
-    redeemer: SmartTokenMintingAction,
-    own_policy: PolicyId,
-    self: Transaction,
-  ) {
+  mint(redeemer: MintingRegistryProof, own_policy: PolicyId, self: Transaction) {
     // Direct withdrawal scan: detect minting_logic_cred and plg_stake_cred in a
     // single pass over self.withdrawals (no intermediate list allocation).
     let
@@ -57,7 +53,7 @@ validator issuance_mint(
     //                                      be in inputs, prog tokens live at PLB,
     //                                      spending PLB → PLGlobal invoked → delegate path.)
     let valid_minting =
-      when redeemer.minting_registry_proof is {
+      when redeemer is {
         OutputIndex { index } -> {
           // FIRST MINT — registry node being (re-)created in this tx
           let output_opt = list.at(self.outputs, index)
@@ -103,13 +99,11 @@ validator issuance_mint(
       }
 
     and {
-      // Validate that the redeemer matches the minting logic credential
-      (redeemer.minting_logic_cred == minting_logic_cred)?,
-      // substandard minting invoked?
+      // Substandard's withdraw-0 logic must be invoked (proof of instance).
+      // The credential to look for is the validator's `minting_logic_cred`
+      // parameter — baked into the policy id at compile time, no separate
+      // redeemer field needed.
       minting_logic_invoked?,
-      // Check that exactly one minting redeemer matches the minting logic credential
-      // This prevents multiple concurrent mints with the same minting logic in one transaction
-      single_mint_with_credential(self.redeemers, redeemer)?,
       valid_minting?,
     }
   }
@@ -117,42 +111,6 @@ validator issuance_mint(
   else(_) {
     fail
   }
-}
-
-/// Check that exactly one minting redeemer with the given action exists in the transaction
-/// This prevents multiple concurrent mints with the same minting logic credential
-///
-/// The logic follows Plutarch's psingleMintWithCredential (lines 145-193):
-/// 1. Scan all redeemers
-/// 2. Filter for Mint purposes only
-/// 3. Count how many match the given redeemer
-/// 4. Ensure exactly one match exists
-fn single_mint_with_credential(
-  redeemers: Pairs<ScriptPurpose, Data>,
-  target_redeemer: SmartTokenMintingAction,
-) -> Bool {
-  let target_redeemer_data: Data = target_redeemer
-
-  let matching_count =
-    list.foldl(
-      redeemers,
-      0,
-      fn(pair, count) {
-        let Pair(purpose, rdmr) = pair
-
-        when purpose is {
-          Mint(_) ->
-            if rdmr == target_redeemer_data {
-              count + 1
-            } else {
-              count
-            }
-          _ -> count
-        }
-      },
-    )
-
-  matching_count == 1
 }
 
 /// Validate that ALL minted tokens end up at PLB outputs with stake credentials.

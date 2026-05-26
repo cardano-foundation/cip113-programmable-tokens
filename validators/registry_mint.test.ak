@@ -11,8 +11,8 @@ use issuance_mint
 use registry_mint
 use registry_node.{RegistryNode, empty_vkey, origin_node_tn}
 use types.{
-  IssuanceCborHex, RefInput, RegisterAndMint, RegisterOnly, RegistryInit,
-  RegistryInsert, RegistryRedeemer, SmartTokenMintingAction,
+  IssuanceCborHex, MintingRegistryProof, RefInput, RegisterAndMint, RegisterOnly,
+  RegistryInit, RegistryInsert, RegistryRedeemer,
 }
 use utils.{apply_hashed_parameter}
 
@@ -1074,10 +1074,7 @@ fn ism_plb_output(value: assets.Value) -> Output {
   }
 }
 
-fn call_issuance_validator(
-  rdmr: SmartTokenMintingAction,
-  tx: Transaction,
-) -> Bool {
+fn call_issuance_validator(rdmr: MintingRegistryProof, tx: Transaction) -> Bool {
   issuance_mint.issuance_mint.mint(
     ism_plb_cred,
     ism_registry_cs,
@@ -1091,11 +1088,7 @@ fn call_issuance_validator(
 
 // CIP-68 subsequent mint with RefInput: FT + ref token, registry already exists
 test cip68_subsequent_mint_ref_input() {
-  let rdmr =
-    SmartTokenMintingAction {
-      minting_logic_cred: ism_ml_cred,
-      minting_registry_proof: RefInput(0),
-    }
+  let rdmr = RefInput(0)
   let tx =
     Transaction {
       ..transaction.placeholder,
