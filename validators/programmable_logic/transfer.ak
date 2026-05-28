@@ -75,11 +75,13 @@ fn collect_input_assets(
   // that appear in PLB inputs. Mint-only ("purely minted") policies are
   // dropped here — issuance_mint owns their custody, not the transfer path.
   //
-  // NOTE on finding 04: with this fix, the transfer path no longer
+  // Side-effect to watch: with this fix the transfer path no longer
   // accidentally rejects a pure mint routed to a non-PLB address. That
   // custody check belongs in issuance_mint; its current `or { plg_invoked,
-  // validate_mint_outputs }` delegation is too broad — see finding 04.
-  // Fix-up tracked separately.
+  // validate_mint_outputs }` delegation is too broad — same root cause as
+  // finding 04 (which documents the ThirdPartyAct + mint escape), now
+  // exposed as a TransferAct + mint variant too. Tightening issuance_mint's
+  // delegation closes both. Tracked separately.
   let plb_inputs =
     assets.collect(
       tx.inputs,

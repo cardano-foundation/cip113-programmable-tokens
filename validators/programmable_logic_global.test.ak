@@ -829,6 +829,52 @@ test transfer_act_with_only_minting_succeeds() {
   )
 }
 
+// Finding 02: pure-mint policies must NOT carry a TransferAct proof. ONE delta
+// vs `transfer_act_with_only_minting_succeeds` — the redeemer carries
+// `TokenExists { node_idx: 1 }`. Because the mint-only policy is dropped from
+// `input_assets` by `apply_mint_to_known_policies`, that proof is leftover;
+// the final `[] == verify_proofs(...)` check rejects. Pins the strict
+// 1-proof-per-input-policy contract that protects against off-chain tx
+// builders quietly handing PLGlobal proofs it has no business consuming.
+test transfer_act_pure_mint_with_unnecessary_proof_must_fail() fail {
+  let tx =
+    Transaction {
+      ..transaction.placeholder,
+      inputs: [],
+      mint: from_asset(test_mint_policy, "FOO", 50),
+      outputs: [
+        fixture.some_output_with_programmable_tokens(
+          [(test_mint_policy, "FOO", 150)],
+        ),
+      ],
+      reference_inputs: [
+        fixture.some_reference_input_protocol_params(
+          fixture.protocol_params,
+          "protocol params",
+        ),
+        fixture.some_reference_input_tokens_registry_node(
+          test_mint_policy,
+          #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "registry node",
+        ),
+      ],
+      withdrawals: [
+        Pair(fixture.credential_validator_logic_global, 0),
+        Pair(fixture.credential_transfer_logic, 0),
+      ],
+    }
+
+  // ONE delta vs the success case above — surplus proof for the pure-mint policy.
+  let redeemer = TransferAct { proofs: [TokenExists { node_idx: 1 }] }
+
+  programmable_logic_global.programmable_logic_global.withdraw(
+    fixture.policy_protocol_params,
+    redeemer,
+    fixture.credential_validator_logic_global,
+    tx,
+  )
+}
+
 // Positive (Finding 02 fix): the previous "must invoke transfer_logic for pure
 // mints" rule is gone. A pure-mint tx with NO `transfer_logic` withdraw-0 and
 // proofs=[] is accepted: the mint-only policy is dropped from `input_assets`
