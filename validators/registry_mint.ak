@@ -1,6 +1,5 @@
 use aiken/collection/dict
 use aiken/collection/list
-use aiken/primitive/bytearray
 // Registry minting policy - manages the linked list of registered programmable token policies
 // Migrated from SmartTokens.LinkedList.MintDirectory
 //
@@ -20,8 +19,8 @@ use types.{
   RegistryRedeemer,
 }
 use utils.{
-  bytearray_lt, expect_inline_datum, has_currency_symbol,
-  is_programmable_token_id_valid, mint_has_policy,
+  expect_inline_datum, has_currency_symbol, is_programmable_token_id_valid,
+  mint_has_policy,
 }
 
 validator registry_mint(
@@ -174,15 +173,7 @@ validator registry_mint(
             node1
           }
         // node2 inserted ⇒ node1 is the updated covering
-        expect is_updated_directory_node(updated, covering_node, key)
-
-        and {
-          // Validate key is a valid currency symbol (28 bytes)
-          (bytearray.length(key) == 28)?,
-          // The covering node must cover the key to insert
-          bytearray_lt(covering_node.key, key)?,
-          bytearray_lt(key, covering_node.next)?,
-        }
+        is_updated_directory_node(updated, covering_node, key)
       }
     }
   }
