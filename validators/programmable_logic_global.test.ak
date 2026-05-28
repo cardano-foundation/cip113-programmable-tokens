@@ -729,10 +729,14 @@ test transfer_act_with_minting_succeeds() {
   )
 }
 
-// Negative: minting with empty mint_proofs must fail.
-// If tx.mint is non-empty but mint_proofs is [], the validator must reject.
-// This prevents unvalidated tokens from bypassing the directory check.
-test transfer_act_mint_without_proofs_must_fail() fail {
+// Finding 02 fix: pure mints are issuance_mint's responsibility, not the
+// transfer path's. A transfer of one policy alongside an INDEPENDENT pure
+// mint of another policy now needs only the transfer-side proof. The
+// pure-mint policy is dropped from `input_assets` by
+// `apply_mint_to_known_policies` and never reaches `verify_proofs`.
+// (Pre-fix this test was `() fail` and pinned the wrong behaviour — the
+// validator used to demand a proof for the pure-mint policy too.)
+test transfer_act_transfer_plus_independent_pure_mint_succeeds() {
   let test_input_policy = "input policy"
   let tx =
     Transaction {
@@ -782,8 +786,10 @@ test transfer_act_mint_without_proofs_must_fail() fail {
   )
 }
 
-// Positive: transfer with ONLY minting — new tokens appear at prog_logic_cred.
-// Mints 50, no other prog input, output must have at least 50.
+// Positive (Finding 02 fix): a pure mint of a registered policy passes the
+// transfer path with NO `TransferAct` proof — pure-mint policies are dropped
+// from `input_assets` and have nothing to prove. issuance_mint owns the mint
+// authorisation, not PLGlobal.
 test transfer_act_with_only_minting_succeeds() {
   let tx =
     Transaction {
@@ -812,7 +818,8 @@ test transfer_act_with_only_minting_succeeds() {
       ],
     }
 
-  let redeemer = TransferAct { proofs: [TokenExists { node_idx: 1 }] }
+  // Finding 02 fix: pure mint requires NO TransferAct proof.
+  let redeemer = TransferAct { proofs: [] }
 
   programmable_logic_global.programmable_logic_global.withdraw(
     fixture.policy_protocol_params,
@@ -822,8 +829,12 @@ test transfer_act_with_only_minting_succeeds() {
   )
 }
 
-// Negative: transfer with only minting should not succeed if lacking proofs...
-test transfer_act_with_only_minting_no_proofs_fails() fail {
+// Positive (Finding 02 fix): the previous "must invoke transfer_logic for pure
+// mints" rule is gone. A pure-mint tx with NO `transfer_logic` withdraw-0 and
+// proofs=[] is accepted: the mint-only policy is dropped from `input_assets`
+// before `verify_proofs` runs, so neither a withdrawal nor a proof is needed.
+// (Pre-fix this test was `() fail` and pinned the contradictory rejection.)
+test transfer_act_pure_mint_without_transfer_logic_succeeds() {
   let tx =
     Transaction {
       ..transaction.placeholder,

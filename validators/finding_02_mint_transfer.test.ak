@@ -4,53 +4,51 @@
 ////
 //// ```sh
 //// aiken build
-//// aiken check -m finding_02       # runs the two bug-pinning tests
-//// aiken check -m _mint_           # runs the positives + true negative
+//// aiken check -m finding_02       # the two finding_02_* regression guards
+//// aiken check -m _mint_           # the positives + true negative
 //// ```
 ////
 //// ---------------------------------------------------------------------------
-//// ## What Finding 02 says
+//// ## What Finding 02 said, and how the fix realigned the code
 //// ---------------------------------------------------------------------------
 ////
-//// `programmable_logic_global.validate_transfer` (via `collect_input_assets`)
-//// folds `tx.mint` into the same accumulator as PLB inputs and then
-//// `verify_proofs` runs `choose_registered_token_with` for EVERY policy in
-//// that accumulator, including policies that only appear in `tx.mint`. That
-//// means a purely-minted token is forced to:
+//// `programmable_logic_global.validate_transfer` used to fold `tx.mint` into
+//// the same accumulator as PLB inputs in `collect_input_assets`, so
+//// `verify_proofs` ran the per-policy `transfer_logic_script` enforcement on
+//// every policy in that accumulator — INCLUDING policies that only appeared
+//// in `tx.mint`. Pure mints were therefore wrongly required to invoke a
+//// transfer-logic script and to carry a `TransferAct` proof.
 ////
-////   1. carry a TransferAct proof, and
-////   2. invoke its `transfer_logic_script` (the `expect has_withdrawal(...)`),
+//// The fix (`lib/programmable_logic/transfer.ak` —
+//// `apply_mint_to_known_policies`) makes `collect_input_assets` seed empty
+//// and then folds mint deltas in only for policies that already appear in
+//// PLB inputs. Mint-only policies are dropped: they belong to
+//// `issuance_mint`, not the transfer path.
 ////
-//// even though nothing of that policy is being transferred out of any smart
-//// wallet. `issuance_mint` has already authorised the mint; this enforcement
-//// is redundant at best and contradicts the intended separation of concerns.
+//// ## Two facets of the new contract that the tests below pin
 ////
-//// ---------------------------------------------------------------------------
-//// ## How this module proves it (and verifies the fix later)
-//// ---------------------------------------------------------------------------
+////   1. Pure mints PASS through PLGlobal regardless of whether the
+////      `transfer_logic` withdraw-0 is present.
+////   2. Pure mints must NOT carry a TransferAct proof — strict 1:1
+////      proof-to-input-policy is preserved, so a stale proof for a
+////      pure-mint policy is now leftover and rejected.
 ////
-//// Every test calls BOTH validators (issuance_mint AND programmable_logic_global)
-//// against the SAME transaction via `run_both`. Tests are derived from named
-//// fixtures (`ideal_tx`, `pure_mint_tx`) using the spread operator with ONE
-//// delta each, so the diff between a passing test and a failing test is the
-//// invariant under test.
+//// ## Test layout (per CLAUDE.md conventions: spread + one delta per failure)
 ////
-////   * POSITIVE tests — currently green and stay green after the fix:
+////   * 3 positive tests pin the fixed behaviour:
 ////       - `mint_and_transfer_ideal_succeeds`
-////       - `pure_mint_with_transfer_logic_invoked_succeeds`
+////         (the cross-validator "both run" ideal)
+////       - `finding_02_pure_mint_succeeds`
+////         (the clean post-fix demo: no transfer_logic, no proof)
+////       - `finding_02_pure_mint_succeeds_with_transfer_logic_invoked`
+////         (the previous workaround is still tolerated — extra withdrawals
+////          are harmless)
 ////
-////   * `Finding 02:` BUG tests — marked `fail`. They currently pass because
-////     PLGlobal wrongly rejects. When the finding is fixed, PLGlobal will
-////     accept and these `fail` tests will START FAILING — that flip is the
-////     fix-verification signal. Then delete `fail` to keep them as positive
-////     regression guards.
-////       - `finding_02_pure_mint_rejected_without_transfer_logic`
-////       - `finding_02_pure_mint_requires_redundant_proof`
-////
-////   * TRUE-NEGATIVE guardrail — marked `fail` and CORRECT to stay failing
-////     after the fix. Provided as a contrast so the bug tests are not
-////     confused with legitimate rejections.
+////   * 2 `fail` guardrails (both stay failing — these are CORRECT rejections):
+////       - `pure_mint_with_stale_transfer_proof_rejected`
+////         (strict proof contract preserved)
 ////       - `mint_without_minting_logic_invocation_rejected`
+////         (issuance_mint contract unchanged)
 
 use cardano/address.{Address, Credential, Inline, Script}
 use cardano/assets.{PolicyId, from_asset}
@@ -80,19 +78,13 @@ const linked_list_end: ByteArray =
   #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
 
 /// The credential issuance_mint is parameterised with as `minting_logic_cred`.
-/// issuance_mint requires a withdraw-0 under this credential — proof that the
-/// substandard's minting logic ran. Distinct from the transfer-logic cred so
-/// our tests can drop one without affecting the other.
 const credential_minting_logic: Credential =
   Script(#"000000000000000000000000000000000000000000000000000a1d0c")
 
-/// Any 28-byte script credential, used as the payment address of the
-/// registry-node ref input. PLGlobal's getter and issuance_mint's
-/// `verify_registry_node` both ignore this field.
+/// Any 28-byte script credential; address of the registry-node ref input.
 const registry_holder_address_cred: Credential =
   Script(#"00000000000000000000000000000000000000000000000000beef00")
 
-/// A throwaway OutputReference for fixtures — content irrelevant to validators.
 const dummy_oref: OutputReference =
   OutputReference {
     transaction_id: #"0000000000000000000000000000000000000000000000000000000000000000",
@@ -102,26 +94,18 @@ const dummy_oref: OutputReference =
 // ===========================================================================
 // Fixtures
 //
-// Per CLAUDE.md testing conventions: named helpers + spread with ONE delta per
-// failure test. The two base transactions are `ideal_tx` (transfer + mint) and
-// `pure_mint_tx` (pure mint with the contradictory transfer-logic withdrawal
-// still in place). Every other test spreads one of these and overrides exactly
-// one field.
+// Two named base transactions:
+//   * `ideal_tx`       — transfer + mint of the same policy (the "both run"
+//                        ideal happy path).
+//   * `pure_mint_tx`   — minimal pure-mint base that PASSES under the fix:
+//                        only `global` + `minting_logic` withdrawals, no
+//                        `transfer_logic` (not needed for a pure mint).
+//
+// Every other test spreads one of these and overrides EXACTLY one field.
 // ===========================================================================
 
-/// Registry node ref input for `foo_policy`. Crafted to satisfy BOTH validators
-/// in a single ref input:
-///
-///   * issuance_mint.verify_registry_node — NFT (registry_cs, foo_policy, 1)
-///     via `has_nft_strict`, and `registry.key == foo_policy`.
-///   * programmable_logic_global getter   — `peek_first` (first non-ada policy)
-///     equals registry_cs, datum is InlineDatum; transfer path reads
-///     `datum.key` and `transfer_logic_script` via the `with_...` continuation.
-///
-/// The repo's existing `fixture.some_reference_input_tokens_registry_node`
-/// stores the NFT under `blake2b_256(key)`, which would fail issuance_mint's
-/// strict name check. This local fixture stores it under `foo_policy` so both
-/// validators accept it.
+/// Registry node ref input for `foo_policy`, crafted to satisfy BOTH
+/// validators (NFT name == own_policy == datum.key).
 fn foo_registry_node() -> Input {
   Input {
     output_reference: dummy_oref,
@@ -149,9 +133,6 @@ fn foo_registry_node() -> Input {
   }
 }
 
-/// Reference-input list shared by every test:
-///   [0] protocol params NFT (read by `with_programmable_logic_params`)
-///   [1] foo registry node   (used by both validators; `node_idx: 1`)
 fn base_ref_inputs() -> List<Input> {
   [
     fixture.some_reference_input_protocol_params(fixture.protocol_params, "pp"),
@@ -159,21 +140,8 @@ fn base_ref_inputs() -> List<Input> {
   ]
 }
 
-/// Withdrawals for a fully-satisfied tx:
-///   * PLGlobal stake (delegation signal AND `withdraw-0` invocation)
-///   * transfer_logic_script (the one Finding 02 wrongly forces for pure mints)
-///   * minting_logic_script  (substandard mint logic proof for issuance_mint)
-fn full_withdrawals() -> Pairs<Credential, Int> {
-  [
-    Pair(fixture.credential_validator_logic_global, 0),
-    Pair(fixture.credential_transfer_logic, 0),
-    Pair(credential_minting_logic, 0),
-  ]
-}
-
-/// IDEAL scenario: a transfer of 100 FOO from PLB combined with a +50 FOO
-/// mint, yielding 150 FOO at PLB. Exercises BOTH validators on a legitimate
-/// happy path.
+/// IDEAL scenario: transfer 100 FOO from PLB + mint +50 FOO, yielding
+/// 150 FOO at PLB. Exercises BOTH validators on the canonical happy path.
 fn ideal_tx() -> Transaction {
   Transaction {
     ..transaction.placeholder,
@@ -190,13 +158,17 @@ fn ideal_tx() -> Transaction {
       ),
     ],
     reference_inputs: base_ref_inputs(),
-    withdrawals: full_withdrawals(),
+    withdrawals: [
+      Pair(fixture.credential_validator_logic_global, 0),
+      Pair(fixture.credential_transfer_logic, 0),
+      Pair(credential_minting_logic, 0),
+    ],
   }
 }
 
-/// PURE-MINT scenario (with the contradictory transfer-logic withdrawal still
-/// present): no FOO in any input, only a +50 FOO mint routed to PLB. This is
-/// the base for the bug tests below — each spreads it and drops one delta.
+/// PURE-MINT base, minimal post-fix shape: no FOO in inputs, +50 FOO minted,
+/// routed to PLB. Withdrawals carry ONLY `global` + `minting_logic`
+/// (transfer_logic is no longer required for pure mints).
 fn pure_mint_tx() -> Transaction {
   Transaction {
     ..transaction.placeholder,
@@ -208,22 +180,31 @@ fn pure_mint_tx() -> Transaction {
       ),
     ],
     reference_inputs: base_ref_inputs(),
-    withdrawals: full_withdrawals(),
+    withdrawals: [
+      Pair(fixture.credential_validator_logic_global, 0),
+      Pair(credential_minting_logic, 0),
+    ],
   }
 }
 
+/// Redeemer for the IDEAL tx: one proof for the transferred (and co-minted)
+/// FOO policy.
 fn transfer_redeemer() -> ProgrammableLogicGlobalRedeemer {
   TransferAct { proofs: [TokenExists { node_idx: 1 }] }
 }
 
+/// Redeemer for the PURE-MINT tx: no proofs (FOO is now invisible to the
+/// transfer path because the fix drops mint-only policies from input_assets).
+fn no_proofs_redeemer() -> ProgrammableLogicGlobalRedeemer {
+  TransferAct { proofs: [] }
+}
+
 fn mint_redeemer() -> MintingRegistryProof {
-  // RefInput points into `reference_inputs` (index 1 = foo_registry_node).
+  // Index 1 in reference_inputs = foo_registry_node().
   RefInput(1)
 }
 
 /// Run BOTH validators against the same transaction and AND the results.
-/// This is the "ideal scenario" composition: a real CIP-113 transfer-plus-mint
-/// is only valid if BOTH issuance_mint AND programmable_logic_global accept it.
 fn run_both(
   tx: Transaction,
   transfer_rdmr: ProgrammableLogicGlobalRedeemer,
@@ -248,76 +229,66 @@ fn run_both(
 }
 
 // ===========================================================================
-// POSITIVE tests — pass today and after the fix.
+// POSITIVE tests
 // ===========================================================================
 
-/// The "ideal" happy path: 100 FOO transferred from PLB + 50 FOO minted,
-/// yielding 150 FOO at PLB. Both validators run and accept.
+/// The "ideal" happy path: 100 FOO transferred + 50 FOO minted, 150 FOO at
+/// PLB. Mint deltas merge into the transferred policy via the new
+/// `apply_mint_to_known_policies`; transfer_logic is invoked normally; both
+/// validators accept.
 test mint_and_transfer_ideal_succeeds() {
   run_both(ideal_tx(), transfer_redeemer())
 }
 
-/// A pure mint DOES work today — but only because we ALSO invoke the
-/// `transfer_logic_script` (the `credential_transfer_logic` withdraw-0).
-/// That requirement is itself the contradiction Finding 02 describes; the
-/// next test removes the withdrawal to expose it.
-test pure_mint_with_transfer_logic_invoked_succeeds() {
-  run_both(pure_mint_tx(), transfer_redeemer())
+/// Finding 02 — the clean post-fix demonstration. A pure mint routed to PLB
+/// is accepted with NO transfer_logic withdraw-0 and NO TransferAct proof.
+/// The mint-only policy is dropped from `input_assets`, so `verify_proofs`
+/// has nothing to enforce. issuance_mint authorises the mint itself.
+test finding_02_pure_mint_succeeds() {
+  run_both(pure_mint_tx(), no_proofs_redeemer())
 }
 
-// ===========================================================================
-// `Finding 02:` BUG tests — `fail` today, will FLIP RED when the fix lands.
-// ===========================================================================
-
-/// Finding 02: a PURELY minted token is wrongly subjected to transfer_logic
-/// enforcement. Spread of `pure_mint_tx` with ONE delta — drop the
-/// `transfer_logic` withdraw-0. issuance_mint still authorises the mint, but
-/// PLGlobal aborts on `expect has_withdrawal(transfer_logic_script)`.
-/// Intended design: this tx SHOULD succeed (nothing is being transferred).
-/// When Finding 02 is fixed, `run_both` will return True and this `fail` test
-/// will start failing — that flip is the verification signal.
-test finding_02_pure_mint_rejected_without_transfer_logic() fail {
-  let tx =
-    Transaction {
-      ..pure_mint_tx(),
-      withdrawals: [
-        Pair(fixture.credential_validator_logic_global, 0),
-        Pair(credential_minting_logic, 0),
-      ],
-    }
-  run_both(tx, transfer_redeemer())
-}
-
-/// Finding 02 (second facet): even WITH transfer_logic invoked, the purely
-/// minted policy is forced to carry a TransferAct proof. Spread of
-/// `pure_mint_tx` with ONE delta — empty proofs. `verify_proofs` calls
-/// `list.head(proofs)` for the minted policy and aborts.
-///
-/// NOTE: whether this specific rejection disappears after the fix depends on
-/// how the balance-check half of `verify_proofs` is redesigned. The
-/// transfer-logic facet above is the unambiguous flip; this one tracks the
-/// redundant-proof complaint in the finding and may or may not flip.
-test finding_02_pure_mint_requires_redundant_proof() fail {
-  run_both(pure_mint_tx(), TransferAct { proofs: [] })
-}
-
-// ===========================================================================
-// TRUE-NEGATIVE guardrail — `fail` today and PERMANENTLY correct.
-// ===========================================================================
-
-/// Correct rejection (NOT the bug). Spread of `pure_mint_tx` with ONE delta —
-/// drop the `minting_logic` withdraw-0. issuance_mint's `minting_logic_invoked`
-/// check fails. This rejection must REMAIN after Finding 02 is fixed; if it
-/// ever flips, something else broke. Provided as a contrast so the
-/// `finding_02_*` rejections are not confused with legitimate ones.
-test mint_without_minting_logic_invocation_rejected() fail {
+/// Finding 02 — extra withdrawals remain harmless. Spread of `pure_mint_tx`
+/// with ONE delta: ADD a `transfer_logic` withdraw-0. The previous workaround
+/// pattern (always invoke transfer_logic) is now unnecessary, but if a tx
+/// builder still does it the tx is accepted (the withdraw is just not
+/// consulted by `verify_proofs`).
+test finding_02_pure_mint_succeeds_with_transfer_logic_invoked() {
   let tx =
     Transaction {
       ..pure_mint_tx(),
       withdrawals: [
         Pair(fixture.credential_validator_logic_global, 0),
         Pair(fixture.credential_transfer_logic, 0),
+        Pair(credential_minting_logic, 0),
       ],
     }
-  run_both(tx, transfer_redeemer())
+  run_both(tx, no_proofs_redeemer())
+}
+
+// ===========================================================================
+// `fail` guardrails — CORRECT rejections, must stay failing.
+// ===========================================================================
+
+/// Strict-proof contract preserved. Spread of `pure_mint_tx` with ONE delta:
+/// the redeemer carries a `TokenExists` proof for FOO. Because FOO is now a
+/// pure mint and dropped from `input_assets`, that proof is leftover; the
+/// final `[] == verify_proofs(...)` check rejects. Prevents callers from
+/// quietly handing PLGlobal proofs it has no business consuming.
+test pure_mint_with_stale_transfer_proof_rejected() fail {
+  run_both(pure_mint_tx(), transfer_redeemer())
+}
+
+/// issuance_mint contract unchanged. Spread of `pure_mint_tx` with ONE
+/// delta: drop the `minting_logic` withdraw-0. issuance_mint's
+/// `minting_logic_invoked` check fails. Provided as a contrast so that
+/// `pure_mint_with_stale_transfer_proof_rejected` above is recognised as the
+/// transfer-side guardrail and this one as the issuance-side guardrail.
+test mint_without_minting_logic_invocation_rejected() fail {
+  let tx =
+    Transaction {
+      ..pure_mint_tx(),
+      withdrawals: [Pair(fixture.credential_validator_logic_global, 0)],
+    }
+  run_both(tx, no_proofs_redeemer())
 }

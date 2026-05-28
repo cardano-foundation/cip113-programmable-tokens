@@ -7,7 +7,7 @@ use cardano/transaction.{Input, Output, Transaction}
 use list
 use pairs
 use registry_node.{with_key_and_next_key, with_key_and_transfer_logic}
-use tokens
+use tokens.{Tokens}
 use types.{RegistryProof, TokenDoesNotExist, TokenExists}
 
 /// Validate a transfer action
@@ -27,12 +27,19 @@ pub fn validate_transfer(
     )
 
   // Collect all programmable tokens across inputs and minted/burned values.
+  // The Separation of Concerns between transfer and minting is that if it's a
+  // pure minting, i.e. policy does not appear in input, no further validation
+  // is due. Finding 02: this invariant is now enforced (see
+  // `collect_input_assets` for the fix).
   let input_assets = collect_input_assets(self, has_withdrawal, prog_logic_cred)
 
   // Collect all outputs that carry programmable tokens. We use them to ensure that
   // prog tokens cannot escape their fate.
   let output_assets =
     assets.collect_output_assets(self.outputs, prog_logic_cred)
+
+
+
 
   // Check transfer logic for each programmable token type and filter to only programmable tokens.
   [] == verify_proofs(
@@ -65,27 +72,90 @@ fn collect_input_assets(
   let has_signatory =
     list.has_or_fail(tx.extra_signatories, _)
 
-  assets.collect(
-    tx.inputs,
-    assets.from_value(tx.mint),
-    fn(input, select, discard) {
-      let output = input.output
-      if output.address.payment_credential == prog_logic_cred {
-        expect Some(Inline(stake_cred)) = output.address.stake_credential
-        when stake_cred is {
-          VerificationKey(pkh) -> {
-            expect has_signatory(pkh)
+  // Finding 02 fix: seed with EMPTY assets (was: `assets.from_value(tx.mint)`).
+  // Mint contributions are folded in AFTER the input scan via
+  // `apply_mint_to_known_policies`, which keeps mint deltas ONLY for policies
+  // that appear in PLB inputs. Mint-only ("purely minted") policies are
+  // dropped here — issuance_mint owns their custody, not the transfer path.
+  //
+  // NOTE on finding 04: with this fix, the transfer path no longer
+  // accidentally rejects a pure mint routed to a non-PLB address. That
+  // custody check belongs in issuance_mint; its current `or { plg_invoked,
+  // validate_mint_outputs }` delegation is too broad — see finding 04.
+  // Fix-up tracked separately.
+  let plb_inputs =
+    assets.collect(
+      tx.inputs,
+      [],
+      fn(input, select, discard) {
+        let output = input.output
+        if output.address.payment_credential == prog_logic_cred {
+          expect Some(Inline(stake_cred)) = output.address.stake_credential
+          when stake_cred is {
+            VerificationKey(pkh) -> {
+              expect has_signatory(pkh)
+            }
+            Script(_hash) -> {
+              expect has_withdrawal(stake_cred)
+            }
           }
-          Script(_hash) -> {
-            expect has_withdrawal(stake_cred)
-          }
+          select(output)
+        } else {
+          discard()
         }
-        select(output)
-      } else {
-        discard()
+      },
+    )
+
+  apply_mint_to_known_policies(plb_inputs, assets.from_value(tx.mint))
+}
+
+/// Two-pointer merge of `inputs` (PLB-input policies) and `mint`
+/// (transaction-level mint deltas). Both arguments must be sorted ascending
+/// by policy id — `assets.collect` and `assets.from_value` both produce
+/// canonically-sorted Assets, so this precondition holds at the call site.
+///
+///   * same policy in both     → token-quantities are summed via
+///                               `tokens.union` (per-name `sum_if_non_zero`,
+///                               so a full burn collapses to an empty Tokens
+///                               entry that `verify_proofs` already treats as
+///                               "burned").
+///   * policy in inputs only   → kept as-is.
+///   * policy in mint only     → DROPPED. Finding 02: pure mints are
+///                               issuance_mint's responsibility.
+///
+/// Cost: one linear pass; `tokens.union` is paid only for policies present in
+/// BOTH lists. This adds at most a constant per transferred-and-(co-minted-
+/// or-burned) policy on top of the previous implementation, and is cheaper
+/// for transactions involving pure mints because those policies no longer
+/// enter `verify_proofs` at all.
+fn apply_mint_to_known_policies(inputs: Assets, mint: Assets) -> Assets {
+  when mint is {
+    [] ->
+      // No more mint deltas; remaining inputs pass through unchanged.
+      inputs
+    [Pair(m_policy, m_tokens), ..m_rest] ->
+      when inputs is {
+        [] ->
+          // No more input policies; remaining mint-only entries are dropped.
+          []
+        [Pair(i_policy, i_tokens), ..i_rest] ->
+          if i_policy == m_policy {
+            [
+              Pair(i_policy, tokens.union(i_tokens, m_tokens)),
+              ..apply_mint_to_known_policies(i_rest, m_rest)
+            ]
+          } else if less_than_bytearray(i_policy, m_policy) {
+            // Input policy not in mint yet — keep, advance inputs.
+            [
+              Pair(i_policy, i_tokens),
+              ..apply_mint_to_known_policies(i_rest, mint)
+            ]
+          } else {
+            // Mint policy not in inputs — drop it (pure mint), advance mint.
+            apply_mint_to_known_policies(inputs, m_rest)
+          }
       }
-    },
-  )
+  }
 }
 
 /// Get inputs from prog_logic_cred and verify ALL have proper authorization
