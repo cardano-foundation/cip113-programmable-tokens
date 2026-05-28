@@ -7,7 +7,7 @@ use cardano/transaction.{Input, Output, Transaction}
 use list
 use pairs
 use registry_node.{with_key_and_next_key, with_key_and_transfer_logic}
-use tokens.{Tokens}
+use tokens
 use types.{RegistryProof, TokenDoesNotExist, TokenExists}
 
 /// Validate a transfer action
@@ -37,9 +37,6 @@ pub fn validate_transfer(
   // prog tokens cannot escape their fate.
   let output_assets =
     assets.collect_output_assets(self.outputs, prog_logic_cred)
-
-
-
 
   // Check transfer logic for each programmable token type and filter to only programmable tokens.
   [] == verify_proofs(
