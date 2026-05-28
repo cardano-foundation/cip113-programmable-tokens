@@ -106,51 +106,61 @@ fn collect_input_assets(
   apply_mint_to_known_policies(plb_inputs, assets.from_value(tx.mint))
 }
 
-/// Two-pointer merge of `inputs` (PLB-input policies) and `mint`
-/// (transaction-level mint deltas). Both arguments must be sorted ascending
-/// by policy id — `assets.collect` and `assets.from_value` both produce
-/// canonically-sorted Assets, so this precondition holds at the call site.
+/// Apply mint deltas onto known input policies. Mint-only policies are
+/// dropped — issuance_mint owns their custody (Finding 02 fix).
 ///
-///   * same policy in both     → token-quantities are summed via
-///                               `tokens.union` (per-name `sum_if_non_zero`,
-///                               so a full burn collapses to an empty Tokens
-///                               entry that `verify_proofs` already treats as
-///                               "burned").
-///   * policy in inputs only   → kept as-is.
-///   * policy in mint only     → DROPPED. Finding 02: pure mints are
-///                               issuance_mint's responsibility.
+/// Outer recursion walks `inputs`; for each input policy we call
+/// `assets.assets_split_at` on the remaining `mint`. The split_at trichotomy
+/// maps 1:1 onto what the contract needs:
 ///
-/// Cost: one linear pass; `tokens.union` is paid only for policies present in
-/// BOTH lists. This adds at most a constant per transferred-and-(co-minted-
-/// or-burned) policy on top of the previous implementation, and is cheaper
-/// for transactions involving pure mints because those policies no longer
-/// enter `verify_proofs` at all.
+///   * `before`         = mint policies with id < `i_policy`. Pure mints by
+///                        contract — dropped. They fall out of the output
+///                        naturally because we never include them; the cons
+///                        cells `do_split_at` allocates while skipping them
+///                        ARE the work of identifying them, not waste.
+///   * `mint_at_policy` = mint tokens for `i_policy` (or `dict.empty`). When
+///                        non-empty, merged via `tokens.union` (per-name
+///                        `sum_if_non_zero`, so a full burn collapses to an
+///                        empty entry that `verify_proofs` already treats as
+///                        "burned").
+///   * `mint_after`     = mint policies with id > `i_policy`. Becomes the
+///                        new search space for the next input policy, so
+///                        total split_at work across all iterations is
+///                        O(|mint|).
+///
+/// When `inputs` runs out, any remaining `mint_after` is dropped by virtue
+/// of the `[] -> []` base case — the rest of the pure-mint pile.
+///
+/// Pre-condition (held at every call site): both arguments are sorted
+/// ascending by policy id. `assets.collect` and `assets.from_value` both
+/// produce canonically-sorted Assets.
+///
+/// Cost: O(|inputs| + |mint|); `tokens.union` paid only at exact matches.
 fn apply_mint_to_known_policies(inputs: Assets, mint: Assets) -> Assets {
+  // Mint-empty short-circuit at the OUTER level: a transfer-only tx (no
+  // mint) skips the per-input `assets_split_at` calls entirely and pays no
+  // per-policy cost in the merge — same big-O as the original two-pointer.
+  // Without this, the bench `many_policies` axis paid ~3.7M cpu / extra
+  // policy for split_at calls that always returned empty.
   when mint is {
-    [] ->
-      // No more mint deltas; remaining inputs pass through unchanged.
-      inputs
-    [Pair(m_policy, m_tokens), ..m_rest] ->
+    [] -> inputs
+    _ ->
       when inputs is {
-        [] ->
-          // No more input policies; remaining mint-only entries are dropped.
-          []
-        [Pair(i_policy, i_tokens), ..i_rest] ->
-          if i_policy == m_policy {
-            [
-              Pair(i_policy, tokens.union(i_tokens, m_tokens)),
-              ..apply_mint_to_known_policies(i_rest, m_rest)
-            ]
-          } else if less_than_bytearray(i_policy, m_policy) {
-            // Input policy not in mint yet — keep, advance inputs.
-            [
-              Pair(i_policy, i_tokens),
-              ..apply_mint_to_known_policies(i_rest, mint)
-            ]
-          } else {
-            // Mint policy not in inputs — drop it (pure mint), advance mint.
-            apply_mint_to_known_policies(inputs, m_rest)
-          }
+        [] -> []
+        [Pair(i_policy, i_tokens), ..i_rest] -> {
+          let _before, mint_at_policy, mint_after <-
+            assets.assets_split_at(mint, i_policy)
+          let merged =
+            if mint_at_policy == dict.empty {
+              i_tokens
+            } else {
+              tokens.union(i_tokens, mint_at_policy)
+            }
+          [
+            Pair(i_policy, merged),
+            ..apply_mint_to_known_policies(i_rest, mint_after)
+          ]
+        }
       }
   }
 }

@@ -28,6 +28,14 @@ pub fn split_at(
   do_split_at(from_value(self), at, [], return)
 }
 
+pub fn assets_split_at(
+  self: Assets,
+  at: PolicyId,
+  return: fn(Assets, Tokens, Assets) -> result,
+) -> result {
+  do_split_at(self, at, [], return)
+}
+
 fn do_split_at(
   self: Assets,
   at: PolicyId,
