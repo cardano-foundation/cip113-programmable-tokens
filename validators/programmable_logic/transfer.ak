@@ -149,20 +149,17 @@ fn apply_mint_to_known_policies(inputs: Assets, mint: Assets) -> Assets {
     _ ->
       when inputs is {
         [] -> []
-        [Pair(i_policy, i_tokens), ..i_rest] -> {
+        [Pair(i_policy, i_tokens) as head, ..i_rest] -> {
           let
             _before,
             mint_at_policy,
             mint_after,
           <- assets.assets_split_at(mint, i_policy)
-          let merged =
-            if mint_at_policy == dict.empty {
-              i_tokens
-            } else {
-              tokens.union(i_tokens, mint_at_policy)
-            }
           [
-            Pair(i_policy, merged),
+            when dict.to_pairs(mint_at_policy) is {
+              [] -> head
+              _ -> Pair(i_policy, tokens.union(mint_at_policy, i_tokens))
+            },
             ..apply_mint_to_known_policies(i_rest, mint_after)
           ]
         }
