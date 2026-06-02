@@ -27,6 +27,10 @@ pub fn validate_transfer(
     )
 
   // Collect all programmable tokens across inputs and minted/burned values.
+  // The Separation of Concerns between transfer and minting is that if it's a
+  // pure minting, i.e. policy does not appear in input, no further validation
+  // is due. Finding 02: this invariant is now enforced (see
+  // `collect_input_assets` for the fix).
   let input_assets = collect_input_assets(self, has_withdrawal, prog_logic_cred)
 
   // Collect all outputs that carry programmable tokens. We use them to ensure that
@@ -65,27 +69,102 @@ fn collect_input_assets(
   let has_signatory =
     list.has_or_fail(tx.extra_signatories, _)
 
-  assets.collect(
-    tx.inputs,
-    assets.from_value(tx.mint),
-    fn(input, select, discard) {
-      let output = input.output
-      if output.address.payment_credential == prog_logic_cred {
-        expect Some(Inline(stake_cred)) = output.address.stake_credential
-        when stake_cred is {
-          VerificationKey(pkh) -> {
-            expect has_signatory(pkh)
+  // Finding 02 fix: seed with EMPTY assets (was: `assets.from_value(tx.mint)`).
+  // Mint contributions are folded in AFTER the input scan via
+  // `apply_mint_to_known_policies`, which keeps mint deltas ONLY for policies
+  // that appear in PLB inputs. Mint-only ("purely minted") policies are
+  // dropped here — issuance_mint owns their custody, not the transfer path.
+  //
+  // Side-effect to watch: with this fix the transfer path no longer
+  // accidentally rejects a pure mint routed to a non-PLB address. That
+  // custody check belongs in issuance_mint; its current `or { plg_invoked,
+  // validate_mint_outputs }` delegation is too broad — same root cause as
+  // finding 04 (which documents the ThirdPartyAct + mint escape), now
+  // exposed as a TransferAct + mint variant too. Tightening issuance_mint's
+  // delegation closes both. Tracked separately.
+  let plb_inputs =
+    assets.collect(
+      tx.inputs,
+      [],
+      fn(input, select, discard) {
+        let output = input.output
+        if output.address.payment_credential == prog_logic_cred {
+          expect Some(Inline(stake_cred)) = output.address.stake_credential
+          when stake_cred is {
+            VerificationKey(pkh) -> {
+              expect has_signatory(pkh)
+            }
+            Script(_hash) -> {
+              expect has_withdrawal(stake_cred)
+            }
           }
-          Script(_hash) -> {
-            expect has_withdrawal(stake_cred)
-          }
+          select(output)
+        } else {
+          discard()
         }
-        select(output)
-      } else {
-        discard()
+      },
+    )
+
+  apply_mint_to_known_policies(plb_inputs, assets.from_value(tx.mint))
+}
+
+/// Apply mint deltas onto known input policies. Mint-only policies are
+/// dropped — issuance_mint owns their custody (Finding 02 fix).
+///
+/// Outer recursion walks `inputs`; for each input policy we call
+/// `assets.assets_split_at` on the remaining `mint`. The split_at trichotomy
+/// maps 1:1 onto what the contract needs:
+///
+///   * `before`         = mint policies with id < `i_policy`. Pure mints by
+///                        contract — dropped. They fall out of the output
+///                        naturally because we never include them; the cons
+///                        cells `do_split_at` allocates while skipping them
+///                        ARE the work of identifying them, not waste.
+///   * `mint_at_policy` = mint tokens for `i_policy` (or `dict.empty`). When
+///                        non-empty, merged via `tokens.union` (per-name
+///                        `sum_if_non_zero`, so a full burn collapses to an
+///                        empty entry that `verify_proofs` already treats as
+///                        "burned").
+///   * `mint_after`     = mint policies with id > `i_policy`. Becomes the
+///                        new search space for the next input policy, so
+///                        total split_at work across all iterations is
+///                        O(|mint|).
+///
+/// When `inputs` runs out, any remaining `mint_after` is dropped by virtue
+/// of the `[] -> []` base case — the rest of the pure-mint pile.
+///
+/// Pre-condition (held at every call site): both arguments are sorted
+/// ascending by policy id. `assets.collect` and `assets.from_value` both
+/// produce canonically-sorted Assets.
+///
+/// Cost: O(|inputs| + |mint|); `tokens.union` paid only at exact matches.
+fn apply_mint_to_known_policies(inputs: Assets, mint: Assets) -> Assets {
+  // Mint-empty short-circuit at the OUTER level: a transfer-only tx (no
+  // mint) skips the per-input `assets_split_at` calls entirely and pays no
+  // per-policy cost in the merge — same big-O as the original two-pointer.
+  // Without this, the bench `many_policies` axis paid ~3.7M cpu / extra
+  // policy for split_at calls that always returned empty.
+  when mint is {
+    [] -> inputs
+    _ ->
+      when inputs is {
+        [] -> []
+        [Pair(i_policy, i_tokens) as head, ..i_rest] -> {
+          let
+            _before,
+            mint_at_policy,
+            mint_after,
+          <- assets.assets_split_at(mint, i_policy)
+          [
+            when dict.to_pairs(mint_at_policy) is {
+              [] -> head
+              _ -> Pair(i_policy, tokens.union(mint_at_policy, i_tokens))
+            },
+            ..apply_mint_to_known_policies(i_rest, mint_after)
+          ]
+        }
       }
-    },
-  )
+  }
 }
 
 /// Get inputs from prog_logic_cred and verify ALL have proper authorization
