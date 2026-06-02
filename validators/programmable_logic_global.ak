@@ -9,8 +9,11 @@ use cardano/transaction.{Transaction}
 use programmable_logic/params.{with_programmable_logic_params}
 use programmable_logic/third_party.{validate_3rd_party}
 use programmable_logic/transfer.{validate_transfer}
+use programmable_logic/unfracking.{validate_unfracking}
 use registry_node.{new_registry_node_getter}
-use types.{ProgrammableLogicGlobalRedeemer, ThirdPartyAct, TransferAct}
+use types.{
+  ProgrammableLogicGlobalRedeemer, ThirdPartyAct, TransferAct, UnfrackingAct,
+}
 
 validator programmable_logic_global(params_policy: PolicyId) {
   withdraw(
@@ -46,6 +49,11 @@ validator programmable_logic_global(params_policy: PolicyId) {
           get_registry_node(registry_node_idx),
           outputs_start_idx,
         )
+
+      // Finding 17: holder-driven UTxO redistribution. No registry node,
+      // no proofs, no substandard logic — purely a value-preserving
+      // reshape of the holder's own PLB UTxOs.
+      UnfrackingAct -> validate_unfracking(self, prog_logic_cred)
     }
   }
 

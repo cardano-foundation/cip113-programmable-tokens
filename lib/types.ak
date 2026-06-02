@@ -26,6 +26,20 @@ pub type ProgrammableLogicGlobalRedeemer {
     /// Starting index in outputs where processed outputs begin
     outputs_start_idx: Int,
   }
+  /// Finding 17: Unfracking action — let a holder redistribute the
+  /// programmable tokens they already hold across multiple PLB UTxOs
+  /// WITHOUT invoking any substandard transfer logic. Used to break
+  /// up multi-policy UTxOs into single-policy UTxOs so a freeze on
+  /// one policy stops collateral-damaging unrelated policies that
+  /// happened to share the same UTxO.
+  ///
+  /// No payload: the validator infers everything it needs from the
+  /// transaction shape. Caller proves authorisation by signing for
+  /// (or invoking the script of) every PLB input being unfracked;
+  /// the validator enforces value conservation per policy at the PLB
+  /// boundary and refuses to route tokens to any stake credential the
+  /// caller did not authorise.
+  UnfrackingAct
 }
 
 /// Redeemer for the issuance minting policy.
