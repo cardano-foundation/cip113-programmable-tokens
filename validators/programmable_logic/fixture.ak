@@ -11,7 +11,9 @@ use cardano/fuzz as cardano
 use cardano/transaction.{InlineDatum, Input, NoDatum, Output, Transaction}
 use programmable_logic/params.{ProgrammableLogicGlobalParams}
 use registry_node.{RegistryNode, empty_vkey}
-use types.{ProgrammableLogicGlobalRedeemer, TokenExists, TransferAct}
+use types.{
+  ProgrammableLogicGlobalRedeemer, TokenExists, TransferAct, UnfrackingAct,
+}
 
 /// Some script credential for the transfer logic. Could also be a verification
 /// key hash, but the primary use-case is for script.
@@ -322,6 +324,43 @@ pub fn some_transfer(
           fn(_, node_idx, proofs) { [TokenExists { node_idx }, ..proofs] },
         )
       |> TransferAct,
+  )
+}
+
+/// Baseline transaction for an Unfracking action (Finding 17). Takes
+/// the per-policy tokens that should be present at PLB and a layout
+/// rule for the outputs: one output per element of the outer list,
+/// each carrying the inner list of tokens.
+///
+/// All inputs and outputs use the default `credential_transfer_logic`
+/// stake credential, so the only authorisation required is that
+/// script's withdraw-0 (already in `withdrawals_transfer`).
+///
+/// No registry node references are required — Unfracking does not
+/// consult the registry — so the only reference input is the
+/// protocol-params NFT.
+pub fn some_unfracking(
+  input_tokens: List<(PolicyId, AssetName, Int)>,
+  output_layouts: List<List<(PolicyId, AssetName, Int)>>,
+) -> (Transaction, ProgrammableLogicGlobalRedeemer) {
+  let outputs =
+    list.map(output_layouts, some_output_with_programmable_tokens)
+  (
+    Transaction {
+      ..transaction.placeholder,
+      inputs: [
+        some_input_with_programmable_tokens(
+          input_tokens,
+          "unfracking input",
+        ),
+      ],
+      outputs: outputs,
+      reference_inputs: [
+        some_reference_input_protocol_params(protocol_params, "protocol params"),
+      ],
+      withdrawals: withdrawals_transfer,
+    },
+    UnfrackingAct,
   )
 }
 
