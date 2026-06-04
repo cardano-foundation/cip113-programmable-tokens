@@ -188,11 +188,17 @@ test unfracking_vkey_authorised_succeeds() {
   run_unfracking(tx)
 }
 
-// Finding 17: holder consumes two PLB UTxOs under DIFFERENT authorised
-// credentials of theirs (one script-staked, one vkey-staked) and
-// reshuffles freely between them. Both creds are in the authorised set;
-// outputs may go to either.
-test unfracking_cross_credential_reshuffle_succeeds() {
+// Finding 17 — single-owner invariant. Unfracking is a SAME-OWNER
+// restructuring action: tokens crossing between stake credentials is a
+// transfer (and must invoke `transfer_logic_script`), not an unfracking.
+// Here two PLB UTxOs use DIFFERENT stake credentials (one script-staked,
+// one vkey-staked). Even if the holder controls both, the validator must
+// reject — otherwise Unfracking would be "transfer-without-transfer-logic"
+// between credentials the holder happens to own. The first PLB input
+// pins the target stake_cred; the second's mismatched cred triggers
+// `expect stake_cred == existing` in `collect_plb_inputs` and the tx
+// fails. This `fail` test locks in that boundary.
+test unfracking_inputs_with_different_stake_creds_rejected() fail {
   let vkey_cred = VerificationKey(second_vkey_pkh)
   // Input A: default script stake credential
   let input_script =

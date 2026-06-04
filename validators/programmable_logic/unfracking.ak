@@ -7,13 +7,26 @@
 //// scoped to one policy stops co-locating its blast radius onto unrelated
 //// policies.
 ////
+//// Single-owner invariant
+//// ----------------------
+////
+//// Unfracking is by design a SAME-OWNER restructuring action. All PLB
+//// inputs and all PLB outputs must share ONE stake credential — the one
+//// pinned by the first PLB input we encounter. A multi-credential variant
+//// would let tokens cross between owners without invoking
+//// `transfer_logic_script` (the bouncer that gates real transfers); that
+//// is a transfer in disguise, not an unfracking. If a holder controls two
+//// of their own credentials and wants to shuffle tokens between them,
+//// that is a TransferAct between two owners (one of which is also them),
+//// not an Unfracking.
+////
 //// What this action permits:
-////   * Spending one or more PLB inputs the caller is authorised over (vkey
-////     signer, or script withdrawal — same authorisation pattern as
-////     TransferAct).
-////   * Reshaping the value of those inputs into any number of PLB outputs,
-////     each with a stake credential drawn from the authorisation set
-////     (cannot launder tokens to a third party — that would be a transfer).
+////   * Spending one or more PLB inputs the caller is authorised over —
+////     either by signing for a vkey stake credential or by invoking the
+////     script's withdraw-0 (same authorisation pattern as TransferAct).
+////   * Reshaping the value of those inputs into any number of PLB
+////     outputs, each at the same payment_credential (PLB) and the same
+////     stake_credential pinned by the first PLB input.
 ////   * Free choice of datum and reference_script on each new PLB output.
 ////     Unfracking is by design a layout-restructuring action.
 ////
@@ -26,14 +39,18 @@
 ////     come from a non-PLB input (rare/impossible in honest setups), and
 ////     any leak to non-PLB would force a PLB-side deficit which the
 ////     equality rejects.
-////   * Routing outputs to a stake credential the caller did not
-////     authorise. This is the back-door we have to slam shut, otherwise
+////   * Mixing different stake credentials across PLB inputs (or routing
+////     a PLB output to a stake_cred other than the one pinned by the
+////     inputs). This is the back-door we have to slam shut, otherwise
 ////     Unfracking becomes "transfer-without-transfer-logic".
 ////
 //// Cost shape: O(|inputs| + |outputs|) for the per-input authorisation
-//// scan and the per-output stake-credential lookup. The asset equality
-//// check is O(|policies| + |tokens|) over the canonically-sorted
-//// `Assets` collected from each side.
+//// scan and the per-output stake-credential equality check. The asset
+//// equality check is O(|policies| + |tokens|) over the canonically-sorted
+//// `Assets` collected from each side. Authorisation is checked exactly
+//// once per transaction (on the first PLB input that pins the stake
+//// credential); subsequent inputs share the same credential and inherit
+//// the authorisation.
 
 use assets.{Assets}
 use cardano/address.{Credential, Inline, Script, VerificationKey}
@@ -55,26 +72,33 @@ pub fn validate_unfracking(
   // the equality check.
   expect value.is_zero(self.mint)
 
-  let has_signatory = list.has_or_fail(self.extra_signatories, _)
+  let has_signatory =
+    list.has_or_fail(self.extra_signatories, _)
   let has_withdrawal_cred =
     fn(cred: Credential) { pairs.has_key_or_fail(self.withdrawals, cred) }
 
   let
     input_assets,
-    authorised_stake_creds,
-  <- collect_plb_inputs(
-       self.inputs,
-       prog_logic_cred,
-       has_signatory,
-       has_withdrawal_cred,
-       [],
-       [],
-     )
+    target_cred,
+  <-
+    collect_plb_inputs(
+      self.inputs,
+      prog_logic_cred,
+      has_signatory,
+      has_withdrawal_cred,
+      [],
+      None,
+    )
+
+  // The tx must consume at least one PLB UTxO — otherwise there is
+  // nothing to unfrack and the redeemer is meaningless.
+  expect Some(target) = target_cred
+
   // Output scan: collect Assets from outputs at PLB AND require every
-  // such output's stake credential to be in `authorised_stake_creds`.
-  // Folding both checks into the same traversal keeps the cost down.
+  // such output's stake credential to equal `target`. Folding both
+  // checks into the same traversal keeps the cost down.
   let output_assets =
-    collect_plb_outputs(self.outputs, prog_logic_cred, authorised_stake_creds)
+    collect_plb_outputs(self.outputs, prog_logic_cred, target)
 
   // Conservation per policy/token: the total at PLB must be identical
   // input-to-output. Equality (not containment) is intentional — see
@@ -83,32 +107,47 @@ pub fn validate_unfracking(
   input_assets == output_assets
 }
 
-/// Walk PLB inputs once, accumulating (sum of non-ADA assets, set of
-/// stake credentials seen). Authorisation is checked inline per input
-/// — an unauthorised PLB input halts the validator via `expect`.
+/// Walk PLB inputs once, accumulating (sum of non-ADA assets, target
+/// stake credential pinned by the first PLB input). Authorisation is
+/// checked ONCE — on the first PLB input — and every subsequent PLB
+/// input must share the same stake credential, so a single
+/// signatory / withdraw-0 covers them all.
 fn collect_plb_inputs(
   inputs: List<Input>,
   prog_logic_cred: Credential,
   has_signatory: fn(ByteArray) -> Bool,
   has_withdrawal_cred: fn(Credential) -> Bool,
   acc_assets: Assets,
-  acc_creds: List<Credential>,
-  return: fn(Assets, List<Credential>) -> result,
+  target_cred: Option<Credential>,
+  return: fn(Assets, Option<Credential>) -> result,
 ) -> result {
   when inputs is {
-    [] -> return(acc_assets, acc_creds)
+    [] -> return(acc_assets, target_cred)
     [input, ..tail] -> {
       let output = input.output
       if output.address.payment_credential == prog_logic_cred {
         expect Some(Inline(stake_cred)) = output.address.stake_credential
-        when stake_cred is {
-          VerificationKey(pkh) -> {
-            expect has_signatory(pkh)
+        let next_target =
+          when target_cred is {
+            None -> {
+              // First PLB input — authorise the cred once and pin it.
+              when stake_cred is {
+                VerificationKey(pkh) -> {
+                  expect has_signatory(pkh)
+                }
+                Script(_hash) -> {
+                  expect has_withdrawal_cred(stake_cred)
+                }
+              }
+              Some(stake_cred)
+            }
+            Some(existing) -> {
+              // Subsequent PLB input — must match the pinned cred. The
+              // authorisation already covers any input with this cred.
+              expect stake_cred == existing
+              target_cred
+            }
           }
-          Script(_hash) -> {
-            expect has_withdrawal_cred(stake_cred)
-          }
-        }
         let next_assets =
           assets.union(
             output.value
@@ -116,14 +155,13 @@ fn collect_plb_inputs(
               |> list.tail,
             acc_assets,
           )
-        let next_creds = insert_cred_unique(stake_cred, acc_creds)
         collect_plb_inputs(
           tail,
           prog_logic_cred,
           has_signatory,
           has_withdrawal_cred,
           next_assets,
-          next_creds,
+          next_target,
           return,
         )
       } else {
@@ -133,7 +171,7 @@ fn collect_plb_inputs(
           has_signatory,
           has_withdrawal_cred,
           acc_assets,
-          acc_creds,
+          target_cred,
           return,
         )
       }
@@ -141,45 +179,26 @@ fn collect_plb_inputs(
   }
 }
 
-/// O(n) credential dedup. Open-coded because the equivalent stdlib
-/// `list.has` Eq-polymorphic shape trips Aiken's type checker when
-/// instantiated at `Credential` in this position (the compiler exits
-/// non-zero with no diagnostic). See `cred_member` below for the
-/// matching read-side helper.
-fn insert_cred_unique(
-  cred: Credential,
-  acc: List<Credential>,
-) -> List<Credential> {
-  when acc is {
-    [] -> [cred]
-    [head, ..tail] ->
-      if head == cred {
-        acc
-      } else {
-        [head, ..insert_cred_unique(cred, tail)]
-      }
-  }
-}
-
 /// Walk outputs once, summing non-ADA assets of every PLB-bound output
-/// and rejecting any PLB output whose stake credential isn't in the
-/// authorised set. Routing PLB tokens to an unauthorised stake credential
-/// would be a transfer in disguise (no transfer_logic invoked) — exactly
-/// what Finding 17's recommendation says Unfracking must NOT permit.
+/// and requiring its stake credential to equal `target_cred` — the
+/// credential pinned by the first PLB input. Routing PLB tokens to any
+/// other stake credential would be a transfer in disguise (no
+/// transfer_logic invoked) — exactly what Finding 17's recommendation
+/// says Unfracking must NOT permit.
 fn collect_plb_outputs(
   outputs: List<Output>,
   prog_logic_cred: Credential,
-  authorised_stake_creds: List<Credential>,
+  target_cred: Credential,
 ) -> Assets {
   when outputs is {
     [] -> []
     [output, ..tail] -> {
       let tail_assets =
-        collect_plb_outputs(tail, prog_logic_cred, authorised_stake_creds)
+        collect_plb_outputs(tail, prog_logic_cred, target_cred)
       if output.address.payment_credential == prog_logic_cred {
         expect Some(Inline(stake_cred)) = output.address.stake_credential
-        // Authorisation gate on the destination stake credential.
-        expect cred_member(stake_cred, authorised_stake_creds)
+        // Single-owner gate: outputs may only carry the pinned cred.
+        expect stake_cred == target_cred
         assets.union(
           output.value
             |> assets.from_value
@@ -190,17 +209,5 @@ fn collect_plb_outputs(
         tail_assets
       }
     }
-  }
-}
-
-/// Linear membership check for credentials. We have our own copy because
-/// the stdlib `list.has` Eq-polymorphic shape currently trips Aiken's
-/// type checker when instantiated at `Credential` in this position (the
-/// compiler exits non-zero with no diagnostic). Inlining the recursion
-/// sidesteps it without losing semantics.
-fn cred_member(cred: Credential, acc: List<Credential>) -> Bool {
-  when acc is {
-    [] -> False
-    [head, ..tail] -> head == cred || cred_member(cred, tail)
   }
 }
