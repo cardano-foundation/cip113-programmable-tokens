@@ -77,22 +77,27 @@ pub fn validate_unfracking(
   let has_withdrawal_cred =
     fn(cred: Credential) { pairs.has_key_or_fail(self.withdrawals, cred) }
 
+  // Two-phase input scan:
+  //   * `collect_plb_inputs`    — finds and authorises the FIRST PLB input,
+  //                                pinning its stake_cred as the target.
+  //                                Fails the tx if no PLB input is found
+  //                                (Unfracking with zero PLB inputs is
+  //                                meaningless).
+  //   * `do_collect_plb_inputs` — continues accumulating from remaining
+  //                                inputs with the target known; every
+  //                                PLB input it sees must match the target.
+  // Splitting the loop along the find-first/continue-with-target boundary
+  // keeps `Option<Credential>` out of the hot loop entirely.
   let
     input_assets,
-    target_cred,
+    target,
   <-
     collect_plb_inputs(
       self.inputs,
       prog_logic_cred,
       has_signatory,
       has_withdrawal_cred,
-      [],
-      None,
     )
-
-  // The tx must consume at least one PLB UTxO — otherwise there is
-  // nothing to unfrack and the redeemer is meaningless.
-  expect Some(target) = target_cred
 
   // Output scan: collect Assets from outputs at PLB AND require every
   // such output's stake credential to equal `target`. Folding both
@@ -107,61 +112,50 @@ pub fn validate_unfracking(
   input_assets == output_assets
 }
 
-/// Walk PLB inputs once, accumulating (sum of non-ADA assets, target
-/// stake credential pinned by the first PLB input). Authorisation is
-/// checked ONCE — on the first PLB input — and every subsequent PLB
-/// input must share the same stake credential, so a single
-/// signatory / withdraw-0 covers them all.
+/// Phase 1 of the input scan: find the FIRST PLB input, authorise its
+/// stake credential, and delegate the rest of the scan to
+/// `do_collect_plb_inputs` with that credential pinned. Recurses on
+/// non-PLB inputs (fuel, etc.) until the first PLB is encountered.
+///
+/// Aborts the validator if no PLB input is found — Unfracking with zero
+/// PLB inputs is meaningless. This `fail` plays the role of the
+/// `expect Some(target) = target_cred` check the entry point used to
+/// carry; pulling it into the helper keeps `Option<Credential>` out of
+/// the hot loop entirely.
 fn collect_plb_inputs(
   inputs: List<Input>,
   prog_logic_cred: Credential,
   has_signatory: fn(ByteArray) -> Bool,
   has_withdrawal_cred: fn(Credential) -> Bool,
-  acc_assets: Assets,
-  target_cred: Option<Credential>,
-  return: fn(Assets, Option<Credential>) -> result,
+  return: fn(Assets, Credential) -> result,
 ) -> result {
   when inputs is {
-    [] -> return(acc_assets, target_cred)
+    [] -> fail
     [input, ..tail] -> {
       let output = input.output
       if output.address.payment_credential == prog_logic_cred {
         expect Some(Inline(stake_cred)) = output.address.stake_credential
-        let next_target =
-          when target_cred is {
-            None -> {
-              // First PLB input — authorise the cred once and pin it.
-              when stake_cred is {
-                VerificationKey(pkh) -> {
-                  expect has_signatory(pkh)
-                }
-                Script(_hash) -> {
-                  expect has_withdrawal_cred(stake_cred)
-                }
-              }
-              Some(stake_cred)
-            }
-            Some(existing) -> {
-              // Subsequent PLB input — must match the pinned cred. The
-              // authorisation already covers any input with this cred.
-              expect stake_cred == existing
-              target_cred
-            }
+        // First PLB input — authorise the cred once and pin it. The
+        // authorisation covers every subsequent PLB input that shares
+        // this cred (the single-owner invariant `do_collect_plb_inputs`
+        // enforces).
+        when stake_cred is {
+          VerificationKey(pkh) -> {
+            expect has_signatory(pkh)
           }
-        let next_assets =
-          assets.union(
-            output.value
-              |> assets.from_value
-              |> list.tail,
-            acc_assets,
-          )
-        collect_plb_inputs(
+          Script(_hash) -> {
+            expect has_withdrawal_cred(stake_cred)
+          }
+        }
+        let initial_assets =
+          output.value
+            |> assets.from_value
+            |> list.tail
+        do_collect_plb_inputs(
           tail,
           prog_logic_cred,
-          has_signatory,
-          has_withdrawal_cred,
-          next_assets,
-          next_target,
+          stake_cred,
+          initial_assets,
           return,
         )
       } else {
@@ -170,8 +164,54 @@ fn collect_plb_inputs(
           prog_logic_cred,
           has_signatory,
           has_withdrawal_cred,
-          acc_assets,
+          return,
+        )
+      }
+    }
+  }
+}
+
+/// Phase 2 of the input scan: continue accumulating from remaining PLB
+/// inputs with a known `target_cred`. Every PLB input encountered must
+/// have a stake credential equal to `target_cred`; otherwise the tx is
+/// rejected — that single-cred invariant is what keeps Unfracking
+/// same-owner-only. No `Option<Credential>` in this loop; the caller
+/// (`collect_plb_inputs`) only delegates here once it has authorised
+/// and pinned the target.
+fn do_collect_plb_inputs(
+  inputs: List<Input>,
+  prog_logic_cred: Credential,
+  target_cred: Credential,
+  acc_assets: Assets,
+  return: fn(Assets, Credential) -> result,
+) -> result {
+  when inputs is {
+    [] -> return(acc_assets, target_cred)
+    [input, ..tail] -> {
+      let output = input.output
+      if output.address.payment_credential == prog_logic_cred {
+        expect Some(Inline(stake_cred)) = output.address.stake_credential
+        expect stake_cred == target_cred
+        let next_assets =
+          assets.union(
+            output.value
+              |> assets.from_value
+              |> list.tail,
+            acc_assets,
+          )
+        do_collect_plb_inputs(
+          tail,
+          prog_logic_cred,
           target_cred,
+          next_assets,
+          return,
+        )
+      } else {
+        do_collect_plb_inputs(
+          tail,
+          prog_logic_cred,
+          target_cred,
+          acc_assets,
           return,
         )
       }
