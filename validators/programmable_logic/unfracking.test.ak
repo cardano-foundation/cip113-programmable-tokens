@@ -188,6 +188,40 @@ test unfracking_vkey_authorised_succeeds() {
   run_unfracking(tx)
 }
 
+// Finding 17 — multi-input consolidation, same owner. Two PLB UTxOs at
+// the SAME stake credential are spent and consolidated into a single
+// PLB output (still at the same address). Exercises the
+// `do_collect_plb_inputs` continuation in the HAPPY PATH — every other
+// positive test uses a single PLB input and never reaches the
+// continuation; the only cross-cred test that does reach it triggers the
+// rejection branch. This test pins that the continuation also accepts
+// when subsequent PLB inputs share the target credential. Per-policy
+// totals add up (100+50=150 for both A and B); single owner throughout;
+// no mint.
+test unfracking_multi_input_consolidation_succeeds() {
+  let input_1 =
+    fixture.some_input_with_programmable_tokens(
+      [(policy_a, "FOO", 100), (policy_b, "BAR", 100)],
+      "consolidation input 1",
+    )
+  let input_2 =
+    fixture.some_input_with_programmable_tokens(
+      [(policy_a, "FOO", 50), (policy_b, "BAR", 50)],
+      "consolidation input 2",
+    )
+  let consolidated =
+    fixture.some_output_with_programmable_tokens(
+      [(policy_a, "FOO", 150), (policy_b, "BAR", 150)],
+    )
+  let tx =
+    Transaction {
+      ..valid_unfracking_tx(),
+      inputs: [input_1, input_2],
+      outputs: [consolidated],
+    }
+  run_unfracking(tx)
+}
+
 // Finding 17 — single-owner invariant. Unfracking is a SAME-OWNER
 // restructuring action: tokens crossing between stake credentials is a
 // transfer (and must invoke `transfer_logic_script`), not an unfracking.
