@@ -103,7 +103,7 @@ pub fn validate_unfracking(
   // such output's stake credential to equal `owner_cred`. Folding both
   // checks into the same traversal keeps the cost down.
   let output_assets =
-    collect_plb_outputs(self.outputs, prog_logic_cred, owner_cred)
+    collect_plb_outputs(self.outputs, prog_logic_cred, owner_cred, [])
 
   // Conservation per policy/token: the total at PLB must be identical
   // input-to-output. Equality (not containment) is intentional — see
@@ -225,28 +225,37 @@ fn do_collect_plb_inputs(
 /// other stake credential would be a transfer in disguise (no
 /// transfer_logic invoked) — exactly what Finding 17's recommendation
 /// says Unfracking must NOT permit.
+///
+/// Tail-recursive: accumulates into `acc_assets` so the recursive call
+/// is the last thing the function does, leaving no deferred work on
+/// the call stack. `assets.union` is `dict.union_with(_, _, sum_if_non_zero)`
+/// which is commutative + associative per key, so the order of
+/// accumulation does not affect the final value. Same accumulator
+/// pattern as `do_collect_plb_inputs`; matches the optimisation
+/// recommendation in the Aiken docs ("Write Tail-Recursive Functions").
 fn collect_plb_outputs(
   outputs: List<Output>,
   prog_logic_cred: Credential,
   target_cred: Credential,
+  acc_assets: Assets,
 ) -> Assets {
   when outputs is {
-    [] -> []
-    [output, ..tail] -> {
-      let tail_assets = collect_plb_outputs(tail, prog_logic_cred, target_cred)
+    [] -> acc_assets
+    [output, ..tail] ->
       if output.address.payment_credential == prog_logic_cred {
         expect Some(Inline(stake_cred)) = output.address.stake_credential
         // Single-owner gate: outputs may only carry the pinned cred.
         expect stake_cred == target_cred
-        assets.union(
-          output.value
-            |> assets.from_value
-            |> list.tail,
-          tail_assets,
-        )
+        let next_assets =
+          assets.union(
+            output.value
+              |> assets.from_value
+              |> list.tail,
+            acc_assets,
+          )
+        collect_plb_outputs(tail, prog_logic_cred, target_cred, next_assets)
       } else {
-        tail_assets
+        collect_plb_outputs(tail, prog_logic_cred, target_cred, acc_assets)
       }
-    }
   }
 }
