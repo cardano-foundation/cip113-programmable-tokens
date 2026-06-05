@@ -1,11 +1,19 @@
 //// Programmable Logic Global — Unfracking action (Finding 17)
 ////
-//// Finding 17: lets a holder REDISTRIBUTE the programmable tokens they
-//// already hold across multiple PLB UTxOs without invoking any substandard
-//// transfer logic. The whole point is to break up a multi-policy PLB UTxO
-//// into single-policy UTxOs so that a freeze (or other compliance action)
-//// scoped to one policy stops co-locating its blast radius onto unrelated
-//// policies.
+//// Finding 17: lets a holder restructure their own PLB UTxOs without
+//// invoking any substandard transfer logic. The validator's contract is
+//// minimal — same owner across all PLB inputs and outputs, per-policy
+//// totals conserved at PLB, no mint — so the holder is free to pick any
+//// layout they want for the resulting outputs.
+////
+//// The audit-finding motivation: a "fracked" PLB UTxO holds programmable
+//// tokens from multiple policies in the same UTxO; a freeze (or other
+//// per-policy compliance action) scoped to one of those policies locks
+//// them all together, because the freeze applies to whole UTxOs rather
+//// than to individual asset classes. Unfracking exists so the holder
+//// can break that fracked UTxO into single-policy outputs (or any other
+//// shape they prefer) and stop co-locating the blast radius onto
+//// unrelated policies.
 ////
 //// Single-owner invariant
 //// ----------------------
