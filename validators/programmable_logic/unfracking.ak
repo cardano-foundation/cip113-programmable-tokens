@@ -75,7 +75,7 @@ pub fn validate_unfracking(
   let has_signatory =
     list.has_or_fail(self.extra_signatories, _)
   let has_withdrawal_cred =
-    fn(cred: Credential) { pairs.has_key_or_fail(self.withdrawals, cred) }
+    pairs.has_key_or_fail(self.withdrawals, _)
 
   // Two-phase input scan:
   //   * `collect_plb_inputs`    — finds and authorises the FIRST PLB input,
@@ -90,7 +90,7 @@ pub fn validate_unfracking(
   // keeps `Option<Credential>` out of the hot loop entirely.
   let
     input_assets,
-    target,
+    owner_cred,
   <-
     collect_plb_inputs(
       self.inputs,
@@ -100,10 +100,10 @@ pub fn validate_unfracking(
     )
 
   // Output scan: collect Assets from outputs at PLB AND require every
-  // such output's stake credential to equal `target`. Folding both
+  // such output's stake credential to equal `owner_cred`. Folding both
   // checks into the same traversal keeps the cost down.
   let output_assets =
-    collect_plb_outputs(self.outputs, prog_logic_cred, target)
+    collect_plb_outputs(self.outputs, prog_logic_cred, owner_cred)
 
   // Conservation per policy/token: the total at PLB must be identical
   // input-to-output. Equality (not containment) is intentional — see
@@ -115,7 +115,7 @@ pub fn validate_unfracking(
 /// Phase 1 of the input scan: find the FIRST PLB input, authorise its
 /// stake credential, and delegate the rest of the scan to
 /// `do_collect_plb_inputs` with that credential pinned. Recurses on
-/// non-PLB inputs (fuel, etc.) until the first PLB is encountered.
+/// non-PLB inputs until the first PLB is encountered.
 ///
 /// Aborts the validator if no PLB input is found — Unfracking with zero
 /// PLB inputs is meaningless. This `fail` plays the role of the
@@ -233,8 +233,7 @@ fn collect_plb_outputs(
   when outputs is {
     [] -> []
     [output, ..tail] -> {
-      let tail_assets =
-        collect_plb_outputs(tail, prog_logic_cred, target_cred)
+      let tail_assets = collect_plb_outputs(tail, prog_logic_cred, target_cred)
       if output.address.payment_credential == prog_logic_cred {
         expect Some(Inline(stake_cred)) = output.address.stake_credential
         // Single-owner gate: outputs may only carry the pinned cred.
