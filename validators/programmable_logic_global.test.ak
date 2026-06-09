@@ -547,20 +547,17 @@ test third_party_act_seized_tokens_to_prog_cred_succeeds() {
 // `expect !dict.is_empty(input_tokens_at)` rejects, because the input
 // holds no acted-on tokens to seize.
 test third_party_act_paired_input_missing_acted_on_policy_fails() fail {
-  let tx =
-    Transaction {
-      ..valid_seize_tx(),
-      inputs: [
-        fixture.some_input_with_programmable_tokens([], "innocent_utxo"),
-      ],
-      outputs: [
-        // Paired output: contamination — adds 42 FOO that the input
-        // never held.
-        fixture.some_output_with_programmable_tokens(
-          [(test_third_party_policy, "FOO", 42)],
-        ),
-      ],
-    }
+  let tx = Transaction {
+    ..valid_seize_tx(),
+    inputs: [fixture.some_input_with_programmable_tokens([], "innocent_utxo")],
+    outputs: [
+      // Paired output: contamination — adds 42 FOO that the input
+      // never held.
+      fixture.some_output_with_programmable_tokens(
+        [(test_third_party_policy, "FOO", 42)],
+      ),
+    ],
+  }
   run_seize_tx(tx)
 }
 
@@ -573,17 +570,16 @@ test third_party_act_paired_input_missing_acted_on_policy_fails() fail {
 // valid (the third_party_logic withdraw-0 still has to authorise the
 // no-op seize, so it's not free for the caller).
 test third_party_act_no_op_seize_succeeds() {
-  let tx =
-    Transaction {
-      ..valid_seize_tx(),
-      outputs: [
-        // Paired output: keeps the same 42 FOO — input_at == output_at.
-        // No "remaining" output needed: nothing was routed elsewhere.
-        fixture.some_output_with_programmable_tokens(
-          [(test_third_party_policy, "FOO", 42)],
-        ),
-      ],
-    }
+  let tx = Transaction {
+    ..valid_seize_tx(),
+    outputs: [
+      // Paired output: keeps the same 42 FOO — input_at == output_at.
+      // No "remaining" output needed: nothing was routed elsewhere.
+      fixture.some_output_with_programmable_tokens(
+        [(test_third_party_policy, "FOO", 42)],
+      ),
+    ],
+  }
   run_seize_tx(tx)
 }
 
