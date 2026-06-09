@@ -22,8 +22,10 @@ pub fn with_programmable_logic_params(
   protocol_params_cs: PolicyId,
   return: fn(PolicyId, Credential) -> result,
 ) -> result {
-  let protocol_params_ref =
-    get_protocol_params_ref(protocol_params_cs, reference_inputs)
+  let protocol_params_ref = get_protocol_params_ref(
+    protocol_params_cs,
+    reference_inputs,
+  )
 
   expect InlineDatum(inline_datum) = protocol_params_ref.output.datum
   let fields = unconstr_fields(inline_datum)

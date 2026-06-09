@@ -20,10 +20,10 @@ pub fn contains(
   when subset is {
     [] -> True
     [head_subset, ..tail_subset] -> {
-      let
-        head_superset,
-        tail_superset,
-      <- pop_until(superset, equals_bytearray(head_subset.1st, _))
+      let head_superset, tail_superset <- pop_until(
+        superset,
+        equals_bytearray(head_subset.1st, _),
+      )
       and {
         head_superset >= head_subset.2nd,
         contains(tail_superset, tail_subset),

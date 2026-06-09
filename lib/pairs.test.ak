@@ -41,10 +41,10 @@ test pop_until_first_and_only() {
 }
 
 test pop_until_first_and_rest() {
-  let
-    v,
-    rest,
-  <- pairs.pop_until([Pair("a", 1), Pair("b", 2)], equals_bytearray("a", _))
+  let v, rest <- pairs.pop_until(
+    [Pair("a", 1), Pair("b", 2)],
+    equals_bytearray("a", _),
+  )
   and {
     (v == 1)?,
     (rest == [Pair("b", 2)])?,
@@ -52,14 +52,10 @@ test pop_until_first_and_rest() {
 }
 
 test pop_until_middle() {
-  let
-    v,
-    rest,
-  <-
-    pairs.pop_until(
-      [Pair("b", 1), Pair("a", 2), Pair("c", 3)],
-      equals_bytearray("a", _),
-    )
+  let v, rest <- pairs.pop_until(
+    [Pair("b", 1), Pair("a", 2), Pair("c", 3)],
+    equals_bytearray("a", _),
+  )
   and {
     (v == 2)?,
     (rest == [Pair("c", 3)])?,
@@ -67,14 +63,10 @@ test pop_until_middle() {
 }
 
 test pop_until_last() {
-  let
-    v,
-    rest,
-  <-
-    pairs.pop_until(
-      [Pair("b", 1), Pair("a", 2), Pair("c", 3)],
-      equals_bytearray("c", _),
-    )
+  let v, rest <- pairs.pop_until(
+    [Pair("b", 1), Pair("a", 2), Pair("c", 3)],
+    equals_bytearray("c", _),
+  )
   and {
     (v == 3)?,
     (rest == [])?,
@@ -87,13 +79,9 @@ test pop_until_empty() fail {
 }
 
 test pop_until_not_found() fail {
-  let
-    v,
-    _rest,
-  <-
-    pairs.pop_until(
-      [Pair("b", 1), Pair("a", 2), Pair("c", 3)],
-      equals_bytearray("aa", _),
-    )
+  let v, _rest <- pairs.pop_until(
+    [Pair("b", 1), Pair("a", 2), Pair("c", 3)],
+    equals_bytearray("aa", _),
+  )
   v >= 0
 }

@@ -252,69 +252,64 @@ test registry_init_valid() {
 
 // utxo_ref not consumed in inputs
 test registry_init_fails_utxo_not_consumed() fail {
-  let other_input =
-    Input {
-      output_reference: OutputReference {
-        transaction_id: #"ff",
-        output_index: 99,
-      },
-      output: Output {
-        address: test_input_address,
-        value: min_ada,
-        datum: NoDatum,
-        reference_script: None,
-      },
-    }
-  let tx =
-    Transaction {
-      ..transaction.placeholder,
-      inputs: [other_input],
-      outputs: [origin_node_output()],
-      mint: from_asset(test_policy_id, origin_node_tn, 1),
-    }
+  let other_input = Input {
+    output_reference: OutputReference {
+      transaction_id: #"ff",
+      output_index: 99,
+    },
+    output: Output {
+      address: test_input_address,
+      value: min_ada,
+      datum: NoDatum,
+      reference_script: None,
+    },
+  }
+  let tx = Transaction {
+    ..transaction.placeholder,
+    inputs: [other_input],
+    outputs: [origin_node_output()],
+    mint: from_asset(test_policy_id, origin_node_tn, 1),
+  }
   call_init_validator(tx)
 }
 
 // Origin node has non-empty key
 test registry_init_fails_wrong_origin_key() fail {
-  let bad_origin =
-    Output {
-      address: test_node_address,
-      value: min_ada
-        |> assets.add(test_policy_id, origin_node_tn, 1),
-      datum: InlineDatum(
-        as_data(
-          RegistryNode {
-            key: #"aa",
-            next: #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
-            transfer_logic_script: empty_vkey,
-            third_party_transfer_logic_script: empty_vkey,
-            minting_logic_script: empty_vkey,
-            global_state_cs: #"",
-          },
-        ),
+  let bad_origin = Output {
+    address: test_node_address,
+    value: min_ada
+      |> assets.add(test_policy_id, origin_node_tn, 1),
+    datum: InlineDatum(
+      as_data(
+        RegistryNode {
+          key: #"aa",
+          next: #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          transfer_logic_script: empty_vkey,
+          third_party_transfer_logic_script: empty_vkey,
+          minting_logic_script: empty_vkey,
+          global_state_cs: #"",
+        },
       ),
-      reference_script: None,
-    }
-  let tx =
-    Transaction {
-      ..transaction.placeholder,
-      inputs: [utxo_ref_input()],
-      outputs: [bad_origin],
-      mint: from_asset(test_policy_id, origin_node_tn, 1),
-    }
+    ),
+    reference_script: None,
+  }
+  let tx = Transaction {
+    ..transaction.placeholder,
+    inputs: [utxo_ref_input()],
+    outputs: [bad_origin],
+    mint: from_asset(test_policy_id, origin_node_tn, 1),
+  }
   call_init_validator(tx)
 }
 
 // No origin token minted
 test registry_init_fails_no_mint() fail {
-  let tx =
-    Transaction {
-      ..transaction.placeholder,
-      inputs: [utxo_ref_input()],
-      outputs: [origin_node_output()],
-      mint: assets.zero,
-    }
+  let tx = Transaction {
+    ..transaction.placeholder,
+    inputs: [utxo_ref_input()],
+    outputs: [origin_node_output()],
+    mint: assets.zero,
+  }
   call_init_validator(tx)
 }
 
@@ -326,8 +321,10 @@ test registry_init_fails_no_mint() fail {
 // Companion to registry_init_valid — the only delta visible at the test
 // body is the `outputs` override (wrong-address origin).
 test registry_init_fails_wrong_origin_address() fail {
-  let wrong_address_origin =
-    Output { ..origin_node_output(), address: test_input_address }
+  let wrong_address_origin = Output {
+    ..origin_node_output(),
+    address: test_input_address,
+  }
   let tx = Transaction { ..valid_init_tx(), outputs: [wrong_address_origin] }
   call_init_validator(tx)
 }
@@ -375,35 +372,31 @@ test registry_insert_fails_no_issuance_ref_input() fail {
 test registry_insert_fails_key_not_covered() fail {
   let key = computed_key()
   // Covering node with key > insert key, so insert key is NOT covered
-  let bad_covering =
-    Input {
-      output_reference: OutputReference {
-        transaction_id: #"01",
-        output_index: 0,
-      },
-      output: Output {
-        address: test_node_address,
-        value: min_ada
-          |> assets.add(test_policy_id, key, 1),
-        datum: InlineDatum(
-          as_data(
-            RegistryNode {
-              key,
-              next: #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
-              transfer_logic_script: Script(
-                #"55555555555555555555555555555555555555555555555555555555",
-              ),
-              third_party_transfer_logic_script: Script(
-                #"66666666666666666666666666666666666666666666666666666666",
-              ),
-              minting_logic_script: test_inserted_minting_logic_cred,
-              global_state_cs: #"",
-            },
-          ),
+  let bad_covering = Input {
+    output_reference: OutputReference { transaction_id: #"01", output_index: 0 },
+    output: Output {
+      address: test_node_address,
+      value: min_ada
+        |> assets.add(test_policy_id, key, 1),
+      datum: InlineDatum(
+        as_data(
+          RegistryNode {
+            key,
+            next: #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            transfer_logic_script: Script(
+              #"55555555555555555555555555555555555555555555555555555555",
+            ),
+            third_party_transfer_logic_script: Script(
+              #"66666666666666666666666666666666666666666666666666666666",
+            ),
+            minting_logic_script: test_inserted_minting_logic_cred,
+            global_state_cs: #"",
+          },
         ),
-        reference_script: None,
-      },
-    }
+      ),
+      reference_script: None,
+    },
+  }
   let tx = Transaction { ..valid_insert_tx(), inputs: [bad_covering] }
   call_insert_validator(valid_insert_redeemer(), tx)
 }
@@ -411,12 +404,11 @@ test registry_insert_fails_key_not_covered() fail {
 // Key not 28 bytes
 test registry_insert_fails_wrong_key_length() fail {
   let short_key = #"aabb"
-  let rdmr =
-    RegistryInsert {
-      key: short_key,
-      minting_logic_script: test_inserted_minting_logic_cred,
-      mode: RegisterAndMint,
-    }
+  let rdmr = RegistryInsert {
+    key: short_key,
+    minting_logic_script: test_inserted_minting_logic_cred,
+    mode: RegisterAndMint,
+  }
   call_insert_validator(rdmr, valid_insert_tx())
 }
 
@@ -424,33 +416,31 @@ test registry_insert_fails_wrong_key_length() fail {
 test registry_insert_fails_updated_node_modified() fail {
   let key = computed_key()
   // Updated covering output with modified transfer_logic_script
-  let tampered_output =
-    Output {
-      address: test_node_address,
-      value: min_ada
-        |> assets.add(test_policy_id, origin_node_tn, 1),
-      datum: InlineDatum(
-        as_data(
-          RegistryNode {
-            key: #"",
-            next: key,
-            // Changed from empty_vkey to a different script!
-            transfer_logic_script: Script(
-              #"99999999999999999999999999999999999999999999999999999999",
-            ),
-            third_party_transfer_logic_script: empty_vkey,
-            minting_logic_script: empty_vkey,
-            global_state_cs: #"",
-          },
-        ),
+  let tampered_output = Output {
+    address: test_node_address,
+    value: min_ada
+      |> assets.add(test_policy_id, origin_node_tn, 1),
+    datum: InlineDatum(
+      as_data(
+        RegistryNode {
+          key: #"",
+          next: key,
+          // Changed from empty_vkey to a different script!
+          transfer_logic_script: Script(
+            #"99999999999999999999999999999999999999999999999999999999",
+          ),
+          third_party_transfer_logic_script: empty_vkey,
+          minting_logic_script: empty_vkey,
+          global_state_cs: #"",
+        },
       ),
-      reference_script: None,
-    }
-  let tx =
-    Transaction {
-      ..valid_insert_tx(),
-      outputs: [tampered_output, inserted_node_output()],
-    }
+    ),
+    reference_script: None,
+  }
+  let tx = Transaction {
+    ..valid_insert_tx(),
+    outputs: [tampered_output, inserted_node_output()],
+  }
   call_insert_validator(valid_insert_redeemer(), tx)
 }
 
@@ -465,11 +455,10 @@ test registry_insert_fails_no_token_minted() fail {
 
 // Only one node output instead of two
 test registry_insert_fails_single_output() fail {
-  let tx =
-    Transaction {
-      ..valid_insert_tx(),
-      outputs: [updated_covering_node_output()],
-    }
+  let tx = Transaction {
+    ..valid_insert_tx(),
+    outputs: [updated_covering_node_output()],
+  }
   call_insert_validator(valid_insert_redeemer(), tx)
 }
 
@@ -479,13 +468,14 @@ test registry_insert_fails_single_output() fail {
 // and untested. Post-fix `validate_directory_node_output` asserts
 // `output.address == covering_input.output.address`, so any drift fails.
 test registry_insert_fails_wrong_output_address() fail {
-  let wrong_inserted =
-    Output { ..inserted_node_output(), address: test_input_address }
-  let tx =
-    Transaction {
-      ..valid_insert_tx(),
-      outputs: [updated_covering_node_output(), wrong_inserted],
-    }
+  let wrong_inserted = Output {
+    ..inserted_node_output(),
+    address: test_input_address,
+  }
+  let tx = Transaction {
+    ..valid_insert_tx(),
+    outputs: [updated_covering_node_output(), wrong_inserted],
+  }
   call_insert_validator(valid_insert_redeemer(), tx)
 }
 
@@ -589,33 +579,32 @@ test registry_insert_mode_b_fails_substandard_not_invoked() fail {
 // datum is rejected.
 test registry_insert_fails_datum_minting_logic_mismatch() fail {
   let key = computed_key()
-  let wrong_cred =
-    Script(#"deaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddead")
-  let mismatched_inserted =
-    Output {
-      ..inserted_node_output(),
-      datum: InlineDatum(
-        as_data(
-          RegistryNode {
-            key,
-            next: #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
-            minting_logic_script: wrong_cred,
-            transfer_logic_script: Script(
-              #"55555555555555555555555555555555555555555555555555555555",
-            ),
-            third_party_transfer_logic_script: Script(
-              #"66666666666666666666666666666666666666666666666666666666",
-            ),
-            global_state_cs: #"",
-          },
-        ),
+  let wrong_cred = Script(
+    #"deaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddead",
+  )
+  let mismatched_inserted = Output {
+    ..inserted_node_output(),
+    datum: InlineDatum(
+      as_data(
+        RegistryNode {
+          key,
+          next: #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          minting_logic_script: wrong_cred,
+          transfer_logic_script: Script(
+            #"55555555555555555555555555555555555555555555555555555555",
+          ),
+          third_party_transfer_logic_script: Script(
+            #"66666666666666666666666666666666666666666666666666666666",
+          ),
+          global_state_cs: #"",
+        },
       ),
-    }
-  let tx =
-    Transaction {
-      ..valid_insert_tx(),
-      outputs: [updated_covering_node_output(), mismatched_inserted],
-    }
+    ),
+  }
+  let tx = Transaction {
+    ..valid_insert_tx(),
+    outputs: [updated_covering_node_output(), mismatched_inserted],
+  }
   call_insert_validator(valid_insert_redeemer(), tx)
 }
 
@@ -628,42 +617,40 @@ test registry_insert_fails_datum_minting_logic_mismatch() fail {
 // keeps defense-in-depth #2 satisfied so this test isolates the binding
 // failure (not the datum/redeemer mismatch).
 test registry_insert_fails_wrong_minting_logic_for_key() fail {
-  let wrong_cred =
-    Script(#"deaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddead")
-  let inserted_with_wrong_cred =
-    Output {
-      ..inserted_node_output(),
-      datum: InlineDatum(
-        as_data(
-          RegistryNode {
-            key: computed_key(),
-            next: #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
-            minting_logic_script: wrong_cred,
-            transfer_logic_script: Script(
-              #"55555555555555555555555555555555555555555555555555555555",
-            ),
-            third_party_transfer_logic_script: Script(
-              #"66666666666666666666666666666666666666666666666666666666",
-            ),
-            global_state_cs: #"",
-          },
-        ),
+  let wrong_cred = Script(
+    #"deaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddead",
+  )
+  let inserted_with_wrong_cred = Output {
+    ..inserted_node_output(),
+    datum: InlineDatum(
+      as_data(
+        RegistryNode {
+          key: computed_key(),
+          next: #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          minting_logic_script: wrong_cred,
+          transfer_logic_script: Script(
+            #"55555555555555555555555555555555555555555555555555555555",
+          ),
+          third_party_transfer_logic_script: Script(
+            #"66666666666666666666666666666666666666666666666666666666",
+          ),
+          global_state_cs: #"",
+        },
       ),
-    }
-  let rdmr =
-    RegistryInsert {
-      key: computed_key(),
-      minting_logic_script: wrong_cred,
-      mode: RegisterAndMint,
-    }
-  let tx =
-    Transaction {
-      ..valid_insert_tx(),
-      outputs: [updated_covering_node_output(), inserted_with_wrong_cred],
-      // wrong_cred must be invoked too, otherwise the test would fail
-      // at the substandard-invocation check instead of the binding check.
-      withdrawals: [Pair(wrong_cred, 0)],
-    }
+    ),
+  }
+  let rdmr = RegistryInsert {
+    key: computed_key(),
+    minting_logic_script: wrong_cred,
+    mode: RegisterAndMint,
+  }
+  let tx = Transaction {
+    ..valid_insert_tx(),
+    outputs: [updated_covering_node_output(), inserted_with_wrong_cred],
+    // wrong_cred must be invoked too, otherwise the test would fail
+    // at the substandard-invocation check instead of the binding check.
+    withdrawals: [Pair(wrong_cred, 0)],
+  }
   call_insert_validator(rdmr, tx)
 }
 
@@ -675,10 +662,13 @@ test registry_insert_fails_wrong_minting_logic_for_key() fail {
 // containing the WRONG credential, isolating the "must match
 // minting_logic_script" property.
 test registry_insert_fails_wrong_substandard_in_withdrawals() fail {
-  let other_cred =
-    Script(#"abababababababababababababababababababababababababababab")
-  let tx =
-    Transaction { ..valid_insert_tx(), withdrawals: [Pair(other_cred, 0)] }
+  let other_cred = Script(
+    #"abababababababababababababababababababababababababababab",
+  )
+  let tx = Transaction {
+    ..valid_insert_tx(),
+    withdrawals: [Pair(other_cred, 0)],
+  }
   call_insert_validator(valid_insert_redeemer(), tx)
 }
 
@@ -689,18 +679,19 @@ test registry_insert_fails_wrong_substandard_in_withdrawals() fail {
 // somewhere in `tx.withdrawals`. Locks in that the new check composes
 // with unrelated stake activity in the same block.
 test registry_insert_succeeds_substandard_among_other_withdrawals() {
-  let other_cred =
-    Script(#"abababababababababababababababababababababababababababab")
-  let other_vk_cred =
-    VerificationKey(#"cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd")
-  let tx =
-    Transaction {
-      ..valid_insert_tx(),
-      withdrawals: [
-        Pair(other_cred, 0), Pair(test_inserted_minting_logic_cred, 0),
-        Pair(other_vk_cred, 1_000_000),
-      ],
-    }
+  let other_cred = Script(
+    #"abababababababababababababababababababababababababababab",
+  )
+  let other_vk_cred = VerificationKey(
+    #"cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+  )
+  let tx = Transaction {
+    ..valid_insert_tx(),
+    withdrawals: [
+      Pair(other_cred, 0), Pair(test_inserted_minting_logic_cred, 0),
+      Pair(other_vk_cred, 1_000_000),
+    ],
+  }
   call_insert_validator(valid_insert_redeemer(), tx)
 }
 
@@ -715,38 +706,35 @@ test registry_insert_succeeds_substandard_among_other_withdrawals() {
 // `is_programmable_token_id_valid`.
 test registry_insert_fails_verification_key_substandard() fail {
   let vk_cred: Credential = VerificationKey(test_hashed_param)
-  let inserted_with_vk =
-    Output {
-      ..inserted_node_output(),
-      datum: InlineDatum(
-        as_data(
-          RegistryNode {
-            key: computed_key(),
-            next: #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
-            minting_logic_script: vk_cred,
-            transfer_logic_script: Script(
-              #"55555555555555555555555555555555555555555555555555555555",
-            ),
-            third_party_transfer_logic_script: Script(
-              #"66666666666666666666666666666666666666666666666666666666",
-            ),
-            global_state_cs: #"",
-          },
-        ),
+  let inserted_with_vk = Output {
+    ..inserted_node_output(),
+    datum: InlineDatum(
+      as_data(
+        RegistryNode {
+          key: computed_key(),
+          next: #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          minting_logic_script: vk_cred,
+          transfer_logic_script: Script(
+            #"55555555555555555555555555555555555555555555555555555555",
+          ),
+          third_party_transfer_logic_script: Script(
+            #"66666666666666666666666666666666666666666666666666666666",
+          ),
+          global_state_cs: #"",
+        },
       ),
-    }
-  let rdmr =
-    RegistryInsert {
-      key: computed_key(),
-      minting_logic_script: vk_cred,
-      mode: RegisterAndMint,
-    }
-  let tx =
-    Transaction {
-      ..valid_insert_tx(),
-      outputs: [updated_covering_node_output(), inserted_with_vk],
-      withdrawals: [Pair(vk_cred, 0)],
-    }
+    ),
+  }
+  let rdmr = RegistryInsert {
+    key: computed_key(),
+    minting_logic_script: vk_cred,
+    mode: RegisterAndMint,
+  }
+  let tx = Transaction {
+    ..valid_insert_tx(),
+    outputs: [updated_covering_node_output(), inserted_with_vk],
+    withdrawals: [Pair(vk_cred, 0)],
+  }
   call_insert_validator(rdmr, tx)
 }
 
@@ -769,13 +757,12 @@ const cip68_ref_name = #"000643b04d79546f6b656e"
 // Happy path: register with CIP-68 dual-token mint (FT + ref token)
 test registry_insert_cip68_dual_token_mint() {
   let key = computed_key()
-  let tx =
-    Transaction {
-      ..valid_insert_tx(),
-      mint: from_asset(test_policy_id, key, 1)
-        |> assets.add(key, cip68_ft_name, 1_000_000)
-        |> assets.add(key, cip68_ref_name, 1),
-    }
+  let tx = Transaction {
+    ..valid_insert_tx(),
+    mint: from_asset(test_policy_id, key, 1)
+      |> assets.add(key, cip68_ft_name, 1_000_000)
+      |> assets.add(key, cip68_ref_name, 1),
+  }
   call_insert_validator(valid_insert_redeemer(), tx)
 }
 
@@ -802,13 +789,12 @@ test registry_insert_cip68_dual_token_mint() {
 // that mixed-sign entries don't break the new primitive.)
 test registry_insert_mixed_mint_and_burn() {
   let key = computed_key()
-  let tx =
-    Transaction {
-      ..valid_insert_tx(),
-      mint: from_asset(test_policy_id, key, 1)
-        |> assets.add(key, cip68_ft_name, 1_000_000)
-        |> assets.add(key, #"6f6c64746f6b656e", -50),
-    }
+  let tx = Transaction {
+    ..valid_insert_tx(),
+    mint: from_asset(test_policy_id, key, 1)
+      |> assets.add(key, cip68_ft_name, 1_000_000)
+      |> assets.add(key, #"6f6c64746f6b656e", -50),
+  }
   call_insert_validator(valid_insert_redeemer(), tx)
 }
 
@@ -843,35 +829,10 @@ test registry_insert_mixed_mint_and_burn() {
 // rejects the updated output via bytearray_lt(0xff..ff, computed_key)
 // = False.
 test registry_insert_fails_covering_key_ge_insert_key() fail {
-  let bad_covering_key =
-    #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
-  let bad_covering =
-    Input {
-      output_reference: OutputReference {
-        transaction_id: #"01",
-        output_index: 0,
-      },
-      output: Output {
-        address: test_node_address,
-        value: min_ada
-          |> assets.add(test_policy_id, bad_covering_key, 1),
-        datum: InlineDatum(
-          as_data(
-            RegistryNode {
-              key: bad_covering_key,
-              next: #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
-              transfer_logic_script: empty_vkey,
-              third_party_transfer_logic_script: empty_vkey,
-              minting_logic_script: empty_vkey,
-              global_state_cs: #"",
-            },
-          ),
-        ),
-        reference_script: None,
-      },
-    }
-  let bad_updated =
-    Output {
+  let bad_covering_key = #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+  let bad_covering = Input {
+    output_reference: OutputReference { transaction_id: #"01", output_index: 0 },
+    output: Output {
       address: test_node_address,
       value: min_ada
         |> assets.add(test_policy_id, bad_covering_key, 1),
@@ -879,7 +840,7 @@ test registry_insert_fails_covering_key_ge_insert_key() fail {
         as_data(
           RegistryNode {
             key: bad_covering_key,
-            next: computed_key(),
+            next: #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
             transfer_logic_script: empty_vkey,
             third_party_transfer_logic_script: empty_vkey,
             minting_logic_script: empty_vkey,
@@ -888,13 +849,31 @@ test registry_insert_fails_covering_key_ge_insert_key() fail {
         ),
       ),
       reference_script: None,
-    }
-  let tx =
-    Transaction {
-      ..valid_insert_tx(),
-      inputs: [bad_covering],
-      outputs: [bad_updated, inserted_node_output()],
-    }
+    },
+  }
+  let bad_updated = Output {
+    address: test_node_address,
+    value: min_ada
+      |> assets.add(test_policy_id, bad_covering_key, 1),
+    datum: InlineDatum(
+      as_data(
+        RegistryNode {
+          key: bad_covering_key,
+          next: computed_key(),
+          transfer_logic_script: empty_vkey,
+          third_party_transfer_logic_script: empty_vkey,
+          minting_logic_script: empty_vkey,
+          global_state_cs: #"",
+        },
+      ),
+    ),
+    reference_script: None,
+  }
+  let tx = Transaction {
+    ..valid_insert_tx(),
+    inputs: [bad_covering],
+    outputs: [bad_updated, inserted_node_output()],
+  }
   call_insert_validator(valid_insert_redeemer(), tx)
 }
 
@@ -913,36 +892,11 @@ test registry_insert_fails_covering_key_ge_insert_key() fail {
 // `validate_directory_node_output` rejects via
 // bytearray_lt(computed_key, 0x00..00) = False.
 test registry_insert_fails_insert_key_ge_covering_next() fail {
-  let bad_covering_next =
-    #"0000000000000000000000000000000000000000000000000000000000"
+  let bad_covering_next = #"0000000000000000000000000000000000000000000000000000000000"
   let key = computed_key()
-  let bad_covering =
-    Input {
-      output_reference: OutputReference {
-        transaction_id: #"01",
-        output_index: 0,
-      },
-      output: Output {
-        address: test_node_address,
-        value: min_ada
-          |> assets.add(test_policy_id, origin_node_tn, 1),
-        datum: InlineDatum(
-          as_data(
-            RegistryNode {
-              key: #"",
-              next: bad_covering_next,
-              transfer_logic_script: empty_vkey,
-              third_party_transfer_logic_script: empty_vkey,
-              minting_logic_script: empty_vkey,
-              global_state_cs: #"",
-            },
-          ),
-        ),
-        reference_script: None,
-      },
-    }
-  let bad_updated =
-    Output {
+  let bad_covering = Input {
+    output_reference: OutputReference { transaction_id: #"01", output_index: 0 },
+    output: Output {
       address: test_node_address,
       value: min_ada
         |> assets.add(test_policy_id, origin_node_tn, 1),
@@ -950,7 +904,7 @@ test registry_insert_fails_insert_key_ge_covering_next() fail {
         as_data(
           RegistryNode {
             key: #"",
-            next: key,
+            next: bad_covering_next,
             transfer_logic_script: empty_vkey,
             third_party_transfer_logic_script: empty_vkey,
             minting_logic_script: empty_vkey,
@@ -959,36 +913,53 @@ test registry_insert_fails_insert_key_ge_covering_next() fail {
         ),
       ),
       reference_script: None,
-    }
-  let bad_inserted =
-    Output {
-      address: test_node_address,
-      value: min_ada
-        |> assets.add(test_policy_id, key, 1),
-      datum: InlineDatum(
-        as_data(
-          RegistryNode {
-            key,
-            next: bad_covering_next,
-            transfer_logic_script: Script(
-              #"55555555555555555555555555555555555555555555555555555555",
-            ),
-            third_party_transfer_logic_script: Script(
-              #"66666666666666666666666666666666666666666666666666666666",
-            ),
-            minting_logic_script: test_inserted_minting_logic_cred,
-            global_state_cs: #"",
-          },
-        ),
+    },
+  }
+  let bad_updated = Output {
+    address: test_node_address,
+    value: min_ada
+      |> assets.add(test_policy_id, origin_node_tn, 1),
+    datum: InlineDatum(
+      as_data(
+        RegistryNode {
+          key: #"",
+          next: key,
+          transfer_logic_script: empty_vkey,
+          third_party_transfer_logic_script: empty_vkey,
+          minting_logic_script: empty_vkey,
+          global_state_cs: #"",
+        },
       ),
-      reference_script: None,
-    }
-  let tx =
-    Transaction {
-      ..valid_insert_tx(),
-      inputs: [bad_covering],
-      outputs: [bad_updated, bad_inserted],
-    }
+    ),
+    reference_script: None,
+  }
+  let bad_inserted = Output {
+    address: test_node_address,
+    value: min_ada
+      |> assets.add(test_policy_id, key, 1),
+    datum: InlineDatum(
+      as_data(
+        RegistryNode {
+          key,
+          next: bad_covering_next,
+          transfer_logic_script: Script(
+            #"55555555555555555555555555555555555555555555555555555555",
+          ),
+          third_party_transfer_logic_script: Script(
+            #"66666666666666666666666666666666666666666666666666666666",
+          ),
+          minting_logic_script: test_inserted_minting_logic_cred,
+          global_state_cs: #"",
+        },
+      ),
+    ),
+    reference_script: None,
+  }
+  let tx = Transaction {
+    ..valid_insert_tx(),
+    inputs: [bad_covering],
+    outputs: [bad_updated, bad_inserted],
+  }
   call_insert_validator(valid_insert_redeemer(), tx)
 }
 
@@ -1089,24 +1060,23 @@ fn call_issuance_validator(rdmr: MintingRegistryProof, tx: Transaction) -> Bool 
 // CIP-68 subsequent mint with RefInput: FT + ref token, registry already exists
 test cip68_subsequent_mint_ref_input() {
   let rdmr = RefInput(0)
-  let tx =
-    Transaction {
-      ..transaction.placeholder,
-      reference_inputs: [ism_ref_input()],
-      outputs: [
-        ism_plb_output(
-          min_ada
-            |> assets.add(ism_own_policy, cip68_ft_name, 500),
-        ),
-        ism_plb_output(
-          min_ada
-            |> assets.add(ism_own_policy, cip68_ref_name, 1),
-        ),
-      ],
-      mint: from_asset(ism_own_policy, cip68_ft_name, 500)
-        |> assets.add(ism_own_policy, cip68_ref_name, 1),
-      withdrawals: [Pair(ism_ml_cred, 0)],
-      redeemers: [Pair(Mint(ism_own_policy), as_data(rdmr))],
-    }
+  let tx = Transaction {
+    ..transaction.placeholder,
+    reference_inputs: [ism_ref_input()],
+    outputs: [
+      ism_plb_output(
+        min_ada
+          |> assets.add(ism_own_policy, cip68_ft_name, 500),
+      ),
+      ism_plb_output(
+        min_ada
+          |> assets.add(ism_own_policy, cip68_ref_name, 1),
+      ),
+    ],
+    mint: from_asset(ism_own_policy, cip68_ft_name, 500)
+      |> assets.add(ism_own_policy, cip68_ref_name, 1),
+    withdrawals: [Pair(ism_ml_cred, 0)],
+    redeemers: [Pair(Mint(ism_own_policy), as_data(rdmr))],
+  }
   call_issuance_validator(rdmr, tx)
 }

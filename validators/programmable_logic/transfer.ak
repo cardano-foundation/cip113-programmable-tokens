@@ -20,11 +20,10 @@ pub fn validate_transfer(
   // NOTE: The programmable logic global is alway invoked via a withdrawal, so
   // we know there's AT LEAST ONE withdrawal.
   let first_withdrawal = list.head(self.withdrawals).1st
-  let has_withdrawal =
-    new_withdrawal_checker(
-      fn(script_hash) { script_hash == first_withdrawal },
-      list.tail(self.withdrawals),
-    )
+  let has_withdrawal = new_withdrawal_checker(
+    fn(script_hash) { script_hash == first_withdrawal },
+    list.tail(self.withdrawals),
+  )
 
   // Collect all programmable tokens across inputs and minted/burned values.
   // The Separation of Concerns between transfer and minting is that if it's a
@@ -35,8 +34,10 @@ pub fn validate_transfer(
 
   // Collect all outputs that carry programmable tokens. We use them to ensure that
   // prog tokens cannot escape their fate.
-  let output_assets =
-    assets.collect_output_assets(self.outputs, prog_logic_cred)
+  let output_assets = assets.collect_output_assets(
+    self.outputs,
+    prog_logic_cred,
+  )
 
   // Check transfer logic for each programmable token type and filter to only programmable tokens.
   [] == verify_proofs(
@@ -66,8 +67,7 @@ fn collect_input_assets(
   has_withdrawal: fn(Credential) -> Bool,
   prog_logic_cred: Credential,
 ) -> Assets {
-  let has_signatory =
-    list.has_or_fail(tx.extra_signatories, _)
+  let has_signatory = list.has_or_fail(tx.extra_signatories, _)
 
   // Finding 02 fix: seed with EMPTY assets (was: `assets.from_value(tx.mint)`).
   // Mint contributions are folded in AFTER the input scan via
@@ -82,28 +82,27 @@ fn collect_input_assets(
   // finding 04 (which documents the ThirdPartyAct + mint escape), now
   // exposed as a TransferAct + mint variant too. Tightening issuance_mint's
   // delegation closes both. Tracked separately.
-  let plb_inputs =
-    assets.collect(
-      tx.inputs,
-      [],
-      fn(input, select, discard) {
-        let output = input.output
-        if output.address.payment_credential == prog_logic_cred {
-          expect Some(Inline(stake_cred)) = output.address.stake_credential
-          when stake_cred is {
-            VerificationKey(pkh) -> {
-              expect has_signatory(pkh)
-            }
-            Script(_hash) -> {
-              expect has_withdrawal(stake_cred)
-            }
+  let plb_inputs = assets.collect(
+    tx.inputs,
+    [],
+    fn(input, select, discard) {
+      let output = input.output
+      if output.address.payment_credential == prog_logic_cred {
+        expect Some(Inline(stake_cred)) = output.address.stake_credential
+        when stake_cred is {
+          VerificationKey(pkh) -> {
+            expect has_signatory(pkh)
           }
-          select(output)
-        } else {
-          discard()
+          Script(_hash) -> {
+            expect has_withdrawal(stake_cred)
+          }
         }
-      },
-    )
+        select(output)
+      } else {
+        discard()
+      }
+    },
+  )
 
   apply_mint_to_known_policies(plb_inputs, assets.from_value(tx.mint))
 }
@@ -150,11 +149,10 @@ fn apply_mint_to_known_policies(inputs: Assets, mint: Assets) -> Assets {
       when inputs is {
         [] -> []
         [Pair(i_policy, i_tokens) as head, ..i_rest] -> {
-          let
-            _before,
-            mint_at_policy,
-            mint_after,
-          <- assets.assets_split_at(mint, i_policy)
+          let _before, mint_at_policy, mint_after <- assets.assets_split_at(
+            mint,
+            i_policy,
+          )
           [
             when dict.to_pairs(mint_at_policy) is {
               [] -> head
@@ -193,28 +191,27 @@ fn verify_proofs(
         policy,
         list.head(proofs),
         fn() {
-          let tail_output_assets =
-            if head_input_tokens == dict.empty {
-              // Tokens have been entirely consumed (a.k.a burned) so they won't appear in outputs.
-              output_assets
-            } else {
-              // Existing programmable token, must be in output.
+          let tail_output_assets = if head_input_tokens == dict.empty {
+            // Tokens have been entirely consumed (a.k.a burned) so they won't appear in outputs.
+            output_assets
+          } else {
+            // Existing programmable token, must be in output.
 
-              // Outputs must be a superset of inputs, so they may contain extra
-              // policies not found in validated inputs. Yet, both input assets and
-              // output assets are in ascending policy order.
-              let
-                head_output_tokens,
-                tail_output_assets,
-              <- pairs.pop_until(output_assets, equals_bytearray(policy, _))
-              expect
-                tokens.contains(
-                  dict.to_pairs(head_output_tokens),
-                  dict.to_pairs(head_input_tokens),
-                )
+            // Outputs must be a superset of inputs, so they may contain extra
+            // policies not found in validated inputs. Yet, both input assets and
+            // output assets are in ascending policy order.
+            let head_output_tokens, tail_output_assets <- pairs.pop_until(
+              output_assets,
+              equals_bytearray(policy, _),
+            )
+            expect
+              tokens.contains(
+                dict.to_pairs(head_output_tokens),
+                dict.to_pairs(head_input_tokens),
+              )
 
-              tail_output_assets
-            }
+            tail_output_assets
+          }
 
           verify_proofs(
             list.tail(proofs),
@@ -250,10 +247,9 @@ fn choose_registered_token_with(
 ) -> result {
   when proof is {
     TokenExists { node_idx } -> {
-      let
-        key,
-        transfer_logic_script,
-      <- with_key_and_transfer_logic(get_registry_node(node_idx))
+      let key, transfer_logic_script <- with_key_and_transfer_logic(
+        get_registry_node(node_idx),
+      )
 
       // Validate the node's key matches the currency symbol
       expect key == policy

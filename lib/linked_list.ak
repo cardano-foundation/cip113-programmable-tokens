@@ -43,8 +43,9 @@ pub fn validate_directory_node_output(
   // one NFT under `node_cs` at quantity 1. Drops the Ada head (always first by
   // policy-id ordering, since the Ada policy is the empty bytestring), then
   // requires the tail to be a single (policy, asset-name -> 1) pair.
-  expect [Pair(actual_node_cs, node_nft)] =
-    assets.to_dict(output.value) |> dict.expect_tail() |> dict.to_pairs()
+  expect [Pair(actual_node_cs, node_nft)] = assets.to_dict(output.value)
+    |> dict.expect_tail()
+    |> dict.to_pairs()
   expect actual_node_cs == node_cs
   expect [Pair(tn, 1)] = dict.to_pairs(node_nft)
 
@@ -68,18 +69,16 @@ pub fn validate_directory_init(
   registry_spend_cred: Credential,
 ) -> Bool {
   // There must be exactly one node output --- checked in validate_directory_init
-  expect [node_output] =
-    list.filter(
-      node_outputs,
-      fn(output) { has_currency_symbol(output.value, node_cs) },
-    )
+  expect [node_output] = list.filter(
+    node_outputs,
+    fn(output) { has_currency_symbol(output.value, node_cs) },
+  )
   // Origin node must be locked under registry_spend
-  let node =
-    validate_directory_node_output(
-      node_output,
-      node_cs,
-      Address(registry_spend_cred, None),
-    )
+  let node = validate_directory_node_output(
+    node_output,
+    node_cs,
+    Address(registry_spend_cred, None),
+  )
 
   and {
     // Node must match the canonical origin shape (all fields)
@@ -166,7 +165,7 @@ pub fn is_updated_directory_node(
 }
 
 pub fn validate_mint(mint: Value, policy_id: PolicyId) -> AssetName {
-  expect [Pair(asset_name, 1)] =
-    assets.tokens(mint, policy_id) |> dict.to_pairs()
+  expect [Pair(asset_name, 1)] = assets.tokens(mint, policy_id)
+    |> dict.to_pairs()
   asset_name
 }

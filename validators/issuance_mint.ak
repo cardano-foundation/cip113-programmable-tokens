@@ -26,19 +26,15 @@ validator issuance_mint(
   mint(redeemer: MintingRegistryProof, own_policy: PolicyId, self: Transaction) {
     // Direct withdrawal scan: detect minting_logic_cred and plg_stake_cred in a
     // single pass over self.withdrawals (no intermediate list allocation).
-    let
-      minting_logic_invoked,
-      plg_invoked,
-    <-
-      list.foldl2(
-        self.withdrawals,
-        False,
-        False,
-        fn(wdrl, m, p, return) {
-          let Pair(cred, _amount) = wdrl
-          return(m || cred == minting_logic_cred, p || cred == plg_stake_cred)
-        },
-      )
+    let minting_logic_invoked, plg_invoked <- list.foldl2(
+      self.withdrawals,
+      False,
+      False,
+      fn(wdrl, m, p, return) {
+        let Pair(cred, _amount) = wdrl
+        return(m || cred == minting_logic_cred, p || cred == plg_stake_cred)
+      },
+    )
 
     // Registry proof determines WHO validates outputs:
     //
@@ -52,51 +48,50 @@ validator issuance_mint(
     //                                     (Burn is impossible here: tokens to burn must
     //                                      be in inputs, prog tokens live at PLB,
     //                                      spending PLB → PLGlobal invoked → delegate path.)
-    let valid_minting =
-      when redeemer is {
-        OutputIndex { index } -> {
-          // FIRST MINT — registry node being (re-)created in this tx
-          let output_opt = list.at(self.outputs, index)
-          expect Some(output) = output_opt
-          expect verify_registry_node(output, registry_node_cs, own_policy)
-          // First mint ⇒ all minted tokens must go to PLB
-          let minted = self.mint |> assets.tokens(own_policy)
+    let valid_minting = when redeemer is {
+      OutputIndex { index } -> {
+        // FIRST MINT — registry node being (re-)created in this tx
+        let output_opt = list.at(self.outputs, index)
+        expect Some(output) = output_opt
+        expect verify_registry_node(output, registry_node_cs, own_policy)
+        // First mint ⇒ all minted tokens must go to PLB
+        let minted = self.mint |> assets.tokens(own_policy)
+        validate_mint_outputs(
+          self.outputs,
+          programmable_logic_base,
+          own_policy,
+          minted,
+        )?
+      }
+
+      RefInput { index } -> {
+        // ALREADY REGISTERED — verify registry node
+        let ref_input_opt = list.at(self.reference_inputs, index)
+        expect Some(ref_input) = ref_input_opt
+        expect
+          verify_registry_node(ref_input.output, registry_node_cs, own_policy)
+
+        or {
+          // Direct delegation signal: PLGlobal is being invoked.
+          // PLGlobal is mint-aware (TransferAct path) and will validate
+          // mint AND burn accounting.
+          //
+          // NOTE: PLGlobal's ThirdPartyAct path does NOT enforce custody for
+          // policies other than its registry_node_idx. This delegation is
+          // therefore only sound when PLGlobal runs TransferAct. The escape
+          // is tracked in audit Finding 04.
+          plg_invoked,
+          // No PLGlobal invocation → can only be pure minting
+          // (burn requires spending PLB UTxOs → PLGlobal invoked → delegate path)
           validate_mint_outputs(
             self.outputs,
             programmable_logic_base,
             own_policy,
-            minted,
-          )?
-        }
-
-        RefInput { index } -> {
-          // ALREADY REGISTERED — verify registry node
-          let ref_input_opt = list.at(self.reference_inputs, index)
-          expect Some(ref_input) = ref_input_opt
-          expect
-            verify_registry_node(ref_input.output, registry_node_cs, own_policy)
-
-          or {
-            // Direct delegation signal: PLGlobal is being invoked.
-            // PLGlobal is mint-aware (TransferAct path) and will validate
-            // mint AND burn accounting.
-            //
-            // NOTE: PLGlobal's ThirdPartyAct path does NOT enforce custody for
-            // policies other than its registry_node_idx. This delegation is
-            // therefore only sound when PLGlobal runs TransferAct. The escape
-            // is tracked in audit Finding 04.
-            plg_invoked,
-            // No PLGlobal invocation → can only be pure minting
-            // (burn requires spending PLB UTxOs → PLGlobal invoked → delegate path)
-            validate_mint_outputs(
-              self.outputs,
-              programmable_logic_base,
-              own_policy,
-              self.mint |> assets.tokens(own_policy),
-            )?,
-          }
+            self.mint |> assets.tokens(own_policy),
+          )?,
         }
       }
+    }
 
     and {
       // Substandard's withdraw-0 logic must be invoked (proof of instance).
@@ -122,19 +117,18 @@ fn validate_mint_outputs(
   own_policy: PolicyId,
   expected: tokens.Tokens,
 ) -> Bool {
-  let total_at_plb =
-    list.foldl(
-      outputs,
-      dict.empty,
-      fn(output, acc) {
-        if output.address.payment_credential == programmable_logic_base {
-          expect Some(Inline(_stake_cred)) = output.address.stake_credential
-          tokens.union(acc, assets.tokens(output.value, own_policy))
-        } else {
-          acc
-        }
-      },
-    )
+  let total_at_plb = list.foldl(
+    outputs,
+    dict.empty,
+    fn(output, acc) {
+      if output.address.payment_credential == programmable_logic_base {
+        expect Some(Inline(_stake_cred)) = output.address.stake_credential
+        tokens.union(acc, assets.tokens(output.value, own_policy))
+      } else {
+        acc
+      }
+    },
+  )
   (total_at_plb == expected)?
 }
 

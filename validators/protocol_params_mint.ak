@@ -33,13 +33,12 @@ validator protocol_params_mint(
     // The always-fail address where the NFT must be locked
     let expected_address = address.from_script(always_fail_hash)
     // Find the output at the always-fail address
-    expect Some(nft_output) =
-      list.find(
-        self.outputs,
-        fn(output) {
-          assets.has_nft_strict(output.value, own_policy, protocol_params_token)
-        },
-      )
+    expect Some(nft_output) = list.find(
+      self.outputs,
+      fn(output) {
+        assets.has_nft_strict(output.value, own_policy, protocol_params_token)
+      },
+    )
     expect InlineDatum(datum) = nft_output.datum
     expect _params: ProgrammableLogicGlobalParams = datum
 

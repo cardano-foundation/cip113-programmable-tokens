@@ -106,8 +106,9 @@ pub fn with_key_and_transfer_logic(
   let fields = unconstr_fields(data)
   expect key: ByteArray = list.head(fields)
   // RegistryNode field index 3: key=0, next=1, minting_logic=2, transfer_logic=3
-  expect transfer_logic_script: Credential =
-    list.head(list.tail(list.tail(list.tail(fields))))
+  expect transfer_logic_script: Credential = list.head(
+    list.tail(list.tail(list.tail(fields))),
+  )
   return(key, transfer_logic_script)
 }
 
@@ -130,8 +131,9 @@ pub fn with_key_and_3rd_party_logic(
   expect key: ByteArray = list.head(fields)
   // RegistryNode field index 4:
   // key=0, next=1, minting_logic=2, transfer_logic=3, third_party=4
-  expect third_party_transfer_logic_script: Credential =
-    list.head(list.tail(list.tail(list.tail(list.tail(fields)))))
+  expect third_party_transfer_logic_script: Credential = list.head(
+    list.tail(list.tail(list.tail(list.tail(fields)))),
+  )
   return(key, third_party_transfer_logic_script)
 }
 
@@ -146,7 +148,8 @@ pub fn with_key_and_minting_logic(
   let fields = unconstr_fields(data)
   expect key: ByteArray = list.head(fields)
   // RegistryNode field index 2: key=0, next=1, minting_logic=2
-  expect minting_logic_script: Credential =
-    list.head(list.tail(list.tail(fields)))
+  expect minting_logic_script: Credential = list.head(
+    list.tail(list.tail(fields)),
+  )
   return(key, minting_logic_script)
 }

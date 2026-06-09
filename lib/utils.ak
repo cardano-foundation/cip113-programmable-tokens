@@ -53,14 +53,13 @@ pub fn apply_hashed_parameter(
   let version_header = #"03"
 
   // Build the script: version + prefix + serialized_param + postfix
-  let script_bytes =
+  let script_bytes = builtin.append_bytearray(
+    version_header,
     builtin.append_bytearray(
-      version_header,
-      builtin.append_bytearray(
-        prefix,
-        builtin.append_bytearray(hashed_param, postfix),
-      ),
-    )
+      prefix,
+      builtin.append_bytearray(hashed_param, postfix),
+    ),
+  )
 
   // Hash with blake2b_224 to get the policy ID (28 bytes)
   builtin.blake2b_224(script_bytes)

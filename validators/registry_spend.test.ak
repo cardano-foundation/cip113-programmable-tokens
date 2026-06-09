@@ -68,8 +68,7 @@ fn protocol_params_ref_input() -> Input {
 
 /// A reference input that does NOT carry the protocol params token
 fn unrelated_ref_input() -> Input {
-  let other_cs: PolicyId =
-    #"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+  let other_cs: PolicyId = #"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
   Input {
     output_reference: OutputReference {
       transaction_id: #"2222222222222222222222222222222222222222222222222222222222222222",
@@ -124,12 +123,11 @@ test registry_spend_valid() {
 // ========================================================================
 
 test registry_spend_valid_any_token_name() {
-  let tx =
-    Transaction {
-      ..transaction.placeholder,
-      reference_inputs: [protocol_params_ref_input()],
-      mint: from_asset(test_registry_node_cs, "AnyNodeName", 1),
-    }
+  let tx = Transaction {
+    ..transaction.placeholder,
+    reference_inputs: [protocol_params_ref_input()],
+    mint: from_asset(test_registry_node_cs, "AnyNodeName", 1),
+  }
   call_validator(tx)
 }
 
@@ -141,12 +139,11 @@ test registry_spend_valid_any_token_name() {
 // ========================================================================
 
 test registry_spend_valid_multiple_ref_inputs() {
-  let tx =
-    Transaction {
-      ..transaction.placeholder,
-      reference_inputs: [unrelated_ref_input(), protocol_params_ref_input()],
-      mint: from_asset(test_registry_node_cs, "OriginNode", 1),
-    }
+  let tx = Transaction {
+    ..transaction.placeholder,
+    reference_inputs: [unrelated_ref_input(), protocol_params_ref_input()],
+    mint: from_asset(test_registry_node_cs, "OriginNode", 1),
+  }
   call_validator(tx)
 }
 
@@ -157,12 +154,11 @@ test registry_spend_valid_multiple_ref_inputs() {
 // ========================================================================
 
 test fails_no_protocol_params_ref_input() fail {
-  let tx =
-    Transaction {
-      ..transaction.placeholder,
-      reference_inputs: [],
-      mint: from_asset(test_registry_node_cs, "OriginNode", 1),
-    }
+  let tx = Transaction {
+    ..transaction.placeholder,
+    reference_inputs: [],
+    mint: from_asset(test_registry_node_cs, "OriginNode", 1),
+  }
   call_validator(tx)
 }
 
@@ -174,12 +170,11 @@ test fails_no_protocol_params_ref_input() fail {
 // ========================================================================
 
 test fails_wrong_protocol_params_cs_in_ref_input() fail {
-  let tx =
-    Transaction {
-      ..transaction.placeholder,
-      reference_inputs: [unrelated_ref_input()],
-      mint: from_asset(test_registry_node_cs, "OriginNode", 1),
-    }
+  let tx = Transaction {
+    ..transaction.placeholder,
+    reference_inputs: [unrelated_ref_input()],
+    mint: from_asset(test_registry_node_cs, "OriginNode", 1),
+  }
   call_validator(tx)
 }
 
@@ -190,17 +185,15 @@ test fails_wrong_protocol_params_cs_in_ref_input() fail {
 // ========================================================================
 
 test fails_no_inline_datum_on_params() fail {
-  let bad_ref_input =
-    Input {
-      ..protocol_params_ref_input(),
-      output: Output { ..protocol_params_ref_input().output, datum: NoDatum },
-    }
-  let tx =
-    Transaction {
-      ..transaction.placeholder,
-      reference_inputs: [bad_ref_input],
-      mint: from_asset(test_registry_node_cs, "OriginNode", 1),
-    }
+  let bad_ref_input = Input {
+    ..protocol_params_ref_input(),
+    output: Output { ..protocol_params_ref_input().output, datum: NoDatum },
+  }
+  let tx = Transaction {
+    ..transaction.placeholder,
+    reference_inputs: [bad_ref_input],
+    mint: from_asset(test_registry_node_cs, "OriginNode", 1),
+  }
   call_validator(tx)
 }
 
@@ -212,20 +205,18 @@ test fails_no_inline_datum_on_params() fail {
 // ========================================================================
 
 test fails_invalid_datum_type() fail {
-  let bad_ref_input =
-    Input {
-      ..protocol_params_ref_input(),
-      output: Output {
-        ..protocol_params_ref_input().output,
-        datum: InlineDatum(as_data(42)),
-      },
-    }
-  let tx =
-    Transaction {
-      ..transaction.placeholder,
-      reference_inputs: [bad_ref_input],
-      mint: from_asset(test_registry_node_cs, "OriginNode", 1),
-    }
+  let bad_ref_input = Input {
+    ..protocol_params_ref_input(),
+    output: Output {
+      ..protocol_params_ref_input().output,
+      datum: InlineDatum(as_data(42)),
+    },
+  }
+  let tx = Transaction {
+    ..transaction.placeholder,
+    reference_inputs: [bad_ref_input],
+    mint: from_asset(test_registry_node_cs, "OriginNode", 1),
+  }
   call_validator(tx)
 }
 
@@ -238,14 +229,12 @@ test fails_invalid_datum_type() fail {
 // ========================================================================
 
 test fails_no_registry_node_minted() fail {
-  let other_cs: PolicyId =
-    #"9999999999999999999999999999999999999999999999999999999999"
-  let tx =
-    Transaction {
-      ..transaction.placeholder,
-      reference_inputs: [protocol_params_ref_input()],
-      mint: from_asset(other_cs, "SomethingElse", 1),
-    }
+  let other_cs: PolicyId = #"9999999999999999999999999999999999999999999999999999999999"
+  let tx = Transaction {
+    ..transaction.placeholder,
+    reference_inputs: [protocol_params_ref_input()],
+    mint: from_asset(other_cs, "SomethingElse", 1),
+  }
   call_validator(tx)
 }
 
@@ -258,12 +247,11 @@ test fails_no_registry_node_minted() fail {
 // ========================================================================
 
 test fails_registry_node_burned() fail {
-  let tx =
-    Transaction {
-      ..transaction.placeholder,
-      reference_inputs: [protocol_params_ref_input()],
-      mint: from_asset(test_registry_node_cs, "OriginNode", -1),
-    }
+  let tx = Transaction {
+    ..transaction.placeholder,
+    reference_inputs: [protocol_params_ref_input()],
+    mint: from_asset(test_registry_node_cs, "OriginNode", -1),
+  }
   call_validator(tx)
 }
 
@@ -277,13 +265,12 @@ test fails_registry_node_burned() fail {
 // ========================================================================
 
 test fails_multiple_token_names_under_registry_cs() fail {
-  let tx =
-    Transaction {
-      ..transaction.placeholder,
-      reference_inputs: [protocol_params_ref_input()],
-      mint: from_asset(test_registry_node_cs, "NodeA", 1)
-        |> assets.add(test_registry_node_cs, "NodeB", 1),
-    }
+  let tx = Transaction {
+    ..transaction.placeholder,
+    reference_inputs: [protocol_params_ref_input()],
+    mint: from_asset(test_registry_node_cs, "NodeA", 1)
+      |> assets.add(test_registry_node_cs, "NodeB", 1),
+  }
   call_validator(tx)
 }
 
@@ -294,11 +281,10 @@ test fails_multiple_token_names_under_registry_cs() fail {
 // ========================================================================
 
 test fails_empty_mint() fail {
-  let tx =
-    Transaction {
-      ..transaction.placeholder,
-      reference_inputs: [protocol_params_ref_input()],
-      mint: assets.zero,
-    }
+  let tx = Transaction {
+    ..transaction.placeholder,
+    reference_inputs: [protocol_params_ref_input()],
+    mint: assets.zero,
+  }
   call_validator(tx)
 }

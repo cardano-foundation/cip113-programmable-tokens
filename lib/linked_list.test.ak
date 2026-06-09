@@ -18,25 +18,23 @@ test is_updated_directory_node_works() {
   let original_key = #"aa"
   let insert_key = #"bb"
 
-  let original =
-    RegistryNode {
-      key: original_key,
-      next: #"cc",
-      transfer_logic_script: Script(#"11"),
-      third_party_transfer_logic_script: Script(#"22"),
-      minting_logic_script: Script(#"33"),
-      global_state_cs: #"",
-    }
+  let original = RegistryNode {
+    key: original_key,
+    next: #"cc",
+    transfer_logic_script: Script(#"11"),
+    third_party_transfer_logic_script: Script(#"22"),
+    minting_logic_script: Script(#"33"),
+    global_state_cs: #"",
+  }
 
-  let updated_node =
-    RegistryNode {
-      key: original_key,
-      next: insert_key,
-      transfer_logic_script: Script(#"11"),
-      third_party_transfer_logic_script: Script(#"22"),
-      minting_logic_script: Script(#"33"),
-      global_state_cs: #"",
-    }
+  let updated_node = RegistryNode {
+    key: original_key,
+    next: insert_key,
+    transfer_logic_script: Script(#"11"),
+    third_party_transfer_logic_script: Script(#"22"),
+    minting_logic_script: Script(#"33"),
+    global_state_cs: #"",
+  }
 
   is_updated_directory_node(updated_node, original, insert_key)
 }
@@ -47,25 +45,23 @@ test is_updated_directory_node_negative() {
   let insert_key = #"bb"
   let wrong_key = #"dd"
 
-  let original =
-    RegistryNode {
-      key: original_key,
-      next: #"cc",
-      transfer_logic_script: Script(#"11"),
-      third_party_transfer_logic_script: Script(#"22"),
-      minting_logic_script: Script(#"33"),
-      global_state_cs: #"",
-    }
+  let original = RegistryNode {
+    key: original_key,
+    next: #"cc",
+    transfer_logic_script: Script(#"11"),
+    third_party_transfer_logic_script: Script(#"22"),
+    minting_logic_script: Script(#"33"),
+    global_state_cs: #"",
+  }
 
-  let node =
-    RegistryNode {
-      key: original_key,
-      next: wrong_key,
-      transfer_logic_script: Script(#"11"),
-      third_party_transfer_logic_script: Script(#"22"),
-      minting_logic_script: Script(#"33"),
-      global_state_cs: #"",
-    }
+  let node = RegistryNode {
+    key: original_key,
+    next: wrong_key,
+    transfer_logic_script: Script(#"11"),
+    third_party_transfer_logic_script: Script(#"22"),
+    minting_logic_script: Script(#"33"),
+    global_state_cs: #"",
+  }
 
   !is_updated_directory_node(node, original, insert_key)
 }
@@ -76,23 +72,25 @@ test is_inserted_directory_node_works() {
   // 1-byte placeholders, which the tightened helper now correctly rejects.
   let insert_key = #"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
   let next_key = #"cccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
-  let transfer_logic =
-    Script(#"11111111111111111111111111111111111111111111111111111111")
-  let third_party_transfer_logic =
-    Script(#"22222222222222222222222222222222222222222222222222222222")
-  let minting_logic =
-    Script(#"44444444444444444444444444444444444444444444444444444444")
+  let transfer_logic = Script(
+    #"11111111111111111111111111111111111111111111111111111111",
+  )
+  let third_party_transfer_logic = Script(
+    #"22222222222222222222222222222222222222222222222222222222",
+  )
+  let minting_logic = Script(
+    #"44444444444444444444444444444444444444444444444444444444",
+  )
   let global_state = #"33333333333333333333333333333333333333333333333333333333"
 
-  let node =
-    RegistryNode {
-      key: insert_key,
-      next: next_key,
-      transfer_logic_script: transfer_logic,
-      third_party_transfer_logic_script: third_party_transfer_logic,
-      minting_logic_script: minting_logic,
-      global_state_cs: global_state,
-    }
+  let node = RegistryNode {
+    key: insert_key,
+    next: next_key,
+    transfer_logic_script: transfer_logic,
+    third_party_transfer_logic_script: third_party_transfer_logic,
+    minting_logic_script: minting_logic,
+    global_state_cs: global_state,
+  }
 
   is_inserted_directory_node(node, insert_key, next_key, minting_logic)
 }
@@ -112,15 +110,14 @@ test origin_node_empty_keys() {
   let empty = #""
 
   // Origin node has empty key and next
-  let origin_node =
-    RegistryNode {
-      key: empty,
-      next: empty,
-      transfer_logic_script: Script(#"11"),
-      third_party_transfer_logic_script: Script(#"22"),
-      minting_logic_script: Script(#"33"),
-      global_state_cs: #"",
-    }
+  let origin_node = RegistryNode {
+    key: empty,
+    next: empty,
+    transfer_logic_script: Script(#"11"),
+    third_party_transfer_logic_script: Script(#"22"),
+    minting_logic_script: Script(#"33"),
+    global_state_cs: #"",
+  }
 
   origin_node.key == #"" && origin_node.next == #""
 }
@@ -137,26 +134,24 @@ test origin_node_empty_keys() {
 /// transfer_logic_script swap is now REJECTED.
 /// Attacker cannot replace the original transfer logic with their own script.
 test is_updated_directory_node_rejects_transfer_logic_swap() fail {
-  let original =
-    RegistryNode {
-      key: #"aa",
-      next: #"cc",
-      transfer_logic_script: Script(#"11"),
-      third_party_transfer_logic_script: Script(#"22"),
-      minting_logic_script: Script(#"33"),
-      global_state_cs: #"",
-    }
+  let original = RegistryNode {
+    key: #"aa",
+    next: #"cc",
+    transfer_logic_script: Script(#"11"),
+    third_party_transfer_logic_script: Script(#"22"),
+    minting_logic_script: Script(#"33"),
+    global_state_cs: #"",
+  }
 
-  let tampered_node =
-    RegistryNode {
-      key: #"aa",
-      next: #"bb",
-      transfer_logic_script: Script(#"deadbeef"),
-      // ^^^ ATTACKER'S SCRIPT — original was Script(#"11")
-      third_party_transfer_logic_script: Script(#"22"),
-      minting_logic_script: Script(#"33"),
-      global_state_cs: #"",
-    }
+  let tampered_node = RegistryNode {
+    key: #"aa",
+    next: #"bb",
+    transfer_logic_script: Script(#"deadbeef"),
+    // ^^^ ATTACKER'S SCRIPT — original was Script(#"11")
+    third_party_transfer_logic_script: Script(#"22"),
+    minting_logic_script: Script(#"33"),
+    global_state_cs: #"",
+  }
 
   is_updated_directory_node(tampered_node, original, #"bb")
 }
@@ -164,26 +159,24 @@ test is_updated_directory_node_rejects_transfer_logic_swap() fail {
 /// third_party_transfer_logic_script swap is now REJECTED.
 /// Attacker cannot replace the seize/freeze logic with their own script.
 test is_updated_directory_node_rejects_third_party_logic_swap() fail {
-  let original =
-    RegistryNode {
-      key: #"aa",
-      next: #"cc",
-      transfer_logic_script: Script(#"11"),
-      third_party_transfer_logic_script: Script(#"22"),
-      minting_logic_script: Script(#"33"),
-      global_state_cs: #"",
-    }
+  let original = RegistryNode {
+    key: #"aa",
+    next: #"cc",
+    transfer_logic_script: Script(#"11"),
+    third_party_transfer_logic_script: Script(#"22"),
+    minting_logic_script: Script(#"33"),
+    global_state_cs: #"",
+  }
 
-  let tampered_node =
-    RegistryNode {
-      key: #"aa",
-      next: #"bb",
-      transfer_logic_script: Script(#"11"),
-      third_party_transfer_logic_script: Script(#"deadbeef"),
-      // ^^^ ATTACKER'S SCRIPT — original was Script(#"22")
-      minting_logic_script: Script(#"33"),
-      global_state_cs: #"",
-    }
+  let tampered_node = RegistryNode {
+    key: #"aa",
+    next: #"bb",
+    transfer_logic_script: Script(#"11"),
+    third_party_transfer_logic_script: Script(#"deadbeef"),
+    // ^^^ ATTACKER'S SCRIPT — original was Script(#"22")
+    minting_logic_script: Script(#"33"),
+    global_state_cs: #"",
+  }
 
   is_updated_directory_node(tampered_node, original, #"bb")
 }
@@ -191,25 +184,23 @@ test is_updated_directory_node_rejects_third_party_logic_swap() fail {
 /// global_state_cs tampering is now REJECTED.
 /// Attacker cannot swap the global state currency symbol during insert.
 test is_updated_directory_node_rejects_global_state_swap() fail {
-  let original =
-    RegistryNode {
-      key: #"aa",
-      next: #"cc",
-      transfer_logic_script: Script(#"11"),
-      third_party_transfer_logic_script: Script(#"22"),
-      minting_logic_script: Script(#"33"),
-      global_state_cs: #"",
-    }
+  let original = RegistryNode {
+    key: #"aa",
+    next: #"cc",
+    transfer_logic_script: Script(#"11"),
+    third_party_transfer_logic_script: Script(#"22"),
+    minting_logic_script: Script(#"33"),
+    global_state_cs: #"",
+  }
 
-  let tampered_node =
-    RegistryNode {
-      key: #"aa",
-      next: #"bb",
-      transfer_logic_script: Script(#"11"),
-      third_party_transfer_logic_script: Script(#"22"),
-      minting_logic_script: Script(#"33"),
-      global_state_cs: #"deaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddead",
-    }
+  let tampered_node = RegistryNode {
+    key: #"aa",
+    next: #"bb",
+    transfer_logic_script: Script(#"11"),
+    third_party_transfer_logic_script: Script(#"22"),
+    minting_logic_script: Script(#"33"),
+    global_state_cs: #"deaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddead",
+  }
 
   // ^^^ TAMPERED — original was #""
   is_updated_directory_node(tampered_node, original, #"bb")
