@@ -196,14 +196,13 @@ test valid_mint_with_ref_input() {
 
 test valid_mint_with_output_index() {
   let rdmr = OutputIndex(1)
-  let tx =
-    Transaction {
-      ..transaction.placeholder,
-      outputs: [mint_output(100), registry_node_output(test_own_policy)],
-      mint: from_asset(test_own_policy, test_token_name, 100),
-      withdrawals: [Pair(test_ml_cred, 0)],
-      redeemers: [Pair(Mint(test_own_policy), as_data(rdmr))],
-    }
+  let tx = Transaction {
+    ..transaction.placeholder,
+    outputs: [mint_output(100), registry_node_output(test_own_policy)],
+    mint: from_asset(test_own_policy, test_token_name, 100),
+    withdrawals: [Pair(test_ml_cred, 0)],
+    redeemers: [Pair(Mint(test_own_policy), as_data(rdmr))],
+  }
   call_validator(rdmr, tx)
 }
 
@@ -213,30 +212,29 @@ test valid_mint_with_output_index() {
 // (`TokenExists { node_idx: 0 }` against our `RefInput { index: 0 }`).
 test valid_burn() {
   let rdmr = valid_redeemer()
-  let tx =
-    Transaction {
-      ..transaction.placeholder,
-      inputs: [
-        Input {
-          output_reference: OutputReference {
-            transaction_id: #"0000000000000000000000000000000000000000000000000000000000000000",
-            output_index: 0,
-          },
-          output: mint_output(50),
+  let tx = Transaction {
+    ..transaction.placeholder,
+    inputs: [
+      Input {
+        output_reference: OutputReference {
+          transaction_id: #"0000000000000000000000000000000000000000000000000000000000000000",
+          output_index: 0,
         },
-      ],
-      reference_inputs: [some_ref_input(registry_node_output(test_own_policy))],
-      outputs: [],
-      mint: from_asset(test_own_policy, test_token_name, -50),
-      withdrawals: [Pair(test_ml_cred, 0), Pair(test_plg_cred, 0)],
-      redeemers: [
-        Pair(Mint(test_own_policy), as_data(rdmr)),
-        Pair(
-          Withdraw(test_plg_cred),
-          as_data(TransferAct { proofs: [TokenExists { node_idx: 0 }] }),
-        ),
-      ],
-    }
+        output: mint_output(50),
+      },
+    ],
+    reference_inputs: [some_ref_input(registry_node_output(test_own_policy))],
+    outputs: [],
+    mint: from_asset(test_own_policy, test_token_name, -50),
+    withdrawals: [Pair(test_ml_cred, 0), Pair(test_plg_cred, 0)],
+    redeemers: [
+      Pair(Mint(test_own_policy), as_data(rdmr)),
+      Pair(
+        Withdraw(test_plg_cred),
+        as_data(TransferAct { proofs: [TokenExists { node_idx: 0 }] }),
+      ),
+    ],
+  }
   call_validator(rdmr, tx)
 }
 
@@ -252,145 +250,137 @@ test valid_burn() {
 test wrong_registry_key_fails() fail {
   let wrong_key = #"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
   let rdmr = valid_redeemer()
-  let tx =
-    Transaction {
-      ..transaction.placeholder,
-      reference_inputs: [some_ref_input(registry_node_output(wrong_key))],
-      outputs: [mint_output(100)],
-      mint: from_asset(test_own_policy, test_token_name, 100),
-      withdrawals: [Pair(test_ml_cred, 0)],
-      redeemers: [Pair(Mint(test_own_policy), as_data(rdmr))],
-    }
+  let tx = Transaction {
+    ..transaction.placeholder,
+    reference_inputs: [some_ref_input(registry_node_output(wrong_key))],
+    outputs: [mint_output(100)],
+    mint: from_asset(test_own_policy, test_token_name, 100),
+    withdrawals: [Pair(test_ml_cred, 0)],
+    redeemers: [Pair(Mint(test_own_policy), as_data(rdmr))],
+  }
   call_validator(rdmr, tx)
 }
 
 // No NFT under registry_node_cs in the reference input
 test registry_nft_missing_fails() fail {
-  let output_without_nft =
-    Output {
-      address: Address {
-        payment_credential: Script(
-          #"88888888888888888888888888888888888888888888888888888888",
-        ),
-        stake_credential: None,
-      },
-      // Value has only ADA — no registry NFT
-      value: min_ada,
-      datum: InlineDatum(
-        as_data(
-          RegistryNode {
-            key: test_own_policy,
-            next: #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
-            transfer_logic_script: Script(
-              #"55555555555555555555555555555555555555555555555555555555",
-            ),
-            third_party_transfer_logic_script: Script(
-              #"66666666666666666666666666666666666666666666666666666666",
-            ),
-            minting_logic_script: test_ml_cred,
-            global_state_cs: #"",
-          },
-        ),
+  let output_without_nft = Output {
+    address: Address {
+      payment_credential: Script(
+        #"88888888888888888888888888888888888888888888888888888888",
       ),
-      reference_script: None,
-    }
+      stake_credential: None,
+    },
+    // Value has only ADA — no registry NFT
+    value: min_ada,
+    datum: InlineDatum(
+      as_data(
+        RegistryNode {
+          key: test_own_policy,
+          next: #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          transfer_logic_script: Script(
+            #"55555555555555555555555555555555555555555555555555555555",
+          ),
+          third_party_transfer_logic_script: Script(
+            #"66666666666666666666666666666666666666666666666666666666",
+          ),
+          minting_logic_script: test_ml_cred,
+          global_state_cs: #"",
+        },
+      ),
+    ),
+    reference_script: None,
+  }
   let rdmr = valid_redeemer()
-  let tx =
-    Transaction {
-      ..transaction.placeholder,
-      reference_inputs: [some_ref_input(output_without_nft)],
-      outputs: [mint_output(100)],
-      mint: from_asset(test_own_policy, test_token_name, 100),
-      withdrawals: [Pair(test_ml_cred, 0)],
-      redeemers: [Pair(Mint(test_own_policy), as_data(rdmr))],
-    }
+  let tx = Transaction {
+    ..transaction.placeholder,
+    reference_inputs: [some_ref_input(output_without_nft)],
+    outputs: [mint_output(100)],
+    mint: from_asset(test_own_policy, test_token_name, 100),
+    withdrawals: [Pair(test_ml_cred, 0)],
+    redeemers: [Pair(Mint(test_own_policy), as_data(rdmr))],
+  }
   call_validator(rdmr, tx)
 }
 
 // NFT under wrong policy (not registry_node_cs)
 test wrong_registry_cs_nft_fails() fail {
   let wrong_cs = #"dddddddddddddddddddddddddddddddddddddddddddddddddddd"
-  let output_wrong_cs =
-    Output {
-      address: Address {
-        payment_credential: Script(
-          #"88888888888888888888888888888888888888888888888888888888",
-        ),
-        stake_credential: None,
-      },
-      value: min_ada
-        |> assets.add(wrong_cs, test_own_policy, 1),
-      datum: InlineDatum(
-        as_data(
-          RegistryNode {
-            key: test_own_policy,
-            next: #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
-            transfer_logic_script: Script(
-              #"55555555555555555555555555555555555555555555555555555555",
-            ),
-            third_party_transfer_logic_script: Script(
-              #"66666666666666666666666666666666666666666666666666666666",
-            ),
-            minting_logic_script: test_ml_cred,
-            global_state_cs: #"",
-          },
-        ),
+  let output_wrong_cs = Output {
+    address: Address {
+      payment_credential: Script(
+        #"88888888888888888888888888888888888888888888888888888888",
       ),
-      reference_script: None,
-    }
+      stake_credential: None,
+    },
+    value: min_ada
+      |> assets.add(wrong_cs, test_own_policy, 1),
+    datum: InlineDatum(
+      as_data(
+        RegistryNode {
+          key: test_own_policy,
+          next: #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          transfer_logic_script: Script(
+            #"55555555555555555555555555555555555555555555555555555555",
+          ),
+          third_party_transfer_logic_script: Script(
+            #"66666666666666666666666666666666666666666666666666666666",
+          ),
+          minting_logic_script: test_ml_cred,
+          global_state_cs: #"",
+        },
+      ),
+    ),
+    reference_script: None,
+  }
   let rdmr = valid_redeemer()
-  let tx =
-    Transaction {
-      ..transaction.placeholder,
-      reference_inputs: [some_ref_input(output_wrong_cs)],
-      outputs: [mint_output(100)],
-      mint: from_asset(test_own_policy, test_token_name, 100),
-      withdrawals: [Pair(test_ml_cred, 0)],
-      redeemers: [Pair(Mint(test_own_policy), as_data(rdmr))],
-    }
+  let tx = Transaction {
+    ..transaction.placeholder,
+    reference_inputs: [some_ref_input(output_wrong_cs)],
+    outputs: [mint_output(100)],
+    mint: from_asset(test_own_policy, test_token_name, 100),
+    withdrawals: [Pair(test_ml_cred, 0)],
+    redeemers: [Pair(Mint(test_own_policy), as_data(rdmr))],
+  }
   call_validator(rdmr, tx)
 }
 
 // No inline datum on registry node output
 test registry_no_datum_fails() fail {
-  let output_no_datum =
-    Output {
-      address: Address {
-        payment_credential: Script(
-          #"88888888888888888888888888888888888888888888888888888888",
-        ),
-        stake_credential: None,
-      },
-      value: min_ada
-        |> assets.add(test_registry_cs, test_own_policy, 1),
-      datum: NoDatum,
-      reference_script: None,
-    }
+  let output_no_datum = Output {
+    address: Address {
+      payment_credential: Script(
+        #"88888888888888888888888888888888888888888888888888888888",
+      ),
+      stake_credential: None,
+    },
+    value: min_ada
+      |> assets.add(test_registry_cs, test_own_policy, 1),
+    datum: NoDatum,
+    reference_script: None,
+  }
   let rdmr = valid_redeemer()
-  let tx =
-    Transaction {
-      ..transaction.placeholder,
-      reference_inputs: [some_ref_input(output_no_datum)],
-      outputs: [mint_output(100)],
-      mint: from_asset(test_own_policy, test_token_name, 100),
-      withdrawals: [Pair(test_ml_cred, 0)],
-      redeemers: [Pair(Mint(test_own_policy), as_data(rdmr))],
-    }
+  let tx = Transaction {
+    ..transaction.placeholder,
+    reference_inputs: [some_ref_input(output_no_datum)],
+    outputs: [mint_output(100)],
+    mint: from_asset(test_own_policy, test_token_name, 100),
+    withdrawals: [Pair(test_ml_cred, 0)],
+    redeemers: [Pair(Mint(test_own_policy), as_data(rdmr))],
+  }
   call_validator(rdmr, tx)
 }
 
 // Reference input index out of bounds
 test ref_input_out_of_bounds_fails() fail {
   let rdmr = RefInput(99)
-  let tx =
-    Transaction {
-      ..transaction.placeholder,
-      reference_inputs: [some_ref_input(registry_node_output(test_own_policy))],
-      outputs: [mint_output(100)],
-      mint: from_asset(test_own_policy, test_token_name, 100),
-      withdrawals: [Pair(test_ml_cred, 0)],
-      redeemers: [Pair(Mint(test_own_policy), as_data(rdmr))],
-    }
+  let tx = Transaction {
+    ..transaction.placeholder,
+    reference_inputs: [some_ref_input(registry_node_output(test_own_policy))],
+    outputs: [mint_output(100)],
+    mint: from_asset(test_own_policy, test_token_name, 100),
+    withdrawals: [Pair(test_ml_cred, 0)],
+    redeemers: [Pair(Mint(test_own_policy), as_data(rdmr))],
+  }
   call_validator(rdmr, tx)
 }
 
@@ -400,18 +390,18 @@ test ref_input_out_of_bounds_fails() fail {
 
 // Minting logic script not invoked (not in withdrawals)
 test minting_logic_not_invoked_fails() fail {
-  let other_cred =
-    Script(#"99999999999999999999999999999999999999999999999999999999")
+  let other_cred = Script(
+    #"99999999999999999999999999999999999999999999999999999999",
+  )
   let rdmr = valid_redeemer()
-  let tx =
-    Transaction {
-      ..transaction.placeholder,
-      reference_inputs: [some_ref_input(registry_node_output(test_own_policy))],
-      outputs: [mint_output(100)],
-      mint: from_asset(test_own_policy, test_token_name, 100),
-      withdrawals: [Pair(other_cred, 0)],
-      redeemers: [Pair(Mint(test_own_policy), as_data(rdmr))],
-    }
+  let tx = Transaction {
+    ..transaction.placeholder,
+    reference_inputs: [some_ref_input(registry_node_output(test_own_policy))],
+    outputs: [mint_output(100)],
+    mint: from_asset(test_own_policy, test_token_name, 100),
+    withdrawals: [Pair(other_cred, 0)],
+    redeemers: [Pair(Mint(test_own_policy), as_data(rdmr))],
+  }
   call_validator(rdmr, tx)
 }
 
@@ -421,90 +411,84 @@ test minting_logic_not_invoked_fails() fail {
 
 // First output not at programmable_logic_base address
 test output_not_at_plb_fails() fail {
-  let wrong_output =
-    Output {
-      address: Address {
-        payment_credential: Script(
-          #"99999999999999999999999999999999999999999999999999999999",
+  let wrong_output = Output {
+    address: Address {
+      payment_credential: Script(
+        #"99999999999999999999999999999999999999999999999999999999",
+      ),
+      stake_credential: Some(
+        Inline(
+          Script(#"77777777777777777777777777777777777777777777777777777777"),
         ),
-        stake_credential: Some(
-          Inline(
-            Script(#"77777777777777777777777777777777777777777777777777777777"),
-          ),
-        ),
-      },
-      value: min_ada
-        |> assets.add(test_own_policy, test_token_name, 100),
-      datum: NoDatum,
-      reference_script: None,
-    }
+      ),
+    },
+    value: min_ada
+      |> assets.add(test_own_policy, test_token_name, 100),
+    datum: NoDatum,
+    reference_script: None,
+  }
   let rdmr = valid_redeemer()
-  let tx =
-    Transaction {
-      ..transaction.placeholder,
-      reference_inputs: [some_ref_input(registry_node_output(test_own_policy))],
-      outputs: [wrong_output],
-      mint: from_asset(test_own_policy, test_token_name, 100),
-      withdrawals: [Pair(test_ml_cred, 0)],
-      redeemers: [Pair(Mint(test_own_policy), as_data(rdmr))],
-    }
+  let tx = Transaction {
+    ..transaction.placeholder,
+    reference_inputs: [some_ref_input(registry_node_output(test_own_policy))],
+    outputs: [wrong_output],
+    mint: from_asset(test_own_policy, test_token_name, 100),
+    withdrawals: [Pair(test_ml_cred, 0)],
+    redeemers: [Pair(Mint(test_own_policy), as_data(rdmr))],
+  }
   call_validator(rdmr, tx)
 }
 
 // First output missing stake credential
 test output_missing_stake_cred_fails() fail {
-  let no_stake_output =
-    Output {
-      address: Address {
-        payment_credential: test_plb_cred,
-        stake_credential: None,
-      },
-      value: min_ada
-        |> assets.add(test_own_policy, test_token_name, 100),
-      datum: NoDatum,
-      reference_script: None,
-    }
+  let no_stake_output = Output {
+    address: Address {
+      payment_credential: test_plb_cred,
+      stake_credential: None,
+    },
+    value: min_ada
+      |> assets.add(test_own_policy, test_token_name, 100),
+    datum: NoDatum,
+    reference_script: None,
+  }
   let rdmr = valid_redeemer()
-  let tx =
-    Transaction {
-      ..transaction.placeholder,
-      reference_inputs: [some_ref_input(registry_node_output(test_own_policy))],
-      outputs: [no_stake_output],
-      mint: from_asset(test_own_policy, test_token_name, 100),
-      withdrawals: [Pair(test_ml_cred, 0)],
-      redeemers: [Pair(Mint(test_own_policy), as_data(rdmr))],
-    }
+  let tx = Transaction {
+    ..transaction.placeholder,
+    reference_inputs: [some_ref_input(registry_node_output(test_own_policy))],
+    outputs: [no_stake_output],
+    mint: from_asset(test_own_policy, test_token_name, 100),
+    withdrawals: [Pair(test_ml_cred, 0)],
+    redeemers: [Pair(Mint(test_own_policy), as_data(rdmr))],
+  }
   call_validator(rdmr, tx)
 }
 
 // First output has wrong token quantity
 test output_wrong_token_quantity_fails() fail {
-  let wrong_qty_output =
-    Output {
-      address: Address {
-        payment_credential: test_plb_cred,
-        stake_credential: Some(
-          Inline(
-            Script(#"77777777777777777777777777777777777777777777777777777777"),
-          ),
+  let wrong_qty_output = Output {
+    address: Address {
+      payment_credential: test_plb_cred,
+      stake_credential: Some(
+        Inline(
+          Script(#"77777777777777777777777777777777777777777777777777777777"),
         ),
-      },
-      // Output has 50 but mint is 100
-      value: min_ada
-        |> assets.add(test_own_policy, test_token_name, 50),
-      datum: NoDatum,
-      reference_script: None,
-    }
+      ),
+    },
+    // Output has 50 but mint is 100
+    value: min_ada
+      |> assets.add(test_own_policy, test_token_name, 50),
+    datum: NoDatum,
+    reference_script: None,
+  }
   let rdmr = valid_redeemer()
-  let tx =
-    Transaction {
-      ..transaction.placeholder,
-      reference_inputs: [some_ref_input(registry_node_output(test_own_policy))],
-      outputs: [wrong_qty_output],
-      mint: from_asset(test_own_policy, test_token_name, 100),
-      withdrawals: [Pair(test_ml_cred, 0)],
-      redeemers: [Pair(Mint(test_own_policy), as_data(rdmr))],
-    }
+  let tx = Transaction {
+    ..transaction.placeholder,
+    reference_inputs: [some_ref_input(registry_node_output(test_own_policy))],
+    outputs: [wrong_qty_output],
+    mint: from_asset(test_own_policy, test_token_name, 100),
+    withdrawals: [Pair(test_ml_cred, 0)],
+    redeemers: [Pair(Mint(test_own_policy), as_data(rdmr))],
+  }
   call_validator(rdmr, tx)
 }
 
@@ -539,84 +523,76 @@ fn multi_mint_output(qty1: Int, qty2: Int) -> Output {
 // Multi-token mint: two token names, both to PLB, RefInput proof
 test multi_token_mint_ref_input() {
   let rdmr = valid_redeemer()
-  let tx =
-    Transaction {
-      ..transaction.placeholder,
-      reference_inputs: [some_ref_input(registry_node_output(test_own_policy))],
-      outputs: [multi_mint_output(100, 50)],
-      mint: from_asset(test_own_policy, test_token_name, 100)
-        |> assets.add(test_own_policy, test_token_name_2, 50),
-      withdrawals: [Pair(test_ml_cred, 0)],
-      redeemers: [Pair(Mint(test_own_policy), as_data(rdmr))],
-    }
+  let tx = Transaction {
+    ..transaction.placeholder,
+    reference_inputs: [some_ref_input(registry_node_output(test_own_policy))],
+    outputs: [multi_mint_output(100, 50)],
+    mint: from_asset(test_own_policy, test_token_name, 100)
+      |> assets.add(test_own_policy, test_token_name_2, 50),
+    withdrawals: [Pair(test_ml_cred, 0)],
+    redeemers: [Pair(Mint(test_own_policy), as_data(rdmr))],
+  }
   call_validator(rdmr, tx)
 }
 
 // Multi-token first mint: two token names, OutputIndex proof
 test multi_token_mint_output_index() {
   let rdmr = OutputIndex(1)
-  let tx =
-    Transaction {
-      ..transaction.placeholder,
-      outputs: [
-        multi_mint_output(100, 50),
-        registry_node_output(test_own_policy),
-      ],
-      mint: from_asset(test_own_policy, test_token_name, 100)
-        |> assets.add(test_own_policy, test_token_name_2, 50),
-      withdrawals: [Pair(test_ml_cred, 0)],
-      redeemers: [Pair(Mint(test_own_policy), as_data(rdmr))],
-    }
+  let tx = Transaction {
+    ..transaction.placeholder,
+    outputs: [multi_mint_output(100, 50), registry_node_output(test_own_policy)],
+    mint: from_asset(test_own_policy, test_token_name, 100)
+      |> assets.add(test_own_policy, test_token_name_2, 50),
+    withdrawals: [Pair(test_ml_cred, 0)],
+    redeemers: [Pair(Mint(test_own_policy), as_data(rdmr))],
+  }
   call_validator(rdmr, tx)
 }
 
 // Multi-token mint: split across two PLB outputs
 test multi_token_mint_split_outputs() {
   let rdmr = valid_redeemer()
-  let tx =
-    Transaction {
-      ..transaction.placeholder,
-      reference_inputs: [some_ref_input(registry_node_output(test_own_policy))],
-      outputs: [mint_output(100), mint_output_named(test_token_name_2, 50)],
-      mint: from_asset(test_own_policy, test_token_name, 100)
-        |> assets.add(test_own_policy, test_token_name_2, 50),
-      withdrawals: [Pair(test_ml_cred, 0)],
-      redeemers: [Pair(Mint(test_own_policy), as_data(rdmr))],
-    }
+  let tx = Transaction {
+    ..transaction.placeholder,
+    reference_inputs: [some_ref_input(registry_node_output(test_own_policy))],
+    outputs: [mint_output(100), mint_output_named(test_token_name_2, 50)],
+    mint: from_asset(test_own_policy, test_token_name, 100)
+      |> assets.add(test_own_policy, test_token_name_2, 50),
+    withdrawals: [Pair(test_ml_cred, 0)],
+    redeemers: [Pair(Mint(test_own_policy), as_data(rdmr))],
+  }
   call_validator(rdmr, tx)
 }
 
 // Multi-token mint: one token escapes to non-PLB — must fail
 test multi_token_mint_partial_escape_fails() fail {
   let rdmr = valid_redeemer()
-  let non_plb_output =
-    Output {
-      address: Address {
-        payment_credential: Script(
-          #"99999999999999999999999999999999999999999999999999999999",
+  let non_plb_output = Output {
+    address: Address {
+      payment_credential: Script(
+        #"99999999999999999999999999999999999999999999999999999999",
+      ),
+      stake_credential: Some(
+        Inline(
+          Script(#"77777777777777777777777777777777777777777777777777777777"),
         ),
-        stake_credential: Some(
-          Inline(
-            Script(#"77777777777777777777777777777777777777777777777777777777"),
-          ),
-        ),
-      },
-      value: min_ada
-        |> assets.add(test_own_policy, test_token_name_2, 50),
-      datum: NoDatum,
-      reference_script: None,
-    }
-  let tx =
-    Transaction {
-      ..transaction.placeholder,
-      reference_inputs: [some_ref_input(registry_node_output(test_own_policy))],
-      // tokenA goes to PLB, tokenB escapes to non-PLB
-      outputs: [mint_output(100), non_plb_output],
-      mint: from_asset(test_own_policy, test_token_name, 100)
-        |> assets.add(test_own_policy, test_token_name_2, 50),
-      withdrawals: [Pair(test_ml_cred, 0)],
-      redeemers: [Pair(Mint(test_own_policy), as_data(rdmr))],
-    }
+      ),
+    },
+    value: min_ada
+      |> assets.add(test_own_policy, test_token_name_2, 50),
+    datum: NoDatum,
+    reference_script: None,
+  }
+  let tx = Transaction {
+    ..transaction.placeholder,
+    reference_inputs: [some_ref_input(registry_node_output(test_own_policy))],
+    // tokenA goes to PLB, tokenB escapes to non-PLB
+    outputs: [mint_output(100), non_plb_output],
+    mint: from_asset(test_own_policy, test_token_name, 100)
+      |> assets.add(test_own_policy, test_token_name_2, 50),
+    withdrawals: [Pair(test_ml_cred, 0)],
+    redeemers: [Pair(Mint(test_own_policy), as_data(rdmr))],
+  }
   call_validator(rdmr, tx)
 }
 
@@ -624,62 +600,60 @@ test multi_token_mint_partial_escape_fails() fail {
 // Burning requires PLB inputs → plb_spent = True → delegates to PLGlobal
 test multi_token_burn() {
   let rdmr = valid_redeemer()
-  let tx =
-    Transaction {
-      ..transaction.placeholder,
-      inputs: [
-        Input {
-          output_reference: OutputReference {
-            transaction_id: #"0000000000000000000000000000000000000000000000000000000000000000",
-            output_index: 0,
-          },
-          output: multi_mint_output(100, 50),
+  let tx = Transaction {
+    ..transaction.placeholder,
+    inputs: [
+      Input {
+        output_reference: OutputReference {
+          transaction_id: #"0000000000000000000000000000000000000000000000000000000000000000",
+          output_index: 0,
         },
-      ],
-      reference_inputs: [some_ref_input(registry_node_output(test_own_policy))],
-      outputs: [],
-      mint: from_asset(test_own_policy, test_token_name, -100)
-        |> assets.add(test_own_policy, test_token_name_2, -50),
-      withdrawals: [Pair(test_ml_cred, 0), Pair(test_plg_cred, 0)],
-      redeemers: [
-        Pair(Mint(test_own_policy), as_data(rdmr)),
-        Pair(
-          Withdraw(test_plg_cred),
-          as_data(TransferAct { proofs: [TokenExists { node_idx: 0 }] }),
-        ),
-      ],
-    }
+        output: multi_mint_output(100, 50),
+      },
+    ],
+    reference_inputs: [some_ref_input(registry_node_output(test_own_policy))],
+    outputs: [],
+    mint: from_asset(test_own_policy, test_token_name, -100)
+      |> assets.add(test_own_policy, test_token_name_2, -50),
+    withdrawals: [Pair(test_ml_cred, 0), Pair(test_plg_cred, 0)],
+    redeemers: [
+      Pair(Mint(test_own_policy), as_data(rdmr)),
+      Pair(
+        Withdraw(test_plg_cred),
+        as_data(TransferAct { proofs: [TokenExists { node_idx: 0 }] }),
+      ),
+    ],
+  }
   call_validator(rdmr, tx)
 }
 
 // Multi-token spend + mint (RefInput, PLB input) → defers to PLGlobal
 test multi_token_spend_and_mint_defers() {
   let rdmr = valid_redeemer()
-  let tx =
-    Transaction {
-      ..transaction.placeholder,
-      inputs: [
-        Input {
-          output_reference: OutputReference {
-            transaction_id: #"0000000000000000000000000000000000000000000000000000000000000000",
-            output_index: 0,
-          },
-          output: multi_mint_output(100, 50),
+  let tx = Transaction {
+    ..transaction.placeholder,
+    inputs: [
+      Input {
+        output_reference: OutputReference {
+          transaction_id: #"0000000000000000000000000000000000000000000000000000000000000000",
+          output_index: 0,
         },
-      ],
-      reference_inputs: [some_ref_input(registry_node_output(test_own_policy))],
-      outputs: [multi_mint_output(200, 100)],
-      mint: from_asset(test_own_policy, test_token_name, 100)
-        |> assets.add(test_own_policy, test_token_name_2, 50),
-      withdrawals: [Pair(test_ml_cred, 0), Pair(test_plg_cred, 0)],
-      redeemers: [
-        Pair(Mint(test_own_policy), as_data(rdmr)),
-        Pair(
-          Withdraw(test_plg_cred),
-          as_data(TransferAct { proofs: [TokenExists { node_idx: 0 }] }),
-        ),
-      ],
-    }
+        output: multi_mint_output(100, 50),
+      },
+    ],
+    reference_inputs: [some_ref_input(registry_node_output(test_own_policy))],
+    outputs: [multi_mint_output(200, 100)],
+    mint: from_asset(test_own_policy, test_token_name, 100)
+      |> assets.add(test_own_policy, test_token_name_2, 50),
+    withdrawals: [Pair(test_ml_cred, 0), Pair(test_plg_cred, 0)],
+    redeemers: [
+      Pair(Mint(test_own_policy), as_data(rdmr)),
+      Pair(
+        Withdraw(test_plg_cred),
+        as_data(TransferAct { proofs: [TokenExists { node_idx: 0 }] }),
+      ),
+    ],
+  }
   call_validator(rdmr, tx)
 }
 
@@ -697,67 +671,63 @@ test multi_token_spend_and_mint_defers() {
 // Happy path: all minted tokens go to PLB
 test case1_first_mint_valid() {
   let rdmr = OutputIndex(1)
-  let tx =
-    Transaction {
-      ..transaction.placeholder,
-      outputs: [mint_output(100), registry_node_output(test_own_policy)],
-      mint: from_asset(test_own_policy, test_token_name, 100),
-      withdrawals: [Pair(test_ml_cred, 0)],
-      redeemers: [Pair(Mint(test_own_policy), as_data(rdmr))],
-    }
+  let tx = Transaction {
+    ..transaction.placeholder,
+    outputs: [mint_output(100), registry_node_output(test_own_policy)],
+    mint: from_asset(test_own_policy, test_token_name, 100),
+    withdrawals: [Pair(test_ml_cred, 0)],
+    redeemers: [Pair(Mint(test_own_policy), as_data(rdmr))],
+  }
   call_validator(rdmr, tx)
 }
 
 // First mint: multiple outputs, all at PLB
 test case1_first_mint_multiple_outputs() {
   let rdmr = OutputIndex(2)
-  let tx =
-    Transaction {
-      ..transaction.placeholder,
-      outputs: [
-        mint_output(60),
-        mint_output(40),
-        registry_node_output(test_own_policy),
-      ],
-      mint: from_asset(test_own_policy, test_token_name, 100),
-      withdrawals: [Pair(test_ml_cred, 0)],
-      redeemers: [Pair(Mint(test_own_policy), as_data(rdmr))],
-    }
+  let tx = Transaction {
+    ..transaction.placeholder,
+    outputs: [
+      mint_output(60),
+      mint_output(40),
+      registry_node_output(test_own_policy),
+    ],
+    mint: from_asset(test_own_policy, test_token_name, 100),
+    withdrawals: [Pair(test_ml_cred, 0)],
+    redeemers: [Pair(Mint(test_own_policy), as_data(rdmr))],
+  }
   call_validator(rdmr, tx)
 }
 
 // First mint: tokens sent to non-PLB address — must fail
 test case1_first_mint_tokens_to_non_plb_fails() fail {
   let rdmr = OutputIndex(1)
-  let non_plb_output =
-    Output {
-      address: Address {
-        payment_credential: Script(
-          #"99999999999999999999999999999999999999999999999999999999",
+  let non_plb_output = Output {
+    address: Address {
+      payment_credential: Script(
+        #"99999999999999999999999999999999999999999999999999999999",
+      ),
+      stake_credential: Some(
+        Inline(
+          Script(#"77777777777777777777777777777777777777777777777777777777"),
         ),
-        stake_credential: Some(
-          Inline(
-            Script(#"77777777777777777777777777777777777777777777777777777777"),
-          ),
-        ),
-      },
-      value: min_ada
-        |> assets.add(test_own_policy, test_token_name, 25),
-      datum: NoDatum,
-      reference_script: None,
-    }
-  let tx =
-    Transaction {
-      ..transaction.placeholder,
-      outputs: [
-        mint_output(75),
-        registry_node_output(test_own_policy),
-        non_plb_output,
-      ],
-      mint: from_asset(test_own_policy, test_token_name, 100),
-      withdrawals: [Pair(test_ml_cred, 0)],
-      redeemers: [Pair(Mint(test_own_policy), as_data(rdmr))],
-    }
+      ),
+    },
+    value: min_ada
+      |> assets.add(test_own_policy, test_token_name, 25),
+    datum: NoDatum,
+    reference_script: None,
+  }
+  let tx = Transaction {
+    ..transaction.placeholder,
+    outputs: [
+      mint_output(75),
+      registry_node_output(test_own_policy),
+      non_plb_output,
+    ],
+    mint: from_asset(test_own_policy, test_token_name, 100),
+    withdrawals: [Pair(test_ml_cred, 0)],
+    redeemers: [Pair(Mint(test_own_policy), as_data(rdmr))],
+  }
   call_validator(rdmr, tx)
 }
 
@@ -769,62 +739,60 @@ test case1_first_mint_with_shared_transfer_logic() {
   // The transfer logic for this new token is the same as test_ml_cred
   // (which IS in invoked_scripts because it's the minting logic)
   let shared_cred = test_ml_cred
-  let registry_with_shared_logic =
-    Output {
-      address: Address {
-        payment_credential: Script(
-          #"88888888888888888888888888888888888888888888888888888888",
-        ),
-        stake_credential: None,
-      },
-      value: min_ada
-        |> assets.add(test_registry_cs, test_own_policy, 1),
-      datum: InlineDatum(
-        as_data(
-          RegistryNode {
-            key: test_own_policy,
-            next: #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
-            transfer_logic_script: shared_cred,
-            third_party_transfer_logic_script: Script(
-              #"66666666666666666666666666666666666666666666666666666666",
-            ),
-            minting_logic_script: test_ml_cred,
-            global_state_cs: #"",
-          },
-        ),
+  let registry_with_shared_logic = Output {
+    address: Address {
+      payment_credential: Script(
+        #"88888888888888888888888888888888888888888888888888888888",
       ),
-      reference_script: None,
-    }
+      stake_credential: None,
+    },
+    value: min_ada
+      |> assets.add(test_registry_cs, test_own_policy, 1),
+    datum: InlineDatum(
+      as_data(
+        RegistryNode {
+          key: test_own_policy,
+          next: #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          transfer_logic_script: shared_cred,
+          third_party_transfer_logic_script: Script(
+            #"66666666666666666666666666666666666666666666666666666666",
+          ),
+          minting_logic_script: test_ml_cred,
+          global_state_cs: #"",
+        },
+      ),
+    ),
+    reference_script: None,
+  }
   let rdmr = OutputIndex(1)
-  let tx =
-    Transaction {
-      ..transaction.placeholder,
-      outputs: [mint_output(100), registry_with_shared_logic],
-      mint: from_asset(test_own_policy, test_token_name, 100),
-      // minting logic (== transfer logic) is invoked — old check would reject this
-      withdrawals: [Pair(test_ml_cred, 0)],
-      redeemers: [Pair(Mint(test_own_policy), as_data(rdmr))],
-    }
+  let tx = Transaction {
+    ..transaction.placeholder,
+    outputs: [mint_output(100), registry_with_shared_logic],
+    mint: from_asset(test_own_policy, test_token_name, 100),
+    // minting logic (== transfer logic) is invoked — old check would reject this
+    withdrawals: [Pair(test_ml_cred, 0)],
+    redeemers: [Pair(Mint(test_own_policy), as_data(rdmr))],
+  }
   call_validator(rdmr, tx)
 }
 
 // First mint where transfer logic of another already-registered token happens
 // to be invoked in the same tx. This is a legitimate multi-token scenario.
 test case1_first_mint_with_other_tokens_transfer_logic_invoked() {
-  let other_transfer_logic =
-    Script(#"55555555555555555555555555555555555555555555555555555555")
+  let other_transfer_logic = Script(
+    #"55555555555555555555555555555555555555555555555555555555",
+  )
   let rdmr = OutputIndex(1)
-  let tx =
-    Transaction {
-      ..transaction.placeholder,
-      outputs: [mint_output(100), registry_node_output(test_own_policy)],
-      mint: from_asset(test_own_policy, test_token_name, 100),
-      // Both minting logic AND another token's transfer logic are invoked
-      // The registry_node_output uses #"5555..." as transfer_logic_script
-      // Old anti-abuse check would reject because #"5555..." is in withdrawals
-      withdrawals: [Pair(test_ml_cred, 0), Pair(other_transfer_logic, 0)],
-      redeemers: [Pair(Mint(test_own_policy), as_data(rdmr))],
-    }
+  let tx = Transaction {
+    ..transaction.placeholder,
+    outputs: [mint_output(100), registry_node_output(test_own_policy)],
+    mint: from_asset(test_own_policy, test_token_name, 100),
+    // Both minting logic AND another token's transfer logic are invoked
+    // The registry_node_output uses #"5555..." as transfer_logic_script
+    // Old anti-abuse check would reject because #"5555..." is in withdrawals
+    withdrawals: [Pair(test_ml_cred, 0), Pair(other_transfer_logic, 0)],
+    redeemers: [Pair(Mint(test_own_policy), as_data(rdmr))],
+  }
   call_validator(rdmr, tx)
 }
 
@@ -837,38 +805,35 @@ test case2_subsequent_mint_valid() {
 
 // Subsequent mint: multiple outputs at PLB
 test case2_subsequent_mint_multiple_outputs() {
-  let tx =
-    Transaction {
-      ..valid_mint_tx(),
-      outputs: [mint_output(50), mint_output(50)],
-    }
+  let tx = Transaction {
+    ..valid_mint_tx(),
+    outputs: [mint_output(50), mint_output(50)],
+  }
   call_validator(valid_redeemer(), tx)
 }
 
 // Subsequent mint: tokens sent to non-PLB — must fail
 test case2_subsequent_mint_tokens_to_non_plb_fails() fail {
-  let non_plb_output =
-    Output {
-      address: Address {
-        payment_credential: Script(
-          #"99999999999999999999999999999999999999999999999999999999",
+  let non_plb_output = Output {
+    address: Address {
+      payment_credential: Script(
+        #"99999999999999999999999999999999999999999999999999999999",
+      ),
+      stake_credential: Some(
+        Inline(
+          Script(#"77777777777777777777777777777777777777777777777777777777"),
         ),
-        stake_credential: Some(
-          Inline(
-            Script(#"77777777777777777777777777777777777777777777777777777777"),
-          ),
-        ),
-      },
-      value: min_ada
-        |> assets.add(test_own_policy, test_token_name, 25),
-      datum: NoDatum,
-      reference_script: None,
-    }
-  let tx =
-    Transaction {
-      ..valid_mint_tx(),
-      outputs: [mint_output(75), non_plb_output],
-    }
+      ),
+    },
+    value: min_ada
+      |> assets.add(test_own_policy, test_token_name, 25),
+    datum: NoDatum,
+    reference_script: None,
+  }
+  let tx = Transaction {
+    ..valid_mint_tx(),
+    outputs: [mint_output(75), non_plb_output],
+  }
   call_validator(valid_redeemer(), tx)
 }
 
@@ -878,45 +843,43 @@ test case2_subsequent_mint_tokens_to_non_plb_fails() fail {
 // First mint with PLB input present: tokens to non-PLB must still fail
 test case3_first_mint_with_plb_spend_tokens_escape_fails() fail {
   let rdmr = OutputIndex(1)
-  let non_plb_output =
-    Output {
-      address: Address {
-        payment_credential: Script(
-          #"99999999999999999999999999999999999999999999999999999999",
+  let non_plb_output = Output {
+    address: Address {
+      payment_credential: Script(
+        #"99999999999999999999999999999999999999999999999999999999",
+      ),
+      stake_credential: Some(
+        Inline(
+          Script(#"77777777777777777777777777777777777777777777777777777777"),
         ),
-        stake_credential: Some(
-          Inline(
-            Script(#"77777777777777777777777777777777777777777777777777777777"),
-          ),
-        ),
-      },
-      value: min_ada
-        |> assets.add(test_own_policy, test_token_name, 25),
-      datum: NoDatum,
-      reference_script: None,
-    }
-  let tx =
-    Transaction {
-      ..transaction.placeholder,
-      // PLB input exists (spending a different programmable token)
-      inputs: [
-        Input {
-          output_reference: OutputReference {
-            transaction_id: #"0000000000000000000000000000000000000000000000000000000000000000",
-            output_index: 0,
-          },
-          output: mint_output(50),
+      ),
+    },
+    value: min_ada
+      |> assets.add(test_own_policy, test_token_name, 25),
+    datum: NoDatum,
+    reference_script: None,
+  }
+  let tx = Transaction {
+    ..transaction.placeholder,
+    // PLB input exists (spending a different programmable token)
+    inputs: [
+      Input {
+        output_reference: OutputReference {
+          transaction_id: #"0000000000000000000000000000000000000000000000000000000000000000",
+          output_index: 0,
         },
-      ],
-      outputs: [
-        mint_output(75),
-        registry_node_output(test_own_policy),
-        non_plb_output,
-      ],
-      mint: from_asset(test_own_policy, test_token_name, 100),
-      withdrawals: [Pair(test_ml_cred, 0)],
-      redeemers: [Pair(Mint(test_own_policy), as_data(rdmr))],
-    }
+        output: mint_output(50),
+      },
+    ],
+    outputs: [
+      mint_output(75),
+      registry_node_output(test_own_policy),
+      non_plb_output,
+    ],
+    mint: from_asset(test_own_policy, test_token_name, 100),
+    withdrawals: [Pair(test_ml_cred, 0)],
+    redeemers: [Pair(Mint(test_own_policy), as_data(rdmr))],
+  }
   call_validator(rdmr, tx)
 }
 
@@ -926,32 +889,31 @@ test case3_first_mint_with_plb_spend_tokens_escape_fails() fail {
 // Spend 100 existing + mint 50 new → 150 in outputs, all at PLB
 test case4_spend_and_mint_same_token_valid() {
   let rdmr = valid_redeemer()
-  let tx =
-    Transaction {
-      ..transaction.placeholder,
-      // Spending existing PLB UTxO with 100 tokens
-      inputs: [
-        Input {
-          output_reference: OutputReference {
-            transaction_id: #"0000000000000000000000000000000000000000000000000000000000000000",
-            output_index: 0,
-          },
-          output: mint_output(100),
+  let tx = Transaction {
+    ..transaction.placeholder,
+    // Spending existing PLB UTxO with 100 tokens
+    inputs: [
+      Input {
+        output_reference: OutputReference {
+          transaction_id: #"0000000000000000000000000000000000000000000000000000000000000000",
+          output_index: 0,
         },
-      ],
-      reference_inputs: [some_ref_input(registry_node_output(test_own_policy))],
-      // 150 total in outputs (100 spent + 50 minted) — all at PLB
-      outputs: [mint_output(150)],
-      mint: from_asset(test_own_policy, test_token_name, 50),
-      withdrawals: [Pair(test_ml_cred, 0), Pair(test_plg_cred, 0)],
-      redeemers: [
-        Pair(Mint(test_own_policy), as_data(rdmr)),
-        Pair(
-          Withdraw(test_plg_cred),
-          as_data(TransferAct { proofs: [TokenExists { node_idx: 0 }] }),
-        ),
-      ],
-    }
+        output: mint_output(100),
+      },
+    ],
+    reference_inputs: [some_ref_input(registry_node_output(test_own_policy))],
+    // 150 total in outputs (100 spent + 50 minted) — all at PLB
+    outputs: [mint_output(150)],
+    mint: from_asset(test_own_policy, test_token_name, 50),
+    withdrawals: [Pair(test_ml_cred, 0), Pair(test_plg_cred, 0)],
+    redeemers: [
+      Pair(Mint(test_own_policy), as_data(rdmr)),
+      Pair(
+        Withdraw(test_plg_cred),
+        as_data(TransferAct { proofs: [TokenExists { node_idx: 0 }] }),
+      ),
+    ],
+  }
   call_validator(rdmr, tx)
 }
 
@@ -991,17 +953,16 @@ test case4_spend_and_mint_defers_to_plglobal() {
   // test deliberately omits this override so the helper's redeemer list
   // stays minimal and absence of the PLGlobal redeemer (post-`withdrawals`
   // override) blocks delegation.
-  let tx =
-    Transaction {
-      ..case4_defers_tx(),
-      redeemers: [
-        Pair(Mint(test_own_policy), as_data(valid_redeemer())),
-        Pair(
-          Withdraw(test_plg_cred),
-          as_data(TransferAct { proofs: [TokenExists { node_idx: 0 }] }),
-        ),
-      ],
-    }
+  let tx = Transaction {
+    ..case4_defers_tx(),
+    redeemers: [
+      Pair(Mint(test_own_policy), as_data(valid_redeemer())),
+      Pair(
+        Withdraw(test_plg_cred),
+        as_data(TransferAct { proofs: [TokenExists { node_idx: 0 }] }),
+      ),
+    ],
+  }
   call_validator(valid_redeemer(), tx)
 }
 
@@ -1015,8 +976,10 @@ test case4_spend_and_mint_defers_to_plglobal() {
 // here, delegation does NOT trigger, `validate_mint_outputs` runs, and the
 // escape to non-PLB is correctly rejected.
 test case4_plb_input_without_plg_cred_does_not_delegate_fails() fail {
-  let tx =
-    Transaction { ..case4_defers_tx(), withdrawals: [Pair(test_ml_cred, 0)] }
+  let tx = Transaction {
+    ..case4_defers_tx(),
+    withdrawals: [Pair(test_ml_cred, 0)],
+  }
   call_validator(valid_redeemer(), tx)
 }
 
@@ -1081,111 +1044,105 @@ fn cip68_ref_output() -> Output {
 // CIP-68 first mint: FT (label 333) + reference token (label 100), OutputIndex
 test cip68_first_mint_ft_and_ref_token() {
   let rdmr = OutputIndex(3)
-  let tx =
-    Transaction {
-      ..transaction.placeholder,
-      outputs: [
-        // Output 0: FT user tokens to PLB
-        cip68_ft_output(1_000_000),
-        // Output 1: CIP-68 reference token to PLB (issuer)
-        cip68_ref_output(),
-        // Output 2: updated covering registry node (no own_policy tokens)
-        registry_node_output(
-          #"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-        ),
-        // Output 3: new registry node for this token
-        registry_node_output(test_own_policy),
-      ],
-      mint: from_asset(test_own_policy, cip68_ft_name, 1_000_000)
-        |> assets.add(test_own_policy, cip68_ref_name, 1),
-      withdrawals: [Pair(test_ml_cred, 0)],
-      redeemers: [Pair(Mint(test_own_policy), as_data(rdmr))],
-    }
+  let tx = Transaction {
+    ..transaction.placeholder,
+    outputs: [
+      // Output 0: FT user tokens to PLB
+      cip68_ft_output(1_000_000),
+      // Output 1: CIP-68 reference token to PLB (issuer)
+      cip68_ref_output(),
+      // Output 2: updated covering registry node (no own_policy tokens)
+      registry_node_output(
+        #"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      ),
+      // Output 3: new registry node for this token
+      registry_node_output(test_own_policy),
+    ],
+    mint: from_asset(test_own_policy, cip68_ft_name, 1_000_000)
+      |> assets.add(test_own_policy, cip68_ref_name, 1),
+    withdrawals: [Pair(test_ml_cred, 0)],
+    redeemers: [Pair(Mint(test_own_policy), as_data(rdmr))],
+  }
   call_validator(rdmr, tx)
 }
 
 // CIP-68 first mint: split FT + ref across separate PLB outputs
 test cip68_first_mint_split_outputs() {
   let rdmr = OutputIndex(2)
-  let tx =
-    Transaction {
-      ..transaction.placeholder,
-      outputs: [
-        cip68_ft_output(500),
-        cip68_ref_output(),
-        registry_node_output(test_own_policy),
-      ],
-      mint: from_asset(test_own_policy, cip68_ft_name, 500)
-        |> assets.add(test_own_policy, cip68_ref_name, 1),
-      withdrawals: [Pair(test_ml_cred, 0)],
-      redeemers: [Pair(Mint(test_own_policy), as_data(rdmr))],
-    }
+  let tx = Transaction {
+    ..transaction.placeholder,
+    outputs: [
+      cip68_ft_output(500),
+      cip68_ref_output(),
+      registry_node_output(test_own_policy),
+    ],
+    mint: from_asset(test_own_policy, cip68_ft_name, 500)
+      |> assets.add(test_own_policy, cip68_ref_name, 1),
+    withdrawals: [Pair(test_ml_cred, 0)],
+    redeemers: [Pair(Mint(test_own_policy), as_data(rdmr))],
+  }
   call_validator(rdmr, tx)
 }
 
 // CIP-68 first mint: both tokens in single PLB output (combined)
 test cip68_first_mint_combined_output() {
-  let combined_output =
-    Output {
-      address: Address {
-        payment_credential: test_plb_cred,
-        stake_credential: Some(
-          Inline(
-            Script(#"77777777777777777777777777777777777777777777777777777777"),
-          ),
+  let combined_output = Output {
+    address: Address {
+      payment_credential: test_plb_cred,
+      stake_credential: Some(
+        Inline(
+          Script(#"77777777777777777777777777777777777777777777777777777777"),
         ),
-      },
-      value: min_ada
-        |> assets.add(test_own_policy, cip68_ft_name, 500)
-        |> assets.add(test_own_policy, cip68_ref_name, 1),
-      datum: NoDatum,
-      reference_script: None,
-    }
+      ),
+    },
+    value: min_ada
+      |> assets.add(test_own_policy, cip68_ft_name, 500)
+      |> assets.add(test_own_policy, cip68_ref_name, 1),
+    datum: NoDatum,
+    reference_script: None,
+  }
   let rdmr = OutputIndex(1)
-  let tx =
-    Transaction {
-      ..transaction.placeholder,
-      outputs: [combined_output, registry_node_output(test_own_policy)],
-      mint: from_asset(test_own_policy, cip68_ft_name, 500)
-        |> assets.add(test_own_policy, cip68_ref_name, 1),
-      withdrawals: [Pair(test_ml_cred, 0)],
-      redeemers: [Pair(Mint(test_own_policy), as_data(rdmr))],
-    }
+  let tx = Transaction {
+    ..transaction.placeholder,
+    outputs: [combined_output, registry_node_output(test_own_policy)],
+    mint: from_asset(test_own_policy, cip68_ft_name, 500)
+      |> assets.add(test_own_policy, cip68_ref_name, 1),
+    withdrawals: [Pair(test_ml_cred, 0)],
+    redeemers: [Pair(Mint(test_own_policy), as_data(rdmr))],
+  }
   call_validator(rdmr, tx)
 }
 
 // CIP-68: ref token escapes to non-PLB — must fail
 test cip68_ref_token_escapes_non_plb_fails() fail {
-  let non_plb_ref =
-    Output {
-      address: Address {
-        payment_credential: Script(
-          #"99999999999999999999999999999999999999999999999999999999",
+  let non_plb_ref = Output {
+    address: Address {
+      payment_credential: Script(
+        #"99999999999999999999999999999999999999999999999999999999",
+      ),
+      stake_credential: Some(
+        Inline(
+          Script(#"77777777777777777777777777777777777777777777777777777777"),
         ),
-        stake_credential: Some(
-          Inline(
-            Script(#"77777777777777777777777777777777777777777777777777777777"),
-          ),
-        ),
-      },
-      value: min_ada
-        |> assets.add(test_own_policy, cip68_ref_name, 1),
-      datum: NoDatum,
-      reference_script: None,
-    }
+      ),
+    },
+    value: min_ada
+      |> assets.add(test_own_policy, cip68_ref_name, 1),
+    datum: NoDatum,
+    reference_script: None,
+  }
   let rdmr = OutputIndex(2)
-  let tx =
-    Transaction {
-      ..transaction.placeholder,
-      outputs: [
-        cip68_ft_output(500),
-        non_plb_ref,
-        registry_node_output(test_own_policy),
-      ],
-      mint: from_asset(test_own_policy, cip68_ft_name, 500)
-        |> assets.add(test_own_policy, cip68_ref_name, 1),
-      withdrawals: [Pair(test_ml_cred, 0)],
-      redeemers: [Pair(Mint(test_own_policy), as_data(rdmr))],
-    }
+  let tx = Transaction {
+    ..transaction.placeholder,
+    outputs: [
+      cip68_ft_output(500),
+      non_plb_ref,
+      registry_node_output(test_own_policy),
+    ],
+    mint: from_asset(test_own_policy, cip68_ft_name, 500)
+      |> assets.add(test_own_policy, cip68_ref_name, 1),
+    withdrawals: [Pair(test_ml_cred, 0)],
+    redeemers: [Pair(Mint(test_own_policy), as_data(rdmr))],
+  }
   call_validator(rdmr, tx)
 }

@@ -17,9 +17,7 @@
 use aiken/collection/list
 use aiken/fuzz
 use cardano/address.{Address, Inline, Script}
-use cardano/assets.{
-  ada_asset_name, ada_policy_id, from_asset,
-}
+use cardano/assets.{ada_asset_name, ada_policy_id, from_asset}
 use cardano/transaction.{
   InlineDatum, Input, Mint, NoDatum, Output, OutputReference, Transaction,
   Withdraw,
@@ -32,7 +30,8 @@ use types.{MintingRegistryProof, RefInput, TokenExists, TransferAct}
 // Test constants (mirrored from issuance_mint.test.ak)
 // ---------------------------------------------------------------------------
 
-const test_plb_cred = Script(#"11111111111111111111111111111111111111111111111111111111")
+const test_plb_cred =
+  Script(#"11111111111111111111111111111111111111111111111111111111")
 
 const test_registry_cs =
   #"22222222222222222222222222222222222222222222222222222222"
@@ -47,9 +46,6 @@ const test_own_policy: ByteArray =
   #"44444444444444444444444444444444444444444444444444444444"
 
 const test_token_name = #"746f6b656e"
-
-const dummy_other_policy: ByteArray =
-  #"55555555555555555555555555555555555555555555555555555555"
 
 const min_ada =
   assets.zero |> assets.add(ada_policy_id, ada_asset_name, 2_000_000)
@@ -99,9 +95,7 @@ fn plb_input_with_policy() -> Input {
         payment_credential: test_plb_cred,
         stake_credential: Some(
           Inline(
-            Script(
-              #"77777777777777777777777777777777777777777777777777777777",
-            ),
+            Script(#"77777777777777777777777777777777777777777777777777777777"),
           ),
         ),
       },
@@ -161,19 +155,18 @@ fn sample_delegate_transferact(
 
   let rdmr = RefInput { index: 0 }
 
-  let tx =
-    Transaction {
-      ..transaction.placeholder,
-      inputs: [plb_input_with_policy()],
-      reference_inputs: [registry_node_ref_input()],
-      outputs: [plb_output_with_policy(150)],
-      mint: from_asset(test_own_policy, test_token_name, 50),
-      withdrawals: [Pair(test_ml_cred, 0), Pair(test_plg_cred, 0)],
-      redeemers: [
-        Pair(Mint(test_own_policy), as_data(rdmr)),
-        Pair(Withdraw(test_plg_cred), as_data(TransferAct { proofs })),
-      ],
-    }
+  let tx = Transaction {
+    ..transaction.placeholder,
+    inputs: [plb_input_with_policy()],
+    reference_inputs: [registry_node_ref_input()],
+    outputs: [plb_output_with_policy(150)],
+    mint: from_asset(test_own_policy, test_token_name, 50),
+    withdrawals: [Pair(test_ml_cred, 0), Pair(test_plg_cred, 0)],
+    redeemers: [
+      Pair(Mint(test_own_policy), as_data(rdmr)),
+      Pair(Withdraw(test_plg_cred), as_data(TransferAct { proofs })),
+    ],
+  }
   fuzz.constant((tx, rdmr))
 }
 
@@ -197,23 +190,21 @@ fn sample_no_delegate_many_outputs(
   let n = size + 1
   let qty_per_output = 50 / n
   let remainder = 50 % n
-  let outputs =
-    list.repeat(plb_output_with_policy(qty_per_output), n - 1)
-      |> list.concat([plb_output_with_policy(qty_per_output + remainder)])
+  let outputs = list.repeat(plb_output_with_policy(qty_per_output), n - 1)
+    |> list.concat([plb_output_with_policy(qty_per_output + remainder)])
 
   let rdmr = RefInput { index: 0 }
 
-  let tx =
-    Transaction {
-      ..transaction.placeholder,
-      inputs: [],
-      reference_inputs: [registry_node_ref_input()],
-      outputs: outputs,
-      mint: from_asset(test_own_policy, test_token_name, 50),
-      // Only minting-logic withdrawal — no PLGlobal.
-      withdrawals: [Pair(test_ml_cred, 0)],
-      redeemers: [Pair(Mint(test_own_policy), as_data(rdmr))],
-    }
+  let tx = Transaction {
+    ..transaction.placeholder,
+    inputs: [],
+    reference_inputs: [registry_node_ref_input()],
+    outputs,
+    mint: from_asset(test_own_policy, test_token_name, 50),
+    // Only minting-logic withdrawal — no PLGlobal.
+    withdrawals: [Pair(test_ml_cred, 0)],
+    redeemers: [Pair(Mint(test_own_policy), as_data(rdmr))],
+  }
   fuzz.constant((tx, rdmr))
 }
 
