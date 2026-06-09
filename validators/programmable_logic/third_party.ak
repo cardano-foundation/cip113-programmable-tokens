@@ -44,7 +44,7 @@ pub fn validate_3rd_party(
   // At the end, all programmable tokens must be account for.
   let minted_or_burned = self.mint |> value.tokens(policy_id)
 
-  check_seized_tokens(
+  validate_io_constraints_and_balance(
     prog_logic_cred,
     policy_id,
     self.inputs,
@@ -85,8 +85,29 @@ fn drop_accum_tokens(
   }
 }
 
-/// Analyze inputs and outputs affected by the 3rd-party action (grossly named *seized_tokens* here).
-fn check_seized_tokens(
+/// Walk PLB inputs paired positionally with PLB outputs, enforcing the two
+/// invariants a well-formed ThirdPartyAct transaction must satisfy:
+///
+///   1. **Per-pair constraints** (per PLB input/output pair):
+///        * `address`, `datum`, and `reference_script` are byte-identical
+///          across the pair (so the seizure doesn't move tokens between
+///          owners, change ownership metadata, or attach/strip reference
+///          scripts).
+///        * For the policy being acted on: the input must already hold
+///          tokens of this policy (Finding 12 — the paired UTxO can be
+///          modified but not contaminated with a foreign policy injected
+///          as if seized from it).
+///        * For every NON-acted-on policy: the input's tokens for that
+///          policy and the paired output's tokens for that policy must be
+///          byte-identical (no spam, no foreign-policy injection — the
+///          `before`/`after` halves of the two `split_at`s must match).
+///
+///   2. **Conservation balance** (once inputs are exhausted): the sum of
+///      the acted-on policy's tokens across all PLB outputs must be a
+///      superset of the sum across all PLB inputs PLUS any mint/burn of
+///      that policy in this transaction. This is what guarantees seized
+///      tokens cannot escape PLB.
+fn validate_io_constraints_and_balance(
   prog_logic_cred: Credential,
   policy_id: PolicyId,
   inputs: List<Input>,
@@ -155,14 +176,22 @@ fn check_seized_tokens(
           policy_id,
         )
 
-        // Seized tokens must change, but only them.
+        // Non-acted-on policies must be byte-identical between input and
+        // paired output (no foreign-policy injection / spam). The acted-on
+        // policy must already be present in the input (Finding 12 —
+        // otherwise this seizure would be CONTAMINATION of an innocent
+        // UTxO that never held the policy). Whether the acted-on policy's
+        // amount changes or not is irrelevant at this layer: equal totals
+        // are economically a no-op but not unsafe, and the redundant
+        // `input_tokens_at != output_tokens_at` check the audit flagged is
+        // intentionally absent.
+        expect !dict.is_empty(input_tokens_at)
         expect and {
             (input_tokens_before == output_tokens_before)?,
             (input_tokens_after == output_tokens_after)?,
-            (input_tokens_at != output_tokens_at)?,
           }
 
-        check_seized_tokens(
+        validate_io_constraints_and_balance(
           prog_logic_cred,
           policy_id,
           tail_inputs,
@@ -171,7 +200,7 @@ fn check_seized_tokens(
           tokens.union(output_tokens_at, output_tokens),
         )
       } else {
-        check_seized_tokens(
+        validate_io_constraints_and_balance(
           prog_logic_cred,
           policy_id,
           tail_inputs,
