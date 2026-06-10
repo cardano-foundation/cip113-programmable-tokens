@@ -767,16 +767,13 @@ bench many_outputs((self, redeemer) via sample_many_outputs) {
 /// so the base.spend cost is also accounted for.
 /// ------------------------------------------------------------------------------------------------
 test unfracking_baseline_two_policies() {
-  let policy_a: PolicyId =
-    #"00000000000000000000000000000000000000000000000000000a00"
-  let policy_b: PolicyId =
-    #"00000000000000000000000000000000000000000000000000000b00"
+  let policy_a: PolicyId = #"00000000000000000000000000000000000000000000000000000a00"
+  let policy_b: PolicyId = #"00000000000000000000000000000000000000000000000000000b00"
 
-  let (self, redeemer) =
-    fixture.some_unfracking(
-      [(policy_a, "FOO", 100), (policy_b, "BAR", 100)],
-      [[(policy_a, "FOO", 100)], [(policy_b, "BAR", 100)]],
-    )
+  let (self, redeemer) = fixture.some_unfracking(
+    [(policy_a, "FOO", 100), (policy_b, "BAR", 100)],
+    [[(policy_a, "FOO", 100)], [(policy_b, "BAR", 100)]],
+  )
 
   programmable_logic(self, redeemer)
 }
@@ -792,14 +789,13 @@ test unfracking_baseline_two_policies() {
 fn sample_unfracking_many_policies(
   size: Int,
 ) -> Fuzzer<(Transaction, ProgrammableLogicGlobalRedeemer)> {
-  let tokens: List<(PolicyId, AssetName, Int)> <-
-    fuzz.map(
-      fuzz.list_between(
-        cardano.policy_id() |> fuzz.map(fn(policy) { (policy, "FOO", 42) }),
-        size + 1,
-        size + 1,
-      ),
-    )
+  let tokens: List<(PolicyId, AssetName, Int)> <- fuzz.map(
+    fuzz.list_between(
+      cardano.policy_id() |> fuzz.map(fn(policy) { (policy, "FOO", 42) }),
+      size + 1,
+      size + 1,
+    ),
+  )
 
   // Each policy gets its own single-policy output.
   let output_layouts = list.map(tokens, fn(t) { [t] })
