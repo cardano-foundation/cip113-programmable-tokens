@@ -14,6 +14,7 @@ use types.{
   ProgrammableLogicGlobalRedeemer, ThirdPartyAct, TokenDoesNotExist, TokenExists,
   TransferAct,
 }
+use unfracking_global
 
 fn programmable_logic(
   self: Transaction,
@@ -30,6 +31,7 @@ fn programmable_logic(
     ),
     programmable_logic_global.programmable_logic_global.withdraw(
       fixture.policy_protocol_params,
+      fixture.script_unfracking_global,
       redeemer,
       fixture.credential_validator_logic_global,
       self,
@@ -629,6 +631,7 @@ const fixture_redeemer_plutarch_baseline_transfer_3: ProgrammableLogicGlobalRede
 test plutarch_baseline_transfer_3() {
   programmable_logic_global.programmable_logic_global.withdraw(
     fixture.policy_protocol_params,
+    fixture.script_unfracking_global,
     fixture_redeemer_plutarch_baseline_transfer_3,
     fixture.credential_validator_logic_global,
     fixture_plutarch_baseline_transfer_3,
@@ -757,14 +760,34 @@ bench many_outputs((self, redeemer) via sample_many_outputs) {
   programmable_logic(self, redeemer)
 }
 
+/// Composition wrapper for unfracking transactions: on-chain, an
+/// unfracking tx runs base.spend (per PLB input), PLG.withdraw with
+/// UnfrackingAct (the delegation gate), AND the standalone
+/// unfracking_global.withdraw where the invariants live. Benching all
+/// three accounts for the full execution cost of the action.
+fn programmable_logic_unfracking(
+  self: Transaction,
+  redeemer: ProgrammableLogicGlobalRedeemer,
+) -> Bool {
+  and {
+    programmable_logic(self, redeemer),
+    unfracking_global.unfracking_global.withdraw(
+      fixture.policy_protocol_params,
+      Void,
+      fixture.credential_validator_unfracking,
+      self,
+    ),
+  }
+}
+
 /// --- Bench: unfracking baseline (Finding 17) ------------------------------------------------------
 ///
 /// The canonical Unfracking case: a single multi-policy PLB UTxO is
 /// broken into one single-policy UTxO per policy. Both new UTxOs stay
 /// at PLB under the holder's authorised stake credential.
 ///
-/// Calls the same `programmable_logic` wrapper as the other baselines
-/// so the base.spend cost is also accounted for.
+/// Calls the `programmable_logic_unfracking` wrapper so the base.spend
+/// and PLG-gate costs are also accounted for.
 /// ------------------------------------------------------------------------------------------------
 test unfracking_baseline_two_policies() {
   let policy_a: PolicyId = #"00000000000000000000000000000000000000000000000000000a00"
@@ -775,7 +798,7 @@ test unfracking_baseline_two_policies() {
     [[(policy_a, "FOO", 100)], [(policy_b, "BAR", 100)]],
   )
 
-  programmable_logic(self, redeemer)
+  programmable_logic_unfracking(self, redeemer)
 }
 
 /// --- Bench: unfracking — policies axis (Finding 17) -----------------------------------------------
@@ -806,5 +829,5 @@ fn sample_unfracking_many_policies(
 bench unfracking_many_policies(
   (self, redeemer) via sample_unfracking_many_policies,
 ) {
-  programmable_logic(self, redeemer)
+  programmable_logic_unfracking(self, redeemer)
 }

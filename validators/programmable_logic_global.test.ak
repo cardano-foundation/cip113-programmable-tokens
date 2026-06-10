@@ -348,6 +348,7 @@ fn validate_third_party_with_outputs(
 
   programmable_logic_global.programmable_logic_global.withdraw(
     fixture.policy_protocol_params,
+    fixture.script_unfracking_global,
     redeemer,
     fixture.credential_validator_logic_global,
     tx,
@@ -472,6 +473,7 @@ test third_party_act_seized_tokens_escape_prog_cred_must_fail() fail {
 
   programmable_logic_global.programmable_logic_global.withdraw(
     fixture.policy_protocol_params,
+    fixture.script_unfracking_global,
     redeemer,
     fixture.credential_validator_logic_global,
     tx,
@@ -517,6 +519,7 @@ test third_party_act_seized_tokens_to_prog_cred_succeeds() {
 
   programmable_logic_global.programmable_logic_global.withdraw(
     fixture.policy_protocol_params,
+    fixture.script_unfracking_global,
     redeemer,
     fixture.credential_validator_logic_global,
     tx,
@@ -564,6 +567,7 @@ test third_party_act_partial_seizure_succeeds() {
 
   programmable_logic_global.programmable_logic_global.withdraw(
     fixture.policy_protocol_params,
+    fixture.script_unfracking_global,
     redeemer,
     fixture.credential_validator_logic_global,
     tx,
@@ -609,6 +613,7 @@ test third_party_act_delta_insufficient_remaining_fails() fail {
 
   programmable_logic_global.programmable_logic_global.withdraw(
     fixture.policy_protocol_params,
+    fixture.script_unfracking_global,
     redeemer,
     fixture.credential_validator_logic_global,
     tx,
@@ -663,6 +668,7 @@ test transfer_act_partial_burn_with_mint_proofs_succeeds() {
 
   programmable_logic_global.programmable_logic_global.withdraw(
     fixture.policy_protocol_params,
+    fixture.script_unfracking_global,
     redeemer,
     fixture.credential_validator_logic_global,
     tx,
@@ -707,6 +713,7 @@ test transfer_act_with_minting_succeeds() {
 
   programmable_logic_global.programmable_logic_global.withdraw(
     fixture.policy_protocol_params,
+    fixture.script_unfracking_global,
     redeemer,
     fixture.credential_validator_logic_global,
     tx,
@@ -763,6 +770,7 @@ test transfer_act_transfer_plus_independent_pure_mint_succeeds() {
 
   programmable_logic_global.programmable_logic_global.withdraw(
     fixture.policy_protocol_params,
+    fixture.script_unfracking_global,
     redeemer,
     fixture.credential_validator_logic_global,
     tx,
@@ -805,6 +813,7 @@ test transfer_act_with_only_minting_succeeds() {
 
   programmable_logic_global.programmable_logic_global.withdraw(
     fixture.policy_protocol_params,
+    fixture.script_unfracking_global,
     redeemer,
     fixture.credential_validator_logic_global,
     tx,
@@ -850,6 +859,7 @@ test transfer_act_pure_mint_with_unnecessary_proof_must_fail() fail {
 
   programmable_logic_global.programmable_logic_global.withdraw(
     fixture.policy_protocol_params,
+    fixture.script_unfracking_global,
     redeemer,
     fixture.credential_validator_logic_global,
     tx,
@@ -884,6 +894,7 @@ test transfer_act_pure_mint_without_transfer_logic_succeeds() {
 
   programmable_logic_global.programmable_logic_global.withdraw(
     fixture.policy_protocol_params,
+    fixture.script_unfracking_global,
     redeemer,
     fixture.credential_validator_logic_global,
     tx,
@@ -922,6 +933,7 @@ test transfer_act_burning_compensate_spending() {
 
   programmable_logic_global.programmable_logic_global.withdraw(
     fixture.policy_protocol_params,
+    fixture.script_unfracking_global,
     redeemer,
     fixture.credential_validator_logic_global,
     tx,
@@ -964,6 +976,7 @@ test transfer_act_entirely_burning_one_token() {
 
   programmable_logic_global.programmable_logic_global.withdraw(
     fixture.policy_protocol_params,
+    fixture.script_unfracking_global,
     redeemer,
     fixture.credential_validator_logic_global,
     tx,
@@ -1002,6 +1015,7 @@ test transfer_act_entirely_burning_one_token_fail_if_other_missing() fail {
 
   programmable_logic_global.programmable_logic_global.withdraw(
     fixture.policy_protocol_params,
+    fixture.script_unfracking_global,
     redeemer,
     fixture.credential_validator_logic_global,
     tx,
@@ -1039,6 +1053,7 @@ test transfer_act_unauthorized_burning_compensate_spending_fails() fail {
 
   programmable_logic_global.programmable_logic_global.withdraw(
     fixture.policy_protocol_params,
+    fixture.script_unfracking_global,
     redeemer,
     fixture.credential_validator_logic_global,
     tx,
@@ -1074,6 +1089,7 @@ test transfer_act_burning_compensate_spending_unproven_token_fails() fail {
 
   programmable_logic_global.programmable_logic_global.withdraw(
     fixture.policy_protocol_params,
+    fixture.script_unfracking_global,
     redeemer,
     fixture.credential_validator_logic_global,
     tx,
@@ -1125,6 +1141,7 @@ test third_party_act_wipe_full_burn_succeeds() {
 
   programmable_logic_global.programmable_logic_global.withdraw(
     fixture.policy_protocol_params,
+    fixture.script_unfracking_global,
     redeemer,
     fixture.credential_validator_logic_global,
     tx,
@@ -1171,6 +1188,7 @@ test third_party_act_wipe_partial_burn_succeeds() {
 
   programmable_logic_global.programmable_logic_global.withdraw(
     fixture.policy_protocol_params,
+    fixture.script_unfracking_global,
     redeemer,
     fixture.credential_validator_logic_global,
     tx,
@@ -1220,6 +1238,7 @@ test third_party_act_wipe_seize_and_partial_burn() {
 
   programmable_logic_global.programmable_logic_global.withdraw(
     fixture.policy_protocol_params,
+    fixture.script_unfracking_global,
     redeemer,
     fixture.credential_validator_logic_global,
     tx,
@@ -1266,6 +1285,7 @@ test third_party_act_wipe_insufficient_after_burn_fails() fail {
 
   programmable_logic_global.programmable_logic_global.withdraw(
     fixture.policy_protocol_params,
+    fixture.script_unfracking_global,
     redeemer,
     fixture.credential_validator_logic_global,
     tx,
@@ -1305,6 +1325,7 @@ test third_party_act_unauthorized_burn_compensate_spend() fail {
 
   programmable_logic_global.programmable_logic_global.withdraw(
     fixture.policy_protocol_params,
+    fixture.script_unfracking_global,
     redeemer,
     fixture.credential_validator_logic_global,
     tx,
@@ -1347,6 +1368,7 @@ test third_party_act_unproven_burn_compensate_spend() fail {
 
   programmable_logic_global.programmable_logic_global.withdraw(
     fixture.policy_protocol_params,
+    fixture.script_unfracking_global,
     redeemer,
     fixture.credential_validator_logic_global,
     tx,
@@ -1416,6 +1438,7 @@ test third_party_act_same_policy_mint_during_seizure_succeeds() {
 
   programmable_logic_global.programmable_logic_global.withdraw(
     fixture.policy_protocol_params,
+    fixture.script_unfracking_global,
     redeemer,
     fixture.credential_validator_logic_global,
     tx,
@@ -1462,6 +1485,7 @@ test third_party_act_same_policy_mint_insufficient_output_fails() fail {
 
   programmable_logic_global.programmable_logic_global.withdraw(
     fixture.policy_protocol_params,
+    fixture.script_unfracking_global,
     redeemer,
     fixture.credential_validator_logic_global,
     tx,
@@ -1512,6 +1536,7 @@ test third_party_act_unrelated_policy_mint_succeeds() {
 
   programmable_logic_global.programmable_logic_global.withdraw(
     fixture.policy_protocol_params,
+    fixture.script_unfracking_global,
     redeemer,
     fixture.credential_validator_logic_global,
     tx,
@@ -1561,6 +1586,7 @@ test third_party_act_wipe_burn_plus_unrelated_mint_succeeds() {
 
   programmable_logic_global.programmable_logic_global.withdraw(
     fixture.policy_protocol_params,
+    fixture.script_unfracking_global,
     redeemer,
     fixture.credential_validator_logic_global,
     tx,
@@ -1606,6 +1632,7 @@ test transfer_act_mint_insufficient_output_fails() fail {
 
   programmable_logic_global.programmable_logic_global.withdraw(
     fixture.policy_protocol_params,
+    fixture.script_unfracking_global,
     redeemer,
     fixture.credential_validator_logic_global,
     tx,
@@ -1688,6 +1715,7 @@ fn validate_third_party_with_inputs_and_outputs(
   let redeemer = ThirdPartyAct { registry_node_idx: 1, outputs_start_idx }
   programmable_logic_global.programmable_logic_global.withdraw(
     fixture.policy_protocol_params,
+    fixture.script_unfracking_global,
     redeemer,
     fixture.credential_validator_logic_global,
     tx,

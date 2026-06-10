@@ -33,12 +33,19 @@ pub type ProgrammableLogicGlobalRedeemer {
   /// one policy stops collateral-damaging unrelated policies that
   /// happened to share the same UTxO.
   ///
-  /// No payload: the validator infers everything it needs from the
-  /// transaction shape. Caller proves authorisation by signing for
-  /// (or invoking the script of) every PLB input being unfracked;
-  /// the validator enforces value conservation per policy at the PLB
-  /// boundary and refuses to route tokens to any stake credential the
-  /// caller did not authorise.
+  /// No payload: the unfracking validator infers everything it needs
+  /// from the transaction shape. Caller proves authorisation by
+  /// signing for (or invoking the script of) every PLB input being
+  /// unfracked; the validator enforces value conservation per policy
+  /// at the PLB boundary and refuses to route tokens to any stake
+  /// credential the caller did not authorise.
+  ///
+  /// The invariants do NOT live in programmable_logic_global: under
+  /// this redeemer, PLG only requires that the standalone
+  /// `unfracking_global` withdraw-0 validator (whose script hash is a
+  /// PLG compile-time parameter) is invoked in the same transaction.
+  /// This keeps the hot-path PLG reference script ~600 bytes smaller;
+  /// only unfracking transactions pay for the unfracking logic.
   UnfrackingAct
 }
 

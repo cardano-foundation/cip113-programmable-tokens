@@ -38,6 +38,15 @@ pub const credential_validator_logic_base: Credential =
 pub const credential_validator_logic_global: Credential =
   Credential.Script(#"0000000000000000000000000000000000000000000000000001091c")
 
+/// Arbitrary script hash representing the unfracking_global validator
+/// (Finding 17). PLG is parameterised with this hash; an UnfrackingAct
+/// transaction must carry this script's withdraw-0.
+pub const script_unfracking_global: ByteArray =
+  #"00000000000000000000000000000000000000000000000000def17a"
+
+pub const credential_validator_unfracking: Credential =
+  Credential.Script(script_unfracking_global)
+
 /// Arbitrary script hash representing the protocol params NFT's minting script
 pub const policy_protocol_params: PolicyId =
   #"000000000000000000000000000000000000000000000000000005ef"
@@ -64,6 +73,22 @@ pub const withdrawals_3rd_party: Pairs<Credential, Int> =
     Pair(credential_validator_logic_global, 0),
     // The artificial withdraw-0 to execute the 3rd party logic
     Pair(credential_3rd_party_logic, 0),
+  ]
+
+/// Typical withdrawals found in an unfracking transaction (Finding 17).
+/// Three scripts compose: PLG (required by every PLB base spend), the
+/// standalone unfracking_global validator (required by PLG under
+/// UnfrackingAct), and the transfer-logic script (authorises the
+/// script-staked PLB inputs — same authorisation pattern as TransferAct;
+/// a vkey-staked holder signs instead and omits this one).
+pub const withdrawals_unfracking: Pairs<Credential, Int> =
+  [
+    // The artificial withdraw-0 to execute the global logic
+    Pair(credential_validator_logic_global, 0),
+    // The artificial withdraw-0 to execute the unfracking invariants
+    Pair(credential_validator_unfracking, 0),
+    // The artificial withdraw-0 authorising the script-staked PLB inputs
+    Pair(credential_transfer_logic, 0),
   ]
 
 /// Parameters for a specific instance of the registry.
@@ -333,8 +358,10 @@ pub fn some_transfer(
 /// each carrying the inner list of tokens.
 ///
 /// All inputs and outputs use the default `credential_transfer_logic`
-/// stake credential, so the only authorisation required is that
-/// script's withdraw-0 (already in `withdrawals_transfer`).
+/// stake credential, so input authorisation comes from that script's
+/// withdraw-0 (part of `withdrawals_unfracking`, together with the PLG
+/// and unfracking_global withdraw-0s — the full script composition of
+/// a real unfracking transaction).
 ///
 /// No registry node references are required — Unfracking does not
 /// consult the registry — so the only reference input is the
@@ -343,22 +370,18 @@ pub fn some_unfracking(
   input_tokens: List<(PolicyId, AssetName, Int)>,
   output_layouts: List<List<(PolicyId, AssetName, Int)>>,
 ) -> (Transaction, ProgrammableLogicGlobalRedeemer) {
-  let outputs =
-    list.map(output_layouts, some_output_with_programmable_tokens)
+  let outputs = list.map(output_layouts, some_output_with_programmable_tokens)
   (
     Transaction {
       ..transaction.placeholder,
       inputs: [
-        some_input_with_programmable_tokens(
-          input_tokens,
-          "unfracking input",
-        ),
+        some_input_with_programmable_tokens(input_tokens, "unfracking input"),
       ],
-      outputs: outputs,
+      outputs,
       reference_inputs: [
         some_reference_input_protocol_params(protocol_params, "protocol params"),
       ],
-      withdrawals: withdrawals_transfer,
+      withdrawals: withdrawals_unfracking,
     },
     UnfrackingAct,
   )

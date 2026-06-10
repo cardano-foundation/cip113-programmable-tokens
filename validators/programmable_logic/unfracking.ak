@@ -1,4 +1,12 @@
-//// Programmable Logic Global — Unfracking action (Finding 17)
+//// Unfracking invariants (Finding 17)
+////
+//// This module is the engine of the standalone `unfracking_global`
+//// withdraw-0 validator. Under the `UnfrackingAct` redeemer,
+//// `programmable_logic_global` (PLG) does NOT run this logic — it only
+//// requires `unfracking_global`'s withdrawal to be present, keeping the
+//// hot-path PLG reference script small. See `unfracking_global`'s
+//// module docs for the delegation rationale and the composition of
+//// scripts in an unfracking transaction.
 ////
 //// Finding 17: lets a holder restructure their own PLB UTxOs without
 //// invoking any substandard transfer logic. The validator's contract is
@@ -80,10 +88,8 @@ pub fn validate_unfracking(
   // the equality check.
   expect value.is_zero(self.mint)
 
-  let has_signatory =
-    list.has_or_fail(self.extra_signatories, _)
-  let has_withdrawal_cred =
-    pairs.has_key_or_fail(self.withdrawals, _)
+  let has_signatory = list.has_or_fail(self.extra_signatories, _)
+  let has_withdrawal_cred = pairs.has_key_or_fail(self.withdrawals, _)
 
   // Two-phase input scan:
   //   * `collect_plb_inputs`    — finds and authorises the FIRST PLB input,
@@ -96,22 +102,22 @@ pub fn validate_unfracking(
   //                                PLB input it sees must match the target.
   // Splitting the loop along the find-first/continue-with-target boundary
   // keeps `Option<Credential>` out of the hot loop entirely.
-  let
-    input_assets,
-    owner_cred,
-  <-
-    collect_plb_inputs(
-      self.inputs,
-      prog_logic_cred,
-      has_signatory,
-      has_withdrawal_cred,
-    )
+  let input_assets, owner_cred <- collect_plb_inputs(
+    self.inputs,
+    prog_logic_cred,
+    has_signatory,
+    has_withdrawal_cred,
+  )
 
   // Output scan: collect Assets from outputs at PLB AND require every
   // such output's stake credential to equal `owner_cred`. Folding both
   // checks into the same traversal keeps the cost down.
-  let output_assets =
-    collect_plb_outputs(self.outputs, prog_logic_cred, owner_cred, [])
+  let output_assets = collect_plb_outputs(
+    self.outputs,
+    prog_logic_cred,
+    owner_cred,
+    [],
+  )
 
   // Conservation per policy/token: the total at PLB must be identical
   // input-to-output. Equality (not containment) is intentional — see
@@ -155,10 +161,9 @@ fn collect_plb_inputs(
             expect has_withdrawal_cred(stake_cred)
           }
         }
-        let initial_assets =
-          output.value
-            |> assets.from_value
-            |> list.tail
+        let initial_assets = output.value
+          |> assets.from_value
+          |> list.tail
         do_collect_plb_inputs(
           tail,
           prog_logic_cred,
@@ -200,13 +205,12 @@ fn do_collect_plb_inputs(
       if output.address.payment_credential == prog_logic_cred {
         expect Some(Inline(stake_cred)) = output.address.stake_credential
         expect stake_cred == target_cred
-        let next_assets =
-          assets.union(
-            output.value
-              |> assets.from_value
-              |> list.tail,
-            acc_assets,
-          )
+        let next_assets = assets.union(
+          output.value
+            |> assets.from_value
+            |> list.tail,
+          acc_assets,
+        )
         do_collect_plb_inputs(
           tail,
           prog_logic_cred,
@@ -254,13 +258,12 @@ fn collect_plb_outputs(
         expect Some(Inline(stake_cred)) = output.address.stake_credential
         // Single-owner gate: outputs may only carry the pinned cred.
         expect stake_cred == target_cred
-        let next_assets =
-          assets.union(
-            output.value
-              |> assets.from_value
-              |> list.tail,
-            acc_assets,
-          )
+        let next_assets = assets.union(
+          output.value
+            |> assets.from_value
+            |> list.tail,
+          acc_assets,
+        )
         collect_plb_outputs(tail, prog_logic_cred, target_cred, next_assets)
       } else {
         collect_plb_outputs(tail, prog_logic_cred, target_cred, acc_assets)
