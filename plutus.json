@@ -413,7 +413,7 @@
       "hash": "7919e8709ae8c7f5f88ff8e73a2fd169ed8edd83201bf54537a595f0"
     },
     {
-      "title": "unfracking_global.unfracking_global.withdraw",
+      "title": "unfracking.unfracking.withdraw",
       "redeemer": {
         "title": "_redeemer",
         "schema": {
@@ -432,7 +432,7 @@
       "hash": "96270afe5cb51c6161d7f4529d66643f1d37ce1538edbbd7679806fd"
     },
     {
-      "title": "unfracking_global.unfracking_global.publish",
+      "title": "unfracking.unfracking.publish",
       "redeemer": {
         "title": "_r",
         "schema": {
@@ -451,7 +451,7 @@
       "hash": "96270afe5cb51c6161d7f4529d66643f1d37ce1538edbbd7679806fd"
     },
     {
-      "title": "unfracking_global.unfracking_global.else",
+      "title": "unfracking.unfracking.else",
       "redeemer": {
         "schema": {}
       },
@@ -608,7 +608,7 @@
         },
         {
           "title": "UnfrackingAct",
-          "description": "Finding 17: Unfracking action — let a holder redistribute the\n programmable tokens they already hold across multiple PLB UTxOs\n WITHOUT invoking any substandard transfer logic. Used to break\n up multi-policy UTxOs into single-policy UTxOs so a freeze on\n one policy stops collateral-damaging unrelated policies that\n happened to share the same UTxO.\n\n No payload: the unfracking validator infers everything it needs\n from the transaction shape. Caller proves authorisation by\n signing for (or invoking the script of) every PLB input being\n unfracked; the validator enforces value conservation per policy\n at the PLB boundary and refuses to route tokens to any stake\n credential the caller did not authorise.\n\n The invariants do NOT live in programmable_logic_global: under\n this redeemer, PLG only requires that the standalone\n `unfracking_global` withdraw-0 validator (whose credential is the\n `unfracking_cred` field of the protocol-params datum) is invoked\n in the same transaction. This keeps the hot-path PLG reference\n script ~600 bytes smaller; only unfracking transactions pay for\n the unfracking logic.",
+          "description": "Finding 17: Unfracking action — let a holder redistribute the\n programmable tokens they already hold across multiple PLB UTxOs\n WITHOUT invoking any substandard transfer logic. Used to break\n up multi-policy UTxOs into single-policy UTxOs so a freeze on\n one policy stops collateral-damaging unrelated policies that\n happened to share the same UTxO.\n\n No payload: the unfracking validator infers everything it needs\n from the transaction shape. Caller proves authorisation by\n signing for (or invoking the script of) every PLB input being\n unfracked; the validator enforces value conservation per policy\n at the PLB boundary and refuses to route tokens to any stake\n credential the caller did not authorise.\n\n The invariants do NOT live in programmable_logic_global: under\n this redeemer, PLG only requires that the standalone\n `unfracking` withdraw-0 validator (whose credential is the\n `unfracking_cred` field of the protocol-params datum) is invoked\n in the same transaction. This keeps the hot-path PLG reference\n script ~600 bytes smaller; only unfracking transactions pay for\n the unfracking logic.",
           "dataType": "constructor",
           "index": 2,
           "fields": []

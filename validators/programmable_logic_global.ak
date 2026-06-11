@@ -67,7 +67,7 @@ validator programmable_logic_global(params_policy: PolicyId) {
       // Finding 17: holder-driven UTxO redistribution. No registry node,
       // no proofs, no substandard logic — purely a value-preserving
       // reshape of the holder's own PLB UTxOs. The invariants are
-      // enforced by the standalone unfracking_global withdraw-0
+      // enforced by the standalone unfracking withdraw-0
       // validator, whose credential lives in the protocol-params datum
       // (field 2 — read only by this branch); PLG only gates on its
       // presence so the hot-path reference script stays small.

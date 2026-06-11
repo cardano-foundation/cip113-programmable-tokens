@@ -14,7 +14,7 @@ pub type ProgrammableLogicGlobalParams {
   registry_node_cs: PolicyId,
   /// The programmable logic base credential (payment credential for all programmable token UTxOs)
   prog_logic_cred: Credential,
-  /// Credential of the unfracking_global withdraw-0 validator (Finding 17).
+  /// Credential of the unfracking withdraw-0 validator (Finding 17).
   /// Appended LAST on purpose: the transfer / third-party hot path reads
   /// only the first two fields, so it pays nothing for this one.
   unfracking_cred: Credential,
@@ -57,7 +57,7 @@ pub fn prog_logic_cred_field(fields: List<Data>) -> Credential {
   prog_logic_cred
 }
 
-/// Field 2: the unfracking_global withdraw-0 credential (Finding 17).
+/// Field 2: the unfracking withdraw-0 credential (Finding 17).
 /// Only the UnfrackingAct branch of PLG reads this far into the datum.
 pub fn unfracking_cred_field(fields: List<Data>) -> Credential {
   expect unfracking_cred: Credential = head_list(tail_list(tail_list(fields)))

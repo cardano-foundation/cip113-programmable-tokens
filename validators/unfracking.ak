@@ -1,4 +1,4 @@
-//// Unfracking Global Stake Validator (Finding 17)
+//// Unfracking Stake Validator (Finding 17)
 ////
 //// Standalone withdraw-0 validator carrying the Unfracking invariants
 //// (see `programmable_logic/unfracking` for the invariants themselves
@@ -24,7 +24,7 @@
 ////     requires THIS validator's withdraw-0 to be present. PLG reads
 ////     this script's credential from the `unfracking_cred` field of
 ////     the protocol-params datum (written at deployment time).
-////   * unfracking_global.withdraw (this validator) — enforces all the
+////   * unfracking.withdraw (this validator) — enforces all the
 ////     Unfracking invariants.
 ////
 //// Security shape: this delegation is purely RESTRICTIVE. This script
@@ -47,11 +47,11 @@ use cardano/transaction.{Transaction}
 use programmable_logic/params.{
   prog_logic_cred_field, with_protocol_params_fields,
 }
-use programmable_logic/unfracking.{validate_unfracking}
+use programmable_logic/unfracking as invariants
 
-validator unfracking_global(params_policy: PolicyId) {
+validator unfracking(params_policy: PolicyId) {
   withdraw(_redeemer: Data, _account: Credential, self: Transaction) {
-    trace @"Starting unfracking_global validation"
+    trace @"Starting unfracking validation"
 
     // Extract protocol parameters from reference inputs; only the PLB
     // payment credential (field 1) is needed — Unfracking never
@@ -61,7 +61,7 @@ validator unfracking_global(params_policy: PolicyId) {
       params_policy,
     )
 
-    validate_unfracking(self, prog_logic_cred_field(fields))
+    invariants.validate_unfracking(self, prog_logic_cred_field(fields))
   }
 
   publish(_r: Data, c: Certificate, _s: Transaction) {

@@ -14,7 +14,7 @@ use types.{
   ProgrammableLogicGlobalRedeemer, ThirdPartyAct, TokenDoesNotExist, TokenExists,
   TransferAct,
 }
-use unfracking_global
+use unfracking
 
 fn programmable_logic(
   self: Transaction,
@@ -761,7 +761,7 @@ bench many_outputs((self, redeemer) via sample_many_outputs) {
 /// Composition wrapper for unfracking transactions: on-chain, an
 /// unfracking tx runs base.spend (per PLB input), PLG.withdraw with
 /// UnfrackingAct (the delegation gate), AND the standalone
-/// unfracking_global.withdraw where the invariants live. Benching all
+/// unfracking.withdraw where the invariants live. Benching all
 /// three accounts for the full execution cost of the action.
 fn programmable_logic_unfracking(
   self: Transaction,
@@ -769,7 +769,7 @@ fn programmable_logic_unfracking(
 ) -> Bool {
   and {
     programmable_logic(self, redeemer),
-    unfracking_global.unfracking_global.withdraw(
+    unfracking.unfracking.withdraw(
       fixture.policy_protocol_params,
       Void,
       fixture.credential_validator_unfracking,

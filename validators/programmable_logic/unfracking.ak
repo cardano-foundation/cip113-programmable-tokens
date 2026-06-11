@@ -1,10 +1,10 @@
 //// Unfracking invariants (Finding 17)
 ////
-//// This module is the engine of the standalone `unfracking_global`
+//// This module is the engine of the standalone `unfracking`
 //// withdraw-0 validator. Under the `UnfrackingAct` redeemer,
 //// `programmable_logic_global` (PLG) does NOT run this logic — it only
-//// requires `unfracking_global`'s withdrawal to be present, keeping the
-//// hot-path PLG reference script small. See `unfracking_global`'s
+//// requires `unfracking`'s withdrawal to be present, keeping the
+//// hot-path PLG reference script small. See `unfracking`'s
 //// module docs for the delegation rationale and the composition of
 //// scripts in an unfracking transaction.
 ////

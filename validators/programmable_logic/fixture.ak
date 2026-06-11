@@ -38,7 +38,7 @@ pub const credential_validator_logic_base: Credential =
 pub const credential_validator_logic_global: Credential =
   Credential.Script(#"0000000000000000000000000000000000000000000000000001091c")
 
-/// Arbitrary script credential representing the unfracking_global
+/// Arbitrary script credential representing the unfracking
 /// validator (Finding 17). Carried by the protocol-params datum
 /// (`unfracking_cred`); an UnfrackingAct transaction must carry this
 /// script's withdraw-0.
@@ -75,7 +75,7 @@ pub const withdrawals_3rd_party: Pairs<Credential, Int> =
 
 /// Typical withdrawals found in an unfracking transaction (Finding 17).
 /// Three scripts compose: PLG (required by every PLB base spend), the
-/// standalone unfracking_global validator (required by PLG under
+/// standalone unfracking validator (required by PLG under
 /// UnfrackingAct), and the transfer-logic script (authorises the
 /// script-staked PLB inputs — same authorisation pattern as TransferAct;
 /// a vkey-staked holder signs instead and omits this one).
@@ -359,7 +359,7 @@ pub fn some_transfer(
 /// All inputs and outputs use the default `credential_transfer_logic`
 /// stake credential, so input authorisation comes from that script's
 /// withdraw-0 (part of `withdrawals_unfracking`, together with the PLG
-/// and unfracking_global withdraw-0s — the full script composition of
+/// and unfracking withdraw-0s — the full script composition of
 /// a real unfracking transaction).
 ///
 /// No registry node references are required — Unfracking does not

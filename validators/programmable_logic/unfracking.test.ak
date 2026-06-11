@@ -13,11 +13,11 @@
 ////   * programmable_logic_base.spend — per PLB input; requires PLG's
 ////     withdraw-0.
 ////   * programmable_logic_global.withdraw (UnfrackingAct) — requires
-////     unfracking_global's withdraw-0 (the delegation gate).
-////   * unfracking_global.withdraw — enforces the invariants tested
+////     unfracking's withdraw-0 (the delegation gate).
+////   * unfracking.withdraw — enforces the invariants tested
 ////     here.
 ////
-//// The invariant tests drive `unfracking_global` directly; the gate
+//// The invariant tests drive `unfracking` directly; the gate
 //// tests at the bottom drive PLG; one end-to-end test composes all
 //// three, mirroring the benchmark wrapper pattern.
 ////
@@ -35,7 +35,7 @@ use programmable_logic/params.{ProgrammableLogicGlobalParams}
 use programmable_logic_base
 use programmable_logic_global
 use types.{UnfrackingAct}
-use unfracking_global
+use unfracking
 
 // --------------------------------------------------------------------- types
 
@@ -93,7 +93,7 @@ fn unfracked_outputs() -> List<Output> {
 /// The valid Unfracking transaction skeleton: one fracked PLB input,
 /// two single-policy PLB outputs, no mint, and the full unfracking
 /// withdrawal composition — PLG (for the base spends), the
-/// unfracking_global script itself (PLG's delegation gate), and the
+/// unfracking script itself (PLG's delegation gate), and the
 /// transfer-logic script whose withdraw-0 discharges the authorisation
 /// requirement (the input's stake credential is that script).
 fn valid_unfracking_tx() -> Transaction {
@@ -111,12 +111,12 @@ fn valid_unfracking_tx() -> Transaction {
   }
 }
 
-/// Dispatch helper — drives the standalone `unfracking_global.withdraw`
+/// Dispatch helper — drives the standalone `unfracking.withdraw`
 /// validator (where the Finding 17 invariants live) over a
 /// caller-provided transaction. The redeemer is opaque `Data` — the
 /// validator infers everything from the transaction shape.
 fn run_unfracking(tx: Transaction) -> Bool {
-  unfracking_global.unfracking_global.withdraw(
+  unfracking.unfracking.withdraw(
     fixture.policy_protocol_params,
     Void,
     fixture.credential_validator_unfracking,
@@ -409,7 +409,7 @@ test unfracking_missing_script_authorisation_fails() fail {
   let tx = Transaction {
     ..valid_unfracking_tx(),
     // ONE delta: the transfer_logic withdraw-0 is gone; the PLG and
-    // unfracking_global withdraw-0s remain (they are tx plumbing,
+    // unfracking withdraw-0s remain (they are tx plumbing,
     // not input authorisation).
     withdrawals: [
       Pair(fixture.credential_validator_logic_global, 0),
@@ -514,7 +514,7 @@ test unfracking_vkey_path_does_not_require_transfer_logic() {
     inputs: [input],
     outputs,
     extra_signatories: [second_vkey_pkh],
-    // PLG + unfracking_global withdraw-0s only; no transfer_logic.
+    // PLG + unfracking withdraw-0s only; no transfer_logic.
     withdrawals: [
       Pair(fixture.credential_validator_logic_global, 0),
       Pair(fixture.credential_validator_unfracking, 0),
@@ -526,26 +526,26 @@ test unfracking_vkey_path_does_not_require_transfer_logic() {
 // ------------------------------------------------------- PLG delegation gate
 //
 // Under UnfrackingAct, programmable_logic_global does not validate the
-// unfracking invariants itself — it only requires the unfracking_global
+// unfracking invariants itself — it only requires the unfracking
 // withdraw-0 to be present (its script hash is a PLG parameter). These
 // tests pin the gate from both sides, plus the responsibility boundary.
 
-// Finding 17: the PLG gate accepts as soon as the unfracking_global
+// Finding 17: the PLG gate accepts as soon as the unfracking
 // withdraw-0 is present — the happy-path tx carries it in
 // `withdrawals_unfracking`.
 test plg_unfracking_gate_accepts_when_unfracking_script_invoked() {
   run_plg_unfracking_gate(valid_unfracking_tx())
 }
 
-// Finding 17: UnfrackingAct without the unfracking_global withdraw-0
+// Finding 17: UnfrackingAct without the unfracking withdraw-0
 // must be rejected by PLG — otherwise the redeemer would unlock PLB
 // inputs with NO invariant checks at all. ONE delta vs the happy path:
-// the unfracking_global withdrawal is removed (PLG's own and the
+// the unfracking withdrawal is removed (PLG's own and the
 // transfer-logic one remain).
 test plg_unfracking_gate_rejects_when_unfracking_script_not_invoked() fail {
   let tx = Transaction {
     ..valid_unfracking_tx(),
-    // ONE delta: no unfracking_global withdraw-0.
+    // ONE delta: no unfracking withdraw-0.
     withdrawals: [
       Pair(fixture.credential_validator_logic_global, 0),
       Pair(fixture.credential_transfer_logic, 0),
@@ -556,9 +556,9 @@ test plg_unfracking_gate_rejects_when_unfracking_script_not_invoked() fail {
 
 // Finding 17: responsibility boundary. PLG deliberately does NOT check
 // the unfracking invariants — a conservation-violating tx (output
-// surplus) still passes the PLG gate because the unfracking_global
+// surplus) still passes the PLG gate because the unfracking
 // withdraw-0 is present. This is not a hole: the same tx is rejected
-// by unfracking_global itself (`unfracking_output_surplus_fails`
+// by unfracking itself (`unfracking_output_surplus_fails`
 // above), and on-chain BOTH scripts must pass. The test exists so a
 // future "defensive" duplicate check in PLG shows up as a deliberate
 // design change, not an accident.
@@ -578,7 +578,7 @@ test plg_unfracking_gate_delegates_invariants_to_unfracking_script() {
 // protocol-params datum (`unfracking_cred`, field 2) — not baked into
 // the validator. ONE delta vs the happy path: the params datum names
 // Eve's credential as the unfracking script. The genuine
-// unfracking_global withdraw-0 is still present in the tx, but it no
+// unfracking withdraw-0 is still present in the tx, but it no
 // longer matches what the datum demands, so the gate must reject.
 test plg_unfracking_gate_sources_cred_from_protocol_params() fail {
   let tx = Transaction {
@@ -645,7 +645,7 @@ test plg_unfracking_gate_fails_on_legacy_two_field_params() fail {
 //
 //   * programmable_logic_base.spend for the fracked PLB input,
 //   * programmable_logic_global.withdraw with UnfrackingAct (gate),
-//   * unfracking_global.withdraw (invariants).
+//   * unfracking.withdraw (invariants).
 test unfracking_full_composition_succeeds() {
   let tx = valid_unfracking_tx()
   and {
