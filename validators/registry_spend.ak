@@ -68,7 +68,7 @@ validator registry_spend(protocol_params_cs: PolicyId) {
         when old_node.minting_logic_script is {
           Script(_) ->
             pairs.has_key(self.withdrawals, old_node.minting_logic_script)
-          VerificationKey(pkh) -> list.has(self.extra_signatories, pkh)
+          VerificationKey(_) -> False
         }
       }
     }
