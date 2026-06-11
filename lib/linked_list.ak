@@ -169,3 +169,25 @@ pub fn validate_mint(mint: Value, policy_id: PolicyId) -> AssetName {
     |> dict.to_pairs()
   asset_name
 }
+
+// True iff `new` equals `old` except possibly the mutable fields: 
+// transfer_logic_script, third_party_transfer_logic_script, and global_state_cs.
+// All other fields must still be well-formed. The record freezes key, next, and minting_logic_script
+pub fn is_field_updated_registry_node(
+  new: RegistryNode,
+  old: RegistryNode,
+) -> Bool {
+  and {
+    new == RegistryNode {
+      ..old,
+      transfer_logic_script: new.transfer_logic_script,
+      third_party_transfer_logic_script: new.third_party_transfer_logic_script,
+      global_state_cs: new.global_state_cs,
+    },
+    is_28_byte_credential(new.transfer_logic_script)?,
+    is_28_byte_credential(new.third_party_transfer_logic_script)?,
+    (bytearray.length(new.global_state_cs) == 0 || is_28_bytes(
+      new.global_state_cs,
+    ))?,
+  }
+}
