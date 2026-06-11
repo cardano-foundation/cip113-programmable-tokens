@@ -478,10 +478,13 @@ test third_party_act_seized_tokens_escape_prog_cred_must_fail() fail {
   )
 }
 
-// Positive: seized tokens routed to a new output at prog_logic_cred.
-// This is the correct seizure pattern.
-test third_party_act_seized_tokens_to_prog_cred_succeeds() {
-  let tx = Transaction {
+// Canonical happy-path seizure: one PLB UTxO holds 42 FOO of
+// `test_third_party_policy`; the paired output empties it, a fresh PLB
+// output receives the seized tokens. Used as the spread base for the
+// Finding 12 tests below so each test body shows the ONE (or two)
+// delta(s) from the happy path that exercise the invariant under test.
+fn valid_seize_tx() -> Transaction {
+  Transaction {
     ..transaction.placeholder,
     inputs: [
       fixture.some_input_with_programmable_tokens(
@@ -512,15 +515,72 @@ test third_party_act_seized_tokens_to_prog_cred_succeeds() {
       Pair(test_third_party_cred, 0),
     ],
   }
+}
 
-  let redeemer = ThirdPartyAct { registry_node_idx: 1, outputs_start_idx: 0 }
-
+fn run_seize_tx(tx: Transaction) -> Bool {
   programmable_logic_global.programmable_logic_global.withdraw(
     fixture.policy_protocol_params,
-    redeemer,
+    ThirdPartyAct { registry_node_idx: 1, outputs_start_idx: 0 },
     fixture.credential_validator_logic_global,
     tx,
   )
+}
+
+// Positive: seized tokens routed to a new output at prog_logic_cred.
+// This is the correct seizure pattern.
+test third_party_act_seized_tokens_to_prog_cred_succeeds() {
+  run_seize_tx(valid_seize_tx())
+}
+
+// Finding 12: a ThirdPartyAct cannot CONTAMINATE a paired PLB UTxO that
+// didn't already hold the acted-on policy. The injection attack scenario
+// requires two deltas vs the happy path, encoding what a malicious
+// substandard would do:
+//
+//   1. the paired input is an "innocent" PLB UTxO with NO tokens of
+//      `test_third_party_policy` (i.e., never held it);
+//   2. the paired output ADDS 42 FOO of that policy — the contamination.
+//
+// Pre-fix the redundant `input_tokens_at != output_tokens_at` check would
+// pass (empty != non-empty) and before/after halves match, so the
+// validator wrongly accepts. Post-fix the new
+// `expect !dict.is_empty(input_tokens_at)` rejects, because the input
+// holds no acted-on tokens to seize.
+test third_party_act_paired_input_missing_acted_on_policy_fails() fail {
+  let tx = Transaction {
+    ..valid_seize_tx(),
+    inputs: [fixture.some_input_with_programmable_tokens([], "innocent_utxo")],
+    outputs: [
+      // Paired output: contamination — adds 42 FOO that the input
+      // never held.
+      fixture.some_output_with_programmable_tokens(
+        [(test_third_party_policy, "FOO", 42)],
+      ),
+    ],
+  }
+  run_seize_tx(tx)
+}
+
+// Finding 12 fix (redundant `!=` check removed): a degenerate "no-op"
+// seize where the paired output's amount of the acted-on policy equals
+// the paired input's is now accepted. ONE delta vs the happy path — the
+// paired output keeps the 42 FOO instead of removing them. Pre-fix the
+// `input_tokens_at != output_tokens_at` check rejected this; post-fix
+// the validator treats it as economically pointless but semantically
+// valid (the third_party_logic withdraw-0 still has to authorise the
+// no-op seize, so it's not free for the caller).
+test third_party_act_no_op_seize_succeeds() {
+  let tx = Transaction {
+    ..valid_seize_tx(),
+    outputs: [
+      // Paired output: keeps the same 42 FOO — input_at == output_at.
+      // No "remaining" output needed: nothing was routed elsewhere.
+      fixture.some_output_with_programmable_tokens(
+        [(test_third_party_policy, "FOO", 42)],
+      ),
+    ],
+  }
+  run_seize_tx(tx)
 }
 
 // Positive: partial seizure — seize 40 of 100 tokens, leave 60 with owner.
