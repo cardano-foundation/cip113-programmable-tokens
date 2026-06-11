@@ -27,10 +27,11 @@
 //// script's withdraw-0; a vkey-only Unfracking tx wires
 //// `VerificationKey(pkh)` and signs as that pkh.
 
-use cardano/address.{Address, VerificationKey}
+use cardano/address.{Address, Credential, VerificationKey}
 use cardano/assets.{ada_asset_name, ada_policy_id, from_asset, merge}
-use cardano/transaction.{Input, NoDatum, Output, Transaction}
+use cardano/transaction.{InlineDatum, Input, NoDatum, Output, Transaction}
 use programmable_logic/fixture
+use programmable_logic/params.{ProgrammableLogicGlobalParams}
 use programmable_logic_base
 use programmable_logic_global
 use types.{UnfrackingAct}
@@ -126,12 +127,12 @@ fn run_unfracking(tx: Transaction) -> Bool {
 /// Dispatch helper — drives `programmable_logic_global.withdraw` with
 /// the `UnfrackingAct` redeemer over a caller-provided transaction.
 /// Under that redeemer PLG is only a delegation gate: it requires the
-/// `unfracking_global` withdraw-0 to be present and checks nothing
-/// else. Mirrors the helper shape used in the existing 3rd-party tests.
+/// withdraw-0 of the credential named by the protocol-params datum's
+/// `unfracking_cred` field to be present and checks nothing else.
+/// Mirrors the helper shape used in the existing 3rd-party tests.
 fn run_plg_unfracking_gate(tx: Transaction) -> Bool {
   programmable_logic_global.programmable_logic_global.withdraw(
     fixture.policy_protocol_params,
-    fixture.script_unfracking_global,
     redeemer,
     fixture.credential_validator_logic_global,
     tx,
@@ -569,6 +570,69 @@ test plg_unfracking_gate_delegates_invariants_to_unfracking_script() {
       // Invariant violation (150 BAR out of 100 in) — invisible to PLG.
       fixture.some_output_with_programmable_tokens([(policy_b, "BAR", 150)]),
     ],
+  }
+  run_plg_unfracking_gate(tx)
+}
+
+// Finding 17: the gate's target credential is READ FROM the
+// protocol-params datum (`unfracking_cred`, field 2) — not baked into
+// the validator. ONE delta vs the happy path: the params datum names
+// Eve's credential as the unfracking script. The genuine
+// unfracking_global withdraw-0 is still present in the tx, but it no
+// longer matches what the datum demands, so the gate must reject.
+test plg_unfracking_gate_sources_cred_from_protocol_params() fail {
+  let tx = Transaction {
+    ..valid_unfracking_tx(),
+    // ONE delta: params datum carries a different unfracking_cred.
+    reference_inputs: [
+      fixture.some_reference_input_protocol_params(
+        ProgrammableLogicGlobalParams {
+          ..fixture.protocol_params,
+          unfracking_cred: VerificationKey(eve_vkey_pkh),
+        },
+        "protocol params",
+      ),
+    ],
+  }
+  run_plg_unfracking_gate(tx)
+}
+
+/// Replica of the protocol-params datum shape BEFORE Finding 17 added
+/// `unfracking_cred`. Used to pin which branches require the extended
+/// datum.
+type LegacyTwoFieldParams {
+  registry_node_cs: ByteArray,
+  prog_logic_cred: Credential,
+}
+
+// Finding 17: a legacy 2-field params datum cannot authorise an
+// UnfrackingAct — the branch extracts datum field 2 and crashes when
+// it is absent. (The transfer / third-party branches read only fields
+// 0-1, so the datum extension is additive for them; UnfrackingAct is
+// the one branch that REQUIRES the extended shape.)
+test plg_unfracking_gate_fails_on_legacy_two_field_params() fail {
+  let modern = fixture.some_reference_input_protocol_params(
+    fixture.protocol_params,
+    "protocol params",
+  )
+  let legacy = Input {
+    ..modern,
+    output: Output {
+      ..modern.output,
+      datum: InlineDatum(
+        as_data(
+          LegacyTwoFieldParams {
+            registry_node_cs: fixture.policy_tokens_registry,
+            prog_logic_cred: fixture.credential_validator_logic_base,
+          },
+        ),
+      ),
+    },
+  }
+  let tx = Transaction {
+    ..valid_unfracking_tx(),
+    // ONE delta: the params datum lacks the unfracking_cred field.
+    reference_inputs: [legacy],
   }
   run_plg_unfracking_gate(tx)
 }

@@ -38,14 +38,12 @@ pub const credential_validator_logic_base: Credential =
 pub const credential_validator_logic_global: Credential =
   Credential.Script(#"0000000000000000000000000000000000000000000000000001091c")
 
-/// Arbitrary script hash representing the unfracking_global validator
-/// (Finding 17). PLG is parameterised with this hash; an UnfrackingAct
-/// transaction must carry this script's withdraw-0.
-pub const script_unfracking_global: ByteArray =
-  #"00000000000000000000000000000000000000000000000000def17a"
-
+/// Arbitrary script credential representing the unfracking_global
+/// validator (Finding 17). Carried by the protocol-params datum
+/// (`unfracking_cred`); an UnfrackingAct transaction must carry this
+/// script's withdraw-0.
 pub const credential_validator_unfracking: Credential =
-  Credential.Script(script_unfracking_global)
+  Credential.Script(#"00000000000000000000000000000000000000000000000000def17a")
 
 /// Arbitrary script hash representing the protocol params NFT's minting script
 pub const policy_protocol_params: PolicyId =
@@ -96,6 +94,7 @@ pub const protocol_params: ProgrammableLogicGlobalParams =
   ProgrammableLogicGlobalParams {
     registry_node_cs: policy_tokens_registry,
     prog_logic_cred: credential_validator_logic_base,
+    unfracking_cred: credential_validator_unfracking,
   }
 
 /// Some input to pay for fuel, deterministically determined by the label.

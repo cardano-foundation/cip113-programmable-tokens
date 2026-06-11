@@ -21,9 +21,9 @@
 ////   * programmable_logic_base.spend   — one run per PLB input; only
 ////     requires PLG's withdraw-0 to be present (unchanged).
 ////   * programmable_logic_global.withdraw, redeemer UnfrackingAct —
-////     requires THIS validator's withdraw-0 to be present. PLG is
-////     parameterised with this script's hash at deployment time
-////     (compile this validator first, apply its hash to PLG).
+////     requires THIS validator's withdraw-0 to be present. PLG reads
+////     this script's credential from the `unfracking_cred` field of
+////     the protocol-params datum (written at deployment time).
 ////   * unfracking_global.withdraw (this validator) — enforces all the
 ////     Unfracking invariants.
 ////
@@ -37,13 +37,16 @@
 //// The protocol parameters (notably `prog_logic_cred`, the PLB payment
 //// credential) are read from the same protocol-params NFT reference
 //// input PLG uses; this script never needs PLG's hash, so there is no
-//// circular dependency in the parameterisation.
+//// circular dependency: compile this validator, then write its
+//// credential into the protocol-params datum at deployment.
 
 use cardano/address.{Credential}
 use cardano/assets.{PolicyId} as value
 use cardano/certificate.{Certificate, RegisterCredential}
 use cardano/transaction.{Transaction}
-use programmable_logic/params.{with_programmable_logic_params}
+use programmable_logic/params.{
+  prog_logic_cred_field, with_protocol_params_fields,
+}
 use programmable_logic/unfracking.{validate_unfracking}
 
 validator unfracking_global(params_policy: PolicyId) {
@@ -51,14 +54,14 @@ validator unfracking_global(params_policy: PolicyId) {
     trace @"Starting unfracking_global validation"
 
     // Extract protocol parameters from reference inputs; only the PLB
-    // payment credential is needed — Unfracking never consults the
-    // token registry.
-    let _registry_node_policy, prog_logic_cred <- with_programmable_logic_params(
+    // payment credential (field 1) is needed — Unfracking never
+    // consults the token registry.
+    let fields <- with_protocol_params_fields(
       self.reference_inputs,
       params_policy,
     )
 
-    validate_unfracking(self, prog_logic_cred)
+    validate_unfracking(self, prog_logic_cred_field(fields))
   }
 
   publish(_r: Data, c: Certificate, _s: Transaction) {

@@ -42,10 +42,11 @@ pub type ProgrammableLogicGlobalRedeemer {
   ///
   /// The invariants do NOT live in programmable_logic_global: under
   /// this redeemer, PLG only requires that the standalone
-  /// `unfracking_global` withdraw-0 validator (whose script hash is a
-  /// PLG compile-time parameter) is invoked in the same transaction.
-  /// This keeps the hot-path PLG reference script ~600 bytes smaller;
-  /// only unfracking transactions pay for the unfracking logic.
+  /// `unfracking_global` withdraw-0 validator (whose credential is the
+  /// `unfracking_cred` field of the protocol-params datum) is invoked
+  /// in the same transaction. This keeps the hot-path PLG reference
+  /// script ~600 bytes smaller; only unfracking transactions pay for
+  /// the unfracking logic.
   UnfrackingAct
 }
 

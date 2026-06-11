@@ -31,7 +31,6 @@ fn programmable_logic(
     ),
     programmable_logic_global.programmable_logic_global.withdraw(
       fixture.policy_protocol_params,
-      fixture.script_unfracking_global,
       redeemer,
       fixture.credential_validator_logic_global,
       self,
@@ -631,7 +630,6 @@ const fixture_redeemer_plutarch_baseline_transfer_3: ProgrammableLogicGlobalRede
 test plutarch_baseline_transfer_3() {
   programmable_logic_global.programmable_logic_global.withdraw(
     fixture.policy_protocol_params,
-    fixture.script_unfracking_global,
     fixture_redeemer_plutarch_baseline_transfer_3,
     fixture.credential_validator_logic_global,
     fixture_plutarch_baseline_transfer_3,
