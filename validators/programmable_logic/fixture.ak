@@ -11,7 +11,9 @@ use cardano/fuzz as cardano
 use cardano/transaction.{InlineDatum, Input, NoDatum, Output, Transaction}
 use programmable_logic/params.{ProgrammableLogicGlobalParams}
 use registry_node.{RegistryNode, empty_vkey}
-use types.{ProgrammableLogicGlobalRedeemer, TokenExists, TransferAct}
+use types.{
+  ProgrammableLogicGlobalRedeemer, TokenExists, TransferAct, UnfrackingAct,
+}
 
 /// Some script credential for the transfer logic. Could also be a verification
 /// key hash, but the primary use-case is for script.
@@ -35,6 +37,13 @@ pub const credential_validator_logic_base: Credential =
 /// Arbitrary script hash representing the programmable_logic_global validator.
 pub const credential_validator_logic_global: Credential =
   Credential.Script(#"0000000000000000000000000000000000000000000000000001091c")
+
+/// Arbitrary script credential representing the unfracking
+/// validator (Finding 17). Carried by the protocol-params datum
+/// (`unfracking_cred`); an UnfrackingAct transaction must carry this
+/// script's withdraw-0.
+pub const credential_validator_unfracking: Credential =
+  Credential.Script(#"00000000000000000000000000000000000000000000000000def17a")
 
 /// Arbitrary script hash representing the protocol params NFT's minting script
 pub const policy_protocol_params: PolicyId =
@@ -64,11 +73,28 @@ pub const withdrawals_3rd_party: Pairs<Credential, Int> =
     Pair(credential_3rd_party_logic, 0),
   ]
 
+/// Typical withdrawals found in an unfracking transaction (Finding 17).
+/// Three scripts compose: PLG (required by every PLB base spend), the
+/// standalone unfracking validator (required by PLG under
+/// UnfrackingAct), and the transfer-logic script (authorises the
+/// script-staked PLB inputs — same authorisation pattern as TransferAct;
+/// a vkey-staked holder signs instead and omits this one).
+pub const withdrawals_unfracking: Pairs<Credential, Int> =
+  [
+    // The artificial withdraw-0 to execute the global logic
+    Pair(credential_validator_logic_global, 0),
+    // The artificial withdraw-0 to execute the unfracking invariants
+    Pair(credential_validator_unfracking, 0),
+    // The artificial withdraw-0 authorising the script-staked PLB inputs
+    Pair(credential_transfer_logic, 0),
+  ]
+
 /// Parameters for a specific instance of the registry.
 pub const protocol_params: ProgrammableLogicGlobalParams =
   ProgrammableLogicGlobalParams {
     registry_node_cs: policy_tokens_registry,
     prog_logic_cred: credential_validator_logic_base,
+    unfracking_cred: credential_validator_unfracking,
   }
 
 /// Some input to pay for fuel, deterministically determined by the label.
@@ -322,6 +348,41 @@ pub fn some_transfer(
           fn(_, node_idx, proofs) { [TokenExists { node_idx }, ..proofs] },
         )
       |> TransferAct,
+  )
+}
+
+/// Baseline transaction for an Unfracking action (Finding 17). Takes
+/// the per-policy tokens that should be present at PLB and a layout
+/// rule for the outputs: one output per element of the outer list,
+/// each carrying the inner list of tokens.
+///
+/// All inputs and outputs use the default `credential_transfer_logic`
+/// stake credential, so input authorisation comes from that script's
+/// withdraw-0 (part of `withdrawals_unfracking`, together with the PLG
+/// and unfracking withdraw-0s — the full script composition of
+/// a real unfracking transaction).
+///
+/// No registry node references are required — Unfracking does not
+/// consult the registry — so the only reference input is the
+/// protocol-params NFT.
+pub fn some_unfracking(
+  input_tokens: List<(PolicyId, AssetName, Int)>,
+  output_layouts: List<List<(PolicyId, AssetName, Int)>>,
+) -> (Transaction, ProgrammableLogicGlobalRedeemer) {
+  let outputs = list.map(output_layouts, some_output_with_programmable_tokens)
+  (
+    Transaction {
+      ..transaction.placeholder,
+      inputs: [
+        some_input_with_programmable_tokens(input_tokens, "unfracking input"),
+      ],
+      outputs,
+      reference_inputs: [
+        some_reference_input_protocol_params(protocol_params, "protocol params"),
+      ],
+      withdrawals: withdrawals_unfracking,
+    },
+    UnfrackingAct,
   )
 }
 

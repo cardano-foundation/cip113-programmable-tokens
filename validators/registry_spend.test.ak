@@ -40,6 +40,9 @@ fn valid_params_datum() -> Data {
     ProgrammableLogicGlobalParams {
       registry_node_cs: test_registry_node_cs,
       prog_logic_cred: Script(test_prog_logic_hash),
+      unfracking_cred: Script(
+        #"00000000000000000000000000000000000000000000000000def17a",
+      ),
     },
   )
 }
