@@ -103,9 +103,19 @@ fn call_validator(tx: Transaction) -> Bool {
     test_protocol_params_cs,
     None,
     as_data(Void),
-    as_data(Void),
+    placeholder_own_ref(),
     tx,
   )
+}
+
+/// A throwaway OutputReference for tests that hit the minting (Some) branch,
+/// which never resolves own_ref. Update-path tests should pass an own_ref that
+/// matches the spent node input instead.
+fn placeholder_own_ref() -> OutputReference {
+  OutputReference {
+    transaction_id: #"0000000000000000000000000000000000000000000000000000000000000000",
+    output_index: 0,
+  }
 }
 
 // ========================================================================
@@ -362,13 +372,19 @@ fn new_registry_node() -> RegistryNode {
   }
 }
 
+/// OutputReference of the registry node being spent. Shared so the value the
+/// validator receives as `own_ref` matches the input `find_input` must locate.
+fn test_node_own_ref() -> OutputReference {
+  OutputReference {
+    transaction_id: #"3333333333333333333333333333333333333333333333333333333333333333",
+    output_index: 0,
+  }
+}
+
 /// A registry-node UTxO carrying the node NFT (token name == key) + inline datum.
 fn registry_node_input(node: RegistryNode) -> Input {
   Input {
-    output_reference: OutputReference {
-      transaction_id: #"3333333333333333333333333333333333333333333333333333333333333333",
-      output_index: 0,
-    },
+    output_reference: test_node_own_ref(),
     output: Output {
       address: test_node_address(),
       value: min_ada |> assets.add(test_registry_node_cs, test_node_key, 1),
@@ -401,7 +417,13 @@ fn update_transaction() -> Transaction {
 
 // Happy path: creator updates the 3 mutable fields with proper authorisation.
 test registry_spend_update_node() {
-  call_validator(update_transaction())
+  registry_spend.registry_spend.spend(
+    test_protocol_params_cs,
+    Some(old_registry_node()),
+    as_data(Void),
+    test_node_own_ref(),
+    update_transaction(),
+  )
 }
 
 // Reject: minting_logic_script is NOT invoked (no withdrawal) → unauthorised.
