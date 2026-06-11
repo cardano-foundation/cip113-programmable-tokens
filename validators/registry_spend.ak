@@ -10,7 +10,7 @@ use cardano/address.{Script, VerificationKey}
 // the registry structure is being properly maintained.
 
 use cardano/assets.{PolicyId}
-use cardano/transaction.{Transaction}
+use cardano/transaction.{OutputReference, Transaction, find_input}
 use linked_list.{is_field_updated_registry_node, validate_directory_node_output}
 use programmable_logic/params.{ProgrammableLogicGlobalParams}
 use registry_node.{RegistryNode}
@@ -18,9 +18,9 @@ use utils.{expect_inline_datum, has_currency_symbol}
 
 validator registry_spend(protocol_params_cs: PolicyId) {
   spend(
-    _datum: Option<Data>,
+    datum: Option<RegistryNode>,
     _redeemer: Data,
-    _own_ref: Data,
+    own_ref: OutputReference,
     self: Transaction,
   ) {
     trace @"Starting registry_spend validation"
@@ -50,11 +50,8 @@ validator registry_spend(protocol_params_cs: PolicyId) {
       }
       // No registry node NFTs being minted or burned means we are updating a node
       None -> {
-        let own_input = list.expect_find(
-          self.inputs,
-          fn(i) { has_currency_symbol(i.output.value, registry_node_cs) },
-        )
-        expect old_node: RegistryNode = expect_inline_datum(own_input.output)
+        expect Some(own_input) = find_input(self.inputs, own_ref)
+        expect Some(old_node) = datum
         expect [cont] = list.filter(
           self.outputs,
           fn(o) { has_currency_symbol(o.value, registry_node_cs) },
@@ -64,11 +61,13 @@ validator registry_spend(protocol_params_cs: PolicyId) {
           registry_node_cs,
           own_input.output.address,
         )
-        expect is_field_updated_registry_node(new_node, old_node)
-        when old_node.minting_logic_script is {
-          Script(_) ->
-            pairs.has_key(self.withdrawals, old_node.minting_logic_script)
-          VerificationKey(_) -> False
+        and {
+          is_field_updated_registry_node(new_node, old_node),
+          when old_node.minting_logic_script is {
+            Script(_) ->
+              pairs.has_key(self.withdrawals, old_node.minting_logic_script)
+            VerificationKey(_) -> False
+          },
         }
       }
     }

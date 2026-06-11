@@ -179,7 +179,9 @@ pub fn is_field_updated_registry_node(
 ) -> Bool {
   and {
     new == RegistryNode {
-      ..old,
+      key: old.key,
+      next: old.next,
+      minting_logic_script: old.minting_logic_script,
       transfer_logic_script: new.transfer_logic_script,
       third_party_transfer_logic_script: new.third_party_transfer_logic_script,
       global_state_cs: new.global_state_cs,
