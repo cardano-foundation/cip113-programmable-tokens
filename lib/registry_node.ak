@@ -36,6 +36,7 @@ pub const origin_node: RegistryNode =
     transfer_logic_script: empty_vkey,
     third_party_transfer_logic_script: empty_vkey,
     global_state_cs: #"",
+    protected_prefixes: [],
   }
 
 /// Registry node in the linked list of registered programmable token policies
@@ -64,6 +65,22 @@ pub type RegistryNode {
   third_party_transfer_logic_script: Credential,
   /// Optional global state NFT currency symbol for this policy
   global_state_cs: ByteArray,
+  /// Issuer-declared, append-only list of CIP-67 asset-name label prefixes
+  /// that `ThirdPartyAct` (admin seizure) may NOT extract or burn. Each entry
+  /// is a 4-byte CIP-67 label prefix (e.g. `#"000643b0"` = label 100 reference
+  /// NFT, `#"001f4d70"` = label 500 royalty token). When a programmable-token
+  /// UTxO is seized, any token of this policy whose asset name begins with one
+  /// of these prefixes is *preserved* (left byte-for-byte unchanged on the
+  /// paired output), while everything else in the same UTxO remains seizable.
+  ///
+  /// This is the LAST field of `RegistryNode` (index 6). Appending it at the
+  /// end keeps every existing positional accessor (which reads indices 0–4)
+  /// working unchanged. The issuer declares this list freely at registration;
+  /// the only well-formedness constraint is that every entry is exactly 4
+  /// bytes (enforced in `is_inserted_directory_node`). The APPEND-ONLY growth
+  /// constraint (`new ⊇ old`) belongs to the registry-node UPDATE path, which
+  /// lives on a different branch (Finding 20 / PR #81) and is NOT present here.
+  protected_prefixes: List<ByteArray>,
 }
 
 pub fn new_registry_node_getter(
@@ -152,4 +169,28 @@ pub fn with_key_and_minting_logic(
     list.tail(list.tail(fields)),
   )
   return(key, minting_logic_script)
+}
+
+/// Extract `key`, `third_party_transfer_logic_script` and `protected_prefixes`
+/// from a `RegistryNode` datum. Used by the ThirdPartyAct (admin seizure) path
+/// to obtain the third-party logic credential to invoke and the issuer-declared
+/// list of CIP-67 label prefixes that must NOT be extracted or burned.
+pub fn with_3rd_party_logic_and_protected(
+  data: Data,
+  return: fn(PolicyId, Credential, List<ByteArray>) -> result,
+) -> result {
+  let fields = unconstr_fields(data)
+  expect key: ByteArray = list.head(fields)
+  // RegistryNode field index 4:
+  // key=0, next=1, minting_logic=2, transfer_logic=3, third_party=4
+  expect third_party_transfer_logic_script: Credential = list.head(
+    list.tail(list.tail(list.tail(list.tail(fields)))),
+  )
+  // RegistryNode field index 6:
+  // key=0, next=1, minting_logic=2, transfer_logic=3, third_party=4,
+  // global_state_cs=5, protected_prefixes=6
+  expect protected_prefixes: List<ByteArray> = list.head(
+    list.tail(list.tail(list.tail(list.tail(list.tail(list.tail(fields)))))),
+  )
+  return(key, third_party_transfer_logic_script, protected_prefixes)
 }

@@ -25,6 +25,7 @@ test is_updated_directory_node_works() {
     third_party_transfer_logic_script: Script(#"22"),
     minting_logic_script: Script(#"33"),
     global_state_cs: #"",
+    protected_prefixes: [],
   }
 
   let updated_node = RegistryNode {
@@ -34,6 +35,7 @@ test is_updated_directory_node_works() {
     third_party_transfer_logic_script: Script(#"22"),
     minting_logic_script: Script(#"33"),
     global_state_cs: #"",
+    protected_prefixes: [],
   }
 
   is_updated_directory_node(updated_node, original, insert_key)
@@ -52,6 +54,7 @@ test is_updated_directory_node_negative() {
     third_party_transfer_logic_script: Script(#"22"),
     minting_logic_script: Script(#"33"),
     global_state_cs: #"",
+    protected_prefixes: [],
   }
 
   let node = RegistryNode {
@@ -61,6 +64,7 @@ test is_updated_directory_node_negative() {
     third_party_transfer_logic_script: Script(#"22"),
     minting_logic_script: Script(#"33"),
     global_state_cs: #"",
+    protected_prefixes: [],
   }
 
   !is_updated_directory_node(node, original, insert_key)
@@ -90,9 +94,63 @@ test is_inserted_directory_node_works() {
     third_party_transfer_logic_script: third_party_transfer_logic,
     minting_logic_script: minting_logic,
     global_state_cs: global_state,
+    protected_prefixes: [],
   }
 
   is_inserted_directory_node(node, insert_key, next_key, minting_logic)
+}
+
+// Finding 18: a well-formed `protected_prefixes` (every entry exactly 4 bytes)
+// is accepted at Insert. Spread base is the valid inserted node above; the only
+// delta is the non-empty 4-byte-prefix list.
+test is_inserted_directory_node_accepts_wellformed_protected_prefixes() {
+  let insert_key = #"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  let next_key = #"cccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  let minting_logic = Script(
+    #"44444444444444444444444444444444444444444444444444444444",
+  )
+  let node = RegistryNode {
+    key: insert_key,
+    next: next_key,
+    transfer_logic_script: Script(
+      #"11111111111111111111111111111111111111111111111111111111",
+    ),
+    third_party_transfer_logic_script: Script(
+      #"22222222222222222222222222222222222222222222222222222222",
+    ),
+    minting_logic_script: minting_logic,
+    global_state_cs: #"33333333333333333333333333333333333333333333333333333333",
+    // Two valid 4-byte CIP-67 label prefixes (label 100 ref NFT, label 500).
+    protected_prefixes: [#"000643b0", #"001f4d70"],
+  }
+
+  is_inserted_directory_node(node, insert_key, next_key, minting_logic)
+}
+
+// Finding 18: a malformed `protected_prefixes` entry (not 4 bytes) is REJECTED
+// at Insert. Only delta vs the accepting test above is the 3-byte entry.
+test is_inserted_directory_node_rejects_malformed_protected_prefix() fail {
+  let insert_key = #"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  let next_key = #"cccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  let minting_logic = Script(
+    #"44444444444444444444444444444444444444444444444444444444",
+  )
+  let node = RegistryNode {
+    key: insert_key,
+    next: next_key,
+    transfer_logic_script: Script(
+      #"11111111111111111111111111111111111111111111111111111111",
+    ),
+    third_party_transfer_logic_script: Script(
+      #"22222222222222222222222222222222222222222222222222222222",
+    ),
+    minting_logic_script: minting_logic,
+    global_state_cs: #"33333333333333333333333333333333333333333333333333333333",
+    // Malformed: 3-byte prefix (must be exactly 4).
+    protected_prefixes: [#"000643"],
+  }
+
+  expect is_inserted_directory_node(node, insert_key, next_key, minting_logic)
 }
 
 // Test directory node ordering
@@ -117,6 +175,7 @@ test origin_node_empty_keys() {
     third_party_transfer_logic_script: Script(#"22"),
     minting_logic_script: Script(#"33"),
     global_state_cs: #"",
+    protected_prefixes: [],
   }
 
   origin_node.key == #"" && origin_node.next == #""
@@ -141,6 +200,7 @@ test is_updated_directory_node_rejects_transfer_logic_swap() fail {
     third_party_transfer_logic_script: Script(#"22"),
     minting_logic_script: Script(#"33"),
     global_state_cs: #"",
+    protected_prefixes: [],
   }
 
   let tampered_node = RegistryNode {
@@ -151,6 +211,7 @@ test is_updated_directory_node_rejects_transfer_logic_swap() fail {
     third_party_transfer_logic_script: Script(#"22"),
     minting_logic_script: Script(#"33"),
     global_state_cs: #"",
+    protected_prefixes: [],
   }
 
   is_updated_directory_node(tampered_node, original, #"bb")
@@ -166,6 +227,7 @@ test is_updated_directory_node_rejects_third_party_logic_swap() fail {
     third_party_transfer_logic_script: Script(#"22"),
     minting_logic_script: Script(#"33"),
     global_state_cs: #"",
+    protected_prefixes: [],
   }
 
   let tampered_node = RegistryNode {
@@ -176,6 +238,7 @@ test is_updated_directory_node_rejects_third_party_logic_swap() fail {
     // ^^^ ATTACKER'S SCRIPT — original was Script(#"22")
     minting_logic_script: Script(#"33"),
     global_state_cs: #"",
+    protected_prefixes: [],
   }
 
   is_updated_directory_node(tampered_node, original, #"bb")
@@ -191,6 +254,7 @@ test is_updated_directory_node_rejects_global_state_swap() fail {
     third_party_transfer_logic_script: Script(#"22"),
     minting_logic_script: Script(#"33"),
     global_state_cs: #"",
+    protected_prefixes: [],
   }
 
   let tampered_node = RegistryNode {
@@ -200,6 +264,7 @@ test is_updated_directory_node_rejects_global_state_swap() fail {
     third_party_transfer_logic_script: Script(#"22"),
     minting_logic_script: Script(#"33"),
     global_state_cs: #"deaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddead",
+    protected_prefixes: [],
   }
 
   // ^^^ TAMPERED — original was #""

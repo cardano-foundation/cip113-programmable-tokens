@@ -3,14 +3,15 @@
 //// Migrated from SmartTokens.Contracts.ProgrammableLogicBase (mkProgrammableLogicGlobal)
 
 use aiken/collection/dict
-use aiken/collection/list.{foldl} as aiken_list
+use aiken/collection/list.{any, foldl} as aiken_list
+use aiken/primitive/bytearray
 use assets
 use cardano/address.{Credential}
 use cardano/assets.{PolicyId} as value
 use cardano/transaction.{Input, Output, Transaction}
 use list
 use pairs
-use registry_node.{with_key_and_3rd_party_logic}
+use registry_node.{with_3rd_party_logic_and_protected}
 use tokens.{Tokens}
 
 pub fn validate_3rd_party(
@@ -19,8 +20,10 @@ pub fn validate_3rd_party(
   registry_node: Data,
   outputs_start_idx: Int,
 ) -> Bool {
-  // Extract registry details from datum
-  let policy_id, third_party_logic <- with_key_and_3rd_party_logic(
+  // Extract registry details from datum, including the issuer-declared list of
+  // CIP-67 label prefixes that ThirdPartyAct (admin seizure) must NOT touch
+  // (Finding 18).
+  let policy_id, third_party_logic, protected_prefixes <- with_3rd_party_logic_and_protected(
     registry_node,
   )
 
@@ -47,10 +50,30 @@ pub fn validate_3rd_party(
   validate_io_constraints_and_balance(
     prog_logic_cred,
     policy_id,
+    protected_prefixes,
     self.inputs,
     outputs,
     minted_or_burned,
     output_tokens,
+  )
+}
+
+/// Finding 18: select the subset of a policy's tokens whose asset name begins
+/// with one of the issuer-declared protected CIP-67 label prefixes. Prefixes
+/// are 4-byte (enforced at Insert time). `dict.filter` preserves the ascending
+/// key order, so two protected subsets compare byte-for-byte under `==`.
+fn protected_subset(
+  tokens: Tokens,
+  protected_prefixes: List<ByteArray>,
+) -> Tokens {
+  dict.filter(
+    tokens,
+    fn(asset_name, _quantity) {
+      any(
+        protected_prefixes,
+        fn(prefix) { bytearray.take(asset_name, 4) == prefix },
+      )
+    },
   )
 }
 
@@ -110,6 +133,7 @@ fn drop_accum_tokens(
 fn validate_io_constraints_and_balance(
   prog_logic_cred: Credential,
   policy_id: PolicyId,
+  protected_prefixes: List<ByteArray>,
   inputs: List<Input>,
   outputs: List<Output>,
   input_tokens: Tokens,
@@ -191,9 +215,30 @@ fn validate_io_constraints_and_balance(
             (input_tokens_after == output_tokens_after)?,
           }
 
+        // Finding 18: the PROTECTED subset of the acted-on policy (tokens whose
+        // CIP-67 asset-name label prefix is on the issuer-declared list) must
+        // be byte-identical across the pair. This is "preserve, not fail": the
+        // seizable remainder of the same UTxO is still freely seizable (the
+        // conservation balance below allows it to be redirected), but a
+        // protected token must remain exactly where it is. Because the subsets
+        // are filtered out of the same per-policy dict (ascending order
+        // preserved), `==` is a byte-equality comparison. This blocks BOTH:
+        //   * EXTRACTION — the paired output would hold less of (or none of) a
+        //     protected token than the input, so the subsets differ; and
+        //   * ADMIN BURN — burning a protected token makes it vanish from the
+        //     output's protected subset while still present in the input's, so
+        //     the subsets differ. (The unprotected remainder may still be
+        //     burned via tx.mint, reconciled by the conservation balance.)
+        expect
+          protected_subset(input_tokens_at, protected_prefixes) == protected_subset(
+            output_tokens_at,
+            protected_prefixes,
+          )
+
         validate_io_constraints_and_balance(
           prog_logic_cred,
           policy_id,
+          protected_prefixes,
           tail_inputs,
           list.tail(outputs),
           tokens.union(input_tokens, input_tokens_at),
@@ -203,6 +248,7 @@ fn validate_io_constraints_and_balance(
         validate_io_constraints_and_balance(
           prog_logic_cred,
           policy_id,
+          protected_prefixes,
           tail_inputs,
           outputs,
           input_tokens,

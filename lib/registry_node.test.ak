@@ -103,6 +103,7 @@ fn any_registry_node() -> Fuzzer<RegistryNode> {
   let third_party_transfer_logic_script <- fuzz.and_then(cardano.credential())
   let minting_logic_script <- fuzz.and_then(cardano.credential())
   let global_state_cs <- fuzz.and_then(cardano.policy_id())
+  let protected_prefixes <- fuzz.and_then(fuzz.list(fuzz.bytearray_fixed(4)))
   fuzz.constant(
     RegistryNode {
       key,
@@ -111,6 +112,7 @@ fn any_registry_node() -> Fuzzer<RegistryNode> {
       transfer_logic_script,
       third_party_transfer_logic_script,
       global_state_cs,
+      protected_prefixes,
     },
   )
 }

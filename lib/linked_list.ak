@@ -133,6 +133,17 @@ pub fn is_inserted_directory_node(
     (bytearray.length(node.global_state_cs) == 0 || is_28_bytes(
       node.global_state_cs,
     ))?,
+    // Finding 18: every protected-prefix entry MUST be exactly 4 bytes (a
+    // CIP-67 asset-name label prefix). The issuer declares the list freely —
+    // there is no tie to the redeemer — but each entry must be well-formed so
+    // the ThirdPartyAct seizure path can match it against asset-name prefixes.
+    //
+    // NOTE (Finding 20 / PR #81): the APPEND-ONLY growth constraint — a node
+    // UPDATE may only GROW this list (new ⊇ old), never shrink or rewrite it —
+    // belongs in the registry-node UPDATE path, which lives on a different
+    // branch and is NOT present on origin/main. Do NOT implement update logic
+    // here; this comment is left so the F20 integration remembers to add it.
+    list.all(node.protected_prefixes, fn(p) { bytearray.length(p) == 4 })?,
   }
 }
 

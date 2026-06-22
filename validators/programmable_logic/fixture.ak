@@ -240,6 +240,7 @@ pub fn some_reference_input_tokens_registry_node_with(
             // PR-1: not exercised by transfer/3rd-party tests; placeholder.
             minting_logic_script: empty_vkey,
             global_state_cs: "",
+            protected_prefixes: [],
           },
         ),
       ),
