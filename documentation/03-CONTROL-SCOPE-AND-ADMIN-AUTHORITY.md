@@ -203,10 +203,11 @@ policy. A single `ThirdPartyAct` can act on many UTxOs of the *same* policy, but
 **cannot atomically seize across two policies**.
 
 A compliance operation spanning multiple policies requires multiple sequential
-transactions (accepting an exposure window between them) or a future protocol
-construct. Atomic multi-policy seizure was evaluated and **deferred**: making the
-path multi-policy imposed a significant execution-cost and script-size tax on the
-common single-policy case, which was judged not worth it.
+transactions (accepting an exposure window between them). Atomic multi-policy
+seizure was prototyped and **deliberately not adopted**: making the path
+multi-policy imposed a significant execution-cost and script-size tax on the
+common single-policy case, which was judged not worth it. This is an accepted,
+permanent limitation.
 
 ### 3.2 Registry-node update authority
 
@@ -232,6 +233,26 @@ There is **no de-registration**. The lifecycle path supports *update* only; a
 node cannot be removed or flagged de-registered. Deleting a node would let a
 policy's tokens escape the framework's custody guarantee (§1), so removal is
 deliberately not provided.
+
+### 3.4 Seizure is per-UTxO; fragmentation is not prevented
+
+A `ThirdPartyAct` operates on the PLB inputs a transaction includes. A holder's
+balance of the subject policy may be spread across many UTxOs (fragmentation),
+and the framework does not force consolidation. Consequences an administrator
+must understand:
+
+- A single `ThirdPartyAct` can act on many UTxOs of the *same* policy, but only
+  those the transaction actually spends. To fully seize a holder, the
+  administrator must include **all** of that holder's subject-policy UTxOs.
+- A holder can therefore fragment a balance across many small UTxOs to raise the
+  cost of — or push past the transaction-size / execution-budget limits for — a
+  single atomic seizure. Full seizure may then need **multiple transactions**,
+  with the usual exposure window between them.
+- This is inherent to the eUTxO model, not a framework defect: there is no
+  account-style "seize the whole balance in one call". Holder-driven
+  consolidation (the Unfracking action) and substandard-level UTxO-shape
+  guidance reduce fragmentation in practice, but the administrator cannot assume
+  a holder's balance lives in a single UTxO.
 
 ---
 
