@@ -41,24 +41,33 @@ neither knows nor enforces companion-asset roles.
 
 ### The no-PLB-escape invariant is deliberate
 
-The framework **never lets a registered policy's tokens leave the PLB**. There
-is no carve-out that lets a companion asset (or anything else) escape into an
-unconstrained address — once a token is outside the PLB, the framework's
-guarantee is void and re-entry/escape ambiguity follows.
+The framework **never lets a registered policy's tokens leave the PLB** —
+companion assets included. There is no carve-out; once a token is outside the
+PLB the custody guarantee is void and re-entry/escape ambiguity follows. This is
+a deliberate design choice.
 
-This is a deliberate design choice, not an oversight. Companion assets are
-accommodated in one of two ways, both consistent with no-escape:
+Companion assets are accommodated **inside the PLB, under the same policy**, by a
+CIP-68/102-aware substandard:
 
-- **Same policy** — a reference/royalty token minted under the *registered*
-  policy stays at the PLB like any other token of that policy, is moved by the
-  substandard's (CIP-68/102-aware) transfer logic, and is shielded from
-  administrative seizure by **protected prefixes** (§2.2).
-- **Separate policy** — if the issuer wants the companion asset to live at a
-  CIP-68 metadata script *outside* the PLB, it is minted under a distinct,
-  non-registered policy, placing it outside CIP-113 entirely.
+- The reference NFT (CIP-67 label 100) or royalty token (label 500) lives at the
+  PLB like any token of the policy.
+- **Transferring them is allowed** through the (owner-authorized) transfer path
+  — the substandard's CIP-68/102-aware transfer and minting logic is responsible
+  for ensuring it happens the *proper* way: moving the token, updating a
+  reference NFT's datum (the transfer path does not pin output datums, so a
+  CIP-68-aware substandard can permit datum updates), or handling royalty
+  payouts. This is the substandard author's responsibility, not the framework's.
+- **`ThirdPartyAct` is forbidden from interfering** with them: list labels
+  100/500 in the node's protected prefixes (§2.2) and the administrator can
+  neither seize nor burn the companion assets. Only the owner — through the
+  substandard's transfer logic — can move them.
+- CIP-68/102 consumers locate companion assets by *policy id + CIP-67 label asset
+  name* and read their datum regardless of on-chain location, so
+  interoperability holds without any escape.
 
-What the framework refuses is a carve-out that lets a *registered* policy's
-token escape the PLB — once out, the custody guarantee is void.
+In short: keep everything in the mini-ledger, make the substandard
+CIP-68/102-aware, and protect the companion labels. The administrator cannot
+seize, burn, or move them; a correctly-implemented substandard can.
 
 ---
 

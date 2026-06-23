@@ -125,9 +125,12 @@ Your transfer logic validator decides **what conditions must be met for a transf
 - Any custom validation
 
 > **Companion assets (CIP-68 / CIP-102) are your responsibility, not the
-> framework's.** CIP-113 governs the user token's custody and movement only;
-> metadata (reference NFTs) and royalties are token-level concerns handled by
-> your substandard's mint/transfer logic, not by the policy-level framework. See
+> framework's.** Reference NFTs and royalty tokens stay in the PLB under the
+> same policy. Transferring them is allowed — your CIP-68/102-aware transfer and
+> minting logic must ensure it happens the proper way (moving them, updating a
+> reference NFT's datum, handling royalties). List their CIP-67 labels (100 /
+> 500) in the registry node's `protected_prefixes` so `ThirdPartyAct` cannot
+> seize or burn them. See
 > [`03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md`](./03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md) §1.
 
 ### 3. Third-Party Transfer Logic (withdraw)
