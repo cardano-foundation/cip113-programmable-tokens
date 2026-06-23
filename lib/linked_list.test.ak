@@ -1,6 +1,9 @@
 // Unit tests for linked list validation logic
 use cardano/address.{Script}
-use linked_list.{is_inserted_directory_node, is_updated_directory_node}
+use linked_list.{
+  is_field_updated_registry_node, is_inserted_directory_node,
+  is_updated_directory_node,
+}
 use registry_node.{RegistryNode}
 use utils.{bytearray_lt}
 
@@ -204,4 +207,67 @@ test is_updated_directory_node_rejects_global_state_swap() fail {
 
   // ^^^ TAMPERED — original was #""
   is_updated_directory_node(tampered_node, original, #"bb")
+}
+
+test is_field_updated_registry_node_rejects_registry_nodes_differ() fail {
+  let original = RegistryNode {
+    key: #"aa",
+    next: #"cc",
+    transfer_logic_script: Script(
+      #"11111111111111111111111111111111111111111111111111111111",
+    ),
+    third_party_transfer_logic_script: Script(
+      #"11111111111111111111111111111111111111111111111111111111",
+    ),
+    minting_logic_script: Script(
+      #"11111111111111111111111111111111111111111111111111111111",
+    ),
+    global_state_cs: #"",
+  }
+  let new = RegistryNode {
+    key: #"ab",
+    // changing an immutable field
+    next: #"cc",
+    transfer_logic_script: Script(
+      #"11111111111111111111111111111111111111111111111111111111",
+    ),
+    third_party_transfer_logic_script: Script(
+      #"11111111111111111111111111111111111111111111111111111111",
+    ),
+    minting_logic_script: Script(
+      #"11111111111111111111111111111111111111111111111111111111",
+    ),
+    global_state_cs: #"",
+  }
+
+  is_field_updated_registry_node(new, original)
+}
+
+test is_field_updated_registry_node_update_true() {
+  let original = RegistryNode {
+    key: #"aa",
+    next: #"cc",
+    transfer_logic_script: Script(
+      #"11111111111111111111111111111111111111111111111111111111",
+    ),
+    third_party_transfer_logic_script: Script(
+      #"22222222222222222222222222222222222222222222222222222222",
+    ),
+    minting_logic_script: Script(#"33"),
+    global_state_cs: #"",
+  }
+  let new = RegistryNode {
+    key: #"aa",
+    next: #"cc",
+    transfer_logic_script: Script(
+      #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    ),
+    third_party_transfer_logic_script: Script(
+      #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    ),
+    minting_logic_script: Script(#"33"),
+    global_state_cs: #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+  }
+
+  is_field_updated_registry_node(new, original)
 }
