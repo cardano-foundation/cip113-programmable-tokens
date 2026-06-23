@@ -288,6 +288,7 @@ test is_field_updated_registry_node_rejects_registry_nodes_differ() fail {
       #"11111111111111111111111111111111111111111111111111111111",
     ),
     global_state_cs: #"",
+    protected_prefixes: [],
   }
   let new = RegistryNode {
     key: #"ab",
@@ -303,6 +304,7 @@ test is_field_updated_registry_node_rejects_registry_nodes_differ() fail {
       #"11111111111111111111111111111111111111111111111111111111",
     ),
     global_state_cs: #"",
+    protected_prefixes: [],
   }
 
   is_field_updated_registry_node(new, original)
@@ -320,6 +322,7 @@ test is_field_updated_registry_node_update_true() {
     ),
     minting_logic_script: Script(#"33"),
     global_state_cs: #"",
+    protected_prefixes: [],
   }
   let new = RegistryNode {
     key: #"aa",
@@ -332,7 +335,50 @@ test is_field_updated_registry_node_update_true() {
     ),
     minting_logic_script: Script(#"33"),
     global_state_cs: #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    protected_prefixes: [],
   }
 
+  is_field_updated_registry_node(new, original)
+}
+
+/// A node whose three mutable fields are well-formed and which already
+/// protects one CIP-67 label prefix. Used by the append-only tests below.
+fn base_updatable_node() -> RegistryNode {
+  RegistryNode {
+    key: #"aa",
+    next: #"cc",
+    minting_logic_script: Script(#"33"),
+    transfer_logic_script: Script(
+      #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    ),
+    third_party_transfer_logic_script: Script(
+      #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    ),
+    global_state_cs: #"",
+    protected_prefixes: [#"000643b0"],
+  }
+}
+
+// Finding 18 (append-only): adding a new protected prefix on update is allowed.
+test is_field_updated_registry_node_allows_adding_protected_prefix() {
+  let original = base_updatable_node()
+  let new =
+    RegistryNode { ..original, protected_prefixes: [#"000643b0", #"001f4d70"] }
+  is_field_updated_registry_node(new, original)
+}
+
+// Finding 18 (append-only): dropping a previously-protected prefix must fail —
+// protection cannot be revoked to enable a later seizure.
+test is_field_updated_registry_node_rejects_dropping_protected_prefix() fail {
+  let original = base_updatable_node()
+  let new = RegistryNode { ..original, protected_prefixes: [] }
+  is_field_updated_registry_node(new, original)
+}
+
+// Finding 18: a protected prefix added on update must be a 4-byte CIP-67 label.
+test is_field_updated_registry_node_rejects_malformed_protected_prefix() fail {
+  let original = base_updatable_node()
+  let new =
+    RegistryNode { ..original, protected_prefixes: [#"000643b0", #"0006"] }
   is_field_updated_registry_node(new, original)
 }

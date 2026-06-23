@@ -196,11 +196,21 @@ pub fn is_field_updated_registry_node(
       transfer_logic_script: new.transfer_logic_script,
       third_party_transfer_logic_script: new.third_party_transfer_logic_script,
       global_state_cs: new.global_state_cs,
+      protected_prefixes: new.protected_prefixes,
     },
     is_28_byte_credential(new.transfer_logic_script)?,
     is_28_byte_credential(new.third_party_transfer_logic_script)?,
     (bytearray.length(new.global_state_cs) == 0 || is_28_bytes(
       new.global_state_cs,
     ))?,
+    // protected_prefixes is APPEND-ONLY and well-formed: an update may add
+    // protected CIP-67 label prefixes (each exactly 4 bytes) but may never drop
+    // one — so protection, once declared, cannot be revoked to enable a later
+    // ThirdPartyAct seizure of the previously-protected tokens.
+    list.all(new.protected_prefixes, fn(p) { bytearray.length(p) == 4 })?,
+    list.all(
+      old.protected_prefixes,
+      fn(p) { list.has(new.protected_prefixes, p) },
+    )?,
   }
 }
