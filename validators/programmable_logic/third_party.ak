@@ -229,11 +229,20 @@ fn validate_io_constraints_and_balance(
         //     output's protected subset while still present in the input's, so
         //     the subsets differ. (The unprotected remainder may still be
         //     burned via tx.mint, reconciled by the conservation balance.)
+        //
+        // Empty-list fast path: when no prefixes are protected (the default),
+        // skip the two `protected_subset` filters entirely — only a cheap
+        // list-empty check is paid per pair, keeping this case close to the
+        // pre-Finding-18 baseline.
         expect
-          protected_subset(input_tokens_at, protected_prefixes) == protected_subset(
-            output_tokens_at,
-            protected_prefixes,
-          )
+          when protected_prefixes is {
+            [] -> True
+            _ ->
+              protected_subset(input_tokens_at, protected_prefixes) == protected_subset(
+                output_tokens_at,
+                protected_prefixes,
+              )
+          }
 
         validate_io_constraints_and_balance(
           prog_logic_cred,
