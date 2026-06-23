@@ -12,6 +12,7 @@ use cardano/transaction.{
   InlineDatum, Input, NoDatum, Output, OutputReference, Transaction,
 }
 use programmable_logic/params.{ProgrammableLogicGlobalParams}
+use registry_node.{RegistryNode}
 use registry_spend
 
 // ---------------------------------------------------------------------------
@@ -102,9 +103,19 @@ fn call_validator(tx: Transaction) -> Bool {
     test_protocol_params_cs,
     None,
     as_data(Void),
-    as_data(Void),
+    placeholder_own_ref(),
     tx,
   )
+}
+
+/// A throwaway OutputReference for tests that hit the minting (Some) branch,
+/// which never resolves own_ref. Update-path tests should pass an own_ref that
+/// matches the spent node input instead.
+fn placeholder_own_ref() -> OutputReference {
+  OutputReference {
+    transaction_id: #"0000000000000000000000000000000000000000000000000000000000000000",
+    output_index: 0,
+  }
 }
 
 // ========================================================================
@@ -285,6 +296,203 @@ test fails_empty_mint() fail {
     ..transaction.placeholder,
     reference_inputs: [protocol_params_ref_input()],
     mint: assets.zero,
+  }
+  call_validator(tx)
+}
+
+// ===========================================================================
+// In-place node update path (None branch: no registry_node_cs minted)
+//
+// The creator updates the 3 mutable fields (transfer_logic_script,
+// third_party_transfer_logic_script, global_state_cs) of an existing node,
+// keeping key / next / minting_logic_script frozen. Authorisation is the
+// node's own minting_logic_script invoked via withdraw-0.
+// ===========================================================================
+
+const test_node_key: ByteArray =
+  #"11111111111111111111111111111111111111111111111111111111"
+
+const test_node_next: ByteArray =
+  #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+
+const test_minting_logic_hash: ByteArray =
+  #"22222222222222222222222222222222222222222222222222222222"
+
+const test_transfer_old: ByteArray =
+  #"33333333333333333333333333333333333333333333333333333333"
+
+const test_transfer_new: ByteArray =
+  #"44444444444444444444444444444444444444444444444444444444"
+
+const test_third_party_old: ByteArray =
+  #"55555555555555555555555555555555555555555555555555555555"
+
+const test_third_party_new: ByteArray =
+  #"66666666666666666666666666666666666666666666666666666666"
+
+const test_global_new: ByteArray =
+  #"77777777777777777777777777777777777777777777777777777777"
+
+const test_node_addr_hash: ByteArray =
+  #"88888888888888888888888888888888888888888888888888888888"
+
+const test_attacker_addr_hash: ByteArray =
+  #"99999999999999999999999999999999999999999999999999999999"
+
+const test_other_minting_hash: ByteArray =
+  #"abababababababababababababababababababababababababababab"
+
+/// The registry-node address (payment = registry_spend script, stake = None).
+fn test_node_address() -> Address {
+  Address {
+    payment_credential: Script(test_node_addr_hash),
+    stake_credential: None,
+  }
+}
+
+/// The node before the update.
+fn old_registry_node() -> RegistryNode {
+  RegistryNode {
+    key: test_node_key,
+    next: test_node_next,
+    minting_logic_script: Script(test_minting_logic_hash),
+    transfer_logic_script: Script(test_transfer_old),
+    third_party_transfer_logic_script: Script(test_third_party_old),
+    global_state_cs: #"",
+  }
+}
+
+/// The node after the update — only the 3 mutable fields change.
+fn new_registry_node() -> RegistryNode {
+  RegistryNode {
+    ..old_registry_node(),
+    transfer_logic_script: Script(test_transfer_new),
+    third_party_transfer_logic_script: Script(test_third_party_new),
+    global_state_cs: test_global_new,
+  }
+}
+
+/// OutputReference of the registry node being spent. Shared so the value the
+/// validator receives as `own_ref` matches the input `find_input` must locate.
+fn test_node_own_ref() -> OutputReference {
+  OutputReference {
+    transaction_id: #"3333333333333333333333333333333333333333333333333333333333333333",
+    output_index: 0,
+  }
+}
+
+/// A registry-node UTxO carrying the node NFT (token name == key) + inline datum.
+fn registry_node_input(node: RegistryNode) -> Input {
+  Input {
+    output_reference: test_node_own_ref(),
+    output: Output {
+      address: test_node_address(),
+      value: min_ada |> assets.add(test_registry_node_cs, test_node_key, 1),
+      datum: InlineDatum(as_data(node)),
+      reference_script: None,
+    },
+  }
+}
+
+fn registry_node_output(node: RegistryNode) -> Output {
+  Output {
+    address: test_node_address(),
+    value: min_ada |> assets.add(test_registry_node_cs, test_node_key, 1),
+    datum: InlineDatum(as_data(node)),
+    reference_script: None,
+  }
+}
+
+/// A valid in-place update tx: no registry mint, single node in/out, mutable
+/// fields changed, minting_logic_script invoked via withdraw-0.
+fn update_transaction() -> Transaction {
+  Transaction {
+    ..transaction.placeholder,
+    reference_inputs: [protocol_params_ref_input()],
+    inputs: [registry_node_input(old_registry_node())],
+    outputs: [registry_node_output(new_registry_node())],
+    withdrawals: [Pair(Script(test_minting_logic_hash), 0)],
+  }
+}
+
+// Happy path: creator updates the 3 mutable fields with proper authorisation.
+test registry_spend_update_node() {
+  registry_spend.registry_spend.spend(
+    test_protocol_params_cs,
+    Some(old_registry_node()),
+    as_data(Void),
+    test_node_own_ref(),
+    update_transaction(),
+  )
+}
+
+// Reject: minting_logic_script is NOT invoked (no withdrawal) → unauthorised.
+// pairs.has_key returns False → validator returns False.
+test fails_update_without_minting_logic_withdrawal() fail {
+  let tx = Transaction { ..update_transaction(), withdrawals: [] }
+  call_validator(tx)
+}
+
+// Reject: a different credential is invoked, not the node's minting_logic_script.
+test fails_update_wrong_withdrawal_credential() fail {
+  let tx = Transaction {
+    ..update_transaction(),
+    withdrawals: [Pair(Script(test_other_minting_hash), 0)],
+  }
+  call_validator(tx)
+}
+
+// Reject: tampering with an immutable field (minting_logic_script). key/next are
+// untouched so validate_directory_node_output passes, but the record-equality in
+// is_field_updated_registry_node fails.
+test fails_update_changes_minting_logic() fail {
+  let tampered = RegistryNode {
+    ..new_registry_node(),
+    minting_logic_script: Script(test_other_minting_hash),
+  }
+  let tx = Transaction {
+    ..update_transaction(),
+    outputs: [registry_node_output(tampered)],
+  }
+  call_validator(tx)
+}
+
+// Reject: relocating the node NFT to a different address (theft). The continuing
+// output's address must equal the spent input's address.
+test fails_update_relocates_nft() fail {
+  let relocated = Output {
+    ..registry_node_output(new_registry_node()),
+    address: Address {
+      payment_credential: VerificationKey(test_attacker_addr_hash),
+      stake_credential: None,
+    },
+  }
+  let tx = Transaction { ..update_transaction(), outputs: [relocated] }
+  call_validator(tx)
+}
+
+// Reject: two continuing node outputs (batching / double-satisfaction). The
+// single-output filter `expect [cont]` rejects more than one.
+test fails_update_two_node_outputs() fail {
+  let tx = Transaction {
+    ..update_transaction(),
+    outputs: [
+      registry_node_output(new_registry_node()),
+      registry_node_output(new_registry_node()),
+    ],
+  }
+  call_validator(tx)
+}
+
+// Reject: malformed mutable value — a non-28-byte transfer_logic_script.
+test fails_update_malformed_transfer_logic() fail {
+  let bad = RegistryNode {
+    ..new_registry_node(),
+    transfer_logic_script: Script(#"1234"),
+  }
+  let tx = Transaction {
+    ..update_transaction(),
+    outputs: [registry_node_output(bad)],
   }
   call_validator(tx)
 }
