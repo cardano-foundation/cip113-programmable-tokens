@@ -382,3 +382,20 @@ test is_field_updated_registry_node_rejects_malformed_protected_prefix() fail {
     RegistryNode { ..original, protected_prefixes: [#"000643b0", #"0006"] }
   is_field_updated_registry_node(new, original)
 }
+
+// Finding 18: protected_prefixes must be strictly ascending — an unsorted list
+// is rejected (even when it still contains every old prefix).
+test is_field_updated_registry_node_rejects_unsorted_protected_prefixes() fail {
+  let original = base_updatable_node()
+  let new =
+    RegistryNode { ..original, protected_prefixes: [#"001f4d70", #"000643b0"] }
+  is_field_updated_registry_node(new, original)
+}
+
+// Finding 18: duplicate prefixes are rejected (strictly ascending forbids them).
+test is_field_updated_registry_node_rejects_duplicate_protected_prefix() fail {
+  let original = base_updatable_node()
+  let new =
+    RegistryNode { ..original, protected_prefixes: [#"000643b0", #"000643b0"] }
+  is_field_updated_registry_node(new, original)
+}

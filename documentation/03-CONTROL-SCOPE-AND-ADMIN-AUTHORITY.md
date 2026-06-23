@@ -113,7 +113,9 @@ another seized input or by a mint of A.
 ### 2.2 Protected prefixes — extraction the admin cannot perform
 
 The `RegistryNode` carries `protected_prefixes`: an **issuer-declared,
-append-only** list of 4-byte CIP-67 asset-name label prefixes.
+append-only** list of 4-byte CIP-67 asset-name label prefixes, kept in
+**strictly ascending order** (which deduplicates it and lets the framework
+validate the list and the append-only invariant in a single pass).
 
 `ThirdPartyAct` may **not extract or burn** any token of policy A whose asset
 name begins with a protected prefix. On each paired UTxO the protected-labelled

@@ -1,4 +1,4 @@
-use aiken/builtin.{unconstr_fields}
+use aiken/builtin.{length_of_bytearray, less_than_bytearray, unconstr_fields}
 use assets
 use cardano/address.{Credential, VerificationKey}
 use cardano/assets.{PolicyId} as value
@@ -193,4 +193,55 @@ pub fn with_3rd_party_logic_and_protected(
     list.tail(list.tail(list.tail(list.tail(list.tail(list.tail(fields)))))),
   )
   return(key, third_party_transfer_logic_script, protected_prefixes)
+}
+
+/// Validate a `protected_prefixes` list AND the append-only update invariant in
+/// a single pass. Returns `True` iff:
+///   * `new` is well-formed — every entry is a 4-byte CIP-67 label prefix in
+///     STRICTLY ASCENDING order (ascending also forbids duplicates); and
+///   * `new` extends `old` — every prefix in `old` is still present in `new`
+///     (append-only: protection, once declared, can never be revoked).
+///
+/// Both lists must be ascending. `old` is so by induction: the origin node's
+/// list is empty, and every Insert / Update routes through this function. At
+/// Insert pass `old = []` (just the well-formedness check); at Update pass the
+/// previous list. One two-pointer walk over `new` with a cursor into `old`,
+/// O(|old| + |new|) — no nested membership scans.
+pub fn is_valid_protected_extension(
+  old: List<ByteArray>,
+  new: List<ByteArray>,
+) -> Bool {
+  do_valid_protected_extension(old, new, #"")
+}
+
+fn do_valid_protected_extension(
+  old: List<ByteArray>,
+  new: List<ByteArray>,
+  prev: ByteArray,
+) -> Bool {
+  when new is {
+    // No more new entries: append-only holds iff every old prefix was matched.
+    [] -> old == []
+    [n, ..n_rest] ->
+      // Each entry: exactly 4 bytes AND strictly greater than the previous
+      // (enforces ascending order + deduplication in one comparison).
+      if length_of_bytearray(n) == 4 && less_than_bytearray(prev, n) {
+        when old is {
+          [] -> do_valid_protected_extension([], n_rest, n)
+          [o, ..o_rest] ->
+            if o == n {
+              // `n` re-states an existing protected prefix — matched.
+              do_valid_protected_extension(o_rest, n_rest, n)
+            } else if less_than_bytearray(n, o) {
+              // `n` is a freshly-added prefix; `o` is still to be matched.
+              do_valid_protected_extension(old, n_rest, n)
+            } else {
+              // `o` < `n`: `o` was dropped from `new` — append-only violated.
+              False
+            }
+        }
+      } else {
+        False
+      }
+  }
 }

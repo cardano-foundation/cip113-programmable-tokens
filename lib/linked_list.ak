@@ -7,7 +7,10 @@ use cardano/address.{Address, Credential, Script, VerificationKey}
 
 use cardano/assets.{AssetName, PolicyId, Value}
 use cardano/transaction.{Output}
-use registry_node.{RegistryNode, origin_node, origin_node_tn, sentinel_next_key}
+use registry_node.{
+  RegistryNode, is_valid_protected_extension, origin_node, origin_node_tn,
+  sentinel_next_key,
+}
 use utils.{bytearray_lt, expect_inline_datum, has_currency_symbol}
 
 /// Validate the *common* structural properties of a registry-node output and
@@ -133,17 +136,13 @@ pub fn is_inserted_directory_node(
     (bytearray.length(node.global_state_cs) == 0 || is_28_bytes(
       node.global_state_cs,
     ))?,
-    // Finding 18: every protected-prefix entry MUST be exactly 4 bytes (a
-    // CIP-67 asset-name label prefix). The issuer declares the list freely —
-    // there is no tie to the redeemer — but each entry must be well-formed so
-    // the ThirdPartyAct seizure path can match it against asset-name prefixes.
-    //
-    // NOTE (Finding 20 / PR #81): the APPEND-ONLY growth constraint — a node
-    // UPDATE may only GROW this list (new ⊇ old), never shrink or rewrite it —
-    // belongs in the registry-node UPDATE path, which lives on a different
-    // branch and is NOT present on origin/main. Do NOT implement update logic
-    // here; this comment is left so the F20 integration remembers to add it.
-    list.all(node.protected_prefixes, fn(p) { bytearray.length(p) == 4 })?,
+    // Finding 18: protected_prefixes must be well-formed — every entry a 4-byte
+    // CIP-67 label prefix, in strictly ascending order (no duplicates). The
+    // issuer declares the list freely (no tie to the redeemer). At Insert there
+    // is no prior list, so `old = []`. The append-only growth constraint
+    // (new ⊇ old) is enforced by the same helper at Update time
+    // (`is_field_updated_registry_node`).
+    is_valid_protected_extension([], node.protected_prefixes)?,
   }
 }
 
@@ -203,14 +202,11 @@ pub fn is_field_updated_registry_node(
     (bytearray.length(new.global_state_cs) == 0 || is_28_bytes(
       new.global_state_cs,
     ))?,
-    // protected_prefixes is APPEND-ONLY and well-formed: an update may add
-    // protected CIP-67 label prefixes (each exactly 4 bytes) but may never drop
-    // one — so protection, once declared, cannot be revoked to enable a later
+    // protected_prefixes is APPEND-ONLY and well-formed: one pass validates that
+    // `new` is a 4-byte, strictly-ascending list AND that it still contains
+    // every prefix in `old` — an update may add protected CIP-67 labels but may
+    // never drop one, so protection cannot be revoked to enable a later
     // ThirdPartyAct seizure of the previously-protected tokens.
-    list.all(new.protected_prefixes, fn(p) { bytearray.length(p) == 4 })?,
-    list.all(
-      old.protected_prefixes,
-      fn(p) { list.has(new.protected_prefixes, p) },
-    )?,
+    is_valid_protected_extension(old.protected_prefixes, new.protected_prefixes)?,
   }
 }

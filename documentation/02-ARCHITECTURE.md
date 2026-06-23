@@ -273,7 +273,8 @@ type RegistryNode {
 ```
 
 `protected_prefixes` is an issuer-declared, append-only list of 4-byte CIP-67
-asset-name label prefixes that the admin path cannot extract or burn — see
+asset-name label prefixes (kept in strictly ascending order) that the admin path
+cannot extract or burn — see
 [`03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md`](./03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md) §2.2.
 
 ### BlacklistNode (freeze-and-seize substandard)
