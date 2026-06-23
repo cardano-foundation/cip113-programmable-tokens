@@ -8,10 +8,9 @@ but does not spell out:
 2. **The scope of administrative authority** — exactly what the `ThirdPartyAct`
    (seizure/freeze) path can and cannot do to a holder's UTxO.
 
-It is the resolution of the external-audit questions on *scope ambiguity*,
-*admin-control scope*, and *atomic multi-policy operations*. Implementation lives
-in `validators/programmable_logic/third_party.ak`, `lib/registry_node.ak`, and
-`lib/linked_list.ak`; this document is the normative reading of their intent.
+Implementation lives in `validators/programmable_logic/third_party.ak`,
+`lib/registry_node.ak`, and `lib/linked_list.ak`; this document is the normative
+reading of their intent.
 
 ---
 
@@ -77,14 +76,26 @@ substandard:
 | Guarantee | Enforced by |
 |---|---|
 | A's `third_party_transfer_logic_script` is invoked (withdraw-0) | `third_party.ak` |
-| Each spent PLB UTxO is paired 1:1 with a continuing output preserving **address, datum, and reference script** byte-for-byte | Finding 13 |
-| **Non-subject** token quantities are conserved per pair, byte-for-byte — no other policy can be injected, redirected, split, or destroyed | Finding 12 |
-| The paired input **must already hold** policy A — the admin cannot conjure A onto a UTxO that never held it (anti-injection), nor drag an unrelated UTxO into the action (anti-DoS) | Finding 12 |
+| Each spent PLB UTxO is paired 1:1 with a continuing output preserving **address, datum, and reference script** byte-for-byte | `third_party.ak` |
+| **Non-subject** token quantities are conserved per pair, byte-for-byte — no other policy can be injected, redirected, split, or destroyed | `third_party.ak` |
+| The paired input **must already hold** policy A — the admin cannot conjure A onto a UTxO that never held it (anti-injection), nor drag an unrelated UTxO into the action (anti-DoS) | `third_party.ak` |
 | The subject delta across all pairs reconciles against A's `mint`/burn; nothing escapes the PLB | `third_party.ak` |
 | Exactly **one** PLG redeemer per transaction — `ThirdPartyAct` and `TransferAct` are mutually exclusive (see §3.1) | `programmable_logic_global` |
 
 A single `ThirdPartyAct` may act on **multiple UTxOs of the same policy A** in
 one transaction; each spent PLB input gets its own paired output.
+
+**On the subject policy, the admin may change amounts freely.** `ThirdPartyAct`
+is a forced *transfer/seizure*, not only a removal: on each paired output the
+subject policy's non-protected tokens may be **decreased, removed entirely, or
+increased** (and a no-op — leaving them unchanged — is also permitted). The
+per-pair check pins only the protected subset (§2.2) and the non-subject tokens;
+the non-protected subject amount is otherwise unconstrained per pair. The
+aggregate rule (the `mint`/burn-reconciled superset check above) keeps the
+*total* non-protected subject amount within the PLB across all outputs — so
+amounts are **redistributed** (or minted/burned), never created from nothing or
+made to escape. An increase on one UTxO must therefore be backed by a decrease
+on another seized input or by a mint of A.
 
 ### 2.2 Protected prefixes — extraction the admin cannot perform
 
@@ -94,7 +105,8 @@ append-only** list of 4-byte CIP-67 asset-name label prefixes.
 `ThirdPartyAct` may **not extract or burn** any token of policy A whose asset
 name begins with a protected prefix. On each paired UTxO the protected-labelled
 tokens must be **byte-equal** between input and continuing output; only the
-non-protected remainder is seizable. This is **"preserve, not fail"**:
+non-protected remainder may be seized or otherwise changed. This is
+**"preserve, not fail"**:
 co-locating a protected token in a UTxO does **not** block the admin from
 seizing everything else in it, and the protected token simply stays put.
 

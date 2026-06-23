@@ -394,10 +394,10 @@ Key invariant: the total programmable token value in outputs at the `prog_logic_
 The `ThirdPartyAct` redeemer handles admin operations like token seizure. It differs from transfers:
 
 1. **No ownership check** — the `third_party_transfer_logic_script` authorizes the action instead of the stake credential owner
-2. **Token removal** — seized tokens are removed from the holder's UTxO (output value = input value minus the seized, non-protected subject tokens)
+2. **Amount change** — `ThirdPartyAct` is a forced transfer/seizure: the subject policy's non-protected tokens on each paired output may be decreased, fully removed, or increased (a no-op is also permitted). Aggregate conservation (below) keeps the *total* non-protected subject amount across all PLB outputs accounting for every seized input plus any mint/burn — tokens are redistributed within the PLB, never created from nothing or made to escape
 3. **Per-pair mapping** — each spent PLB input is paired positionally with a continuing output (the first pair starts at `outputs_start_idx`); the action covers every PLB input that holds the subject policy
-4. **Preservation** — the paired output must preserve the holder's address, datum, **and reference script** (Finding 13), changing only the subject policy's seizable tokens; all non-subject tokens are conserved byte-for-byte (Finding 12)
-5. **Anti-injection / anti-DoS** — the paired input must already hold the subject policy, so the admin can neither inject the policy onto a UTxO that never held it nor drag an unrelated UTxO into the action (Finding 12)
+4. **Preservation** — the paired output must preserve the holder's address, datum, **and reference script**, changing only the subject policy's non-protected tokens; all non-subject tokens are conserved byte-for-byte
+5. **Anti-injection / anti-DoS** — the paired input must already hold the subject policy, so the admin can neither inject the policy onto a UTxO that never held it nor drag an unrelated UTxO into the action
 6. **Protected prefixes** — tokens whose CIP-67 label prefix is on the node's `protected_prefixes` list cannot be extracted or burned ("preserve, not fail")
 7. **One policy per transaction** — `ThirdPartyAct` targets exactly one registry node (see scope note below)
 
