@@ -203,16 +203,23 @@ fn validate_io_constraints_and_balance(
         // Non-acted-on policies must be byte-identical between input and
         // paired output (no foreign-policy injection / spam). The acted-on
         // policy must already be present in the input (Finding 12 —
-        // otherwise this seizure would be CONTAMINATION of an innocent
-        // UTxO that never held the policy). Whether the acted-on policy's
-        // amount changes or not is irrelevant at this layer: equal totals
-        // are economically a no-op but not unsafe, and the redundant
-        // `input_tokens_at != output_tokens_at` check the audit flagged is
-        // intentionally absent.
+        // otherwise this third-party action would CONTAMINATE an innocent
+        // UTxO that never held the policy).
+        //
+        // The acted-on amount MUST change (input_tokens_at != output_tokens_at):
+        // a third-party action is a forced change of the subject balance, so a
+        // no-op forced respend is rejected. Audit Finding 12 (mitigation 2)
+        // recommended REMOVING this `!=` check as redundant for *custody*
+        // security; we deliberately KEEP it as an anti-DDoS guard — without it
+        // an admin could force-respend a holder's UTxO with no economic change,
+        // churning its output reference and wasting on-chain resources. (Note:
+        // a UTxO whose only acted-on tokens are protected cannot change and is
+        // therefore not a valid target — which is correct, nothing is seizable.)
         expect !dict.is_empty(input_tokens_at)
         expect and {
             (input_tokens_before == output_tokens_before)?,
             (input_tokens_after == output_tokens_after)?,
+            (input_tokens_at != output_tokens_at)?,
           }
 
         // Finding 18: the PROTECTED subset of the acted-on policy (tokens whose

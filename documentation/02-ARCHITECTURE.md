@@ -304,9 +304,10 @@ type ProgrammableLogicGlobalParams {
 type ProgrammableLogicGlobalRedeemer {
   // Normal transfer: one proof per non-ADA policy in the inputs
   TransferAct { proofs: List<RegistryProof> }
-  // Admin action (seize): exactly one policy per transaction (see
-  // 03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md §3.1). Acts on every PLB input
-  // holding the subject policy; paired continuing outputs begin at outputs_start_idx.
+  // Administrative action — forced transfer / seizure / freeze enforcement /
+  // burn (see 03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md). Exactly one policy per
+  // transaction; acts on every PLB input holding the subject policy; paired
+  // continuing outputs begin at outputs_start_idx.
   ThirdPartyAct {
     registry_node_idx: Int, // The subject policy's registry node (one policy per tx)
     outputs_start_idx: Int,
@@ -389,12 +390,12 @@ sequenceDiagram
 
 Key invariant: the total programmable token value in outputs at the `prog_logic_cred` address must be **at least** the total programmable token value from signed inputs. This prevents tokens from "escaping" the programmable logic address.
 
-### Third-Party (Seize) Flow
+### Third-Party (Administrative) Flow
 
-The `ThirdPartyAct` redeemer handles admin operations like token seizure. It differs from transfers:
+The `ThirdPartyAct` redeemer handles administrative / compliance operations — forced transfer, seizure, freeze enforcement, or burn. It differs from transfers:
 
 1. **No ownership check** — the `third_party_transfer_logic_script` authorizes the action instead of the stake credential owner
-2. **Amount change** — `ThirdPartyAct` is a forced transfer/seizure: the subject policy's non-protected tokens on each paired output may be decreased, fully removed, or increased (a no-op is also permitted). Aggregate conservation (below) keeps the *total* non-protected subject amount across all PLB outputs accounting for every seized input plus any mint/burn — tokens are redistributed within the PLB, never created from nothing or made to escape
+2. **Amount change** — `ThirdPartyAct` is a forced transfer: the subject policy's non-protected tokens on each paired output may be decreased, fully removed, or increased, but they **must change** (a no-op forced respend is rejected — see Anti-DDoS below). Aggregate conservation (below) keeps the *total* non-protected subject amount across all PLB outputs accounting for every seized input plus any mint/burn — tokens are redistributed within the PLB, never created from nothing or made to escape
 3. **Per-pair mapping** — each spent PLB input is paired positionally with a continuing output (the first pair starts at `outputs_start_idx`); the action covers every PLB input that holds the subject policy
 4. **Preservation** — the paired output must preserve the holder's address, datum, **and reference script**, changing only the subject policy's non-protected tokens; all non-subject tokens are conserved byte-for-byte
 5. **Anti-injection / anti-DoS** — the paired input must already hold the subject policy, so the admin can neither inject the policy onto a UTxO that never held it nor drag an unrelated UTxO into the action
@@ -435,8 +436,8 @@ Both registry and denylist maintain the invariant `node.key < node.next` for eve
 ### One-Shot Policies
 Protocol parameters, registry, denylist, and issuance CBOR hex NFTs use one-shot minting policies (parameterized by a UTxO reference). This guarantees exactly one instance of each can exist, preventing duplication attacks.
 
-### Anti-DDOS in Seizures
-The `ThirdPartyAct` handler explicitly checks that the input value differs from the expected output value (`input_dict != expected_output_dict`). This prevents adversaries from submitting no-op seizure transactions that waste on-chain resources.
+### Anti-DDoS in Third-Party Actions
+Each seized UTxO's acted-on amount must actually change (`input_tokens_at != output_tokens_at` per paired input/output). This rejects no-op third-party actions: an admin cannot force-respend a holder's UTxO with no economic change, which would churn its output reference and waste on-chain resources.
 
 ---
 

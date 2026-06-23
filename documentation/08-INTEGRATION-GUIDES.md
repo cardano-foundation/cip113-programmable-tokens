@@ -261,16 +261,16 @@ This means indexers serving enterprise clients need to:
 - Not assume that a payment key hash will only appear as a payment credential.
 - Potentially offer a "query by owner credential" API that checks the stake slot of programmable addresses regardless of the credential's original role.
 
-#### Identifying Transfer vs. Seizure Transactions
+#### Identifying Transfer vs. Administrative (ThirdPartyAct) Transactions
 
 Programmable token transactions come in two flavors, distinguishable by the redeemer used:
 
 | Transaction Type | Redeemer | Characteristics |
 |-----------------|----------|-----------------|
 | **Transfer** (`TransferAct`) | `TransferAct { proofs }` | Owner-authorized. Stake credential owner signed or invoked. Input and output may have different stake credentials. |
-| **Seizure** (`ThirdPartyAct`) | `ThirdPartyAct { ... }` | Admin-authorized. No owner signature required. Output preserves the victim's address but removes seized tokens. |
+| **Administrative** (`ThirdPartyAct`) | `ThirdPartyAct { ... }` | Admin-authorized (forced transfer / seizure / burn). No owner signature required. The continuing output preserves the holder's address and datum; only the subject policy's non-protected tokens change. |
 
-Explorers should display these differently — a seizure is not a voluntary transfer and should be flagged as an administrative/compliance action.
+Explorers should display these differently — a third-party action is not a voluntary transfer and should be flagged as an administrative/compliance action.
 
 ### Registry State
 
@@ -287,7 +287,7 @@ For tokens using the freeze-and-seize substandard, indexers should additionally 
 
 - **Denylist changes**: Insertions (`BlacklistInsert`) and removals (`BlacklistRemove`) on the blacklist linked list.
 - **Frozen addresses**: Current denylist membership indicates frozen/sanctioned credentials.
-- **Seizure events**: `ThirdPartyAct` transactions where tokens are removed from a holder's UTxO.
+- **Third-party actions**: `ThirdPartyAct` transactions where the admin forcibly changes a holder's subject-token balance (seizure, forced transfer, or burn).
 
 ### Common Pitfalls
 
@@ -296,7 +296,7 @@ For tokens using the freeze-and-seize substandard, indexers should additionally 
 | Attributing all tokens to the script address | Without stake-credential-level grouping, all programmable tokens appear to belong to one giant script address. Always decompose by stake credential. |
 | Missing script owners | If only `VerificationKey` credentials are indexed, script-held tokens (dApps, DAOs) will be invisible. |
 | Confusing payment keys in stake slots | A credential hash in the stake slot may be a payment key hash. Don't assume it corresponds to a stake address registered on-chain. |
-| Treating seizures as transfers | `ThirdPartyAct` transactions are admin actions, not user-initiated transfers. They should be displayed differently and flagged for compliance. |
+| Treating third-party actions as transfers | `ThirdPartyAct` transactions are admin actions, not user-initiated transfers. They should be displayed differently and flagged for compliance. |
 | Ignoring registry changes | New token registrations change which policies are programmable. An indexer that snapshots the registry once will miss newly registered tokens. |
 
 ---

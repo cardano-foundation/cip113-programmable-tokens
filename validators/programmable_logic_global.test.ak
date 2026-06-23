@@ -564,15 +564,14 @@ test third_party_act_paired_input_missing_acted_on_policy_fails() fail {
   run_seize_tx(tx)
 }
 
-// Finding 12 fix (redundant `!=` check removed): a degenerate "no-op"
-// seize where the paired output's amount of the acted-on policy equals
-// the paired input's is now accepted. ONE delta vs the happy path — the
-// paired output keeps the 42 FOO instead of removing them. Pre-fix the
-// `input_tokens_at != output_tokens_at` check rejected this; post-fix
-// the validator treats it as economically pointless but semantically
-// valid (the third_party_logic withdraw-0 still has to authorise the
-// no-op seize, so it's not free for the caller).
-test third_party_act_no_op_seize_succeeds() {
+// Anti-DDoS: a degenerate "no-op" third-party action — the paired output's
+// acted-on amount equals the paired input's (here it keeps the same 42 FOO) —
+// MUST be rejected. A third-party action is a forced *change* of the subject
+// balance; allowing a no-op would let an admin force-respend a holder's UTxO
+// (churning its output reference) for free. The `input_tokens_at !=
+// output_tokens_at` check (audit Finding 12 recommended removing it as
+// redundant for custody; kept here for anti-DDoS) rejects it.
+test third_party_act_no_op_seize_fails() fail {
   let tx = Transaction {
     ..valid_seize_tx(),
     outputs: [

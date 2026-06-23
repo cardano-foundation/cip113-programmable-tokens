@@ -6,7 +6,8 @@ but does not spell out:
 1. **The scope of programmable control** — what a registered CIP-113 policy does
    and does not govern (and why metadata/royalty management is out of scope).
 2. **The scope of administrative authority** — exactly what the `ThirdPartyAct`
-   (seizure/freeze) path can and cannot do to a holder's UTxO.
+   path (the administrative / compliance action: forced transfer, seizure,
+   freeze enforcement, burn) can and cannot do to a holder's UTxO.
 
 Implementation lives in `validators/programmable_logic/third_party.ak`,
 `lib/registry_node.ak`, and `lib/linked_list.ak`; this document is the normative
@@ -85,17 +86,20 @@ substandard:
 A single `ThirdPartyAct` may act on **multiple UTxOs of the same policy A** in
 one transaction; each spent PLB input gets its own paired output.
 
-**On the subject policy, the admin may change amounts freely.** `ThirdPartyAct`
-is a forced *transfer/seizure*, not only a removal: on each paired output the
-subject policy's non-protected tokens may be **decreased, removed entirely, or
-increased** (and a no-op — leaving them unchanged — is also permitted). The
-per-pair check pins only the protected subset (§2.2) and the non-subject tokens;
-the non-protected subject amount is otherwise unconstrained per pair. The
-aggregate rule (the `mint`/burn-reconciled superset check above) keeps the
-*total* non-protected subject amount within the PLB across all outputs — so
-amounts are **redistributed** (or minted/burned), never created from nothing or
-made to escape. An increase on one UTxO must therefore be backed by a decrease
-on another seized input or by a mint of A.
+**On the subject policy, the admin may change amounts in any direction —
+but it must be a change.** A third-party action is a forced *transfer*, not
+only a removal: on each paired output the subject policy's non-protected tokens
+may be **decreased, removed entirely, or increased**. The acted-on amount on
+each seized UTxO **must differ** from the input, however — a no-op forced
+respend is rejected as an anti-DDoS measure (it would let an admin churn a
+holder's UTxO for free). The per-pair check pins the protected subset (§2.2) and
+the non-subject tokens, and requires the subject amount to change; the
+*direction* of that change is otherwise unconstrained per pair. The aggregate
+rule (the `mint`/burn-reconciled superset check above) keeps the *total*
+non-protected subject amount within the PLB across all outputs — so amounts are
+**redistributed** (or minted/burned), never created from nothing or made to
+escape. An increase on one UTxO must therefore be backed by a decrease on
+another seized input or by a mint of A.
 
 ### 2.2 Protected prefixes — extraction the admin cannot perform
 
@@ -221,5 +225,5 @@ deliberately not provided.
 ---
 
 *See also: [`02-ARCHITECTURE.md`](./02-ARCHITECTURE.md) for the validator
-architecture and the third-party seize flow; [`09-DEVELOPING-SUBSTANDARDS.md`](./09-DEVELOPING-SUBSTANDARDS.md)
+architecture and the third-party (administrative) flow; [`09-DEVELOPING-SUBSTANDARDS.md`](./09-DEVELOPING-SUBSTANDARDS.md)
 for writing transfer and third-party logic.*
