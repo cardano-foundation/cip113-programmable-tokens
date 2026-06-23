@@ -362,8 +362,10 @@ fn base_updatable_node() -> RegistryNode {
 // Finding 18 (append-only): adding a new protected prefix on update is allowed.
 test is_field_updated_registry_node_allows_adding_protected_prefix() {
   let original = base_updatable_node()
-  let new =
-    RegistryNode { ..original, protected_prefixes: [#"000643b0", #"001f4d70"] }
+  let new = RegistryNode {
+    ..original,
+    protected_prefixes: [#"000643b0", #"001f4d70"],
+  }
   is_field_updated_registry_node(new, original)
 }
 
@@ -378,8 +380,10 @@ test is_field_updated_registry_node_rejects_dropping_protected_prefix() fail {
 // Finding 18: a protected prefix added on update must be a 4-byte CIP-67 label.
 test is_field_updated_registry_node_rejects_malformed_protected_prefix() fail {
   let original = base_updatable_node()
-  let new =
-    RegistryNode { ..original, protected_prefixes: [#"000643b0", #"0006"] }
+  let new = RegistryNode {
+    ..original,
+    protected_prefixes: [#"000643b0", #"0006"],
+  }
   is_field_updated_registry_node(new, original)
 }
 
@@ -387,15 +391,19 @@ test is_field_updated_registry_node_rejects_malformed_protected_prefix() fail {
 // is rejected (even when it still contains every old prefix).
 test is_field_updated_registry_node_rejects_unsorted_protected_prefixes() fail {
   let original = base_updatable_node()
-  let new =
-    RegistryNode { ..original, protected_prefixes: [#"001f4d70", #"000643b0"] }
+  let new = RegistryNode {
+    ..original,
+    protected_prefixes: [#"001f4d70", #"000643b0"],
+  }
   is_field_updated_registry_node(new, original)
 }
 
 // Finding 18: duplicate prefixes are rejected (strictly ascending forbids them).
 test is_field_updated_registry_node_rejects_duplicate_protected_prefix() fail {
   let original = base_updatable_node()
-  let new =
-    RegistryNode { ..original, protected_prefixes: [#"000643b0", #"000643b0"] }
+  let new = RegistryNode {
+    ..original,
+    protected_prefixes: [#"000643b0", #"000643b0"],
+  }
   is_field_updated_registry_node(new, original)
 }
