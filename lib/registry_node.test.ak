@@ -160,8 +160,9 @@ test prop_with_key_and_minting_logic_roundtrip(node via any_registry_node()) {
 test prop_with_3rd_party_logic_and_protected_roundtrip(
   node via any_registry_node(),
 ) {
-  let key, third_party_transfer_logic_script, protected_prefixes <-
-    with_3rd_party_logic_and_protected(node)
+  let key, third_party_transfer_logic_script, protected_prefixes <- with_3rd_party_logic_and_protected(
+    node,
+  )
   and {
     (key == node.key)?,
     (third_party_transfer_logic_script == node.third_party_transfer_logic_script)?,
@@ -172,16 +173,15 @@ test prop_with_3rd_party_logic_and_protected_roundtrip(
 // Deterministic off-by-one guard: every field gets a DISTINCT, hand-chosen
 // value so the assertions pin the exact indices regardless of fuzz luck.
 test with_3rd_party_logic_and_protected_extracts_exact_fields() {
-  let node =
-    RegistryNode {
-      key: #"a0",
-      next: #"a1",
-      minting_logic_script: VerificationKey(#"a2"),
-      transfer_logic_script: VerificationKey(#"a3"),
-      third_party_transfer_logic_script: Script(#"a4"),
-      global_state_cs: #"a5",
-      protected_prefixes: [#"000643b0", #"001f4d70"],
-    }
+  let node = RegistryNode {
+    key: #"a0",
+    next: #"a1",
+    minting_logic_script: VerificationKey(#"a2"),
+    transfer_logic_script: VerificationKey(#"a3"),
+    third_party_transfer_logic_script: Script(#"a4"),
+    global_state_cs: #"a5",
+    protected_prefixes: [#"000643b0", #"001f4d70"],
+  }
   let key, third_party, protected <- with_3rd_party_logic_and_protected(node)
   and {
     (key == #"a0")?,

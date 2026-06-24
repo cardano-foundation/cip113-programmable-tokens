@@ -189,10 +189,12 @@ pub fn with_3rd_party_logic_and_protected(
   // key=0, next=1, minting_logic=2, transfer_logic=3, third_party=4,
   // global_state_cs=5, protected_prefixes=6
   let from_third_party = list.tail(list.tail(list.tail(list.tail(fields))))
-  expect third_party_transfer_logic_script: Credential =
-    list.head(from_third_party)
-  expect protected_prefixes: List<ByteArray> =
-    list.head(list.tail(list.tail(from_third_party)))
+  expect third_party_transfer_logic_script: Credential = list.head(
+    from_third_party,
+  )
+  expect protected_prefixes: List<ByteArray> = list.head(
+    list.tail(list.tail(from_third_party)),
+  )
   return(key, third_party_transfer_logic_script, protected_prefixes)
 }
 
