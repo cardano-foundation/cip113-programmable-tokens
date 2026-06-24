@@ -1,13 +1,13 @@
-name = "iohk/programmable-tokens"
-version = "0.3.0"
+name = "cardano-foundation/cip113-programmable-tokens"
+version = "0.4.0"
 compiler = "v1.1.22"
 plutus = "v3"
 license = "Apache-2.0"
-description = "Aiken implementation of CIP-113 programmable tokens (migrated from Plutarch)"
+description = "Aiken implementation of CIP-113 programmable tokens"
 
 [repository]
-user = "iohk"
-project = "programmable-tokens"
+user = "cardano-foundation"
+project = "cip113-programmable-tokens"
 platform = "github"
 
 [[dependencies]]
