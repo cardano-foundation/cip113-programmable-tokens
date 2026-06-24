@@ -124,12 +124,33 @@ Your transfer logic validator decides **what conditions must be met for a transf
 - Enforce time-locks or vesting schedules
 - Any custom validation
 
+> **Companion assets (CIP-68 / CIP-102) are your responsibility, not the
+> framework's.** Reference NFTs and royalty tokens stay in the PLB under the
+> same policy. Transferring them is allowed — your CIP-68/102-aware transfer and
+> minting logic must ensure it happens the proper way (moving them, updating a
+> reference NFT's datum, handling royalties). List their CIP-67 labels (100 /
+> 500) in the registry node's `protected_prefixes` so `ThirdPartyAct` cannot
+> seize or burn them. See
+> [`03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md`](./03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md) §1.
+
 ### 3. Third-Party Transfer Logic (withdraw)
 
 Invoked when a **third party** (not the token owner) moves tokens. The PLG looks up `third_party_transfer_logic_script` from the registry. This is used for administrative actions like:
 - Seizing tokens from a sanctioned address
 - Forced transfers by court order
 - Emergency recovery operations
+
+**Scope and responsibility.** The base layer guarantees the structural envelope
+(paired-output address/datum/reference-script preservation, byte-for-byte
+non-subject conservation, anti-injection) and honours the node's
+`protected_prefixes` — labels it may never seize or burn. What it does **not**
+decide is *who* is seizable: a `VerificationKey`-staked UTxO is a user wallet
+(extraction is appropriate), but a script-staked UTxO is ambiguous (smart wallet
+vs DeFi pool), so **your** third-party logic owns that call. Two reference
+patterns gate extraction of script-staked inputs — an issuer **allowlist** of
+known protocols, or **consent** (the script's own withdraw-0 must fire in the
+same tx). Only *extraction* is gated; *freeze* is unconditional. See
+[`03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md`](./03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md) §2 for the full specification.
 
 ### Summary
 

@@ -1,4 +1,4 @@
-use aiken/builtin.{unconstr_fields}
+use aiken/builtin.{length_of_bytearray, less_than_bytearray, unconstr_fields}
 use assets
 use cardano/address.{Credential, VerificationKey}
 use cardano/assets.{PolicyId} as value
@@ -36,6 +36,7 @@ pub const origin_node: RegistryNode =
     transfer_logic_script: empty_vkey,
     third_party_transfer_logic_script: empty_vkey,
     global_state_cs: #"",
+    protected_prefixes: [],
   }
 
 /// Registry node in the linked list of registered programmable token policies
@@ -64,6 +65,22 @@ pub type RegistryNode {
   third_party_transfer_logic_script: Credential,
   /// Optional global state NFT currency symbol for this policy
   global_state_cs: ByteArray,
+  /// Issuer-declared, append-only list of CIP-67 asset-name label prefixes
+  /// that `ThirdPartyAct` (admin seizure) may NOT extract or burn. Each entry
+  /// is a 4-byte CIP-67 label prefix (e.g. `#"000643b0"` = label 100 reference
+  /// NFT, `#"001f4d70"` = label 500 royalty token). When a programmable-token
+  /// UTxO is seized, any token of this policy whose asset name begins with one
+  /// of these prefixes is *preserved* (left byte-for-byte unchanged on the
+  /// paired output), while everything else in the same UTxO remains seizable.
+  ///
+  /// This is the LAST field of `RegistryNode` (index 6). Appending it at the
+  /// end keeps every existing positional accessor (which reads indices 0–4)
+  /// working unchanged. The issuer declares this list freely at registration;
+  /// the only well-formedness constraint is that every entry is exactly 4
+  /// bytes (enforced in `is_inserted_directory_node`). The APPEND-ONLY growth
+  /// constraint (`new ⊇ old`) belongs to the registry-node UPDATE path, which
+  /// lives on a different branch (Finding 20 / PR #81) and is NOT present here.
+  protected_prefixes: List<ByteArray>,
 }
 
 pub fn new_registry_node_getter(
@@ -152,4 +169,80 @@ pub fn with_key_and_minting_logic(
     list.tail(list.tail(fields)),
   )
   return(key, minting_logic_script)
+}
+
+/// Extract `key`, `third_party_transfer_logic_script` and `protected_prefixes`
+/// from a `RegistryNode` datum. Used by the ThirdPartyAct (admin seizure) path
+/// to obtain the third-party logic credential to invoke and the issuer-declared
+/// list of CIP-67 label prefixes that must NOT be extracted or burned.
+pub fn with_3rd_party_logic_and_protected(
+  data: Data,
+  return: fn(PolicyId, Credential, List<ByteArray>) -> result,
+) -> result {
+  let fields = unconstr_fields(data)
+  expect key: ByteArray = list.head(fields)
+  // Walk the field list ONCE. Drop key/next/minting_logic/transfer_logic to
+  // reach field index 4 (third_party), then continue from there — dropping
+  // third_party (4) and global_state_cs (5) — to reach field index 6
+  // (protected_prefixes). The partial traversal to index 4 is reused, not
+  // recomputed.
+  // key=0, next=1, minting_logic=2, transfer_logic=3, third_party=4,
+  // global_state_cs=5, protected_prefixes=6
+  let from_third_party = list.tail(list.tail(list.tail(list.tail(fields))))
+  expect third_party_transfer_logic_script: Credential =
+    list.head(from_third_party)
+  expect protected_prefixes: List<ByteArray> =
+    list.head(list.tail(list.tail(from_third_party)))
+  return(key, third_party_transfer_logic_script, protected_prefixes)
+}
+
+/// Validate a `protected_prefixes` list AND the append-only update invariant in
+/// a single pass. Returns `True` iff:
+///   * `new` is well-formed — every entry is a 4-byte CIP-67 label prefix in
+///     STRICTLY ASCENDING order (ascending also forbids duplicates); and
+///   * `new` extends `old` — every prefix in `old` is still present in `new`
+///     (append-only: protection, once declared, can never be revoked).
+///
+/// Both lists must be ascending. `old` is so by induction: the origin node's
+/// list is empty, and every Insert / Update routes through this function. At
+/// Insert pass `old = []` (just the well-formedness check); at Update pass the
+/// previous list. One two-pointer walk over `new` with a cursor into `old`,
+/// O(|old| + |new|) — no nested membership scans.
+pub fn is_valid_protected_extension(
+  old: List<ByteArray>,
+  new: List<ByteArray>,
+) -> Bool {
+  do_valid_protected_extension(old, new, #"")
+}
+
+fn do_valid_protected_extension(
+  old: List<ByteArray>,
+  new: List<ByteArray>,
+  prev: ByteArray,
+) -> Bool {
+  when new is {
+    // No more new entries: append-only holds iff every old prefix was matched.
+    [] -> old == []
+    [n, ..n_rest] ->
+      // Each entry: exactly 4 bytes AND strictly greater than the previous
+      // (enforces ascending order + deduplication in one comparison).
+      if length_of_bytearray(n) == 4 && less_than_bytearray(prev, n) {
+        when old is {
+          [] -> do_valid_protected_extension([], n_rest, n)
+          [o, ..o_rest] ->
+            if o == n {
+              // `n` re-states an existing protected prefix — matched.
+              do_valid_protected_extension(o_rest, n_rest, n)
+            } else if less_than_bytearray(n, o) {
+              // `n` is a freshly-added prefix; `o` is still to be matched.
+              do_valid_protected_extension(old, n_rest, n)
+            } else {
+              // `o` < `n`: `o` was dropped from `new` — append-only violated.
+              False
+            }
+        }
+      } else {
+        False
+      }
+  }
 }

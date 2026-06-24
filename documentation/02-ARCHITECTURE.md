@@ -264,11 +264,18 @@ This means every transfer of a denylist-protected token requires O(n) proofs whe
 type RegistryNode {
   key: ByteArray,                              // Policy ID of the registered token
   next: ByteArray,                             // Next key in sorted order
+  minting_logic_script: Credential,            // Stake validator for issuance / registration authority
   transfer_logic_script: Credential,           // Stake validator for transfer rules
   third_party_transfer_logic_script: Credential, // Stake validator for seizure/freeze
   global_state_cs: ByteArray,                  // Optional NFT for global state (e.g., denylist)
+  protected_prefixes: List<ByteArray>,         // Append-only CIP-67 label prefixes ThirdPartyAct may not seize/burn
 }
 ```
+
+`protected_prefixes` is an issuer-declared, append-only list of 4-byte CIP-67
+asset-name label prefixes (kept in strictly ascending order) that the admin path
+cannot extract or burn — see
+[`03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md`](./03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md) §2.2.
 
 ### BlacklistNode (freeze-and-seize substandard)
 
@@ -298,12 +305,13 @@ type ProgrammableLogicGlobalParams {
 type ProgrammableLogicGlobalRedeemer {
   // Normal transfer: one proof per non-ADA policy in the inputs
   TransferAct { proofs: List<RegistryProof> }
-  // Admin action (seize): operates on specific input/output indices
+  // Administrative action — forced transfer / seizure / freeze enforcement /
+  // burn (see 03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md). Exactly one policy per
+  // transaction; acts on every PLB input holding the subject policy; paired
+  // continuing outputs begin at outputs_start_idx.
   ThirdPartyAct {
-    registry_node_idx: Int,
-    input_idxs: List<Int>,
+    registry_node_idx: Int, // The subject policy's registry node (one policy per tx)
     outputs_start_idx: Int,
-    length_input_idxs: Int,
   }
 }
 ```
@@ -383,15 +391,22 @@ sequenceDiagram
 
 Key invariant: the total programmable token value in outputs at the `prog_logic_cred` address must be **at least** the total programmable token value from signed inputs. This prevents tokens from "escaping" the programmable logic address.
 
-### Third-Party (Seize) Flow
+### Third-Party (Administrative) Flow
 
-The `ThirdPartyAct` redeemer handles admin operations like token seizure. It differs from transfers:
+The `ThirdPartyAct` redeemer handles administrative / compliance operations — forced transfer, seizure, freeze enforcement, or burn. It differs from transfers:
 
 1. **No ownership check** — the `third_party_transfer_logic_script` authorizes the action instead of the stake credential owner
-2. **Token removal** — seized tokens are removed from the victim's UTxO (output value = input value minus seized policy)
-3. **Strict input-output mapping** — each input at `input_idxs[i]` maps to an output at `outputs_start_idx + i`
-4. **Same address/datum** — the output must preserve the victim's address and datum, only removing the seized tokens
-5. **Anti-DDOS** — the input and output values must actually differ (prevents no-op seizures)
+2. **Amount change** — `ThirdPartyAct` is a forced transfer: the subject policy's non-protected tokens on each paired output may be decreased, fully removed, or increased, but they **must change** (a no-op forced respend is rejected — see Anti-DDoS below). Aggregate conservation (below) keeps the *total* non-protected subject amount across all PLB outputs accounting for every seized input plus any mint/burn — tokens are redistributed within the PLB, never created from nothing or made to escape
+3. **Per-pair mapping** — each spent PLB input is paired positionally with a continuing output (the first pair starts at `outputs_start_idx`); the action covers every PLB input that holds the subject policy
+4. **Preservation** — the paired output must preserve the holder's address, datum, **and reference script**, changing only the subject policy's non-protected tokens; all non-subject tokens are conserved byte-for-byte
+5. **Anti-injection / anti-DoS** — the paired input must already hold the subject policy, so the admin can neither inject the policy onto a UTxO that never held it nor drag an unrelated UTxO into the action
+6. **Protected prefixes** — tokens whose CIP-67 label prefix is on the node's `protected_prefixes` list cannot be extracted or burned ("preserve, not fail")
+7. **One policy per transaction** — `ThirdPartyAct` targets exactly one registry node (see scope note below)
+
+> **Scope & limits.** The full extraction scope — protected prefixes, the
+> freeze-vs-extract asymmetry, who is seizable (holder scope), and the
+> single-policy-per-transaction constraint — is specified in
+> [`03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md`](./03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md).
 
 ### Token Registration Flow
 
@@ -422,8 +437,8 @@ Both registry and denylist maintain the invariant `node.key < node.next` for eve
 ### One-Shot Policies
 Protocol parameters, registry, denylist, and issuance CBOR hex NFTs use one-shot minting policies (parameterized by a UTxO reference). This guarantees exactly one instance of each can exist, preventing duplication attacks.
 
-### Anti-DDOS in Seizures
-The `ThirdPartyAct` handler explicitly checks that the input value differs from the expected output value (`input_dict != expected_output_dict`). This prevents adversaries from submitting no-op seizure transactions that waste on-chain resources.
+### Anti-DDoS in Third-Party Actions
+Each seized UTxO's acted-on amount must actually change (`input_tokens_at != output_tokens_at` per paired input/output). This rejects no-op third-party actions: an admin cannot force-respend a holder's UTxO with no economic change, which would churn its output reference and waste on-chain resources.
 
 ---
 

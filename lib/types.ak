@@ -18,8 +18,9 @@ pub type RegistryProof {
 pub type ProgrammableLogicGlobalRedeemer {
   /// Transfer action with proofs for each token type
   TransferAct { proofs: List<RegistryProof> }
-  /// Third party action for admin operations (seizure, freeze, etc.)
-  /// Supports multiple UTxOs in a single transaction
+  /// Third party action for administrative / compliance operations —
+  /// forced transfer, seizure, freeze enforcement, or burn. Supports multiple
+  /// UTxOs of the subject policy in a single transaction.
   ThirdPartyAct {
     /// Index of the registry node in reference inputs
     registry_node_idx: Int,

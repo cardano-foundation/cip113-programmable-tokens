@@ -1,13 +1,14 @@
 use aiken/collection/list
 use aiken/fuzz
 use aiken/primitive/bytearray
+use cardano/address.{Script, VerificationKey}
 use cardano/assets.{PolicyId, ada_asset_name, ada_policy_id} as value
 use cardano/fuzz as cardano
 use cardano/transaction.{InlineDatum, Input, Output}
 use registry_node.{
   RegistryNode, new_registry_node_getter, sentinel_next_key,
-  with_key_and_3rd_party_logic, with_key_and_minting_logic,
-  with_key_and_next_key, with_key_and_transfer_logic,
+  with_3rd_party_logic_and_protected, with_key_and_3rd_party_logic,
+  with_key_and_minting_logic, with_key_and_next_key, with_key_and_transfer_logic,
 }
 use utils.{bytearray_lt}
 
@@ -103,6 +104,7 @@ fn any_registry_node() -> Fuzzer<RegistryNode> {
   let third_party_transfer_logic_script <- fuzz.and_then(cardano.credential())
   let minting_logic_script <- fuzz.and_then(cardano.credential())
   let global_state_cs <- fuzz.and_then(cardano.policy_id())
+  let protected_prefixes <- fuzz.and_then(fuzz.list(fuzz.bytearray_fixed(4)))
   fuzz.constant(
     RegistryNode {
       key,
@@ -111,6 +113,7 @@ fn any_registry_node() -> Fuzzer<RegistryNode> {
       transfer_logic_script,
       third_party_transfer_logic_script,
       global_state_cs,
+      protected_prefixes,
     },
   )
 }
@@ -146,6 +149,44 @@ test prop_with_key_and_minting_logic_roundtrip(node via any_registry_node()) {
   and {
     (key == node.key)?,
     (minting_logic_script == node.minting_logic_script)?,
+  }
+}
+
+// Covers the reused-partial-traversal accessor: extracting field 0 (key),
+// field 4 (third_party) and field 6 (protected_prefixes) in one walk must
+// return exactly those fields. The fuzzer assigns each field an independent
+// random value, so any off-by-one in the traversal (e.g. returning
+// transfer_logic@3 or global_state_cs@5) fails the round-trip.
+test prop_with_3rd_party_logic_and_protected_roundtrip(
+  node via any_registry_node(),
+) {
+  let key, third_party_transfer_logic_script, protected_prefixes <-
+    with_3rd_party_logic_and_protected(node)
+  and {
+    (key == node.key)?,
+    (third_party_transfer_logic_script == node.third_party_transfer_logic_script)?,
+    (protected_prefixes == node.protected_prefixes)?,
+  }
+}
+
+// Deterministic off-by-one guard: every field gets a DISTINCT, hand-chosen
+// value so the assertions pin the exact indices regardless of fuzz luck.
+test with_3rd_party_logic_and_protected_extracts_exact_fields() {
+  let node =
+    RegistryNode {
+      key: #"a0",
+      next: #"a1",
+      minting_logic_script: VerificationKey(#"a2"),
+      transfer_logic_script: VerificationKey(#"a3"),
+      third_party_transfer_logic_script: Script(#"a4"),
+      global_state_cs: #"a5",
+      protected_prefixes: [#"000643b0", #"001f4d70"],
+    }
+  let key, third_party, protected <- with_3rd_party_logic_and_protected(node)
+  and {
+    (key == #"a0")?,
+    (third_party == Script(#"a4"))?,
+    (protected == [#"000643b0", #"001f4d70"])?,
   }
 }
 

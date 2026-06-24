@@ -362,6 +362,7 @@ fn old_registry_node() -> RegistryNode {
     transfer_logic_script: Script(test_transfer_old),
     third_party_transfer_logic_script: Script(test_third_party_old),
     global_state_cs: #"",
+    protected_prefixes: [],
   }
 }
 
