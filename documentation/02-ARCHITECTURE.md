@@ -221,6 +221,44 @@ Before:  [covering: key=A, next=C]
 After:   [covering: key=A, next=B]  [new: key=B, next=C]
 ```
 
+### Registration Contention (a linked-list limitation)
+
+Insertion **spends the covering node** (step 2) and re-creates it at a new
+output reference. The in-place node-update path does the same. This is intrinsic
+to a linked list — adding or changing a node re-points its predecessor — and it
+has a concurrency consequence worth understanding.
+
+Membership and non-membership proofs reference a registry node as a **reference
+input**, and a reference input must be a *live* UTxO at validation time. So when
+one transaction consumes node *N* (to insert after it, or to update it), any
+**other** transaction that referenced *N* by its now-spent output reference
+becomes invalid and must be rebuilt against *N*'s new UTxO. Concretely, a
+transfer of a token whose proof points at *N* — either a `TokenExists` proof for
+*N* itself, or a `TokenDoesNotExist` covering proof that uses *N* — races a
+registration/update that touches *N*.
+
+Consequences:
+
+- **User experience.** A transfer (or lookup) that races a registration touching
+  its referenced node can fail and needs to be rebuilt and resubmitted against
+  the updated node. Registrations are infrequent and the contention is limited to
+  transactions referencing the *specific* node(s) being touched, but builders
+  must handle the retry (see [`08-INTEGRATION-GUIDES.md`](./08-INTEGRATION-GUIDES.md)).
+- **Griefing / DoS.** An actor who repeatedly registers around — or otherwise
+  spends — a particular node can transiently block transactions that depend on
+  it. The impact is protocol-specific and matters most for time-sensitive flows
+  (auctions, liquidations); it is not a custody or escape risk.
+
+This is an accepted, **Informational** limitation of the on-chain linked-list
+design. Heavier remediations exist — a parallel array/Merkle-tree registry that
+proves membership without consuming a node, or further register/mint separation
+— but they add redundancy, cost, and complexity disproportionate to the impact,
+so they are deliberately not adopted. The mitigation is **off-chain**: resolve
+the covering node at build time and, on failure, re-resolve against the current
+registry and rebuild (see [`08-INTEGRATION-GUIDES.md`](./08-INTEGRATION-GUIDES.md)),
+and avoid making a single contended node a hard dependency for time-critical
+operations.
+
 ---
 
 ## Denylist System

@@ -188,6 +188,7 @@ In general, programmable token addresses will hold minimal ADA (just the minimum
 | Missing reference inputs | Both protocol params and registry node UTxOs must be included as reference inputs. Without them, the global validator cannot find its parameters or the token's transfer logic. |
 | Not registering the stake address | The script stake address for `programmable_logic_global` and the `transfer_logic_script` must be registered on-chain before use. If not registered, the withdraw-zero invocation will fail at the ledger level. |
 | Wrong credential convention | If the token protocol uses payment keys but the wallet constructs the address with the stake key (or vice versa), the balance will appear as zero and transfers will fail. |
+| Caching a registry-node reference input | A registry node UTxO is consumed and re-created when a token is registered around it, or when its node is updated in place. A transfer that references a stale (now-spent) node UTxO will fail. Resolve the covering/exists node at build time, and on failure **re-resolve against the current registry and rebuild** rather than retrying the same reference. See the registration-contention limitation in [`02-ARCHITECTURE.md`](./02-ARCHITECTURE.md#registration-contention-a-linked-list-limitation). |
 
 ---
 
