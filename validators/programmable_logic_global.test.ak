@@ -34,6 +34,7 @@ test programmable_logic_global_params_structure() {
   let params = ProgrammableLogicGlobalParams {
     prog_logic_cred: test_prog_logic_cred,
     registry_node_cs: test_registry_node_cs,
+    unfracking_cred: fixture.credential_validator_unfracking,
   }
 
   params.prog_logic_cred == test_prog_logic_cred && params.registry_node_cs == test_registry_node_cs
@@ -217,6 +218,7 @@ test protocol_params_from_reference_inputs() {
   let params = ProgrammableLogicGlobalParams {
     prog_logic_cred: test_prog_logic_cred,
     registry_node_cs: test_registry_node_cs,
+    unfracking_cred: fixture.credential_validator_unfracking,
   }
 
   // Protocol params should be loaded from reference input
