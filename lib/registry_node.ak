@@ -181,17 +181,18 @@ pub fn with_3rd_party_logic_and_protected(
 ) -> result {
   let fields = unconstr_fields(data)
   expect key: ByteArray = list.head(fields)
-  // RegistryNode field index 4:
-  // key=0, next=1, minting_logic=2, transfer_logic=3, third_party=4
-  expect third_party_transfer_logic_script: Credential = list.head(
-    list.tail(list.tail(list.tail(list.tail(fields)))),
-  )
-  // RegistryNode field index 6:
+  // Walk the field list ONCE. Drop key/next/minting_logic/transfer_logic to
+  // reach field index 4 (third_party), then continue from there — dropping
+  // third_party (4) and global_state_cs (5) — to reach field index 6
+  // (protected_prefixes). The partial traversal to index 4 is reused, not
+  // recomputed.
   // key=0, next=1, minting_logic=2, transfer_logic=3, third_party=4,
   // global_state_cs=5, protected_prefixes=6
-  expect protected_prefixes: List<ByteArray> = list.head(
-    list.tail(list.tail(list.tail(list.tail(list.tail(list.tail(fields)))))),
-  )
+  let from_third_party = list.tail(list.tail(list.tail(list.tail(fields))))
+  expect third_party_transfer_logic_script: Credential =
+    list.head(from_third_party)
+  expect protected_prefixes: List<ByteArray> =
+    list.head(list.tail(list.tail(from_third_party)))
   return(key, third_party_transfer_logic_script, protected_prefixes)
 }
 
