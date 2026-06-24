@@ -11,10 +11,13 @@ use cardano/address.{Address, Credential, Inline, Script}
 use cardano/assets.{PolicyId, ada_asset_name, ada_policy_id, from_asset}
 use cardano/transaction.{
   InlineDatum, Input, Mint, NoDatum, Output, OutputReference, Transaction,
+  Withdraw,
 }
 use issuance_mint
 use registry_node.{RegistryNode}
-use types.{MintingRegistryProof, OutputIndex, RefInput}
+use types.{
+  MintingRegistryProof, OutputIndex, RefInput, TokenExists, TransferAct,
+}
 
 // ---------------------------------------------------------------------------
 // Test constants
@@ -204,7 +207,9 @@ test valid_mint_with_output_index() {
 }
 
 // Burning requires PLB inputs (tokens to burn live at PLB addresses).
-// PLB spend → plb_spent = True → delegate to PLGlobal.
+// PLGlobal under TransferAct validates the burn's balance; issuance_mint
+// delegates iff PLGlobal's redeemer names the same registry node we did
+// (`TokenExists { node_idx: 0 }` against our `RefInput { index: 0 }`).
 test valid_burn() {
   let rdmr = valid_redeemer()
   let tx = Transaction {
@@ -222,7 +227,13 @@ test valid_burn() {
     outputs: [],
     mint: from_asset(test_own_policy, test_token_name, -50),
     withdrawals: [Pair(test_ml_cred, 0), Pair(test_plg_cred, 0)],
-    redeemers: [Pair(Mint(test_own_policy), as_data(rdmr))],
+    redeemers: [
+      Pair(Mint(test_own_policy), as_data(rdmr)),
+      Pair(
+        Withdraw(test_plg_cred),
+        as_data(TransferAct { proofs: [TokenExists { node_idx: 0 }] }),
+      ),
+    ],
   }
   call_validator(rdmr, tx)
 }
@@ -605,7 +616,13 @@ test multi_token_burn() {
     mint: from_asset(test_own_policy, test_token_name, -100)
       |> assets.add(test_own_policy, test_token_name_2, -50),
     withdrawals: [Pair(test_ml_cred, 0), Pair(test_plg_cred, 0)],
-    redeemers: [Pair(Mint(test_own_policy), as_data(rdmr))],
+    redeemers: [
+      Pair(Mint(test_own_policy), as_data(rdmr)),
+      Pair(
+        Withdraw(test_plg_cred),
+        as_data(TransferAct { proofs: [TokenExists { node_idx: 0 }] }),
+      ),
+    ],
   }
   call_validator(rdmr, tx)
 }
@@ -629,7 +646,13 @@ test multi_token_spend_and_mint_defers() {
     mint: from_asset(test_own_policy, test_token_name, 100)
       |> assets.add(test_own_policy, test_token_name_2, 50),
     withdrawals: [Pair(test_ml_cred, 0), Pair(test_plg_cred, 0)],
-    redeemers: [Pair(Mint(test_own_policy), as_data(rdmr))],
+    redeemers: [
+      Pair(Mint(test_own_policy), as_data(rdmr)),
+      Pair(
+        Withdraw(test_plg_cred),
+        as_data(TransferAct { proofs: [TokenExists { node_idx: 0 }] }),
+      ),
+    ],
   }
   call_validator(rdmr, tx)
 }
@@ -883,7 +906,13 @@ test case4_spend_and_mint_same_token_valid() {
     outputs: [mint_output(150)],
     mint: from_asset(test_own_policy, test_token_name, 50),
     withdrawals: [Pair(test_ml_cred, 0), Pair(test_plg_cred, 0)],
-    redeemers: [Pair(Mint(test_own_policy), as_data(rdmr))],
+    redeemers: [
+      Pair(Mint(test_own_policy), as_data(rdmr)),
+      Pair(
+        Withdraw(test_plg_cred),
+        as_data(TransferAct { proofs: [TokenExists { node_idx: 0 }] }),
+      ),
+    ],
   }
   call_validator(rdmr, tx)
 }
@@ -915,7 +944,26 @@ fn case4_defers_tx() -> Transaction {
 // withdrawals) will reject it on-chain. This test documents that
 // issuance_mint trusts PLGlobal in this case.
 test case4_spend_and_mint_defers_to_plglobal() {
-  call_validator(valid_redeemer(), case4_defers_tx())
+  // Spread `case4_defers_tx()` and override `redeemers` to include the
+  // PLGlobal Withdraw redeemer. This is the single delta from the helper —
+  // we add the PLGlobal redeemer entry so `find_plgl_redeemer` returns
+  // `Some(TransferAct { ... })`, the scope check sees
+  // `TokenExists { node_idx: 0 }` (matching our `RefInput { index: 0 }`),
+  // and issuance_mint delegates. The sibling `_does_not_delegate_fails`
+  // test deliberately omits this override so the helper's redeemer list
+  // stays minimal and absence of the PLGlobal redeemer (post-`withdrawals`
+  // override) blocks delegation.
+  let tx = Transaction {
+    ..case4_defers_tx(),
+    redeemers: [
+      Pair(Mint(test_own_policy), as_data(valid_redeemer())),
+      Pair(
+        Withdraw(test_plg_cred),
+        as_data(TransferAct { proofs: [TokenExists { node_idx: 0 }] }),
+      ),
+    ],
+  }
+  call_validator(valid_redeemer(), tx)
 }
 
 // Finding 09 regression. Same exact transaction as the test above EXCEPT
