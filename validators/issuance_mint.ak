@@ -11,7 +11,7 @@ use registry_node.{RegistryNode}
 use tokens
 use types.{
   MintingRegistryProof, OutputIndex, ProgrammableLogicGlobalRedeemer, RefInput,
-  RegistryProof, ThirdPartyAct, TokenExists, TransferAct,
+  RegistryProof, ThirdPartyAct, TokenExists, TransferAct, UnfrackingAct,
 }
 use utils.{expect_inline_datum}
 
@@ -247,5 +247,10 @@ fn plgl_scope_covers(
     }
     ThirdPartyAct { registry_node_idx, .. } ->
       registry_node_idx == own_registry_node_idx
+    // UnfrackingAct (Finding 17) is value-preserving, same-owner PLB
+    // restructuring with NO mint — it never validates an issuance's custody, so
+    // it cannot cover one. Deny delegation (Finding 04 precise delegation):
+    // issuance_mint must validate the mint outputs itself, not trust unfracking.
+    UnfrackingAct -> False
   }
 }
