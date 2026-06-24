@@ -1,0 +1,272 @@
+//// Unfracking invariants (Finding 17)
+////
+//// This module is the engine of the standalone `unfracking`
+//// withdraw-0 validator. Under the `UnfrackingAct` redeemer,
+//// `programmable_logic_global` (PLG) does NOT run this logic — it only
+//// requires `unfracking`'s withdrawal to be present, keeping the
+//// hot-path PLG reference script small. See `unfracking`'s
+//// module docs for the delegation rationale and the composition of
+//// scripts in an unfracking transaction.
+////
+//// Finding 17: lets a holder restructure their own PLB UTxOs without
+//// invoking any substandard transfer logic. The validator's contract is
+//// minimal — same owner across all PLB inputs and outputs, per-policy
+//// totals conserved at PLB, no mint — so the holder is free to pick any
+//// layout they want for the resulting outputs.
+////
+//// The audit-finding motivation: a "fracked" PLB UTxO holds programmable
+//// tokens from multiple policies in the same UTxO; a freeze (or other
+//// per-policy compliance action) scoped to one of those policies locks
+//// them all together, because the freeze applies to whole UTxOs rather
+//// than to individual asset classes. Unfracking exists so the holder
+//// can break that fracked UTxO into single-policy outputs (or any other
+//// shape they prefer) and stop co-locating the blast radius onto
+//// unrelated policies.
+////
+//// Single-owner invariant
+//// ----------------------
+////
+//// Unfracking is by design a SAME-OWNER restructuring action. All PLB
+//// inputs and all PLB outputs must share ONE stake credential — the one
+//// pinned by the first PLB input we encounter. A multi-credential variant
+//// would let tokens cross between owners without invoking
+//// `transfer_logic_script` (the bouncer that gates real transfers); that
+//// is a transfer in disguise, not an unfracking. If a holder controls two
+//// of their own credentials and wants to shuffle tokens between them,
+//// that is a TransferAct between two owners (one of which is also them),
+//// not an Unfracking.
+////
+//// What this action permits:
+////   * Spending one or more PLB inputs the caller is authorised over —
+////     either by signing for a vkey stake credential or by invoking the
+////     script's withdraw-0 (same authorisation pattern as TransferAct).
+////   * Reshaping the value of those inputs into any number of PLB
+////     outputs, each at the same payment_credential (PLB) and the same
+////     stake_credential pinned by the first PLB input.
+////   * Free choice of datum and reference_script on each new PLB output.
+////     Unfracking is by design a layout-restructuring action.
+////
+//// What this action forbids:
+////   * Any mint or burn (`tx.mint` must be zero). Unfracking is strictly
+////     value-preserving; mint/burn is issuance_mint's job.
+////   * Sending programmable tokens to a non-PLB address. Falls out for free
+////     from `total_output_at_plb == total_input_at_plb` per policy + ledger
+////     value conservation + mint==0: any PLB-side surplus would have to
+////     come from a non-PLB input (rare/impossible in honest setups), and
+////     any leak to non-PLB would force a PLB-side deficit which the
+////     equality rejects.
+////   * Mixing different stake credentials across PLB inputs (or routing
+////     a PLB output to a stake_cred other than the one pinned by the
+////     inputs). This is the back-door we have to slam shut, otherwise
+////     Unfracking becomes "transfer-without-transfer-logic".
+////
+//// Cost shape: O(|inputs| + |outputs|) for the per-input authorisation
+//// scan and the per-output stake-credential equality check. The asset
+//// equality check is O(|policies| + |tokens|) over the canonically-sorted
+//// `Assets` collected from each side. Authorisation is checked exactly
+//// once per transaction (on the first PLB input that pins the stake
+//// credential); subsequent inputs share the same credential and inherit
+//// the authorisation.
+
+use assets.{Assets}
+use cardano/address.{Credential, Inline, Script, VerificationKey}
+use cardano/assets as value
+use cardano/transaction.{Input, Output, Transaction}
+use list
+use pairs
+
+/// Validate an Unfracking action. See module docstring for the full
+/// invariant list.
+pub fn validate_unfracking(
+  self: Transaction,
+  prog_logic_cred: Credential,
+) -> Bool {
+  // Finding 17: Unfracking is value-preserving by construction. Any
+  // mint/burn would silently change the policy totals we then compare
+  // input-vs-output equal — easier and clearer to refuse the redeemer
+  // outright when mint is non-empty than to thread mint deltas through
+  // the equality check.
+  expect value.is_zero(self.mint)
+
+  let has_signatory = list.has_or_fail(self.extra_signatories, _)
+  let has_withdrawal_cred = pairs.has_key_or_fail(self.withdrawals, _)
+
+  // Two-phase input scan:
+  //   * `collect_plb_inputs`    — finds and authorises the FIRST PLB input,
+  //                                pinning its stake_cred as the target.
+  //                                Fails the tx if no PLB input is found
+  //                                (Unfracking with zero PLB inputs is
+  //                                meaningless).
+  //   * `do_collect_plb_inputs` — continues accumulating from remaining
+  //                                inputs with the target known; every
+  //                                PLB input it sees must match the target.
+  // Splitting the loop along the find-first/continue-with-target boundary
+  // keeps `Option<Credential>` out of the hot loop entirely.
+  let input_assets, owner_cred <- collect_plb_inputs(
+    self.inputs,
+    prog_logic_cred,
+    has_signatory,
+    has_withdrawal_cred,
+  )
+
+  // Output scan: collect Assets from outputs at PLB AND require every
+  // such output's stake credential to equal `owner_cred`. Folding both
+  // checks into the same traversal keeps the cost down.
+  let output_assets = collect_plb_outputs(
+    self.outputs,
+    prog_logic_cred,
+    owner_cred,
+    [],
+  )
+
+  // Conservation per policy/token: the total at PLB must be identical
+  // input-to-output. Equality (not containment) is intentional — see
+  // module docstring on why the two-way bound forces ledger
+  // conservation to do the no-escape work for us.
+  input_assets == output_assets
+}
+
+/// Phase 1 of the input scan: find the FIRST PLB input, authorise its
+/// stake credential, and delegate the rest of the scan to
+/// `do_collect_plb_inputs` with that credential pinned. Recurses on
+/// non-PLB inputs until the first PLB is encountered.
+///
+/// Aborts the validator if no PLB input is found — Unfracking with zero
+/// PLB inputs is meaningless. This `fail` plays the role of the
+/// `expect Some(target) = target_cred` check the entry point used to
+/// carry; pulling it into the helper keeps `Option<Credential>` out of
+/// the hot loop entirely.
+fn collect_plb_inputs(
+  inputs: List<Input>,
+  prog_logic_cred: Credential,
+  has_signatory: fn(ByteArray) -> Bool,
+  has_withdrawal_cred: fn(Credential) -> Bool,
+  return: fn(Assets, Credential) -> result,
+) -> result {
+  when inputs is {
+    [] -> fail
+    [input, ..tail] -> {
+      let output = input.output
+      if output.address.payment_credential == prog_logic_cred {
+        expect Some(Inline(stake_cred)) = output.address.stake_credential
+        // First PLB input — authorise the cred once and pin it. The
+        // authorisation covers every subsequent PLB input that shares
+        // this cred (the single-owner invariant `do_collect_plb_inputs`
+        // enforces).
+        when stake_cred is {
+          VerificationKey(pkh) -> {
+            expect has_signatory(pkh)
+          }
+          Script(_hash) -> {
+            expect has_withdrawal_cred(stake_cred)
+          }
+        }
+        let initial_assets = output.value
+          |> assets.from_value
+          |> list.tail
+        do_collect_plb_inputs(
+          tail,
+          prog_logic_cred,
+          stake_cred,
+          initial_assets,
+          return,
+        )
+      } else {
+        collect_plb_inputs(
+          tail,
+          prog_logic_cred,
+          has_signatory,
+          has_withdrawal_cred,
+          return,
+        )
+      }
+    }
+  }
+}
+
+/// Phase 2 of the input scan: continue accumulating from remaining PLB
+/// inputs with a known `target_cred`. Every PLB input encountered must
+/// have a stake credential equal to `target_cred`; otherwise the tx is
+/// rejected — that single-cred invariant is what keeps Unfracking
+/// same-owner-only. No `Option<Credential>` in this loop; the caller
+/// (`collect_plb_inputs`) only delegates here once it has authorised
+/// and pinned the target.
+fn do_collect_plb_inputs(
+  inputs: List<Input>,
+  prog_logic_cred: Credential,
+  target_cred: Credential,
+  acc_assets: Assets,
+  return: fn(Assets, Credential) -> result,
+) -> result {
+  when inputs is {
+    [] -> return(acc_assets, target_cred)
+    [input, ..tail] -> {
+      let output = input.output
+      if output.address.payment_credential == prog_logic_cred {
+        expect Some(Inline(stake_cred)) = output.address.stake_credential
+        expect stake_cred == target_cred
+        let next_assets = assets.union(
+          output.value
+            |> assets.from_value
+            |> list.tail,
+          acc_assets,
+        )
+        do_collect_plb_inputs(
+          tail,
+          prog_logic_cred,
+          target_cred,
+          next_assets,
+          return,
+        )
+      } else {
+        do_collect_plb_inputs(
+          tail,
+          prog_logic_cred,
+          target_cred,
+          acc_assets,
+          return,
+        )
+      }
+    }
+  }
+}
+
+/// Walk outputs once, summing non-ADA assets of every PLB-bound output
+/// and requiring its stake credential to equal `target_cred` — the
+/// credential pinned by the first PLB input. Routing PLB tokens to any
+/// other stake credential would be a transfer in disguise (no
+/// transfer_logic invoked) — exactly what Finding 17's recommendation
+/// says Unfracking must NOT permit.
+///
+/// Tail-recursive: accumulates into `acc_assets` so the recursive call
+/// is the last thing the function does, leaving no deferred work on
+/// the call stack. `assets.union` is `dict.union_with(_, _, sum_if_non_zero)`
+/// which is commutative + associative per key, so the order of
+/// accumulation does not affect the final value. Same accumulator
+/// pattern as `do_collect_plb_inputs`; matches the optimisation
+/// recommendation in the Aiken docs ("Write Tail-Recursive Functions").
+fn collect_plb_outputs(
+  outputs: List<Output>,
+  prog_logic_cred: Credential,
+  target_cred: Credential,
+  acc_assets: Assets,
+) -> Assets {
+  when outputs is {
+    [] -> acc_assets
+    [output, ..tail] ->
+      if output.address.payment_credential == prog_logic_cred {
+        expect Some(Inline(stake_cred)) = output.address.stake_credential
+        // Single-owner gate: outputs may only carry the pinned cred.
+        expect stake_cred == target_cred
+        let next_assets = assets.union(
+          output.value
+            |> assets.from_value
+            |> list.tail,
+          acc_assets,
+        )
+        collect_plb_outputs(tail, prog_logic_cred, target_cred, next_assets)
+      } else {
+        collect_plb_outputs(tail, prog_logic_cred, target_cred, acc_assets)
+      }
+  }
+}
