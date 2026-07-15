@@ -12,7 +12,7 @@ use cardano/transaction.{
   InlineDatum, Input, NoDatum, Output, OutputReference, Transaction,
 }
 use programmable_logic/params.{ProgrammableLogicGlobalParams}
-use registry_node.{RegistryNode}
+use registry_node.{RegistryNode, origin_node}
 use registry_spend
 
 // ---------------------------------------------------------------------------
@@ -101,10 +101,15 @@ fn valid_transaction() -> Transaction {
   }
 }
 
+// The Some (registry-NFT-minted) branch is the covering-node spend of an
+// insert, so it now reads the spent node's datum for the R-01 key guard.
+// `origin_node` (key = #"", the ADA policy id, never present in tx.mint) keeps
+// that guard vacuous for these structural tests; the dedicated guard tests
+// below use a real covering key.
 fn call_validator(tx: Transaction) -> Bool {
   registry_spend.registry_spend.spend(
     test_protocol_params_cs,
-    None,
+    Some(origin_node),
     as_data(Void),
     placeholder_own_ref(),
     tx,
@@ -499,4 +504,108 @@ test fails_update_malformed_transfer_logic() fail {
     outputs: [registry_node_output(bad)],
   }
   call_validator(tx)
+}
+
+// ========================================================================
+// R-01: a registry-node spend must not double as an issuance of that node's
+// own programmable token (`key`). This closes the OutputIndex custody escape:
+// a node spent + re-emitted (update, or insert-covering) is an OUTPUT that
+// `issuance_mint`'s OutputIndex path accepts as proof-of-node; minting `key`
+// in that same tx would let fresh supply escape PLB custody. registry_spend
+// is the sole spender of every node, so this one guard covers BOTH paths —
+// the UPDATE (None) branch and the covering-node spend of an INSERT (Some).
+// ========================================================================
+
+// UPDATE path (None branch): update the node AND mint its own key → rejected.
+// Single delta from the happy-path `update_transaction()`: a mint under
+// `test_node_key`. Called with the real update-branch datum/own_ref (not
+// `call_validator`).
+test fails_update_mints_own_programmable_token() fail {
+  let tx =
+    Transaction {
+      ..update_transaction(),
+      mint: from_asset(test_node_key, #"746f6b656e", 100),
+    }
+  registry_spend.registry_spend.spend(
+    test_protocol_params_cs,
+    Some(old_registry_node()),
+    as_data(Void),
+    test_node_own_ref(),
+    tx,
+  )
+}
+
+// UPDATE positive companion: the guard is scoped to the node's OWN `key`, not
+// a blanket no-mint rule. An update MAY coexist with minting an UNRELATED
+// policy (e.g. batching), so this must still pass.
+test update_node_with_unrelated_mint_ok() {
+  let unrelated_policy =
+    #"cccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  let tx =
+    Transaction {
+      ..update_transaction(),
+      mint: from_asset(unrelated_policy, #"746f6b656e", 100),
+    }
+  registry_spend.registry_spend.spend(
+    test_protocol_params_cs,
+    Some(old_registry_node()),
+    as_data(Void),
+    test_node_own_ref(),
+    tx,
+  )
+}
+
+/// A real (non-origin) covering node spent during an insert. Only its `key` is
+/// read by the guard, so the other fields are placeholders.
+const test_covering_key: ByteArray =
+  #"dddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+
+fn covering_node() -> RegistryNode {
+  RegistryNode {
+    ..origin_node,
+    key: test_covering_key,
+    minting_logic_script: Script(test_prog_logic_hash),
+  }
+}
+
+/// A tx that mints the registry node NFT (⇒ Some branch: the covering-node
+/// spend of an insert), reusing the protocol-params ref input.
+fn insert_covering_spend_tx() -> Transaction {
+  Transaction {
+    ..transaction.placeholder,
+    reference_inputs: [protocol_params_ref_input()],
+    mint: from_asset(test_registry_node_cs, "InsertedNode", 1),
+  }
+}
+
+// INSERT path (Some branch): the covering node is spent while its own key is
+// minted → rejected by the SAME guard, with no change to registry_mint. Single
+// delta from `insert_covering_spend_tx()`: a mint under the covering key.
+test fails_insert_covering_node_token_minted() fail {
+  let tx =
+    Transaction {
+      ..insert_covering_spend_tx(),
+      mint: from_asset(test_registry_node_cs, "InsertedNode", 1)
+        |> assets.add(test_covering_key, #"746f6b656e", 100),
+    }
+  registry_spend.registry_spend.spend(
+    test_protocol_params_cs,
+    Some(covering_node()),
+    as_data(Void),
+    placeholder_own_ref(),
+    tx,
+  )
+}
+
+// INSERT positive companion: a covering-node spend during an insert with NO
+// mint of the covering's own key passes (guard scoped to `key`; the new node's
+// key is legitimately minted elsewhere in a real insert).
+test insert_covering_spend_valid() {
+  registry_spend.registry_spend.spend(
+    test_protocol_params_cs,
+    Some(covering_node()),
+    as_data(Void),
+    placeholder_own_ref(),
+    insert_covering_spend_tx(),
+  )
 }

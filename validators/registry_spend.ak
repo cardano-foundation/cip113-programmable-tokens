@@ -14,7 +14,7 @@ use cardano/transaction.{OutputReference, Transaction, find_input}
 use linked_list.{is_field_updated_registry_node, validate_directory_node_output}
 use programmable_logic/params.{ProgrammableLogicGlobalParams}
 use registry_node.{RegistryNode}
-use utils.{expect_inline_datum, has_currency_symbol}
+use utils.{expect_inline_datum, has_currency_symbol, mint_has_policy}
 
 validator registry_spend(protocol_params_cs: PolicyId) {
   spend(
@@ -38,20 +38,27 @@ validator registry_spend(protocol_params_cs: PolicyId) {
 
     let registry_node_cs = params.registry_node_cs
 
+    // Spending a registry node is a lifecycle action, never an issuance: its
+    // own programmable token (`key`) must not be minted/burned in the same tx.
+    // Hoisted above the `when` so it covers BOTH the update (None) and the
+    // insert covering-node spend (Some) — registry_spend is the sole spender
+    // of every node, so this is the only place the check is needed.
+    expect Some(spent_node) = datum
+    expect !mint_has_policy(self.mint, spent_node.key)
+
     when
       assets.to_dict(self.mint)
         |> dict.get(registry_node_cs)
     is {
-      // Check that registry node NFTs are being minted or burned in this transaction
-      // This ensures we're modifying the registry structure (inserting) and the minting validator is called
+      // A registry node NFT is minted → we are the covering-node spend of an
+      // insert; `registry_mint` validates the linked-list structure.
       Some(minted_assets) -> {
         expect [Pair(_, amount)] = dict.to_pairs(minted_assets)
         amount > 0
       }
-      // No registry node NFTs being minted or burned means we are updating a node
+      // No registry node NFT minted → in-place update of this node.
       None -> {
         expect Some(own_input) = find_input(self.inputs, own_ref)
-        expect Some(old_node) = datum
         expect [cont] = list.filter(
           self.outputs,
           fn(o) { has_currency_symbol(o.value, registry_node_cs) },
@@ -62,10 +69,10 @@ validator registry_spend(protocol_params_cs: PolicyId) {
           own_input.output.address,
         )
         and {
-          is_field_updated_registry_node(new_node, old_node),
-          when old_node.minting_logic_script is {
+          is_field_updated_registry_node(new_node, spent_node),
+          when spent_node.minting_logic_script is {
             Script(_) ->
-              pairs.has_key(self.withdrawals, old_node.minting_logic_script)
+              pairs.has_key(self.withdrawals, spent_node.minting_logic_script)
             VerificationKey(_) -> False
           },
         }
