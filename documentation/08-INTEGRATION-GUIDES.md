@@ -425,6 +425,7 @@ A dApp UTxO at `addr(programmable_logic_base, dapp_script_hash)` can hold both p
 | Conflating zero-ADA and real withdrawals | If your script's `withdraw` handler is invoked for both programmable-token authorization (0 ADA) and actual reward withdrawal, it must handle both cases correctly. Check the withdrawal amount. |
 | Not budgeting execution units | Multiple validator invocations in one transaction can exceed default budgets. Profile your transactions on testnet/preview. |
 | Assuming direct UTxO spending | You don't spend programmable token UTxOs with your spending validator. You authorize via withdraw-zero. The `programmable_logic_base` is the spending validator — it just delegates to the global coordinator. |
+| Minting the token in a registry lifecycle tx | A registry-node lifecycle transaction — registering a token, or updating a node in place — must **not** mint or burn that node's own programmable token; `registry_spend` rejects it. Lifecycle and issuance are always **separate** transactions. (Registering a *new* token still mints the new key — the rule applies to the node being *spent*, e.g. the covering predecessor.) See [Registry Lifecycle & Upgradeability](./09-DEVELOPING-SUBSTANDARDS.md#registry-lifecycle--upgradeability) and [`03` §3.2](./03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md). |
 
 ---
 

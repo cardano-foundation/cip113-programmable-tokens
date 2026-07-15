@@ -227,6 +227,18 @@ Two properties integrators must understand:
 Therefore the **registry node is the live source of truth**: wallets, indexers,
 and integrators must read the current node, never cache its logic credentials.
 
+**Lifecycle is not issuance — but shares a credential.** The authorising
+credential (`minting_logic_script`) is also the token's *issuance* authority, so
+by default the party that can mint can also register and update the node. A
+substandard that wants these to be distinct powers must separate them inside its
+issuance logic (see
+[`09-DEVELOPING-SUBSTANDARDS.md`](./09-DEVELOPING-SUBSTANDARDS.md#registry-lifecycle--upgradeability)).
+Independently, the base layer forbids a node-spend — an update, or the
+covering-node spend of an insert — from minting or burning **that node's own
+token** in the same transaction (enforced by `registry_spend`, the sole spender
+of every node). So a registry lifecycle operation and an issuance of the same
+policy are always **separate transactions**, never conflated in one.
+
 ### 3.3 De-registration
 
 There is **no de-registration**. The lifecycle path supports *update* only; a
