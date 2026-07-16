@@ -36,21 +36,19 @@ fn call_validator(tx: Transaction) -> Bool {
 
 // Passes when the parameterized stake credential is in withdrawals
 test plb_passes_when_stake_cred_in_withdrawals() {
-  let tx =
-    Transaction {
-      ..transaction.placeholder,
-      withdrawals: [Pair(test_stake_cred, 0)],
-    }
+  let tx = Transaction {
+    ..transaction.placeholder,
+    withdrawals: [Pair(test_stake_cred, 0)],
+  }
   call_validator(tx)
 }
 
 // Fails when the stake credential is absent from withdrawals
 test plb_fails_when_stake_cred_not_in_withdrawals() fail {
-  let tx =
-    Transaction {
-      ..transaction.placeholder,
-      withdrawals: [Pair(test_other_cred, 0)],
-    }
+  let tx = Transaction {
+    ..transaction.placeholder,
+    withdrawals: [Pair(test_other_cred, 0)],
+  }
   call_validator(tx)
 }
 
@@ -62,26 +60,28 @@ test plb_fails_with_empty_withdrawals() fail {
 
 // Passes when stake credential is among multiple withdrawal entries
 test plb_passes_with_multiple_withdrawals() {
-  let tx =
-    Transaction {
-      ..transaction.placeholder,
-      withdrawals: [
-        Pair(test_other_cred, 0),
-        Pair(test_stake_cred, 0),
-        Pair(
-          Script(#"99999999999999999999999999999999999999999999999999999999"),
-          0,
-        ),
-      ],
-    }
+  let tx = Transaction {
+    ..transaction.placeholder,
+    withdrawals: [
+      Pair(test_other_cred, 0),
+      Pair(test_stake_cred, 0),
+      Pair(
+        Script(#"99999999999999999999999999999999999999999999999999999999"),
+        0,
+      ),
+    ],
+  }
   call_validator(tx)
 }
 
 // Fails when credential type differs (VerificationKey vs Script)
 test plb_fails_with_wrong_credential_type() fail {
-  let vkey_cred: Credential =
-    VerificationKey(#"aabbccddaabbccddaabbccddaabbccddaabbccddaabbccddaabbccdd")
-  let tx =
-    Transaction { ..transaction.placeholder, withdrawals: [Pair(vkey_cred, 0)] }
+  let vkey_cred: Credential = VerificationKey(
+    #"aabbccddaabbccddaabbccddaabbccddaabbccddaabbccddaabbccdd",
+  )
+  let tx = Transaction {
+    ..transaction.placeholder,
+    withdrawals: [Pair(vkey_cred, 0)],
+  }
   call_validator(tx)
 }

@@ -48,12 +48,11 @@ fn apply_mutation(mutation: Mutation, pairs: Pairs<AssetName, Int>) {
     ReduceQuantity(ix, n) | IncreaseQuantity(ix, n) -> {
       let prefix = list.take(pairs, ix % len)
       expect [Pair(name, quantity), ..tail] = list.drop(pairs, ix % len)
-      let new_quantity =
-        if mutation == ReduceQuantity(ix, n) {
-          quantity - n
-        } else {
-          quantity + n
-        }
+      let new_quantity = if mutation == ReduceQuantity(ix, n) {
+        quantity - n
+      } else {
+        quantity + n
+      }
       list.concat(prefix, [Pair(name, new_quantity), ..tail])
     }
     InsertAsset(Pair(name, quantity)) ->

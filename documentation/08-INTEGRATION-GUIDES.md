@@ -188,6 +188,7 @@ In general, programmable token addresses will hold minimal ADA (just the minimum
 | Missing reference inputs | Both protocol params and registry node UTxOs must be included as reference inputs. Without them, the global validator cannot find its parameters or the token's transfer logic. |
 | Not registering the stake address | The script stake address for `programmable_logic_global` and the `transfer_logic_script` must be registered on-chain before use. If not registered, the withdraw-zero invocation will fail at the ledger level. |
 | Wrong credential convention | If the token protocol uses payment keys but the wallet constructs the address with the stake key (or vice versa), the balance will appear as zero and transfers will fail. |
+| Caching a registry-node reference input | A registry node UTxO is consumed and re-created when a token is registered around it, or when its node is updated in place. A transfer that references a stale (now-spent) node UTxO will fail. Resolve the covering/exists node at build time, and on failure **re-resolve against the current registry and rebuild** rather than retrying the same reference. See the registration-contention limitation in [`02-ARCHITECTURE.md`](./02-ARCHITECTURE.md#registration-contention-a-linked-list-limitation). |
 
 ---
 
@@ -261,16 +262,16 @@ This means indexers serving enterprise clients need to:
 - Not assume that a payment key hash will only appear as a payment credential.
 - Potentially offer a "query by owner credential" API that checks the stake slot of programmable addresses regardless of the credential's original role.
 
-#### Identifying Transfer vs. Seizure Transactions
+#### Identifying Transfer vs. Administrative (ThirdPartyAct) Transactions
 
 Programmable token transactions come in two flavors, distinguishable by the redeemer used:
 
 | Transaction Type | Redeemer | Characteristics |
 |-----------------|----------|-----------------|
 | **Transfer** (`TransferAct`) | `TransferAct { proofs }` | Owner-authorized. Stake credential owner signed or invoked. Input and output may have different stake credentials. |
-| **Seizure** (`ThirdPartyAct`) | `ThirdPartyAct { ... }` | Admin-authorized. No owner signature required. Output preserves the victim's address but removes seized tokens. |
+| **Administrative** (`ThirdPartyAct`) | `ThirdPartyAct { ... }` | Admin-authorized (forced transfer / seizure / burn). No owner signature required. The continuing output preserves the holder's address and datum; only the subject policy's non-protected tokens change. |
 
-Explorers should display these differently — a seizure is not a voluntary transfer and should be flagged as an administrative/compliance action.
+Explorers should display these differently — a third-party action is not a voluntary transfer and should be flagged as an administrative/compliance action.
 
 ### Registry State
 
@@ -287,7 +288,7 @@ For tokens using the freeze-and-seize substandard, indexers should additionally 
 
 - **Denylist changes**: Insertions (`BlacklistInsert`) and removals (`BlacklistRemove`) on the blacklist linked list.
 - **Frozen addresses**: Current denylist membership indicates frozen/sanctioned credentials.
-- **Seizure events**: `ThirdPartyAct` transactions where tokens are removed from a holder's UTxO.
+- **Third-party actions**: `ThirdPartyAct` transactions where the admin forcibly changes a holder's subject-token balance (seizure, forced transfer, or burn).
 
 ### Common Pitfalls
 
@@ -296,7 +297,7 @@ For tokens using the freeze-and-seize substandard, indexers should additionally 
 | Attributing all tokens to the script address | Without stake-credential-level grouping, all programmable tokens appear to belong to one giant script address. Always decompose by stake credential. |
 | Missing script owners | If only `VerificationKey` credentials are indexed, script-held tokens (dApps, DAOs) will be invisible. |
 | Confusing payment keys in stake slots | A credential hash in the stake slot may be a payment key hash. Don't assume it corresponds to a stake address registered on-chain. |
-| Treating seizures as transfers | `ThirdPartyAct` transactions are admin actions, not user-initiated transfers. They should be displayed differently and flagged for compliance. |
+| Treating third-party actions as transfers | `ThirdPartyAct` transactions are admin actions, not user-initiated transfers. They should be displayed differently and flagged for compliance. |
 | Ignoring registry changes | New token registrations change which policies are programmable. An indexer that snapshots the registry once will miss newly registered tokens. |
 
 ---
@@ -424,6 +425,7 @@ A dApp UTxO at `addr(programmable_logic_base, dapp_script_hash)` can hold both p
 | Conflating zero-ADA and real withdrawals | If your script's `withdraw` handler is invoked for both programmable-token authorization (0 ADA) and actual reward withdrawal, it must handle both cases correctly. Check the withdrawal amount. |
 | Not budgeting execution units | Multiple validator invocations in one transaction can exceed default budgets. Profile your transactions on testnet/preview. |
 | Assuming direct UTxO spending | You don't spend programmable token UTxOs with your spending validator. You authorize via withdraw-zero. The `programmable_logic_base` is the spending validator — it just delegates to the global coordinator. |
+| Minting the token in a registry lifecycle tx | A registry-node lifecycle transaction — registering a token, or updating a node in place — must **not** mint or burn that node's own programmable token; `registry_spend` rejects it. Lifecycle and issuance are always **separate** transactions. (Registering a *new* token still mints the new key — the rule applies to the node being *spent*, e.g. the covering predecessor.) See [Registry Lifecycle & Upgradeability](./09-DEVELOPING-SUBSTANDARDS.md#registry-lifecycle--upgradeability) and [`03` §3.2](./03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md). |
 
 ---
 

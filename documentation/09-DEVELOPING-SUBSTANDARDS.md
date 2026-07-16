@@ -14,7 +14,7 @@ This guide is for developers who want to create new substandards for CIP-113 pro
 4. [The Withdraw-Zero Pattern](#the-withdraw-zero-pattern)
 5. [Global State](#global-state)
 6. [Token Lifecycle from the Substandard's Perspective](#token-lifecycle-from-the-substandards-perspective)
-7. [Upgradeability](#upgradeability)
+7. [Registry Lifecycle & Upgradeability](#registry-lifecycle--upgradeability)
 8. [Walkthrough: Dummy Substandard](#walkthrough-dummy-substandard)
 9. [Walkthrough: Freeze-and-Seize Substandard](#walkthrough-freeze-and-seize-substandard)
 10. [Off-Chain Integration (Mesh SDK)](#off-chain-integration-mesh-sdk)
@@ -114,6 +114,12 @@ Your issuance logic validator decides **who can mint and burn** tokens. This cou
 - A DAO governance script
 - Any custom logic
 
+> **This same credential is also your registry-lifecycle authority.** It is
+> checked not only on mint/burn, but also when the token is registered and when
+> its registry node is updated. If those should be different powers, your
+> issuance logic must tell the contexts apart — see
+> [Registry Lifecycle & Upgradeability](#registry-lifecycle--upgradeability).
+
 ### 2. Transfer Logic (withdraw)
 
 Invoked when an **owner transfers** their tokens. The PLG looks up `transfer_logic_script` from the registry and verifies it's in the transaction's withdrawals.
@@ -124,12 +130,33 @@ Your transfer logic validator decides **what conditions must be met for a transf
 - Enforce time-locks or vesting schedules
 - Any custom validation
 
+> **Companion assets (CIP-68 / CIP-102) are your responsibility, not the
+> framework's.** Reference NFTs and royalty tokens stay in the PLB under the
+> same policy. Transferring them is allowed — your CIP-68/102-aware transfer and
+> minting logic must ensure it happens the proper way (moving them, updating a
+> reference NFT's datum, handling royalties). List their CIP-67 labels (100 /
+> 500) in the registry node's `protected_prefixes` so `ThirdPartyAct` cannot
+> seize or burn them. See
+> [`03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md`](./03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md) §1.
+
 ### 3. Third-Party Transfer Logic (withdraw)
 
 Invoked when a **third party** (not the token owner) moves tokens. The PLG looks up `third_party_transfer_logic_script` from the registry. This is used for administrative actions like:
 - Seizing tokens from a sanctioned address
 - Forced transfers by court order
 - Emergency recovery operations
+
+**Scope and responsibility.** The base layer guarantees the structural envelope
+(paired-output address/datum/reference-script preservation, byte-for-byte
+non-subject conservation, anti-injection) and honours the node's
+`protected_prefixes` — labels it may never seize or burn. What it does **not**
+decide is *who* is seizable: a `VerificationKey`-staked UTxO is a user wallet
+(extraction is appropriate), but a script-staked UTxO is ambiguous (smart wallet
+vs DeFi pool), so **your** third-party logic owns that call. Two reference
+patterns gate extraction of script-staked inputs — an issuer **allowlist** of
+known protocols, or **consent** (the script's own withdraw-0 must fire in the
+same tx). Only *extraction* is gated; *freeze* is unconditional. See
+[`03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md`](./03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md) §2 for the full specification.
 
 ### Summary
 
@@ -157,15 +184,17 @@ All three are registered in the **RegistryNode** when a token is registered:
 
 ```aiken
 type RegistryNode {
-  key: ByteArray,                              // Token policy ID
-  next: ByteArray,                             // Next key (linked list)
-  transfer_logic_script: Credential,           // YOUR transfer logic
+  key: ByteArray,                                // Token policy ID
+  next: ByteArray,                               // Next key (linked list)
+  minting_logic_script: Credential,              // YOUR issuance / registration authority
+  transfer_logic_script: Credential,             // YOUR transfer logic
   third_party_transfer_logic_script: Credential, // YOUR 3rd party logic
-  global_state_cs: ByteArray,                  // YOUR global state NFT (optional)
+  global_state_cs: ByteArray,                    // YOUR global state NFT (optional)
+  protected_prefixes: List<ByteArray>,           // CIP-67 labels ThirdPartyAct may not seize/burn (append-only)
 }
 ```
 
-The `minting_logic_cred` (your issuance logic) is baked into the `issuance_mint` policy as a parameter — it's not stored in the registry node but is fixed at token creation time.
+The `minting_logic_script` (your issuance logic credential) is both **stored in the registry node** and **baked into the `issuance_mint` policy** as a compile-time parameter. `registry_mint` cryptographically binds the two at registration (`is_programmable_token_id_valid`), so they can never disagree. It is frozen for the life of the node and doubles as the registry-lifecycle authority — see [Registry Lifecycle & Upgradeability](#registry-lifecycle--upgradeability).
 
 > **Note**: For simple substandards, you can reuse the same validator for multiple purposes. The dummy substandard reuses `transfer` for both transfer and third-party logic. The freeze-and-seize substandard reuses `issuer_admin_contract` for both issuance and third-party logic (seizure is authorized by the same admin credential that controls minting). Design your validators based on which operations share the same authorization model.
 
@@ -335,25 +364,83 @@ Registration ──→ Minting ──→ Transfer ──→ ... ──→ Burnin
 
 ---
 
-## Upgradeability
+## Registry Lifecycle & Upgradeability
 
-Once a token is registered, its validator credentials in the `RegistryNode` are **immutable**. The current registry implementation supports insertion (`RegistryInsert`) but not updates. This means:
+A registered token's `RegistryNode` is **live configuration, not a frozen
+record**. Through the registry lifecycle (update) path, these fields can be
+changed in place after registration:
 
-**You cannot upgrade a substandard in-place for an already-registered token.**
+- `transfer_logic_script`
+- `third_party_transfer_logic_script`
+- `global_state_cs`
+- growth of `protected_prefixes` (append-only — prefixes may be added, never removed)
 
-If you need to change a substandard's logic after tokens are already in circulation, the migration path is:
+`key`, `next`, and `minting_logic_script` are **frozen**. Updates are
+**retroactive**: the new transfer / third-party logic governs *all existing
+holders'* tokens on their next spend, so integrators must read the current node
+and never cache its credentials (see
+[`03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md`](./03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md) §3.2).
+
+So you **can** re-point a token's transfer or third-party logic, or its
+global-state pointer, in place — no migration needed — as long as the change
+stays within the mutable-field envelope above.
+
+### Lifecycle authority is your issuance credential
+
+Registry lifecycle actions are authorized by the **registration credential —
+which is your issuance-logic credential (`minting_logic_script`)**. The same
+withdraw-0 credential is checked in three different contexts:
+
+| Context | Enforced by |
+|---|---|
+| Mint / burn the token | `issuance_mint` |
+| Register the token (insert node) | `registry_mint` |
+| Update the node in place | `registry_spend` |
+
+So **your issuance-logic validator runs in all three** — and by default, whoever
+can mint can also register and reconfigure the registry entry (transfer logic,
+third-party logic, global state, protected prefixes).
+
+**If issuance and registry-lifecycle should be *different* authorities, your
+issuance logic must distinguish them itself** — e.g. by inspecting whether the
+transaction spends or mints a registry node (`registry_node_cs`) versus mints the
+programmable token, and applying different rules (different signers, thresholds,
+timelocks). The framework hands your validator the full transaction context; how
+finely to separate these powers is a substandard decision, not a framework
+default.
+
+### Base-layer guarantee: lifecycle and issuance are separate transactions
+
+You can rely on one hard separation the base layer enforces: **a transaction
+that spends a registry node may not mint or burn that node's own programmable
+token (`key`)**. This holds on both lifecycle spends — an in-place update and the
+covering-node spend of an insert — because `registry_spend` is the sole spender
+of every node and guards both. Consequences:
+
+- A single transaction is **never** simultaneously a lifecycle operation *and* an
+  issuance of the same policy. They are always distinct transactions — which
+  keeps them independently authorizable and independently auditable.
+- Registering a *new* token (`RegisterAndMint`) still mints the **new** key. The
+  guard is scoped to the node being *spent* (the covering predecessor, or the
+  node being updated), never the node being *created*.
+
+### When you still need a migration
+
+The update path cannot change the frozen fields (`key`, `minting_logic_script`)
+or perform a wholesale substandard swap. For those, migrate:
 
 1. **Pause the old token** — if your substandard supports pausing (e.g., via a global state flag), pause transfers first
-2. **Deploy the new substandard** — compile and register new validator scripts
-3. **Register a new token** — create a new `RegistryNode` entry with the new policy and substandard validators
-4. **Migrate balances** — use either:
+2. **Deploy + register the new substandard** — compile new validator scripts and create a new `RegistryNode`
+3. **Migrate balances** — use either:
    - **ThirdPartyAct** on the old token to move balances from holders to a migration address, then mint equivalent new tokens
    - **Burn old + mint new** in coordinated transactions
-5. **Decommission the old token** — the old registry entry remains but the token is effectively deprecated
+4. **Decommission the old token** — the old registry entry remains but the token is effectively deprecated (there is no de-registration; see [`03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md`](./03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md) §3.3)
 
-This is an intentional design choice: immutability of validation rules provides predictability for token holders. They know exactly what rules apply to their tokens and those rules cannot change without their participation in a migration.
-
-**Recommendation**: Design your substandard with upgradeability in mind from the start. Consider including a global state config NFT that can modify behavior (e.g., thresholds, admin keys) without changing the validator logic itself.
+**Recommendation**: design your substandard for upgradeability from the start.
+Put behavior that may need tuning (thresholds, admin keys) behind a global-state
+config NFT so you can adjust it without even a node update, and decide up front
+whether issuance and registry-lifecycle should be the same authority or distinct
+ones.
 
 ---
 

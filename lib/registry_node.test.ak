@@ -1,13 +1,14 @@
 use aiken/collection/list
 use aiken/fuzz
 use aiken/primitive/bytearray
+use cardano/address.{Script, VerificationKey}
 use cardano/assets.{PolicyId, ada_asset_name, ada_policy_id} as value
 use cardano/fuzz as cardano
 use cardano/transaction.{InlineDatum, Input, Output}
 use registry_node.{
   RegistryNode, new_registry_node_getter, sentinel_next_key,
-  with_key_and_3rd_party_logic, with_key_and_minting_logic,
-  with_key_and_next_key, with_key_and_transfer_logic,
+  with_3rd_party_logic_and_protected, with_key_and_3rd_party_logic,
+  with_key_and_minting_logic, with_key_and_next_key, with_key_and_transfer_logic,
 }
 use utils.{bytearray_lt}
 
@@ -19,8 +20,8 @@ fn any_registry_node_reference_input() -> Fuzzer<Input> {
   let output_reference <- fuzz.and_then(cardano.output_reference())
   let address <- fuzz.and_then(cardano.address())
   let registry_node <- fuzz.and_then(any_registry_node())
-  let min_ada_value =
-    value.zero |> value.add(ada_policy_id, ada_asset_name, 1000000)
+  let min_ada_value = value.zero
+    |> value.add(ada_policy_id, ada_asset_name, 1000000)
   fuzz.constant(
     Input {
       output_reference,
@@ -37,22 +38,18 @@ fn any_registry_node_reference_input() -> Fuzzer<Input> {
 
 fn any_registry(min_nodes: Int, max_nodes: Int) -> Fuzzer<(Int, List<Input>)> {
   let before <- fuzz.and_then(fuzz.list_between(cardano.input(), 0, 2))
-  let between <-
-    fuzz.and_then(
-      fuzz.list_between(
-        any_registry_node_reference_input(),
-        min_nodes,
-        max_nodes,
-      ),
-    )
+  let between <- fuzz.and_then(
+    fuzz.list_between(any_registry_node_reference_input(), min_nodes, max_nodes),
+  )
   let after <- fuzz.and_then(fuzz.list_between(cardano.input(), 0, 2))
 
   let len_before = list.length(before)
 
   let len_between = list.length(between)
 
-  let ix <-
-    fuzz.and_then(fuzz.int_between(len_before, len_before + len_between - 1))
+  let ix <- fuzz.and_then(
+    fuzz.int_between(len_before, len_before + len_between - 1),
+  )
 
   fuzz.constant(
     (
@@ -65,24 +62,36 @@ fn any_registry(min_nodes: Int, max_nodes: Int) -> Fuzzer<(Int, List<Input>)> {
 }
 
 test prop_registry_lookup((ix, registry) via any_registry(1, 2)) {
-  let get_registry_node =
-    new_registry_node_getter(registry_policy, 0, registry, fn(_) { fail })
+  let get_registry_node = new_registry_node_getter(
+    registry_policy,
+    0,
+    registry,
+    fn(_) { fail },
+  )
   expect _: RegistryNode = get_registry_node(ix)
 }
 
 test prop_registry_lookup_fail_no_node(
   (ix, registry) via any_registry(0, 0),
 ) fail {
-  let get_registry_node =
-    new_registry_node_getter(registry_policy, 0, registry, fn(_) { fail })
+  let get_registry_node = new_registry_node_getter(
+    registry_policy,
+    0,
+    registry,
+    fn(_) { fail },
+  )
   get_registry_node(ix) != as_data(Void)
 }
 
 test prop_registry_lookup_fail_wrong_policy(
   (ix, registry) via any_registry(1, 1),
 ) fail {
-  let get_registry_node =
-    new_registry_node_getter("foo", 0, registry, fn(_) { fail })
+  let get_registry_node = new_registry_node_getter(
+    "foo",
+    0,
+    registry,
+    fn(_) { fail },
+  )
   get_registry_node(ix) != as_data(Void)
 }
 
@@ -95,6 +104,7 @@ fn any_registry_node() -> Fuzzer<RegistryNode> {
   let third_party_transfer_logic_script <- fuzz.and_then(cardano.credential())
   let minting_logic_script <- fuzz.and_then(cardano.credential())
   let global_state_cs <- fuzz.and_then(cardano.policy_id())
+  let protected_prefixes <- fuzz.and_then(fuzz.list(fuzz.bytearray_fixed(4)))
   fuzz.constant(
     RegistryNode {
       key,
@@ -103,6 +113,7 @@ fn any_registry_node() -> Fuzzer<RegistryNode> {
       transfer_logic_script,
       third_party_transfer_logic_script,
       global_state_cs,
+      protected_prefixes,
     },
   )
 }
@@ -124,10 +135,9 @@ test prop_with_key_and_next_key_roundtrip(node via any_registry_node()) {
 }
 
 test prop_with_key_and_3rd_party_roundtrip(node via any_registry_node()) {
-  let
-    key,
-    third_party_transfer_logic_script,
-  <- with_key_and_3rd_party_logic(node)
+  let key, third_party_transfer_logic_script <- with_key_and_3rd_party_logic(
+    node,
+  )
   and {
     (key == node.key)?,
     (third_party_transfer_logic_script == node.third_party_transfer_logic_script)?,
@@ -139,6 +149,44 @@ test prop_with_key_and_minting_logic_roundtrip(node via any_registry_node()) {
   and {
     (key == node.key)?,
     (minting_logic_script == node.minting_logic_script)?,
+  }
+}
+
+// Covers the reused-partial-traversal accessor: extracting field 0 (key),
+// field 4 (third_party) and field 6 (protected_prefixes) in one walk must
+// return exactly those fields. The fuzzer assigns each field an independent
+// random value, so any off-by-one in the traversal (e.g. returning
+// transfer_logic@3 or global_state_cs@5) fails the round-trip.
+test prop_with_3rd_party_logic_and_protected_roundtrip(
+  node via any_registry_node(),
+) {
+  let key, third_party_transfer_logic_script, protected_prefixes <- with_3rd_party_logic_and_protected(
+    node,
+  )
+  and {
+    (key == node.key)?,
+    (third_party_transfer_logic_script == node.third_party_transfer_logic_script)?,
+    (protected_prefixes == node.protected_prefixes)?,
+  }
+}
+
+// Deterministic off-by-one guard: every field gets a DISTINCT, hand-chosen
+// value so the assertions pin the exact indices regardless of fuzz luck.
+test with_3rd_party_logic_and_protected_extracts_exact_fields() {
+  let node = RegistryNode {
+    key: #"a0",
+    next: #"a1",
+    minting_logic_script: VerificationKey(#"a2"),
+    transfer_logic_script: VerificationKey(#"a3"),
+    third_party_transfer_logic_script: Script(#"a4"),
+    global_state_cs: #"a5",
+    protected_prefixes: [#"000643b0", #"001f4d70"],
+  }
+  let key, third_party, protected <- with_3rd_party_logic_and_protected(node)
+  and {
+    (key == #"a0")?,
+    (third_party == Script(#"a4"))?,
+    (protected == [#"000643b0", #"001f4d70"])?,
   }
 }
 

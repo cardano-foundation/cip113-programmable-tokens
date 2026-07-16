@@ -1,6 +1,5 @@
 use aiken/collection/dict
 use aiken/collection/list
-use aiken/primitive/bytearray
 // Registry minting policy - manages the linked list of registered programmable token policies
 // Migrated from SmartTokens.LinkedList.MintDirectory
 //
@@ -20,8 +19,8 @@ use types.{
   RegistryRedeemer,
 }
 use utils.{
-  bytearray_lt, expect_inline_datum, has_currency_symbol,
-  is_programmable_token_id_valid, mint_has_policy,
+  expect_inline_datum, has_currency_symbol, is_programmable_token_id_valid,
+  mint_has_policy,
 }
 
 validator registry_mint(
@@ -34,11 +33,10 @@ validator registry_mint(
     when redeemer is {
       RegistryInit -> {
         // Ensure this is a one-shot minting policy by checking that utxo_ref is spent
-        let is_utxo_consumed =
-          list.any(
-            self.inputs,
-            fn(input) { input.output_reference == utxo_ref },
-          )
+        let is_utxo_consumed = list.any(
+          self.inputs,
+          fn(input) { input.output_reference == utxo_ref },
+        )
 
         // Initialize the registry with an empty origin node
         and {
@@ -53,15 +51,13 @@ validator registry_mint(
       }
       RegistryInsert { key, minting_logic_script, mode } -> {
         // Find the issuance CBOR hex reference input
-        let issuance_ref_input =
-          list.expect_find(
-            self.reference_inputs,
-            fn(input) {
-              let tokens =
-                assets.tokens(input.output.value, issuance_cbor_hex_cs)
-              !dict.is_empty(tokens)
-            },
-          )
+        let issuance_ref_input = list.expect_find(
+          self.reference_inputs,
+          fn(input) {
+            let tokens = assets.tokens(input.output.value, issuance_cbor_hex_cs)
+            !dict.is_empty(tokens)
+          },
+        )
 
         // Extract the IssuanceCborHex datum
         let issuance_datum = expect_inline_datum(issuance_ref_input.output)
@@ -121,11 +117,10 @@ validator registry_mint(
         // at the registry_spend address by induction (Init binds the origin's
         // address, every Insert binds its new outputs' addresses, and
         // registry_spend is the sole script that can spend those UTxOs).
-        expect [covering_input] =
-          list.filter(
-            self.inputs,
-            fn(input) { has_currency_symbol(input.output.value, policy_id) },
-          )
+        expect [covering_input] = list.filter(
+          self.inputs,
+          fn(input) { has_currency_symbol(input.output.value, policy_id) },
+        )
 
         let covering_datum = expect_inline_datum(covering_input.output)
         expect covering_node: RegistryNode = covering_datum
@@ -136,53 +131,41 @@ validator registry_mint(
         // both the inserted and the updated-covering shape, so identifying which is
         // which by a single `is_inserted_directory_node` check is unambiguous.
         expect [out1,
-          out2] =
-          list.filter(
-            self.outputs,
-            fn(o) { has_currency_symbol(o.value, policy_id) },
-          )
+              out2] = list.filter(
+          self.outputs,
+          fn(o) { has_currency_symbol(o.value, policy_id) },
+        )
 
-        let node1 =
-          validate_directory_node_output(
-            out1,
-            policy_id,
-            covering_input.output.address,
-          )
-        let node2 =
-          validate_directory_node_output(
-            out2,
-            policy_id,
-            covering_input.output.address,
-          )
+        let node1 = validate_directory_node_output(
+          out1,
+          policy_id,
+          covering_input.output.address,
+        )
+        let node2 = validate_directory_node_output(
+          out2,
+          policy_id,
+          covering_input.output.address,
+        )
 
-        let updated =
-          if is_inserted_directory_node(
-            node1,
-            key,
-            covering_node.next,
-            minting_logic_script,
-          ) {
-            node2
-          } else {
-            expect
-              is_inserted_directory_node(
-                node2,
-                key,
-                covering_node.next,
-                minting_logic_script,
-              )
-            node1
-          }
-        // node2 inserted ⇒ node1 is the updated covering
-        expect is_updated_directory_node(updated, covering_node, key)
-
-        and {
-          // Validate key is a valid currency symbol (28 bytes)
-          (bytearray.length(key) == 28)?,
-          // The covering node must cover the key to insert
-          bytearray_lt(covering_node.key, key)?,
-          bytearray_lt(key, covering_node.next)?,
+        let updated = if is_inserted_directory_node(
+          node1,
+          key,
+          covering_node.next,
+          minting_logic_script,
+        ) {
+          node2
+        } else {
+          expect
+            is_inserted_directory_node(
+              node2,
+              key,
+              covering_node.next,
+              minting_logic_script,
+            )
+          node1
         }
+        // node2 inserted ⇒ node1 is the updated covering
+        is_updated_directory_node(updated, covering_node, key)
       }
     }
   }

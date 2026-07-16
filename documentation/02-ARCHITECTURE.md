@@ -221,6 +221,44 @@ Before:  [covering: key=A, next=C]
 After:   [covering: key=A, next=B]  [new: key=B, next=C]
 ```
 
+### Registration Contention (a linked-list limitation)
+
+Insertion **spends the covering node** (step 2) and re-creates it at a new
+output reference. The in-place node-update path does the same. This is intrinsic
+to a linked list — adding or changing a node re-points its predecessor — and it
+has a concurrency consequence worth understanding.
+
+Membership and non-membership proofs reference a registry node as a **reference
+input**, and a reference input must be a *live* UTxO at validation time. So when
+one transaction consumes node *N* (to insert after it, or to update it), any
+**other** transaction that referenced *N* by its now-spent output reference
+becomes invalid and must be rebuilt against *N*'s new UTxO. Concretely, a
+transfer of a token whose proof points at *N* — either a `TokenExists` proof for
+*N* itself, or a `TokenDoesNotExist` covering proof that uses *N* — races a
+registration/update that touches *N*.
+
+Consequences:
+
+- **User experience.** A transfer (or lookup) that races a registration touching
+  its referenced node can fail and needs to be rebuilt and resubmitted against
+  the updated node. Registrations are infrequent and the contention is limited to
+  transactions referencing the *specific* node(s) being touched, but builders
+  must handle the retry (see [`08-INTEGRATION-GUIDES.md`](./08-INTEGRATION-GUIDES.md)).
+- **Griefing / DoS.** An actor who repeatedly registers around — or otherwise
+  spends — a particular node can transiently block transactions that depend on
+  it. The impact is protocol-specific and matters most for time-sensitive flows
+  (auctions, liquidations); it is not a custody or escape risk.
+
+This is an accepted, **Informational** limitation of the on-chain linked-list
+design. Heavier remediations exist — a parallel array/Merkle-tree registry that
+proves membership without consuming a node, or further register/mint separation
+— but they add redundancy, cost, and complexity disproportionate to the impact,
+so they are deliberately not adopted. The mitigation is **off-chain**: resolve
+the covering node at build time and, on failure, re-resolve against the current
+registry and rebuild (see [`08-INTEGRATION-GUIDES.md`](./08-INTEGRATION-GUIDES.md)),
+and avoid making a single contended node a hard dependency for time-critical
+operations.
+
 ---
 
 ## Denylist System
@@ -264,11 +302,18 @@ This means every transfer of a denylist-protected token requires O(n) proofs whe
 type RegistryNode {
   key: ByteArray,                              // Policy ID of the registered token
   next: ByteArray,                             // Next key in sorted order
+  minting_logic_script: Credential,            // Stake validator for issuance / registration authority
   transfer_logic_script: Credential,           // Stake validator for transfer rules
   third_party_transfer_logic_script: Credential, // Stake validator for seizure/freeze
   global_state_cs: ByteArray,                  // Optional NFT for global state (e.g., denylist)
+  protected_prefixes: List<ByteArray>,         // Append-only CIP-67 label prefixes ThirdPartyAct may not seize/burn
 }
 ```
+
+`protected_prefixes` is an issuer-declared, append-only list of 4-byte CIP-67
+asset-name label prefixes (kept in strictly ascending order) that the admin path
+cannot extract or burn — see
+[`03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md`](./03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md) §2.2.
 
 ### BlacklistNode (freeze-and-seize substandard)
 
@@ -298,12 +343,13 @@ type ProgrammableLogicGlobalParams {
 type ProgrammableLogicGlobalRedeemer {
   // Normal transfer: one proof per non-ADA policy in the inputs
   TransferAct { proofs: List<RegistryProof> }
-  // Admin action (seize): operates on specific input/output indices
+  // Administrative action — forced transfer / seizure / freeze enforcement /
+  // burn (see 03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md). Exactly one policy per
+  // transaction; acts on every PLB input holding the subject policy; paired
+  // continuing outputs begin at outputs_start_idx.
   ThirdPartyAct {
-    registry_node_idx: Int,
-    input_idxs: List<Int>,
+    registry_node_idx: Int, // The subject policy's registry node (one policy per tx)
     outputs_start_idx: Int,
-    length_input_idxs: Int,
   }
 }
 ```
@@ -383,15 +429,22 @@ sequenceDiagram
 
 Key invariant: the total programmable token value in outputs at the `prog_logic_cred` address must be **at least** the total programmable token value from signed inputs. This prevents tokens from "escaping" the programmable logic address.
 
-### Third-Party (Seize) Flow
+### Third-Party (Administrative) Flow
 
-The `ThirdPartyAct` redeemer handles admin operations like token seizure. It differs from transfers:
+The `ThirdPartyAct` redeemer handles administrative / compliance operations — forced transfer, seizure, freeze enforcement, or burn. It differs from transfers:
 
 1. **No ownership check** — the `third_party_transfer_logic_script` authorizes the action instead of the stake credential owner
-2. **Token removal** — seized tokens are removed from the victim's UTxO (output value = input value minus seized policy)
-3. **Strict input-output mapping** — each input at `input_idxs[i]` maps to an output at `outputs_start_idx + i`
-4. **Same address/datum** — the output must preserve the victim's address and datum, only removing the seized tokens
-5. **Anti-DDOS** — the input and output values must actually differ (prevents no-op seizures)
+2. **Amount change** — `ThirdPartyAct` is a forced transfer: the subject policy's non-protected tokens on each paired output may be decreased, fully removed, or increased, but they **must change** (a no-op forced respend is rejected — see Anti-DDoS below). Aggregate conservation (below) keeps the *total* non-protected subject amount across all PLB outputs accounting for every seized input plus any mint/burn — tokens are redistributed within the PLB, never created from nothing or made to escape
+3. **Per-pair mapping** — each spent PLB input is paired positionally with a continuing output (the first pair starts at `outputs_start_idx`); the action covers every PLB input that holds the subject policy
+4. **Preservation** — the paired output must preserve the holder's address, datum, **and reference script**, changing only the subject policy's non-protected tokens; all non-subject tokens are conserved byte-for-byte
+5. **Anti-injection / anti-DoS** — the paired input must already hold the subject policy, so the admin can neither inject the policy onto a UTxO that never held it nor drag an unrelated UTxO into the action
+6. **Protected prefixes** — tokens whose CIP-67 label prefix is on the node's `protected_prefixes` list cannot be extracted or burned ("preserve, not fail")
+7. **One policy per transaction** — `ThirdPartyAct` targets exactly one registry node (see scope note below)
+
+> **Scope & limits.** The full extraction scope — protected prefixes, the
+> freeze-vs-extract asymmetry, who is seizable (holder scope), and the
+> single-policy-per-transaction constraint — is specified in
+> [`03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md`](./03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md).
 
 ### Token Registration Flow
 
@@ -422,8 +475,11 @@ Both registry and denylist maintain the invariant `node.key < node.next` for eve
 ### One-Shot Policies
 Protocol parameters, registry, denylist, and issuance CBOR hex NFTs use one-shot minting policies (parameterized by a UTxO reference). This guarantees exactly one instance of each can exist, preventing duplication attacks.
 
-### Anti-DDOS in Seizures
-The `ThirdPartyAct` handler explicitly checks that the input value differs from the expected output value (`input_dict != expected_output_dict`). This prevents adversaries from submitting no-op seizure transactions that waste on-chain resources.
+### Anti-DDoS in Third-Party Actions
+Each seized UTxO's acted-on amount must actually change (`input_tokens_at != output_tokens_at` per paired input/output). This rejects no-op third-party actions: an admin cannot force-respend a holder's UTxO with no economic change, which would churn its output reference and waste on-chain resources.
+
+### Lifecycle / Issuance Separation
+A registry node is spent only by `registry_spend`, which forbids minting or burning that node's own programmable token (`key`) in the same transaction. This holds on both spend paths — an in-place node update and the covering-node spend of an insert (`registry_spend` is the sole spender of every registry-node UTxO). A registry lifecycle operation therefore can never double as an issuance of the same policy: the two are always separate, independently authorized transactions. Note the authorizing credential (`minting_logic_script`) is *shared* between issuance and lifecycle, so a substandard that needs distinct authorities must separate them in its own issuance logic — see [`03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md`](./03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md) §3.2.
 
 ---
 

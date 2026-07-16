@@ -12,31 +12,29 @@ use cardano/transaction.{NoDatum, Output}
 /// A generator for assets.
 fn any_assets(is_output: Bool) -> Fuzzer<Assets> {
   let policies <- fuzz.and_then(fuzz.list_between(cardano.policy_id(), 0, 3))
-  let zero =
-    if is_output {
-      let quantity <- fuzz.map(fuzz.int_between(1, 3))
-      dict.from_ascending_pairs(
-        [
-          Pair(
-            ada_policy_id,
-            dict.from_ascending_pairs([Pair(ada_asset_name, quantity)]),
-          ),
-        ],
-      )
-    } else {
-      fuzz.constant(dict.empty)
-    }
+  let zero = if is_output {
+    let quantity <- fuzz.map(fuzz.int_between(1, 3))
+    dict.from_ascending_pairs(
+      [
+        Pair(
+          ada_policy_id,
+          dict.from_ascending_pairs([Pair(ada_asset_name, quantity)]),
+        ),
+      ],
+    )
+  } else {
+    fuzz.constant(dict.empty)
+  }
   list.foldr(
     policies,
     zero,
     fn(policy, step) {
       let assets <- fuzz.and_then(step)
-      let lo =
-        if is_output {
-          0
-        } else {
-          1
-        }
+      let lo = if is_output {
+        0
+      } else {
+        1
+      }
       let tokens <- fuzz.map(fuzz.list_between(any_token(is_output), lo, 3))
       dict.insert(assets, policy, dict.from_pairs(tokens))
     },
@@ -47,14 +45,13 @@ fn any_assets(is_output: Bool) -> Fuzzer<Assets> {
 /// A generator for a single token pair.
 fn any_token(is_output: Bool) -> Fuzzer<Pair<AssetName, Int>> {
   let asset_name <- fuzz.and_then(cardano.asset_name())
-  let quantity <-
-    fuzz.map(
-      if is_output {
-        fuzz.int_between(1, 3)
-      } else {
-        fuzz.either(fuzz.int_between(-3, -1), fuzz.int_between(1, 3))
-      },
-    )
+  let quantity <- fuzz.map(
+    if is_output {
+      fuzz.int_between(1, 3)
+    } else {
+      fuzz.either(fuzz.int_between(-3, -1), fuzz.int_between(1, 3))
+    },
+  )
   Pair(asset_name, quantity)
 }
 
@@ -116,87 +113,75 @@ fn all(o, keep, _discard) {
 }
 
 test collect_many_assets() {
-  let out1 =
-    Output {
-      ..output_placeholder,
-      value: value.from_lovelace(42)
-        |> value.add("foo", "bar", 1),
-    }
+  let out1 = Output {
+    ..output_placeholder,
+    value: value.from_lovelace(42)
+      |> value.add("foo", "bar", 1),
+  }
 
-  let out2 =
-    Output {
-      ..output_placeholder,
-      value: value.from_lovelace(1337)
-        |> value.add("foo", "bar", 1)
-        |> value.add("baz", "", 1),
-    }
+  let out2 = Output {
+    ..output_placeholder,
+    value: value.from_lovelace(1337)
+      |> value.add("foo", "bar", 1)
+      |> value.add("baz", "", 1),
+  }
 
-  let out3 =
-    Output {
-      ..output_placeholder,
-      value: value.from_lovelace(14)
-        |> value.add("bar", "foo", 1),
-    }
+  let out3 = Output {
+    ..output_placeholder,
+    value: value.from_lovelace(14)
+      |> value.add("bar", "foo", 1),
+  }
 
-  let expected =
-    value.zero
-      |> value.add("bar", "foo", 1)
-      |> value.add("baz", "", 1)
-      |> value.add("foo", "bar", 2)
-      |> assets.from_value
+  let expected = value.zero
+    |> value.add("bar", "foo", 1)
+    |> value.add("baz", "", 1)
+    |> value.add("foo", "bar", 2)
+    |> assets.from_value
 
   assets.collect([out1, out2, out3], [], all) == expected
 }
 
 test collect_mixed_mint_and_output() {
-  let mint =
-    value.from_asset("foo", "bar", 1)
-      |> assets.from_value
+  let mint = value.from_asset("foo", "bar", 1)
+    |> assets.from_value
 
-  let output_value =
-    Output {
-      ..output_placeholder,
-      value: value.from_lovelace(1337)
-        |> value.add("foo", "bar", 1),
-    }
+  let output_value = Output {
+    ..output_placeholder,
+    value: value.from_lovelace(1337)
+      |> value.add("foo", "bar", 1),
+  }
 
-  let expected =
-    value.from_asset("foo", "bar", 2)
-      |> assets.from_value
+  let expected = value.from_asset("foo", "bar", 2)
+    |> assets.from_value
 
   assets.collect([output_value], mint, all) == expected
 }
 
 test collect_and_filter() {
-  let other_address =
-    address.from_verification_key(
-      #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
-    )
+  let other_address = address.from_verification_key(
+    #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+  )
 
-  let out1 =
-    Output {
-      ..output_placeholder,
-      value: value.from_lovelace(42) |> value.add("foo", "bar", 1),
-    }
+  let out1 = Output {
+    ..output_placeholder,
+    value: value.from_lovelace(42) |> value.add("foo", "bar", 1),
+  }
 
-  let out2 =
-    Output {
-      ..output_placeholder,
-      address: other_address,
-      value: value.from_lovelace(1337)
-        |> value.add("foo", "bar", 1),
-    }
+  let out2 = Output {
+    ..output_placeholder,
+    address: other_address,
+    value: value.from_lovelace(1337)
+      |> value.add("foo", "bar", 1),
+  }
 
-  let out3 =
-    Output {
-      ..output_placeholder,
-      value: value.from_lovelace(1337)
-        |> value.add("foo", "bar", 1),
-    }
+  let out3 = Output {
+    ..output_placeholder,
+    value: value.from_lovelace(1337)
+      |> value.add("foo", "bar", 1),
+  }
 
-  let expected =
-    value.from_asset("foo", "bar", 2)
-      |> assets.from_value
+  let expected = value.from_asset("foo", "bar", 2)
+    |> assets.from_value
 
   expected == assets.collect(
     [out1, out2, out3],
@@ -212,11 +197,10 @@ test collect_and_filter() {
 }
 
 test collect_keeps_null_policies() {
-  let out =
-    Output {
-      ..output_placeholder,
-      value: value.from_lovelace(42) |> value.add("foo", "bar", 1),
-    }
+  let out = Output {
+    ..output_placeholder,
+    value: value.from_lovelace(42) |> value.add("foo", "bar", 1),
+  }
 
   let mint = value.from_asset("foo", "bar", -1) |> assets.from_value
 
@@ -300,10 +284,9 @@ test prop_split_at_reify(
   expect Some(pivot) = list.at(policies, ix % list.length(policies))
 
   let before, at, after <- assets.split_at(value, pivot)
-  let reified =
-    assets_to_value(before)
-      |> value.merge(value.from_asset_list([Pair(pivot, dict.to_pairs(at))]))
-      |> value.merge(assets_to_value(after))
+  let reified = assets_to_value(before)
+    |> value.merge(value.from_asset_list([Pair(pivot, dict.to_pairs(at))]))
+    |> value.merge(assets_to_value(after))
 
   if after == [] || before == [] {
     fuzz.label(@"before or after is empty")

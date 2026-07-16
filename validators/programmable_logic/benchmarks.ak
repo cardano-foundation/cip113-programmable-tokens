@@ -14,6 +14,7 @@ use types.{
   ProgrammableLogicGlobalRedeemer, ThirdPartyAct, TokenDoesNotExist, TokenExists,
   TransferAct,
 }
+use unfracking
 
 fn programmable_logic(
   self: Transaction,
@@ -51,8 +52,7 @@ fn programmable_logic(
 ///
 /// Source: https://preview.cexplorer.io/tx/d29a977a55ed54ef0f5c9d5c15f85a63e915349890f1952934809070430ef33a
 const fixture_baseline_3rd_party_1: Transaction = {
-    let policy_programmable_token: PolicyId =
-      #"76658c4afd597ba7524f85bf32ac59d9e58856593a2e8399326f853a"
+    let policy_programmable_token: PolicyId = #"76658c4afd597ba7524f85bf32ac59d9e58856593a2e8399326f853a"
 
     let asset_name_programmable_token: AssetName = "tUSDT"
 
@@ -142,19 +142,27 @@ test baseline_3rd_party_1() {
 /// - burning tokens
 ///
 const fixture_baseline_3rd_party_2: Transaction = {
-    let policy_programmable_token: PolicyId =
-      #"76658c4afd597ba7524f85bf32ac59d9e58856593a2e8399326f853a"
+    let policy_programmable_token: PolicyId = #"76658c4afd597ba7524f85bf32ac59d9e58856593a2e8399326f853a"
 
     let asset_name_programmable_token: AssetName = "tUSDT"
 
-    let other_prog_tokens_1 =
-      (#"00000000000000000000000000000000000000000000000000000000", "foo", 14)
+    let other_prog_tokens_1 = (
+      #"00000000000000000000000000000000000000000000000000000000",
+      "foo",
+      14,
+    )
 
-    let other_prog_tokens_2 =
-      (#"11111111111111111111111111111111111111111111111111111111", "bar", 42)
+    let other_prog_tokens_2 = (
+      #"11111111111111111111111111111111111111111111111111111111",
+      "bar",
+      42,
+    )
 
-    let other_prog_tokens_3 =
-      (#"99999999999999999999999999999999999999999999999999999999", "baz", 1)
+    let other_prog_tokens_3 = (
+      #"99999999999999999999999999999999999999999999999999999999",
+      "baz",
+      1,
+    )
 
     Transaction {
       ..transaction.placeholder,
@@ -275,38 +283,29 @@ test baseline_3rd_party_2() {
 const length_baseline_3rd_party_3: Int = 150
 
 const fixture_baseline_3rd_party_3: Transaction = {
-    let policy_programmable_token =
-      #"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    let policy_programmable_token = #"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     let asset_name_programmable_token = "programmable"
 
-    let inputs =
-      list.range(0, length_baseline_3rd_party_3 - 1)
-        |> list.map(
-            fn(output_index) {
-              Input {
-                output_reference: OutputReference {
-                  transaction_id: #"0000000000000000000000000000000000000000000000000000000000000000",
-                  output_index,
-                },
-                output: fixture.some_input_with_programmable_tokens(
-                  [
-                    (
-                      policy_programmable_token,
-                      asset_name_programmable_token,
-                      1,
-                    ),
-                  ],
-                  bytearray.from_int_big_endian(output_index, 0),
-                ).output,
-              }
-            },
-          )
+    let inputs = list.range(0, length_baseline_3rd_party_3 - 1)
+      |> list.map(
+          fn(output_index) {
+            Input {
+              output_reference: OutputReference {
+                transaction_id: #"0000000000000000000000000000000000000000000000000000000000000000",
+                output_index,
+              },
+              output: fixture.some_input_with_programmable_tokens(
+                [(policy_programmable_token, asset_name_programmable_token, 1)],
+                bytearray.from_int_big_endian(output_index, 0),
+              ).output,
+            }
+          },
+        )
 
-    let outputs =
-      list.repeat(
-        fixture.some_output_with_programmable_tokens([]),
-        length_baseline_3rd_party_3,
-      )
+    let outputs = list.repeat(
+      fixture.some_output_with_programmable_tokens([]),
+      length_baseline_3rd_party_3,
+    )
 
     Transaction {
       ..transaction.placeholder,
@@ -369,8 +368,7 @@ test baseline_3rd_party_3() {
 /// Source: https://preview.cexplorer.io/tx/d29ce2a9f79a70a91d83a40e0e1cf346ab94979b6f0ba001de8a89895aa518df
 /// ------------------------------------------------------------------------------------------------
 const fixture_plutarch_baseline_transfer: Transaction = {
-    let policy_programmable_token: PolicyId =
-      #"00000000000000000000000000000000000000000000000000000f00"
+    let policy_programmable_token: PolicyId = #"00000000000000000000000000000000000000000000000000000f00"
 
     let asset_name_programmable_token: AssetName = "FOO"
 
@@ -434,18 +432,15 @@ test plutarch_baseline_transfer() {
 /// inputs.
 /// ------------------------------------------------------------------------------------------------
 const fixture_plutarch_baseline_transfer_2: Transaction = {
-    let policy_programmable_token_1: PolicyId =
-      #"00000000000000000000000000000000000000000000000000000f00"
+    let policy_programmable_token_1: PolicyId = #"00000000000000000000000000000000000000000000000000000f00"
 
     let asset_name_programmable_token_1: AssetName = "FOO"
 
-    let policy_programmable_token_2: PolicyId =
-      #"00000000000000000000000000000000000000000000000000000ba5"
+    let policy_programmable_token_2: PolicyId = #"00000000000000000000000000000000000000000000000000000ba5"
 
     let asset_name_programmable_token_2: AssetName = "BAR"
 
-    let policy_unexisting_token: PolicyId =
-      #"000000000000000000000000000000000000000000000000aaaaffff"
+    let policy_unexisting_token: PolicyId = #"000000000000000000000000000000000000000000000000aaaaffff"
 
     let asset_name_unexisting_token: PolicyId = "e_e"
 
@@ -550,17 +545,12 @@ test plutarch_baseline_transfer_2() {
 const fixture_plutarch_baseline_transfer_3: Transaction = {
     let signer_vkh = #"01010101010101010101010101010101010101010101010101010101"
 
-    let policy_unexisting_token_1 =
-      #"1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a"
-    let policy_unexisting_token_2 =
-      #"1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e"
+    let policy_unexisting_token_1 = #"1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a"
+    let policy_unexisting_token_2 = #"1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e"
 
-    let policy_programmable_token_1 =
-      #"1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b"
-    let policy_programmable_token_2 =
-      #"1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c"
-    let policy_programmable_token_3 =
-      #"1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d"
+    let policy_programmable_token_1 = #"1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b"
+    let policy_programmable_token_2 = #"1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c"
+    let policy_programmable_token_3 = #"1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d"
 
     Transaction {
       ..transaction.placeholder,
@@ -655,21 +645,19 @@ test plutarch_baseline_transfer_3() {
 fn sample_many_tokens(
   size: Int,
 ) -> Fuzzer<(Transaction, ProgrammableLogicGlobalRedeemer)> {
-  let policy_programmable_token: PolicyId =
-    #"00000000000000000000000000000000000000000000000000000f00"
+  let policy_programmable_token: PolicyId = #"00000000000000000000000000000000000000000000000000000f00"
 
-  let tokens <-
-    fuzz.map(
-      fuzz.list_between(
-        {
-          let asset_name <- fuzz.and_then(cardano.asset_name())
-          let quantity <- fuzz.and_then(fuzz.int_at_least(1))
-          fuzz.constant((policy_programmable_token, asset_name, quantity))
-        },
-        size + 1,
-        size + 1,
-      ),
-    )
+  let tokens <- fuzz.map(
+    fuzz.list_between(
+      {
+        let asset_name <- fuzz.and_then(cardano.asset_name())
+        let quantity <- fuzz.and_then(fuzz.int_at_least(1))
+        fuzz.constant((policy_programmable_token, asset_name, quantity))
+      },
+      size + 1,
+      size + 1,
+    ),
+  )
 
   fixture.some_transfer(tokens)
 }
@@ -689,27 +677,24 @@ bench many_tokens((self, redeemer) via sample_many_tokens) {
 fn sample_many_inputs(
   size: Int,
 ) -> Fuzzer<(Transaction, ProgrammableLogicGlobalRedeemer)> {
-  let policy_programmable_token: PolicyId =
-    #"00000000000000000000000000000000000000000000000000000f00"
+  let policy_programmable_token: PolicyId = #"00000000000000000000000000000000000000000000000000000f00"
 
   let asset_name_programmable_token: AssetName = "FOO"
 
-  let inputs <-
-    fuzz.map(
-      fuzz.list_between(
-        fixture.any_input_with_programmable_tokens(
-          fixture.credential_transfer_logic,
-          [(policy_programmable_token, asset_name_programmable_token, 1)],
-        ),
-        size + 1,
-        size + 1,
+  let inputs <- fuzz.map(
+    fuzz.list_between(
+      fixture.any_input_with_programmable_tokens(
+        fixture.credential_transfer_logic,
+        [(policy_programmable_token, asset_name_programmable_token, 1)],
       ),
-    )
+      size + 1,
+      size + 1,
+    ),
+  )
 
-  let (transaction, redeemer) =
-    fixture.some_transfer(
-      [(policy_programmable_token, asset_name_programmable_token, size + 1)],
-    )
+  let (transaction, redeemer) = fixture.some_transfer(
+    [(policy_programmable_token, asset_name_programmable_token, size + 1)],
+  )
 
   (Transaction { ..transaction, inputs }, redeemer)
 }
@@ -728,14 +713,13 @@ bench many_inputs((self, redeemer) via sample_many_inputs) {
 fn sample_many_policies(
   size: Int,
 ) -> Fuzzer<(Transaction, ProgrammableLogicGlobalRedeemer)> {
-  let tokens: List<(PolicyId, AssetName, Int)> <-
-    fuzz.map(
-      fuzz.list_between(
-        cardano.policy_id() |> fuzz.map(fn(policy) { (policy, "FOO", 42) }),
-        size + 1,
-        size + 1,
-      ),
-    )
+  let tokens: List<(PolicyId, AssetName, Int)> <- fuzz.map(
+    fuzz.list_between(
+      cardano.policy_id() |> fuzz.map(fn(policy) { (policy, "FOO", 42) }),
+      size + 1,
+      size + 1,
+    ),
+  )
 
   fixture.some_transfer(tokens)
 }
@@ -752,27 +736,96 @@ bench many_policies((self, redeemer) via sample_many_policies) {
 fn sample_many_outputs(
   size: Int,
 ) -> Fuzzer<(Transaction, ProgrammableLogicGlobalRedeemer)> {
-  let policy_programmable_token: PolicyId =
-    #"00000000000000000000000000000000000000000000000000000f00"
+  let policy_programmable_token: PolicyId = #"00000000000000000000000000000000000000000000000000000f00"
 
   let asset_name_programmable_token: AssetName = "FOO"
 
-  let outputs: List<Output> =
-    list.repeat(
-      fixture.some_output_with_programmable_tokens(
-        [(policy_programmable_token, asset_name_programmable_token, 1)],
-      ),
-      size + 1,
-    )
+  let outputs: List<Output> = list.repeat(
+    fixture.some_output_with_programmable_tokens(
+      [(policy_programmable_token, asset_name_programmable_token, 1)],
+    ),
+    size + 1,
+  )
 
-  let (transaction, redeemer) =
-    fixture.some_transfer(
-      [(policy_programmable_token, asset_name_programmable_token, size + 1)],
-    )
+  let (transaction, redeemer) = fixture.some_transfer(
+    [(policy_programmable_token, asset_name_programmable_token, size + 1)],
+  )
 
   fuzz.constant((Transaction { ..transaction, outputs }, redeemer))
 }
 
 bench many_outputs((self, redeemer) via sample_many_outputs) {
   programmable_logic(self, redeemer)
+}
+
+/// Composition wrapper for unfracking transactions: on-chain, an
+/// unfracking tx runs base.spend (per PLB input), PLG.withdraw with
+/// UnfrackingAct (the delegation gate), AND the standalone
+/// unfracking.withdraw where the invariants live. Benching all
+/// three accounts for the full execution cost of the action.
+fn programmable_logic_unfracking(
+  self: Transaction,
+  redeemer: ProgrammableLogicGlobalRedeemer,
+) -> Bool {
+  and {
+    programmable_logic(self, redeemer),
+    unfracking.unfracking.withdraw(
+      fixture.policy_protocol_params,
+      Void,
+      fixture.credential_validator_unfracking,
+      self,
+    ),
+  }
+}
+
+/// --- Bench: unfracking baseline (Finding 17) ------------------------------------------------------
+///
+/// The canonical Unfracking case: a single multi-policy PLB UTxO is
+/// broken into one single-policy UTxO per policy. Both new UTxOs stay
+/// at PLB under the holder's authorised stake credential.
+///
+/// Calls the `programmable_logic_unfracking` wrapper so the base.spend
+/// and PLG-gate costs are also accounted for.
+/// ------------------------------------------------------------------------------------------------
+test unfracking_baseline_two_policies() {
+  let policy_a: PolicyId = #"00000000000000000000000000000000000000000000000000000a00"
+  let policy_b: PolicyId = #"00000000000000000000000000000000000000000000000000000b00"
+
+  let (self, redeemer) = fixture.some_unfracking(
+    [(policy_a, "FOO", 100), (policy_b, "BAR", 100)],
+    [[(policy_a, "FOO", 100)], [(policy_b, "BAR", 100)]],
+  )
+
+  programmable_logic_unfracking(self, redeemer)
+}
+
+/// --- Bench: unfracking — policies axis (Finding 17) -----------------------------------------------
+///
+/// Scales the number of distinct policies in a single fracked PLB
+/// UTxO. The holder splits all of them into one single-policy output
+/// each — the worst-case `(N inputs, N outputs)` shape for the
+/// equality check (assets are sorted by policy on both sides, so the
+/// comparison cost is linear in the policy count).
+/// ------------------------------------------------------------------------------------------------
+fn sample_unfracking_many_policies(
+  size: Int,
+) -> Fuzzer<(Transaction, ProgrammableLogicGlobalRedeemer)> {
+  let tokens: List<(PolicyId, AssetName, Int)> <- fuzz.map(
+    fuzz.list_between(
+      cardano.policy_id() |> fuzz.map(fn(policy) { (policy, "FOO", 42) }),
+      size + 1,
+      size + 1,
+    ),
+  )
+
+  // Each policy gets its own single-policy output.
+  let output_layouts = list.map(tokens, fn(t) { [t] })
+
+  fixture.some_unfracking(tokens, output_layouts)
+}
+
+bench unfracking_many_policies(
+  (self, redeemer) via sample_unfracking_many_policies,
+) {
+  programmable_logic_unfracking(self, redeemer)
 }
