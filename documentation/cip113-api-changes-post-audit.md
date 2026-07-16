@@ -1,8 +1,23 @@
+<!--
+DOC-KIND: api-surface-delta
+AUDIENCE: off-chain integrators (tx builders, indexers, custodial software, wallets)
+FORMAT: agentic-first (before→after code blocks, file:symbol anchors, action tables, verifiable checklist) — also human-readable
+BASELINE: 8143853 (pre-audit, 2026-04-28)
+TARGET:   3a6d8d6 (main, 2026-07-16) + re-audit R-01..R-05 (R-01 landed; R-03/R-04 pending — see §12)
+COMPANION: cip113-substandard-upgrade-guide.md  (the conceptual/behavioural layer: what the changes MEAN for a substandard author)
+CANONICAL-SOURCE: validators/ and lib/ always win over this doc; each claim is anchored to file:symbol
+-->
+
 # CIP-113 Programmable Tokens — Audit-Era API Changes
 
 A reference for off-chain integrators (transaction builders, indexers,
 custodial software, wallet teams) covering every breaking change to the public
 on-chain surface between the pre-audit baseline and current `main`.
+
+> **Reading order.** This document is the *field-level* surface (types,
+> parameters, CBOR shapes). For the *conceptual* upgrade — what these changes
+> mean for an existing substandard and what you must do about them — read the
+> companion [`cip113-substandard-upgrade-guide.md`](./cip113-substandard-upgrade-guide.md).
 
 If your code reads or writes any of:
 
@@ -21,24 +36,37 @@ If your code reads or writes any of:
 | | Commit | Date | Description |
 |---|---|---|---|
 | **Pre-audit baseline** | `8143853` | 2026-04-28 | "chore: removed unwanted build script" — last commit before audit findings started landing |
-| **Current `main`** | `ebd9ffa` | 2026-05-26 | "chore: added ref script validation (#69)" — latest at time of writing |
+| **Current `main`** | `3a6d8d6` | 2026-07-16 | "fix(registry_spend): R-01 — a registry-node spend cannot issue its own token (#88)" |
 
-Four PRs land between them:
+The audit-remediation PRs landing between them (newest first):
 
 ```
-0a04cc2 Fix audit findings 3, 8 and 9 (#51)
-2f6cd90 feat(registry): Separation of Concerns — Register / Register-and-Mint (#52)
-1687209 chore: flattened and updated find in issuance (#68)
+3a6d8d6 fix(registry_spend): R-01 — node spend cannot issue its own token (#88)
+17ef775 feat: control & admin scope — protected prefixes (Findings 01,15,16,18) (#82)
+cbedcfe feat(unfracking): Finding 17 — same-owner PLB UTxO restructuring (#78)
+39a6b1e Merge #81 — registry design limitation (Finding 05 / contention)
+8e42d65 fix(issuance_mint): Finding 04 — precise per-redeemer scope delegation (#80)
+d728af6 fix(third_party): Finding 12 — prevent UTxO contamination (#79)
+ffbe16e feat: in-place update of registry-node fields (node upgradability)
+a5ed95c fix(transfer): Finding 02 — pure mints not subject to transfer logic (#77)
+11d74f0 refactor(registry): drop redundant length/ordering checks (Finding 19) (#70)
 ebd9ffa chore: added ref script validation (#69)
+1687209 chore: flattened and updated find in issuance (#68)
+2f6cd90 feat(registry): Separation of Concerns — Register / Register-and-Mint (#52)
+0a04cc2 Fix audit findings 3, 8 and 9 (#51)
 ```
 
-Validators with **no public-surface changes** in this window (no off-chain
+> **What changed since the 2026-05-26 revision of this doc.** Sections §1–§6
+> (unchanged in substance) cover everything through `ebd9ffa`. Sections
+> §7–§12 are new: registry-node field updates (§7), the `unfracking_cred`
+> protocol-params field (§8), the `UnfrackingAct` / reshaped `ThirdPartyAct`
+> PLG redeemer (§9), third-party protected prefixes & anti-injection (§10),
+> the pure-mint transfer contract (§11), and the re-audit layer (§12).
+
+Validators with **no public-surface changes** since baseline (no off-chain
 impact):
 
-- `programmable_logic_global.ak`
 - `programmable_logic_base.ak`
-- `programmable_logic/transfer.ak` *(internal refactor only)*
-- `registry_spend.ak`
 - `protocol_params_mint.ak`
 - `issuance_cbor_hex_mint.ak`
 - `always_fail.ak`
@@ -59,8 +87,13 @@ The rest of this document walks through the components that did change.
 | `RegistryInsert` withdrawal requirement | The substandard's withdraw-0 (`minting_logic_script` credential) **must** appear in `tx.withdrawals`, even for `RegisterOnly` mode. |
 | `issuance_mint` delegation signal | `issuance_mint` now consults `tx.withdrawals` (looking for `plg_stake_cred`), not `tx.inputs` (looking for PLB spends), to decide whether to delegate output-custody to PLGlobal. |
 | `ThirdPartyAct` continuing outputs | Must now preserve `reference_script` of the paired input (in addition to address and datum). Tx builders that strip ref scripts on seize-style outputs will be rejected. |
+| `RegistryNode` datum (again) | **Add** a 7th field `protected_prefixes: List<ByteArray>` at the end. Datum CBOR shape changed again since the 2026-05-26 revision. See [§7](#7-registry-node-field-updates--in-place-node-upgradability). |
+| Registry-node **updates** | New capability: a node's `transfer_logic_script` / `third_party_transfer_logic_script` / `global_state_cs` / `protected_prefixes` can be changed by **re-spending the node UTxO** via `registry_spend` (authorised by its `minting_logic_script` withdraw-0). Indexers must treat these as **live, not frozen**. See [§7](#7-registry-node-field-updates--in-place-node-upgradability). |
+| Protocol-params datum | **Add** a 3rd field `unfracking_cred: Credential`. Deploy tooling that writes the params datum must include it. See [§8](#8-protocol-params-datum--new-unfracking_cred-field). |
+| PLG redeemer | **Add** `UnfrackingAct` (no payload); `ThirdPartyAct` now carries `{registry_node_idx, outputs_start_idx}`. See [§9](#9-programmable_logic_global-redeemer--unfrackingact--reshaped-thirdpartyact). |
+| `TransferAct` proofs | Supply **exactly one proof per PLB *input* policy**; do **not** supply a proof for a policy that only appears in `tx.mint` (pure mint) — it is rejected as surplus. See [§11](#11-transfer-pure-mints-no-longer-require-a-proof-finding-02). |
 
-A dedicated walkthrough of the new RegisterOnly vs RegisterAndMint flows is in
+A dedicated walkthrough of the RegisterOnly vs RegisterAndMint flows is in
 [§6](#6-registeronly-vs-registerandmint--flow-walkthrough).
 
 ---
@@ -161,27 +194,35 @@ pub type RegistryNode {
   global_state_cs: ByteArray,
 }
 
-// After
+// After (current main — 7 fields)
 pub type RegistryNode {
   key: ByteArray,
   next: ByteArray,
-  minting_logic_script: Credential,   // NEW (position #3)
+  minting_logic_script: Credential,             // NEW (position #3, this window)
   transfer_logic_script: Credential,
   third_party_transfer_logic_script: Credential,
   global_state_cs: ByteArray,
+  protected_prefixes: List<ByteArray>,          // NEW (position #7, Finding 18 — see §7/§10)
 }
 ```
 
 Off-chain impact:
 
-- Anyone constructing a `RegistryNode` datum CBOR must include the new field
-  at index 2 (between `next` and `transfer_logic_script`).
+- Anyone constructing a `RegistryNode` datum CBOR must include `minting_logic_script`
+  at index 2 (between `next` and `transfer_logic_script`) **and**
+  `protected_prefixes` as the final field.
 - Anyone parsing legacy pre-audit registry UTxOs will need to handle both
   shapes during migration (no automatic ledger migration — new nodes are
   inserted with the new shape).
-- `registry_mint` enforces that this field equals the `minting_logic_script`
+- `registry_mint` enforces that `minting_logic_script` equals the value
   supplied in the `RegistryInsert` redeemer, and that both are cryptographically
   bound to `key`. The field cannot lie.
+- `protected_prefixes` is a list of 4-byte CIP-67 asset-name label prefixes,
+  **strictly ascending** and **append-only** across updates. It marks companion
+  assets (e.g. CIP-68 label 100, CIP-102 label 500) that `ThirdPartyAct` may
+  neither seize nor burn. See [§7](#7-registry-node-field-updates--in-place-node-upgradability)
+  (mutability) and [§10](#10-third-party-action--protected-prefixes--anti-injection)
+  (enforcement).
 
 ---
 
@@ -467,24 +508,199 @@ For SUBSEQUENT mints/burns of an already-registered policy
 
 ---
 
-## 7. Audit findings referenced
+## 7. Registry-node field updates — in-place node upgradability
+
+**New capability (`ffbe16e`, hardened by re-audit R-01 in #88).** A registered
+node's *governance fields* can be changed after it exists, by **re-spending the
+node UTxO** through `validators/registry_spend.ak` (no registry NFT minted in
+that tx → the "update" branch). The rules are in
+`lib/linked_list.ak:is_field_updated_registry_node`:
+
+| Field | Updatable via node-spend? |
+|---|---|
+| `key` | **No** — immutable policy identity |
+| `next` | **No** — only re-linked by insert |
+| `minting_logic_script` | **No** — bound to `key` |
+| `transfer_logic_script` | **Yes** (must be a 28-byte credential) |
+| `third_party_transfer_logic_script` | **Yes** (28-byte credential) |
+| `global_state_cs` | **Yes** (28 bytes or empty) |
+| `protected_prefixes` | **Yes, APPEND-ONLY** (4-byte, strictly-ascending; new ⊇ old) |
+
+**Authority.** The update is valid only if the node's `minting_logic_script` is
+a `Script` credential **and** its withdraw-0 is invoked in the update tx. A
+`VerificationKey` minting logic can never update a node.
+
+**Re-audit R-01 guard (#88).** A node-spend may **not** mint or burn the node's
+own token (`key`) in the same transaction — spending a node is a lifecycle
+action, never an issuance. Enforced in `registry_spend.ak` above the
+mint/update branch, so it covers both the update and the insert covering-node
+spend.
+
+**Off-chain impact:**
+
+- **Indexers / wallets / custodial software: treat `transfer_logic_script`,
+  `third_party_transfer_logic_script`, `global_state_cs`, and
+  `protected_prefixes` as LIVE.** Resolve them fresh from the current node at
+  transaction-build time; do not cache them as immutable. A token's governance
+  can change under existing holders. *(This is a behavioural change with no
+  signature change — the classic silent breakage.)*
+- To **update** a node, build a tx that spends the node UTxO, produces exactly
+  one continuing node output preserving the immutable fields, includes the
+  node's `minting_logic_script` withdraw-0, and mints/burns nothing under `key`.
+
+---
+
+## 8. Protocol-params datum — new `unfracking_cred` field
+
+**New (Finding 17, #78).** `programmable_logic/params.ak:ProgrammableLogicGlobalParams`
+gained a third field:
+
+```aiken
+// Before                          // After (current main)
+{ registry_node_cs: PolicyId,      { registry_node_cs: PolicyId,
+  prog_logic_cred: Credential }      prog_logic_cred: Credential,
+                                     unfracking_cred: Credential }  // NEW (#3)
+```
+
+`unfracking_cred` is the credential of the standalone `unfracking` withdraw-0
+validator. It is read only by the `UnfrackingAct` branch of PLGlobal (§9).
+
+**Off-chain impact:** the protocol-bootstrap tooling that mints the params NFT
+and writes its datum must include this third field. Anyone parsing the params
+datum must expect three fields. `registry_node_cs` and `prog_logic_cred` are
+unchanged in position.
+
+---
+
+## 9. `programmable_logic_global` redeemer — `UnfrackingAct` + reshaped `ThirdPartyAct`
+
+`lib/types.ak:ProgrammableLogicGlobalRedeemer`:
+
+```aiken
+// Before
+pub type ProgrammableLogicGlobalRedeemer {
+  TransferAct { proofs: List<RegistryProof> }
+  ThirdPartyAct { ... }
+}
+
+// After (current main)
+pub type ProgrammableLogicGlobalRedeemer {
+  TransferAct { proofs: List<RegistryProof> }
+  ThirdPartyAct {
+    registry_node_idx: Int,   // registry node (subject policy) in reference inputs
+    outputs_start_idx: Int,   // where processed outputs begin
+  }
+  UnfrackingAct               // NEW (Finding 17) — no payload
+}
+```
+
+**`UnfrackingAct`** lets a holder redistribute programmable tokens they already
+hold across their own PLB UTxOs, value-preserving and same-owner, **without**
+invoking any substandard transfer logic. PLG only checks that the `unfracking`
+withdraw-0 validator (from `unfracking_cred`, §8) is invoked; the invariants
+live in that standalone validator.
+
+**Off-chain impact:**
+
+- Tx builders on the admin path must encode `ThirdPartyAct` with the two named
+  fields.
+- Builders wanting to split multi-policy UTxOs into single-policy UTxOs use
+  `UnfrackingAct` (no payload) plus the `unfracking` withdraw-0. This action is
+  invisible to your transfer logic — indexers tracking movement via transfer
+  logic must account for it separately.
+- Anyone decoding the PLG redeemer must handle the new third variant.
+
+---
+
+## 10. Third-party action — protected prefixes + anti-injection
+
+Beyond the `reference_script` preservation of §5, `ThirdPartyAct` gained two
+invariants in `validators/programmable_logic/third_party.ak`:
+
+- **Anti-injection (Finding 12, #79).** The paired PLB input must already hold
+  the subject policy (`expect !dict.is_empty(input_tokens_at)`). The admin
+  cannot conjure the policy onto a UTxO that never held it, nor drag an
+  unrelated UTxO into the action.
+- **Protected prefixes (Finding 18, #82).** Any token of the subject policy
+  whose CIP-67 label prefix is in the node's `protected_prefixes` must be
+  **byte-equal** between the paired input and output — it can be neither
+  extracted nor burned ("preserve, not fail"). The unprotected remainder stays
+  fully seizable.
+
+**Off-chain impact:** seize-style tx builders must (a) only target inputs that
+already hold the subject policy, and (b) leave protected-prefixed tokens
+untouched on the continuing output. Registration is where you *declare* the
+protected prefixes (append-only thereafter). No PLG redeemer signature change.
+
+> **Note (re-audit R-03, pending).** A former per-pair "the subject amount must
+> change" anti-DoS guard is being removed on a separate branch (§12). It does
+> not affect the CBOR surface; it only means a no-op respend is no longer
+> rejected by the validator.
+
+---
+
+## 11. Transfer: pure mints no longer require a proof (Finding 02)
+
+**Landed (#77).** This was the "coming next" item in the 2026-05-26 revision.
+In `validators/programmable_logic/transfer.ak:verify_proofs`, a policy that is
+purely minted (present in `tx.mint`, absent from every PLB input) is **no
+longer** subject to transfer-logic enforcement and must **not** carry a
+`TransferAct` proof.
+
+The strict one-proof-per-input-policy contract is preserved and now exact:
+
+- Supply exactly one `TransferAct` proof per PLB **input** policy.
+- Do **not** supply a proof for a pure-mint policy — a surplus proof is rejected.
+- A missing proof for an input policy is rejected.
+
+**Off-chain impact:** transfer tx builders that previously added a proof for
+every policy touched (including freshly-minted ones) must drop the proofs for
+pure-mint policies.
+
+---
+
+## 12. Re-audit layer (R-01 … R-05)
+
+The second audit ("re-audit") reviewed the first-audit fixes. Status on `main`:
+
+| Re-audit | Summary | Surface impact | Status |
+|---|---|---|---|
+| **R-01** | A registry-node spend cannot issue its own token; registry-lifecycle authority documented | `registry_spend` guard (§7) | **Landed (#88)** |
+| **R-02** | Registry lifecycle authority & mutability documentation | none (docs) | Landed |
+| **R-03** | Remove the pair-local no-op guard on `ThirdPartyAct` (bypassable; aggregate check too costly) | none — a no-op respend becomes accepted; no CBOR change (§10 note) | **Pending** (branch `fix/r03-remove-pair-local-noop-guard`) |
+| **R-04** | Issuance custody escape — net-positive mints must land at PLB even when pre-existing supply exists | `issuance_mint` output-custody tightening; no signature change | **Pending** (two candidate branches) |
+| **R-05** | Unfracking module documentation (ADA-out allowed; non-ADA-non-programmable-out forbidden) | none (docs) | Landed |
+
+When R-03 and R-04 land in `main`, this section and §10/§4 will be updated.
+
+---
+
+## 13. Audit findings referenced
 
 | Finding | Title | Affected component |
 |---|---|---|
+| 2 | Transfer-logic enforcement contradiction for pure mints | `transfer.ak:verify_proofs` (§11) |
 | 3 | Registry init does not bind origin node to registry_spend | `registry_mint` parameters (new `registry_spend_cred`) |
+| 4 | Imprecise delegation scope | `issuance_mint` precise per-node delegation (`plgl_scope_covers`) |
+| 5 | Linked-list registry contention limitation | documented (#81) |
 | 7 | Separation of Concerns | new `RegistrationMode` enum, `RegistryInsert` reshape |
 | 8 | Inefficient membership check | `registry_mint` internal |
 | 9 | Indirect delegation signal | `issuance_mint` parameters (new `plg_stake_cred`) + withdrawal-based delegation |
 | 10 | Redundant single-mint redeemer check | removed from `issuance_mint` |
-| 13 | Reference script preservation in ThirdPartyAct | `third_party.ak` reference-script equality |
+| 12 | UTxO contamination in ThirdPartyAct | `third_party.ak` anti-injection (§10) |
+| 13 | Reference script preservation in ThirdPartyAct | `third_party.ak` reference-script equality (§5) |
+| 17 | Unfracking action | `UnfrackingAct` + `unfracking_cred` (§8, §9) |
+| 18 | Admin/control scope — protected prefixes | `RegistryNode.protected_prefixes` (§7, §10) |
+| 19 | Redundant length/ordering checks in RegistryInsert | `registry_mint` internal (#70) |
+| R-01 | Node spend cannot issue its own token | `registry_spend` guard (§7, §12) |
 
-The findings themselves live under `audit/` in the repo. This document
-captures the *resulting public-API surface* — refer to the audit text for
-threat models and remediation rationale.
+The findings themselves live under `audit/` (first audit) and the re-audit
+tracking in the repo. This document captures the *resulting public-API surface*
+— refer to the audit text for threat models and remediation rationale.
 
 ---
 
-## 8. Migration checklist
+## 14. Migration checklist
 
 When upgrading off-chain integration:
 
@@ -510,25 +726,39 @@ When upgrading off-chain integration:
       withdraw-0 even though no programmable tokens are being minted — the
       registry validator now requires it explicitly.
 - [ ] If your tx builder uses the `ThirdPartyAct` path, ensure the continuing
-      PLB outputs preserve the input's reference script verbatim.
+      PLB outputs preserve the input's reference script verbatim, only target
+      inputs already holding the subject policy, and leave protected-prefixed
+      tokens byte-equal on the continuing output (§10).
+- [ ] Add the 7th `RegistryNode` field `protected_prefixes` (and the 3rd
+      `minting_logic_script` if migrating from pre-`ebd9ffa`) to every datum
+      constructor/parser (§2, §7).
+- [ ] Add the 3rd protocol-params field `unfracking_cred` to your params-datum
+      tooling (§8).
+- [ ] Decode the PLG redeemer's new `UnfrackingAct` variant and the reshaped
+      `ThirdPartyAct { registry_node_idx, outputs_start_idx }` (§9).
+- [ ] **Stop caching node governance credentials** — resolve
+      `transfer_logic_script` / `third_party_transfer_logic_script` /
+      `global_state_cs` / `protected_prefixes` fresh at build time; they are
+      updatable (§7).
+- [ ] In transfer builders, drop `TransferAct` proofs for pure-mint policies;
+      keep exactly one per PLB input policy (§11).
 
 ---
 
-## 9. Coming next (not yet in `main`)
+## 15. Coming next (not yet in `main`)
 
-The team is preparing a fix for **audit Finding 02** (transfer-logic
-enforcement contradiction for purely-minted tokens) on a separate branch.
-When it lands, additional off-chain consequences for `TransferAct` callers
-will be documented in a follow-up update. The key forthcoming change:
+Two re-audit fixes are prepared on separate branches (§12):
 
-- Pure-mint policies (in `tx.mint` but absent from any PLB input) will no
-  longer be subjected to the transfer-logic enforcement or require a
-  `TransferAct` proof.
-- The strict 1-proof-per-input-policy contract will be preserved: callers
-  must **not** supply a `TransferAct` proof for a pure-mint policy — doing so
-  will be rejected as a surplus proof.
+- **R-03** — removes the pair-local no-op guard on `ThirdPartyAct`. No CBOR
+  surface change; the only observable effect is that a no-op forced respend
+  (subject amount unchanged) is no longer rejected by the validator. Branch:
+  `fix/r03-remove-pair-local-noop-guard`.
+- **R-04** — tightens issuance custody so a net-positive mint must land at PLB
+  even when pre-existing supply of the policy could otherwise mask an escape.
+  No validator-signature change; `issuance_mint` output-custody only. Two
+  candidate branches (input-aware and no-escape variants).
 
-This document will be updated when that lands in `main`.
+This document will be updated when each lands in `main`.
 
 ---
 
