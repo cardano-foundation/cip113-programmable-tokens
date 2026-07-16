@@ -401,6 +401,14 @@ So **your issuance-logic validator runs in all three** — and by default, whoev
 can mint can also register and reconfigure the registry entry (transfer logic,
 third-party logic, global state, protected prefixes).
 
+> **The in-place update path requires a *script* `minting_logic_script`.**
+> `registry_spend` authorises a node update by checking that
+> `minting_logic_script`'s withdraw-0 is present — which is only possible for a
+> `Script` credential. If your `minting_logic_script` is a plain
+> `VerificationKey`, you can mint and register but you **cannot update the node
+> in place**; the node's configuration is effectively frozen. Choose a script
+> credential if you want upgradeable transfer / third-party logic.
+
 **If issuance and registry-lifecycle should be *different* authorities, your
 issuance logic must distinguish them itself** — e.g. by inspecting whether the
 transaction spends or mints a registry node (`registry_node_cs`) versus mints the

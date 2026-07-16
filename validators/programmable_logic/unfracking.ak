@@ -45,6 +45,14 @@
 ////     stake_credential pinned by the first PLB input.
 ////   * Free choice of datum and reference_script on each new PLB output.
 ////     Unfracking is by design a layout-restructuring action.
+////   * Moving ADA (lovelace) out of the PLB. The per-policy conservation
+////     check compares NON-ADA assets only — the accumulator drops the
+////     leading lovelace entry (`assets.from_value |> list.tail`), so ADA is
+////     excluded from the input==output equality. This is deliberate:
+////     unfracking reshapes the UTxO layout, changing each UTxO's min-ADA
+////     requirement, so the holder must stay free to rebalance min-ADA and
+////     pay fees. ADA carries no programmable-token semantics, so letting it
+////     move (including to a non-PLB output) is harmless.
 ////
 //// What this action forbids:
 ////   * Any mint or burn (`tx.mint` must be zero). Unfracking is strictly
@@ -55,6 +63,17 @@
 ////     come from a non-PLB input (rare/impossible in honest setups), and
 ////     any leak to non-PLB would force a PLB-side deficit which the
 ////     equality rejects.
+////   * Moving ANY non-ADA token out of the PLB — including NON-programmable
+////     (unregistered) tokens that merely happen to sit in a PLB UTxO. The
+////     conservation equality covers the WHOLE non-ADA asset set and does
+////     not distinguish registered policies, so every non-ADA token present
+////     at PLB on the input side must remain at PLB on the output side. Only
+////     ADA (above) is exempt. Rationale: one cheap equality pins
+////     everything, so unfracking can never be an escape hatch for any
+////     token. The trade-off is that a foreign token parked in a PLB UTxO
+////     cannot be extracted via unfracking (it must leave through a proper
+////     transfer) — acceptable, since the PLB is not meant to custody
+////     arbitrary foreign assets.
 ////   * Mixing different stake credentials across PLB inputs (or routing
 ////     a PLB output to a stake_cred other than the one pinned by the
 ////     inputs). This is the back-door we have to slam shut, otherwise
