@@ -521,11 +521,10 @@ test fails_update_malformed_transfer_logic() fail {
 // `test_node_key`. Called with the real update-branch datum/own_ref (not
 // `call_validator`).
 test fails_update_mints_own_programmable_token() fail {
-  let tx =
-    Transaction {
-      ..update_transaction(),
-      mint: from_asset(test_node_key, #"746f6b656e", 100),
-    }
+  let tx = Transaction {
+    ..update_transaction(),
+    mint: from_asset(test_node_key, #"746f6b656e", 100),
+  }
   registry_spend.registry_spend.spend(
     test_protocol_params_cs,
     Some(old_registry_node()),
@@ -539,13 +538,11 @@ test fails_update_mints_own_programmable_token() fail {
 // a blanket no-mint rule. An update MAY coexist with minting an UNRELATED
 // policy (e.g. batching), so this must still pass.
 test update_node_with_unrelated_mint_ok() {
-  let unrelated_policy =
-    #"cccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
-  let tx =
-    Transaction {
-      ..update_transaction(),
-      mint: from_asset(unrelated_policy, #"746f6b656e", 100),
-    }
+  let unrelated_policy = #"cccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  let tx = Transaction {
+    ..update_transaction(),
+    mint: from_asset(unrelated_policy, #"746f6b656e", 100),
+  }
   registry_spend.registry_spend.spend(
     test_protocol_params_cs,
     Some(old_registry_node()),
@@ -582,12 +579,11 @@ fn insert_covering_spend_tx() -> Transaction {
 // minted → rejected by the SAME guard, with no change to registry_mint. Single
 // delta from `insert_covering_spend_tx()`: a mint under the covering key.
 test fails_insert_covering_node_token_minted() fail {
-  let tx =
-    Transaction {
-      ..insert_covering_spend_tx(),
-      mint: from_asset(test_registry_node_cs, "InsertedNode", 1)
-        |> assets.add(test_covering_key, #"746f6b656e", 100),
-    }
+  let tx = Transaction {
+    ..insert_covering_spend_tx(),
+    mint: from_asset(test_registry_node_cs, "InsertedNode", 1)
+      |> assets.add(test_covering_key, #"746f6b656e", 100),
+  }
   registry_spend.registry_spend.spend(
     test_protocol_params_cs,
     Some(covering_node()),
