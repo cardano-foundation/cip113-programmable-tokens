@@ -434,7 +434,7 @@ Key invariant: the total programmable token value in outputs at the `prog_logic_
 The `ThirdPartyAct` redeemer handles administrative / compliance operations — forced transfer, seizure, freeze enforcement, or burn. It differs from transfers:
 
 1. **No ownership check** — the `third_party_transfer_logic_script` authorizes the action instead of the stake credential owner
-2. **Amount change** — `ThirdPartyAct` is a forced transfer: the subject policy's non-protected tokens on each paired output may be decreased, fully removed, or increased, but they **must change** (a no-op forced respend is rejected — see Anti-DDoS below). Aggregate conservation (below) keeps the *total* non-protected subject amount across all PLB outputs accounting for every seized input plus any mint/burn — tokens are redistributed within the PLB, never created from nothing or made to escape
+2. **Amount redistribution** — `ThirdPartyAct` is a forced transfer: the subject policy's non-protected tokens on each paired output may be decreased, fully removed, increased, or left unchanged. Aggregate conservation (below) keeps the *total* non-protected subject amount across all PLB outputs accounting for every seized input plus any mint/burn — tokens are redistributed within the PLB, never created from nothing or made to escape
 3. **Per-pair mapping** — each spent PLB input is paired positionally with a continuing output (the first pair starts at `outputs_start_idx`); the action covers every PLB input that holds the subject policy
 4. **Preservation** — the paired output must preserve the holder's address, datum, **and reference script**, changing only the subject policy's non-protected tokens; all non-subject tokens are conserved byte-for-byte
 5. **Anti-injection / anti-DoS** — the paired input must already hold the subject policy, so the admin can neither inject the policy onto a UTxO that never held it nor drag an unrelated UTxO into the action
@@ -474,9 +474,6 @@ Both registry and denylist maintain the invariant `node.key < node.next` for eve
 
 ### One-Shot Policies
 Protocol parameters, registry, denylist, and issuance CBOR hex NFTs use one-shot minting policies (parameterized by a UTxO reference). This guarantees exactly one instance of each can exist, preventing duplication attacks.
-
-### Anti-DDoS in Third-Party Actions
-Each seized UTxO's acted-on amount must actually change (`input_tokens_at != output_tokens_at` per paired input/output). This rejects no-op third-party actions: an admin cannot force-respend a holder's UTxO with no economic change, which would churn its output reference and waste on-chain resources.
 
 ---
 

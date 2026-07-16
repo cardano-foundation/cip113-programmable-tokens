@@ -206,20 +206,26 @@ fn validate_io_constraints_and_balance(
         // otherwise this third-party action would CONTAMINATE an innocent
         // UTxO that never held the policy).
         //
-        // The acted-on amount MUST change (input_tokens_at != output_tokens_at):
-        // a third-party action is a forced change of the subject balance, so a
-        // no-op forced respend is rejected. Audit Finding 12 (mitigation 2)
-        // recommended REMOVING this `!=` check as redundant for *custody*
-        // security; we deliberately KEEP it as an anti-DDoS guard — without it
-        // an admin could force-respend a holder's UTxO with no economic change,
-        // churning its output reference and wasting on-chain resources. (Note:
-        // a UTxO whose only acted-on tokens are protected cannot change and is
-        // therefore not a valid target — which is correct, nothing is seizable.)
+        // R-03 (re-audit): a former `input_tokens_at != output_tokens_at`
+        // guard tried to reject no-op forced respends as an anti-DoS measure.
+        // It was removed. It was PAIR-LOCAL, so it never delivered the
+        // aggregate guarantee it appeared to: an admin can restore a holder's
+        // exact balance in an UNPAIRED output (any output before
+        // `outputs_start_idx`, or a trailing output past the paired inputs)
+        // that the per-pair check never inspects, making the whole seizure a
+        // net no-op while every pair still shows a local delta. A proper
+        // per-owner aggregate anti-churn check was measured and costs ~+22%
+        // in script size, CPU and memory on PLGlobal (the coordinator every
+        // transfer references) — disproportionate for a threat Cardano's fee
+        // model already mitigates: each forced respend costs the (trusted)
+        // admin real fees, so sustained no-op churn is self-limiting. The
+        // `!is_empty` line below is a SEPARATE Finding-12 anti-injection
+        // invariant (the input must already hold the acted-on policy) and
+        // stays.
         expect !dict.is_empty(input_tokens_at)
         expect and {
             (input_tokens_before == output_tokens_before)?,
             (input_tokens_after == output_tokens_after)?,
-            (input_tokens_at != output_tokens_at)?,
           }
 
         // Finding 18: the PROTECTED subset of the acted-on policy (tokens whose

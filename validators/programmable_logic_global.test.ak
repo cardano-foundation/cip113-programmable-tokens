@@ -546,11 +546,10 @@ test third_party_act_seized_tokens_to_prog_cred_succeeds() {
 //      `test_third_party_policy` (i.e., never held it);
 //   2. the paired output ADDS 42 FOO of that policy — the contamination.
 //
-// Pre-fix the redundant `input_tokens_at != output_tokens_at` check would
-// pass (empty != non-empty) and before/after halves match, so the
-// validator wrongly accepts. Post-fix the new
-// `expect !dict.is_empty(input_tokens_at)` rejects, because the input
-// holds no acted-on tokens to seize.
+// The `expect !dict.is_empty(input_tokens_at)` invariant rejects this,
+// because the input holds no acted-on tokens to seize. (Before Finding 12
+// added that line, the before/after halves matched and the paired-output
+// check passed, so the validator wrongly accepted the contamination.)
 test third_party_act_paired_input_missing_acted_on_policy_fails() fail {
   let tx = Transaction {
     ..valid_seize_tx(),
@@ -566,14 +565,18 @@ test third_party_act_paired_input_missing_acted_on_policy_fails() fail {
   run_seize_tx(tx)
 }
 
-// Anti-DDoS: a degenerate "no-op" third-party action — the paired output's
-// acted-on amount equals the paired input's (here it keeps the same 42 FOO) —
-// MUST be rejected. A third-party action is a forced *change* of the subject
-// balance; allowing a no-op would let an admin force-respend a holder's UTxO
-// (churning its output reference) for free. The `input_tokens_at !=
-// output_tokens_at` check (audit Finding 12 recommended removing it as
-// redundant for custody; kept here for anti-DDoS) rejects it.
-test third_party_act_no_op_seize_fails() fail {
+// R-03 (re-audit): a degenerate "no-op" third-party action — the paired
+// output's acted-on amount equals the paired input's (keeps the same 42 FOO) —
+// is ACCEPTED. A former per-pair `input_tokens_at != output_tokens_at` anti-DoS
+// guard rejected this, but it was PAIR-LOCAL and bypassable (park the restored
+// balance in an unpaired output the per-pair check never inspects), so it never
+// delivered a real aggregate guarantee. A proper per-owner aggregate check cost
+// ~+22% script/CPU/mem on the hot PLGlobal script; disproportionate for a
+// threat Cardano's fee model already handles (each forced respend costs the
+// trusted admin fees). This test locks in that the validator no longer rejects
+// a no-op — it is accepted (and fee-limited off-chain), not an escape:
+// conservation still holds and no custody is lost.
+test third_party_act_no_op_seize_succeeds() {
   let tx = Transaction {
     ..valid_seize_tx(),
     outputs: [
