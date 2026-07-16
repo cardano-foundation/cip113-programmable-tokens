@@ -206,9 +206,9 @@ Let's walk through a simple transfer:
 - Prevents forged registry entries
 - Ensures only legitimate tokens can be validated
 
-**Immutability**:
-- Once registered, validation rules cannot change
-- Provides predictability for token holders
+**Governed, transparent rules**:
+- A token's transfer and admin logic can change only through the registry's authorized update path, and only within a fixed envelope — the policy ID and issuance authority are frozen
+- Any change is on-chain, retroactive, and visible to holders (integrators read the live registry node rather than caching its rules)
 - Issuer controls are explicitly defined at registration time
 
 ---
@@ -240,8 +240,8 @@ Let's walk through a simple transfer:
 - Tokens remain native assets at the ledger level
 
 **Transparent Rules**:
-- Validation logic is public and immutable
-- Users know exactly what restrictions apply
+- Validation logic is public; any change goes through the registry's authorized update path and is visible on-chain
+- Users know exactly what restrictions apply (by reading the live registry entry)
 - No hidden centralized controls (beyond those explicitly coded)
 
 **Native Asset Benefits**:

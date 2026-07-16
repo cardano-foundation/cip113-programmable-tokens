@@ -475,6 +475,9 @@ Both registry and denylist maintain the invariant `node.key < node.next` for eve
 ### One-Shot Policies
 Protocol parameters, registry, denylist, and issuance CBOR hex NFTs use one-shot minting policies (parameterized by a UTxO reference). This guarantees exactly one instance of each can exist, preventing duplication attacks.
 
+### Lifecycle / Issuance Separation
+A registry node is spent only by `registry_spend`, which forbids minting or burning that node's own programmable token (`key`) in the same transaction. This holds on both spend paths — an in-place node update and the covering-node spend of an insert (`registry_spend` is the sole spender of every registry-node UTxO). A registry lifecycle operation therefore can never double as an issuance of the same policy: the two are always separate, independently authorized transactions. Note the authorizing credential (`minting_logic_script`) is *shared* between issuance and lifecycle, so a substandard that needs distinct authorities must separate them in its own issuance logic — see [`03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md`](./03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md) §3.2.
+
 ---
 
 **Next**: [Developing Substandards](./09-DEVELOPING-SUBSTANDARDS.md) for a guide on implementing custom substandards | **Back to**: [README](../README.md) | [Introduction](./01-INTRODUCTION.md)
