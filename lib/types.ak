@@ -69,31 +69,6 @@ pub type MintingRegistryProof {
   OutputIndex { index: Int }
 }
 
-/// Selects which registration flow `RegistryInsert` is exercising.
-///
-/// * `RegisterOnly` — the substandard authorises the registration but no
-///   programmable tokens of the new policy are minted. Useful for
-///   real-world-asset issuance, supply-aware substandards that need to
-///   initialise global state before any token exists, or any scenario
-///   where minting cannot happen at registration time.
-///
-/// * `RegisterAndMint` — registration AND a first mint of the new policy
-///   happen in the same transaction. Current behaviour, now explicit.
-///
-/// In both modes the substandard's `minting_logic_script` MUST appear in
-/// `tx.withdrawals` (proof of instance — the substandard authorises the
-/// registration). The modes differ only in the `tx.mint` shape:
-///   * RegisterOnly  ⇒ no entries under the new policy in `tx.mint`.
-///   * RegisterAndMint ⇒ `tx.mint` contains an entry under the new
-///     policy. Quantity sign is not checked on-chain: burn-only of a
-///     brand-new policy is ledger-impossible (no prior tokens exist
-///     before registration), so the first mint is positive by
-///     construction.
-pub type RegistrationMode {
-  RegisterOnly
-  RegisterAndMint
-}
-
 /// Redeemer for registry minting policy (linked list operations)
 pub type RegistryRedeemer {
   /// Initialize the registry with the origin node
@@ -112,16 +87,17 @@ pub type RegistryRedeemer {
   ///     credential — derived inside the validator, NOT supplied as a
   ///     separate redeemer field);
   ///   * the substandard's withdraw-0 logic is invoked
-  ///     (`minting_logic_script` in `tx.withdrawals`) regardless of mode.
+  ///     (`minting_logic_script` in `tx.withdrawals`).
   ///
-  /// `mode` selects between RegisterOnly (no programmable-token mint
-  /// allowed) and RegisterAndMint (registration + first mint, current
-  /// behaviour).
-  RegistryInsert {
-    key: ByteArray,
-    minting_logic_script: Credential,
-    mode: RegistrationMode,
-  }
+  /// Whether the registration also carries a first mint of the new
+  /// policy is NOT constrained by registry_mint: a first mint in the
+  /// same tx is validated by `issuance_mint` as usual, and registering
+  /// without any mint is equally valid (useful for real-world-asset
+  /// issuance or supply-aware substandards that must initialise global
+  /// state before any token exists). Re-audit R-06 removed the former
+  /// caller-selected `mode: RegistrationMode` tag: the caller controlled
+  /// it, so asserting it against `tx.mint` enforced no invariant.
+  RegistryInsert { key: ByteArray, minting_logic_script: Credential }
 }
 
 /// Issuance CBOR hex reference data

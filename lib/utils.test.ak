@@ -73,8 +73,9 @@ test has_currency_symbol_absent() fail {
 // first policy. Excluded from benchmarks; mentioned for completeness.
 //
 // Each test calls ONE approach on ONE realistic mint shape:
-//   * case_a_mint() — Mode A (RegisterOnly): only the registry NFT minted.
-//   * case_b_mint() — Mode B (RegisterAndMint): registry NFT + one
+//   * case_a_mint() — registration without a first mint: only the
+//     registry NFT minted.
+//   * case_b_mint() — registration + first mint: registry NFT + one
 //     programmable token under `bench_key`.
 //
 // All tests check the SAME question: does `tx.mint` contain any entry
@@ -90,12 +91,12 @@ const bench_registry_policy: PolicyId =
 const bench_key: PolicyId =
   #"cccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
 
-/// Mode A (RegisterOnly): only the registry NFT is minted.
+/// Registration without a first mint: only the registry NFT is minted.
 fn case_a_mint() -> Value {
   zero |> add(bench_registry_policy, bench_key, 1)
 }
 
-/// Mode B (RegisterAndMint): registry NFT + one programmable token of `bench_key`.
+/// Registration + first mint: registry NFT + one programmable token of `bench_key`.
 fn case_b_mint() -> Value {
   zero
     |> add(bench_registry_policy, bench_key, 1)

@@ -14,13 +14,9 @@ use linked_list.{
   validate_directory_node_output, validate_mint,
 }
 use registry_node.{RegistryNode}
-use types.{
-  IssuanceCborHex, RegisterAndMint, RegisterOnly, RegistryInit, RegistryInsert,
-  RegistryRedeemer,
-}
+use types.{IssuanceCborHex, RegistryInit, RegistryInsert, RegistryRedeemer}
 use utils.{
   expect_inline_datum, has_currency_symbol, is_programmable_token_id_valid,
-  mint_has_policy,
 }
 
 validator registry_mint(
@@ -49,7 +45,7 @@ validator registry_mint(
           )?,
         }
       }
-      RegistryInsert { key, minting_logic_script, mode } -> {
+      RegistryInsert { key, minting_logic_script } -> {
         // Find the issuance CBOR hex reference input
         let issuance_ref_input = list.expect_find(
           self.reference_inputs,
@@ -76,13 +72,19 @@ validator registry_mint(
             minting_logic_script,
           )
 
-        // Substandard authorises this registration regardless of mode.
-        // The substandard's withdraw-0 logic must appear in tx.withdrawals.
-        // This is the "proof of instance" check — replacing the old indirect
-        // proof of "tokens are being minted" which transitively required
+        // Substandard authorises this registration. The substandard's
+        // withdraw-0 logic must appear in tx.withdrawals. This is the
+        // "proof of instance" check — replacing the old indirect proof of
+        // "tokens are being minted" which transitively required
         // issuance_mint (and hence minting_logic_script) to run. Required
-        // explicitly here because in `RegisterOnly` mode no programmable
-        // tokens are minted and issuance_mint is never invoked.
+        // explicitly here because a registration may carry no first mint,
+        // in which case issuance_mint is never invoked.
+        //
+        // Whether a first mint of `key` occurs in the same tx is NOT
+        // checked here: if it does, issuance_mint validates it as usual.
+        // (Re-audit R-06 removed the former caller-selected `mode` tag
+        // and its mode ↔ tx.mint assertion — the caller controlled both
+        // sides, so the check enforced no invariant.)
         expect
           list.any(
             self.withdrawals,
@@ -91,23 +93,6 @@ validator registry_mint(
               cred == minting_logic_script
             },
           )
-
-        // Mode-specific mint shape:
-        //   RegisterOnly      ⇒ no entries under `key` in tx.mint
-        //   RegisterAndMint   ⇒ tx.mint contains an entry under `key`
-        // The mode field in the redeemer is asserted here against the
-        // actual `tx.mint` content (defense-in-depth #1: mode ↔ mint
-        // consistency, both directions).
-        //
-        // Burn-only of a brand-new policy is ledger-impossible (no prior
-        // tokens to burn), so `mint_has_policy` not distinguishing
-        // sign of the entry is fine here. See `lib/utils.ak` for the
-        // benchmark rationale behind the unified primitive.
-        expect
-          when mode is {
-            RegisterOnly -> !mint_has_policy(self.mint, key)
-            RegisterAndMint -> mint_has_policy(self.mint, key)
-          }
 
         // Must mint exactly one node token with the new key
         expect validate_mint(self.mint, policy_id) == key
