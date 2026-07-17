@@ -10,7 +10,7 @@
 2. [What Are Programmable Tokens?](#what-are-programmable-tokens)
 3. [How They Work (High-Level)](#how-they-work-high-level)
 4. [Key Benefits](#key-benefits)
-5. [CIP-143 Standard](#cip-143-standard)
+5. [The CIP-113 Standard](#the-cip-113-standard)
 6. [Next Steps](#next-steps)
 
 ---
@@ -28,7 +28,7 @@ Traditional blockchain tokens, including Cardano's native assets, are **permissi
 
 ### The Gap Between Blockchain and Regulated Finance
 
-Financial institutions and asset issuers cannot simply deploy tokens on blockchain without addressing compliance requirements. The gap between permissionless blockchain infrastructure and regulated finance has limited institutional adoption of tokenization.
+The issuer of a regulated instrument remains legally accountable for it after issuance: they must be able to screen sanctioned parties, freeze or seize holdings under a court order, and restrict who may hold the asset. A plain native asset offers no mechanism for any of this — once tokens are issued, the issuer has no further control over where they move. Unable to meet their obligations on-chain, institutions have so far relied on workarounds.
 
 **Existing approaches have limitations:**
 - **Centralized custodians** - Reintroduce intermediaries and counterparty risk
@@ -45,6 +45,14 @@ Financial institutions and asset issuers cannot simply deploy tokens on blockcha
 ### Definition
 
 **Programmable tokens are native Cardano assets with an additional layer of validation logic that executes on every transfer, mint, or burn operation.**
+
+Phil DiSarro — author of the original reference implementation this codebase builds on — captured the intuition behind the design:
+
+> *"Think of programmable tokens as a mini ledger within Cardano."*
+
+(The mini-ledger framing is his; he uses it throughout the [CIP-113 review discussion](https://github.com/cardano-foundation/CIPs/pull/444#issuecomment-4084863264), where the protocol's key security invariant is stated as *"programmable tokens can never exist outside the mini-ledger"*.)
+
+All programmable tokens live inside one shared custody address, and every movement within that space passes through the framework's validation — admission rules, transfer rules, issuer controls. The custody address behaves like a small, self-governing ledger embedded in Cardano's ledger, with its own entry and transfer rules, while the tokens themselves remain ordinary native assets. Most of the architecture in the following chapters falls out of this one idea: a ledger needs a registry of what it tracks (the on-chain directory), rules for what makes a movement valid (substandard logic), and a boundary that nothing crosses unchecked (the shared custody address).
 
 They leverage Cardano's existing native token infrastructure and require no hard fork or ledger changes. However, because tokens are held at a shared script address with stake-credential-based ownership, wallets, explorers, and DEXes would require integration work to fully support them.
 
@@ -152,9 +160,11 @@ When you transfer tokens, you're changing the stake credential while keeping the
 #### 2. On-Chain Registry (Directory)
 A sorted linked list of registered programmable tokens, stored as on-chain UTxOs. Each registry entry contains:
 - Token policy ID
-- Transfer validation script reference
-- Issuer control script reference
+- Issuance (minting-logic) script credential — also the entry's lifecycle authority
+- Transfer validation script credential
+- Issuer control (third-party) script credential
 - Optional global state reference (e.g., denylist)
+- Protected asset-name prefixes that issuer actions may never seize or burn
 
 The linked list structure enables **O(1) verification** - you can prove a token is registered (or not registered) with constant-time lookups.
 
@@ -166,7 +176,7 @@ Pluggable stake validators defined by substandards that enforce token-specific r
 Different tokens can use different substandards — each substandard is registered in the on-chain registry and invoked automatically by the core framework. Scripts are invoked using the **withdraw-zero pattern** — stake validators are triggered with 0 ADA withdrawals.
 
 #### 4. Global Validator
-The core CIP-143 validator that coordinates all operations:
+The core CIP-113 validator that coordinates all operations:
 1. Identifies programmable tokens in the transaction
 2. Looks up each token in the on-chain registry
 3. Invokes corresponding transfer logic scripts
@@ -252,7 +262,7 @@ Let's walk through a simple transfer:
 ### For the Cardano Ecosystem
 
 **Interoperability**:
-- Standard interface (CIP-143) enables ecosystem integration
+- Standard interface (CIP-113) enables ecosystem integration
 - DeFi protocols can support programmable tokens
 - Bridges and oracles can integrate easily
 
@@ -268,31 +278,32 @@ Let's walk through a simple transfer:
 
 ---
 
-## CIP-143 Standard
+## The CIP-113 Standard
 
-This implementation is based on **[CIP-143 (Interoperable Programmable Tokens)](https://github.com/cardano-foundation/CIPs/tree/master/CIP-0143)**, which defines a standard for programmable token lifecycle management on Cardano.
+This implementation targets **[CIP-113 (Programmable token-like assets)](https://github.com/cardano-foundation/CIPs/pull/444)**, which defines the framework for programmable tokens on Cardano. The proposal has reached the CIP editors' **Last Check** stage — the final review window before merge — so late specification changes are still possible.
+
+### Lineage: CIP-143
+
+The architecture originates in **[CIP-143 (Interoperable Programmable Tokens)](https://cips.cardano.org/cip/CIP-0143)** and its reference implementation by Phil DiSarro and the IOG team ([wsc-poc](https://github.com/input-output-hk/wsc-poc)). CIP-113 supersedes CIP-143 as the more comprehensive standard; this codebase is the Aiken migration of that reference implementation, adapted to CIP-113.
 
 ### Standards Compliance
 
 Programmable tokens enable compliance with various regulatory frameworks including stablecoin standards and tokenized securities requirements. The architecture supports implementation of controls required by financial regulations while maintaining the decentralized nature of Cardano.
 
-### Relationship to CIP-113
-
-CIP-143 has been incorporated into the newer **[CIP-113](https://github.com/HarmonicLabs/CIPs/tree/master/CIP-0113)** proposal. This implementation follows CIP-143 and includes features useful for regulated tokens.
-
 ### Implementation Status
 
-**Current Status**: Research & Development
+**Current Status**: Security audit in progress
 
-- ✅ All core validators implemented with high code quality
-- ✅ Registry operations complete
-- ✅ Token issuance and transfer flows working
+- ✅ All core validators implemented
+- ✅ Registry operations complete, including in-place node updates
+- ✅ Token issuance, transfer, third-party action, and unfracking flows working
 - ✅ Freeze & seize functionality operational
 - ✅ Comprehensive test coverage across all validators and library modules
 - ✅ Tested on Preview testnet (limited scope)
-- ⏳ Comprehensive testing and audit pending
+- ✅ Professional security audit performed — all fixes from the initial audit and the follow-up re-audit round are merged
+- ⏳ Final audit report pending publication
 
-⚠️ **Important**: This is research and development code. It has **not been professionally audited** and has only been briefly tested on Preview testnet. While the code quality is high, it is not production-ready. A comprehensive security audit and extensive testing are required before any mainnet deployment or use with real assets.
+⚠️ **Important**: This code is undergoing a professional security audit. Findings from both review rounds have been remediated, but the **final audit report has not yet been published**, and testnet coverage has been limited in scope. Until the report lands, treat this as not production-ready: do not deploy to mainnet or use with real assets.
 
 ---
 
@@ -308,7 +319,6 @@ Now that you understand what programmable tokens are and why they exist, you can
 ### Try It Out
 
 ```bash
-cd src/programmable-tokens-onchain-aiken
 aiken build
 aiken check
 ```
