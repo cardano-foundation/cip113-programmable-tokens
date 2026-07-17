@@ -467,27 +467,18 @@ test output_missing_stake_cred_fails() fail {
 }
 
 // First output has wrong token quantity
-test output_wrong_token_quantity_fails() fail {
-  let wrong_qty_output = Output {
-    address: Address {
-      payment_credential: test_plb_cred,
-      stake_credential: Some(
-        Inline(
-          Script(#"77777777777777777777777777777777777777777777777777777777"),
-        ),
-      ),
-    },
-    // Output has 50 but mint is 100
-    value: min_ada
-      |> assets.add(test_own_policy, test_token_name, 50),
-    datum: NoDatum,
-    reference_script: None,
-  }
+// no_escape delegates "the full mint lands at PLB" to the ledger's value
+// conservation — it does NOT re-check quantities. What it DOES reject is any
+// `own_policy` token at a non-PLB output. So the old ledger-impossible
+// under-quantity case (mint 100, only 50 in outputs) is now the ledger's job;
+// here we mint 100, keep 50 at PLB and route the other 50 to a non-PLB
+// address — a ledger-valid tx that no_escape must reject.
+test output_partial_escape_to_non_plb_fails() fail {
   let rdmr = valid_redeemer()
   let tx = Transaction {
     ..transaction.placeholder,
     reference_inputs: [some_ref_input(registry_node_output(test_own_policy))],
-    outputs: [wrong_qty_output],
+    outputs: [mint_output(50), non_plb_output_named(test_token_name, 50)],
     mint: from_asset(test_own_policy, test_token_name, 100),
     withdrawals: [Pair(test_ml_cred, 0)],
     redeemers: [Pair(Mint(test_own_policy), as_data(rdmr))],
@@ -1145,6 +1136,45 @@ test cip68_ref_token_escapes_non_plb_fails() fail {
     ],
     mint: from_asset(test_own_policy, cip68_ft_name, 500)
       |> assets.add(test_own_policy, cip68_ref_name, 1),
+    withdrawals: [Pair(test_ml_cred, 0)],
+    redeemers: [Pair(Mint(test_own_policy), as_data(rdmr))],
+  }
+  call_validator(rdmr, tx)
+}
+
+// ==========================================================================
+// Re-audit R-04, case-2 escape (OutputIndex via an insert's covering node).
+//
+// The registry node reaches the OutputIndex branch as a RE-EMITTED COVERING
+// NODE during an insert — not a first mint — so the policy is already
+// registered and pre-existing supply can sit at the PLB. A co-occurring
+// ThirdPartyAct on an UNRELATED policy preserves that supply (100 at PLB,
+// referencing neither this node nor this policy), while the freshly minted 100
+// is routed to a NON-PLB output. The tx conserves value (100 in + 100 mint =
+// 100 PLB + 100 non-PLB out), so the ledger accepts it.
+//
+// This unit test exercises the issuance_mint-visible shape of that tx: an
+// OutputIndex proof pointing at the (re-emitted) node output, a PLB input
+// holding the preserved 100, and the minted 100 at a non-PLB output.
+//
+// The OLD output-only check would PASS this (PLB total 100 == mint delta 100)
+// — that is the escape. `no_escape` REJECTS it (own_policy at a non-PLB
+// output), regardless of how the node came to be an output.
+test outputindex_covering_node_mint_escape_fails() fail {
+  let rdmr = OutputIndex(2)
+  let tx = Transaction {
+    ..transaction.placeholder,
+    // Pre-existing 100 P at a PLB input (what ThirdPartyAct would preserve).
+    inputs: [some_input(mint_output(100))],
+    outputs: [
+      // 100 P preserved at the PLB.
+      mint_output(100),
+      // 100 freshly minted P escaping to a non-PLB address.
+      non_plb_output_named(test_token_name, 100),
+      // The re-emitted covering node carrying P's registry NFT (index 2).
+      registry_node_output(test_own_policy),
+    ],
+    mint: from_asset(test_own_policy, test_token_name, 100),
     withdrawals: [Pair(test_ml_cred, 0)],
     redeemers: [Pair(Mint(test_own_policy), as_data(rdmr))],
   }

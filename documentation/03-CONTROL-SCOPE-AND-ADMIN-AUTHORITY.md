@@ -95,17 +95,17 @@ substandard:
 A single `ThirdPartyAct` may act on **multiple UTxOs of the same policy A** in
 one transaction; each spent PLB input gets its own paired output.
 
-**On the subject policy, the admin may change amounts in any direction —
-but it must be a change.** A third-party action is a forced *transfer*, not
-only a removal: on each paired output the subject policy's non-protected tokens
-may be **decreased, removed entirely, or increased**. The acted-on amount on
-each seized UTxO **must differ** from the input, however — a no-op forced
-respend is rejected as an anti-DDoS measure (it would let an admin churn a
-holder's UTxO for free). The per-pair check pins the protected subset (§2.2) and
-the non-subject tokens, and requires the subject amount to change; the
-*direction* of that change is otherwise unconstrained per pair. The aggregate
-rule (the `mint`/burn-reconciled superset check above) keeps the *total*
-non-protected subject amount within the PLB across all outputs — so amounts are
+**On the subject policy, the admin may change amounts in any direction.**
+A third-party action is a forced *transfer*, not only a removal: on each paired
+output the subject policy's non-protected tokens may be **decreased, removed
+entirely, increased, or left unchanged**. The framework does not require the
+amount to change — an admin can re-spend a holder's UTxO without altering its
+subject balance, a capability bounded by transaction fees rather than the
+validator; custody is unaffected either way. The per-pair check pins the
+protected subset (§2.2) and the non-subject tokens; the *direction* of the
+subject change is otherwise unconstrained per pair. The aggregate rule (the
+`mint`/burn-reconciled superset check above) keeps the *total* non-protected
+subject amount within the PLB across all outputs — so amounts are
 **redistributed** (or minted/burned), never created from nothing or made to
 escape. An increase on one UTxO must therefore be backed by a decrease on
 another seized input or by a mint of A.

@@ -8,7 +8,6 @@ use cardano/address.{Credential, Inline}
 use cardano/assets.{PolicyId}
 use cardano/transaction.{Output, ScriptPurpose, Transaction, Withdraw}
 use registry_node.{RegistryNode}
-use tokens
 use types.{
   MintingRegistryProof, OutputIndex, ProgrammableLogicGlobalRedeemer, RefInput,
   RegistryProof, ThirdPartyAct, TokenExists, TransferAct, UnfrackingAct,
@@ -36,81 +35,78 @@ validator issuance_mint(
     // "is PLGlobal invoked"; that signal is now rediscovered for free by
     // the redeemer lookup below — PLGlobal is invoked iff its withdraw
     // script-purpose has an entry in `tx.redeemers`. One scan does both.)
-    let minting_logic_invoked = list.foldl(
+    let minting_logic_invoked = list.any(
       self.withdrawals,
-      False,
-      fn(wdrl, acc) {
+      fn(wdrl) {
         let Pair(cred, _amount) = wdrl
-        acc || cred == minting_logic_cred
+        cred == minting_logic_cred
       },
     )
 
-    // Registry proof determines WHO validates outputs:
+    // Custody (re-audit R-04): no `own_policy` token may leave the PLB. Both
+    // proof modes call it, so bind it once — sharing the 3-arg call compiles
+    // ~25 bytes smaller than inlining it twice. (Laziness is the `or`'s job,
+    // not the closure's: the RefInput delegate path skips it only because `or`
+    // short-circuits.)
+    let custody_ok = fn() {
+      no_escape(self.outputs, programmable_logic_base, own_policy)
+    }
+
+    // The registry proof determines WHO enforces custody:
     //
-    //   OutputIndex → First mint. PLGlobal doesn't know or see the registry
-    //                 entry for this token. issuance_mint MUST validate
-    //                 outputs. Qty always > 0.
+    //   OutputIndex → the policy's registry node appears as an OUTPUT of this
+    //     tx (freshly minted, OR re-emitted by a node update/insert). PLGlobal
+    //     does not see this node, so issuance_mint enforces custody itself.
     //
-    //   RefInput { index } → PLGlobal MAY validate outputs, but only when
-    //              its currently-running redeemer names the SAME registry
-    //              node our `index` points at. Because our
-    //              `verify_registry_node` has already bound this index to
-    //              `own_policy` (NFT asset name == own_policy and
-    //              datum.key == own_policy), comparing indices is
-    //              sufficient — we do NOT need to re-extract a policy id
-    //              from PLGlobal's redeemer.
-    //              Per-mode scope:
-    //                * TransferAct  → `proofs` contains
-    //                                 `TokenExists { node_idx: index }`.
-    //                * ThirdPartyAct → `registry_node_idx == index`.
-    //              If scope covers → delegate. Otherwise issuance_mint
-    //              validates outputs itself.
+    //   RefInput { index } → the node is a reference input, and PLGlobal MAY
+    //     enforce custody instead — but only when its redeemer names the SAME
+    //     registry node our `index` points at. `verify_registry_node` has
+    //     already bound that index to `own_policy` (NFT asset name and
+    //     datum.key both == own_policy), so comparing indices suffices — no
+    //     need to re-extract a policy id from PLGlobal's redeemer. Scope:
+    //       * TransferAct   → `proofs` contains `TokenExists { node_idx: index }`
+    //       * ThirdPartyAct → `registry_node_idx == index`
+    //     If PLGlobal covers us → delegate; otherwise enforce custody here.
     //
-    // Closes Finding 04: the previous broad `plg_invoked` signal silently
-    // let mints of non-seized policies escape during ThirdPartyAct, and a
-    // sibling TransferAct + non-PLB-route case became visible after
-    // Finding 02's fix. The precise check ensures issuance_mint only trusts
-    // PLGlobal for the specific registry node our own redeemer named.
+    // Closes Finding 04 / re-audit R-04: the previous broad `plg_invoked`
+    // signal let mints of non-covered policies escape; this precise check
+    // trusts PLGlobal only for the specific node our own redeemer named, and
+    // `no_escape` (below) catches any token this validator does mint.
     let valid_minting = when redeemer is {
       OutputIndex { index } -> {
-        // FIRST MINT — registry node being (re-)created in this tx
+        // The policy's registry node is present as an OUTPUT here. That can
+        // happen three ways: (1) a genuine first mint (NFT minted this tx),
+        // (2) the covering node re-emitted by an insert, (3) an in-place node
+        // update. In (2)/(3) the policy is ALREADY registered, so pre-existing
+        // supply CAN be spent from a PLB input — e.g. preserved as a
+        // non-subject token by a co-occurring ThirdPartyAct, which references
+        // neither this node nor that policy. So this is NOT "first mint only",
+        // and an output-only quantity check could be masked by that preserved
+        // supply. `no_escape` sidesteps the case analysis entirely: it forbids
+        // `own_policy` at any non-PLB output, so nothing minted can escape
+        // regardless of how the node got here.
         let output_opt = list.at(self.outputs, index)
         expect Some(output) = output_opt
         expect verify_registry_node(output, registry_node_cs, own_policy)
-        // First mint ⇒ all minted tokens must go to PLB
-        let minted = self.mint |> assets.tokens(own_policy)
-        validate_mint_outputs(
-          self.outputs,
-          programmable_logic_base,
-          own_policy,
-          minted,
-        )?
+        custody_ok()?
       }
 
       RefInput { index } -> {
-        // ALREADY REGISTERED — verify registry node
+        // ALREADY REGISTERED — verify the node via its reference input.
         let ref_input_opt = list.at(self.reference_inputs, index)
         expect Some(ref_input) = ref_input_opt
         expect
           verify_registry_node(ref_input.output, registry_node_cs, own_policy)
 
         or {
-          // Precise delegation: look up PLGlobal's redeemer in
-          // `tx.redeemers`; if found and it names the same registry node
-          // we did, delegate. Otherwise (PLGlobal not invoked, or a
-          // different registry node) → fall through and validate
-          // ourselves.
+          // Delegate iff PLGlobal's redeemer names the same registry node we
+          // did (it then enforces our PLB custody); otherwise enforce here.
           plgl_delegates_for_own_registry_node(
             self.redeemers,
             plg_stake_cred,
             index,
           ),
-          validate_mint_outputs(
-            self.outputs,
-            programmable_logic_base,
-            own_policy,
-            self.mint |> assets.tokens(own_policy),
-          )?,
+          custody_ok()?,
         }
       }
     }
@@ -130,28 +126,36 @@ validator issuance_mint(
   }
 }
 
-/// Validate that ALL minted tokens end up at PLB outputs with stake credentials.
-/// Collects tokens for `own_policy` across all PLB outputs and checks exact match.
-/// Reuses `tokens.union` and `value.tokens` (battle-tested in PLGlobal).
-fn validate_mint_outputs(
+/// Custody check (re-audit R-04): NO token of `own_policy` may sit at a
+/// non-PLB output. Combined with ledger value-conservation this pins every
+/// minted unit at the PLB — a freshly minted token cannot escape to a
+/// non-programmable address, and pre-existing PLB supply cannot mask an escape
+/// (the failure mode of the earlier check, which compared the absolute PLB
+/// output total to the mint delta and could be satisfied by preserved supply).
+///
+/// Every PLB output must additionally carry an inline stake credential (so
+/// ownership is well-defined). Inputs need no scan: any `own_policy` spent
+/// must reappear at a PLB output or be burned, both of which this output-only
+/// rule already forces through value-conservation.
+///
+/// Deliberately NOT enforced here: a ledger-impossible over-burn (burning more
+/// than exists) — value-conservation makes the ledger reject that anyway.
+fn no_escape(
   outputs: List<Output>,
   programmable_logic_base: Credential,
   own_policy: PolicyId,
-  expected: tokens.Tokens,
 ) -> Bool {
-  let total_at_plb = list.foldl(
+  list.all(
     outputs,
-    dict.empty,
-    fn(output, acc) {
+    fn(output) {
       if output.address.payment_credential == programmable_logic_base {
         expect Some(Inline(_stake_cred)) = output.address.stake_credential
-        tokens.union(acc, assets.tokens(output.value, own_policy))
+        True
       } else {
-        acc
+        dict.is_empty(assets.tokens(output.value, own_policy))
       }
     },
   )
-  (total_at_plb == expected)?
 }
 
 fn verify_registry_node(

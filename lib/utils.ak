@@ -87,9 +87,8 @@ pub fn is_programmable_token_id_valid(
 /// True iff `mint_value` contains any entry under `policy`, regardless of
 /// quantity sign.
 ///
-/// Used by `registry_mint.ak` for the mode ↔ tx.mint consistency check:
-///   * RegisterOnly  ⇒ `!mint_has_policy(self.mint, key)`
-///   * RegisterAndMint ⇒ `mint_has_policy(self.mint, key)`
+/// Used by `registry_spend.ak` (Re-audit R-01): a registry-node spend must
+/// not mint or burn tokens of the spent node's own `key`.
 ///
 /// Cheapest primitive among the candidates benchmarked in
 /// `lib/utils.test.ak` (`bench_a4_has_key_*`) — ~14–18% fewer ex-units than
@@ -98,9 +97,7 @@ pub fn is_programmable_token_id_valid(
 ///
 /// Note on burn-only entries: a `tx.mint` containing only negative
 /// quantities under `policy` returns `True` from this function (the
-/// outer-dict entry still exists). For a registration tx, burn-only of
-/// the new policy is impossible at the ledger level (no prior tokens to
-/// burn), so the looser semantics are safe in practice.
+/// outer-dict entry still exists).
 pub fn mint_has_policy(mint_value: Value, policy: PolicyId) -> Bool {
   assets.to_dict(mint_value) |> dict.has_key(policy)
 }

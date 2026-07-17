@@ -11,8 +11,8 @@ use issuance_mint
 use registry_mint
 use registry_node.{RegistryNode, empty_vkey, origin_node_tn}
 use types.{
-  IssuanceCborHex, MintingRegistryProof, RefInput, RegisterAndMint, RegisterOnly,
-  RegistryInit, RegistryInsert, RegistryRedeemer,
+  IssuanceCborHex, MintingRegistryProof, RefInput, RegistryInit, RegistryInsert,
+  RegistryRedeemer,
 }
 use utils.{apply_hashed_parameter}
 
@@ -342,7 +342,6 @@ fn valid_insert_redeemer() -> RegistryRedeemer {
   RegistryInsert {
     key: computed_key(),
     minting_logic_script: test_inserted_minting_logic_cred,
-    mode: RegisterAndMint,
   }
 }
 
@@ -357,7 +356,7 @@ fn valid_insert_tx() -> Transaction {
     mint: from_asset(test_policy_id, key, 1)
       |> assets.add(key, #"746f6b656e", 100),
     // The substandard's withdraw-0 logic MUST be invoked at registration
-    // (always required by registry_mint, both modes).
+    // (always required by registry_mint).
     withdrawals: [Pair(test_inserted_minting_logic_cred, 0)],
   }
 }
@@ -413,7 +412,6 @@ test registry_insert_fails_wrong_key_length() fail {
   let rdmr = RegistryInsert {
     key: short_key,
     minting_logic_script: test_inserted_minting_logic_cred,
-    mode: RegisterAndMint,
   }
   call_insert_validator(rdmr, valid_insert_tx())
 }
@@ -451,11 +449,10 @@ test registry_insert_fails_updated_node_modified() fail {
   call_insert_validator(valid_insert_redeemer(), tx)
 }
 
-// RegisterAndMint redeemer applied to a tx with empty mint. Fails the
-// mode ↔ tx.mint consistency check: `mint_has_policy(self.mint, key)` is
-// False, so the `RegisterAndMint ⇒ mint_has_policy(...) == True` branch
-// rejects.
-test registry_insert_fails_no_token_minted() fail {
+// Empty mint: an insert MUST mint the registry node token for the new
+// key. Fails `validate_mint(self.mint, policy_id) == key` (no entry
+// under the registry policy at all).
+test registry_insert_fails_node_token_not_minted() fail {
   let tx = Transaction { ..valid_insert_tx(), mint: assets.zero }
   call_insert_validator(valid_insert_redeemer(), tx)
 }
@@ -487,95 +484,66 @@ test registry_insert_fails_wrong_output_address() fail {
 }
 
 // =========================================================================
-// RegistrationMode tests
+// Register-only registration (no first mint)
 //
-// `RegistryInsert` carries a `mode: RegistrationMode` field that selects
-// between:
-//   * `RegisterAndMint` — registration + first mint in one tx (the existing
-//     `valid_insert_tx` / `valid_insert_redeemer` flow, covered above).
-//   * `RegisterOnly`    — substandard authorises registration but no
-//     programmable tokens of `key` are minted. Useful for RWA, supply-aware
-//     substandards that need to initialise global state before any token
-//     exists, etc.
+// A registration need not mint any programmable tokens of `key` in the
+// same tx — useful for RWA issuance, supply-aware substandards that need
+// to initialise global state before any token exists, etc. registry_mint
+// does not constrain the first-mint shape under `key` at all; a first
+// mint, when present, is validated by `issuance_mint` as usual. Both
+// mint shapes are valid under the single RegistryInsert constructor:
+// with a first mint (`registry_insert_valid` above) and without
+// (`registry_insert_register_only_valid` below).
 //
-// In BOTH modes the substandard's `minting_logic_script` MUST appear in
-// `tx.withdrawals` (proof of instance, always required). The two modes
-// differ only in the `tx.mint` shape under the new policy.
+// In BOTH shapes the substandard's `minting_logic_script` MUST appear in
+// `tx.withdrawals` (proof of instance, always required).
 //
 // Coverage in this block:
-//   1. Mode A happy path (mirror of the Mode B happy path above).
-//   2. Mode A vs Mode B mint-shape mismatches (both directions of the
-//      mode ↔ tx.mint consistency check).
-//   3. Substandard-not-invoked failures (per mode).
-//   4. Datum-vs-redeemer mismatch on the new `minting_logic_script` field
+//   1. Register-only happy path (mirror of the register-and-mint happy
+//      path above).
+//   2. Substandard-not-invoked failures (per mint shape).
+//   3. Datum-vs-redeemer mismatch on the `minting_logic_script` field
 //      (defense-in-depth #2).
-//   5. Cryptographic binding failure (correct field shape, wrong content).
+//   4. Cryptographic binding failure (correct field shape, wrong content).
 // =========================================================================
 
-/// Mode A redeemer — same shape as `valid_insert_redeemer` but
-/// `mode = RegisterOnly`.
-fn valid_register_only_redeemer() -> RegistryRedeemer {
-  RegistryInsert {
-    key: computed_key(),
-    minting_logic_script: test_inserted_minting_logic_cred,
-    mode: RegisterOnly,
-  }
-}
-
-/// Mode A transaction — same shape as `valid_insert_tx` but the mint
-/// value carries ONLY the registry NFT (no entries under `key`).
+/// Register-only transaction — same shape as `valid_insert_tx` but the
+/// mint value carries ONLY the registry NFT (no entries under `key`).
 fn valid_register_only_tx() -> Transaction {
   let key = computed_key()
   Transaction {
     ..valid_insert_tx(),
-    // RegisterOnly: only the registry node NFT is minted; no programmable
+    // Register-only: just the registry node NFT is minted; no programmable
     // tokens of `key`.
     mint: from_asset(test_policy_id, key, 1),
   }
 }
 
-// Mode A happy path: substandard invoked via withdraw-0, no programmable
-// tokens of `key` in mint, mode ↔ tx.mint consistency holds.
+// Register-only happy path: substandard invoked via withdraw-0, no
+// programmable tokens of `key` in mint. Locks in that the RegistryInsert
+// redeemer covers the no-first-mint shape.
 test registry_insert_register_only_valid() {
-  call_insert_validator(
-    valid_register_only_redeemer(),
-    valid_register_only_tx(),
-  )
-}
-
-// Mode ↔ tx.mint consistency: the redeemer claims RegisterOnly but the
-// transaction also mints programmable tokens of `key`. `registry_mint`
-// MUST reject — this catches "I said register-only but actually I'm
-// minting" misuse.
-test registry_insert_mode_a_fails_with_tokens_minted() fail {
-  // Mode A redeemer applied to a Mode B tx (mints tokens under `key`).
-  call_insert_validator(valid_register_only_redeemer(), valid_insert_tx())
-}
-
-// Mode ↔ tx.mint consistency, other direction: the redeemer claims
-// RegisterAndMint but the transaction mints no tokens of `key`. Catches
-// "I said register-and-mint but actually no tokens are being minted"
-// misuse.
-test registry_insert_mode_b_fails_without_tokens_minted() fail {
-  // Mode B redeemer applied to a Mode A tx (no tokens under `key`).
   call_insert_validator(valid_insert_redeemer(), valid_register_only_tx())
 }
 
-// Substandard withdraw-0 not invoked (Mode A): registry_mint MUST reject
-// even though all other invariants hold. Without this check the registrar
-// could pin any substandard credential into a registry node the
-// substandard itself never authorised.
-test registry_insert_mode_a_fails_substandard_not_invoked() fail {
+// Substandard withdraw-0 not invoked (register-only): registry_mint MUST
+// reject even though all other invariants hold. Without this check the
+// registrar could pin any substandard credential into a registry node the
+// substandard itself never authorised. Critical in this shape: no tokens
+// are minted, so `issuance_mint` never runs and cannot enforce it
+// transitively.
+test registry_insert_register_only_fails_substandard_not_invoked() fail {
   let tx = Transaction { ..valid_register_only_tx(), withdrawals: [] }
-  call_insert_validator(valid_register_only_redeemer(), tx)
+  call_insert_validator(valid_insert_redeemer(), tx)
 }
 
-// Substandard withdraw-0 not invoked (Mode B): same protection in Mode B.
-// In a real Mode B tx `issuance_mint` would also require the substandard
-// withdrawal (transitively, because tokens are minted), but `registry_mint`
-// MUST enforce it directly so the protection doesn't depend on
-// `issuance_mint` behaviour or on tokens actually being minted.
-test registry_insert_mode_b_fails_substandard_not_invoked() fail {
+// Substandard withdraw-0 not invoked (register-and-mint): same protection
+// when a first mint is present. In a real first-mint tx `issuance_mint`
+// would also require the substandard withdrawal (transitively, because
+// tokens are minted), but `registry_mint` MUST enforce it directly so the
+// protection doesn't depend on `issuance_mint` behaviour or on tokens
+// actually being minted.
+test registry_insert_fails_substandard_not_invoked() fail {
   let tx = Transaction { ..valid_insert_tx(), withdrawals: [] }
   call_insert_validator(valid_insert_redeemer(), tx)
 }
@@ -651,7 +619,6 @@ test registry_insert_fails_wrong_minting_logic_for_key() fail {
   let rdmr = RegistryInsert {
     key: computed_key(),
     minting_logic_script: wrong_cred,
-    mode: RegisterAndMint,
   }
   let tx = Transaction {
     ..valid_insert_tx(),
@@ -666,7 +633,7 @@ test registry_insert_fails_wrong_minting_logic_for_key() fail {
 // Finding 07: the substandard-invocation check matches BY credential —
 // having *some* other substandard withdraw in the same tx does not
 // authorise this registration. Companion to
-// `registry_insert_mode_b_fails_substandard_not_invoked` (which uses
+// `registry_insert_fails_substandard_not_invoked` (which uses
 // `withdrawals: []`) — this test uses a non-empty withdrawals list
 // containing the WRONG credential, isolating the "must match
 // minting_logic_script" property.
@@ -738,7 +705,6 @@ test registry_insert_fails_verification_key_substandard() fail {
   let rdmr = RegistryInsert {
     key: computed_key(),
     minting_logic_script: vk_cred,
-    mode: RegisterAndMint,
   }
   let tx = Transaction {
     ..valid_insert_tx(),
@@ -751,11 +717,12 @@ test registry_insert_fails_verification_key_substandard() fail {
 // =========================================================================
 // CIP-68 multi-asset registration
 //
-// registry_mint allows multiple asset names under the same policy in
+// A registration may mint multiple asset names under the new policy in
 // `tx.mint` to support CIP-68 (FT label 333 + ref token label 100).
-// `mint_has_policy` (lib/utils.ak) checks policy presence only — asset
-// name and quantity are unconstrained — so additional CIP-68 companion
-// assets minted in the same tx do not affect the registration check.
+// registry_mint does not constrain the first-mint shape under `key`
+// (asset names and quantities are `issuance_mint`'s concern), so
+// additional CIP-68 companion assets minted in the same tx do not affect
+// the registration.
 // =========================================================================
 
 // CIP-67 label 333 (FT) prefix + "MyToken" hex
@@ -777,26 +744,17 @@ test registry_insert_cip68_dual_token_mint() {
 }
 
 // =========================================================================
-// Mint-shape edge cases under RegisterAndMint
+// Mint-shape edge cases in the first mint
 //
-// `mint_has_policy` (the unified primitive) returns True iff `tx.mint`
-// contains ANY entry under the new policy id, regardless of sign. This is
-// a looser check than the previous "at least one positive quantity" — and
-// is safe because burn-only of a brand-new policy is ledger-impossible
-// (no prior tokens exist to burn). See `lib/utils.ak` for the rationale.
-//
-// Consequence: a transaction whose only entry under `key` is a burn now
-// passes the mode-consistency check at the on-chain level. The ledger
-// will reject it anyway when no inputs balance the burn. The previously
-// explicit `registry_insert_fails_burn_only` test is therefore obsolete
-// and has been removed; the property it tested is enforced by the
-// ledger, not by registry_mint.
+// registry_mint places NO constraint on the `tx.mint` entries under the
+// new policy `key`. Sign and quantity are enforced elsewhere: burn-only
+// of a brand-new policy is ledger-impossible (no prior tokens exist to
+// burn), and any first mint is validated by `issuance_mint`.
 // =========================================================================
 
-// Mixed mint+burn under the new policy: at least one entry exists — passes
-// `mint_has_policy`. (Was also passing under the old `> 0` check
-// because the FT name has positive quantity; kept here as a sanity check
-// that mixed-sign entries don't break the new primitive.)
+// Mixed mint+burn under the new policy: registration succeeds regardless
+// of entry signs under `key`. Kept as a sanity check that mixed-sign
+// entries don't break the insert path.
 test registry_insert_mixed_mint_and_burn() {
   let key = computed_key()
   let tx = Transaction {
