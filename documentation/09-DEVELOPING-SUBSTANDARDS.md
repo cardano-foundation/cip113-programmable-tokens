@@ -420,9 +420,10 @@ of every node and guards both. Consequences:
 - A single transaction is **never** simultaneously a lifecycle operation *and* an
   issuance of the same policy. They are always distinct transactions — which
   keeps them independently authorizable and independently auditable.
-- Registering a *new* token (`RegisterAndMint`) still mints the **new** key. The
-  guard is scoped to the node being *spent* (the covering predecessor, or the
-  node being updated), never the node being *created*.
+- Registering a *new* token with a first mint in the same transaction still
+  mints the **new** key. The guard is scoped to the node being *spent* (the
+  covering predecessor, or the node being updated), never the node being
+  *created*.
 
 ### When you still need a migration
 
