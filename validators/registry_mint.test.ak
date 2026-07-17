@@ -490,12 +490,8 @@ test registry_insert_fails_wrong_output_address() fail {
 // same tx — useful for RWA issuance, supply-aware substandards that need
 // to initialise global state before any token exists, etc. registry_mint
 // does not constrain the first-mint shape under `key` at all; a first
-// mint, when present, is validated by `issuance_mint` as usual.
-//
-// Re-audit R-06: the former caller-selected `mode: RegistrationMode`
-// redeemer tag and its mode ↔ tx.mint consistency tests were removed —
-// the caller controlled both sides, so the check enforced no invariant.
-// Both mint shapes are valid under the single RegistryInsert constructor:
+// mint, when present, is validated by `issuance_mint` as usual. Both
+// mint shapes are valid under the single RegistryInsert constructor:
 // with a first mint (`registry_insert_valid` above) and without
 // (`registry_insert_register_only_valid` below).
 //
@@ -524,8 +520,8 @@ fn valid_register_only_tx() -> Transaction {
 }
 
 // Register-only happy path: substandard invoked via withdraw-0, no
-// programmable tokens of `key` in mint. Re-audit R-06: also locks in that
-// the shared RegistryInsert redeemer covers the no-first-mint shape.
+// programmable tokens of `key` in mint. Locks in that the RegistryInsert
+// redeemer covers the no-first-mint shape.
 test registry_insert_register_only_valid() {
   call_insert_validator(valid_insert_redeemer(), valid_register_only_tx())
 }
@@ -751,10 +747,9 @@ test registry_insert_cip68_dual_token_mint() {
 // Mint-shape edge cases in the first mint
 //
 // registry_mint places NO constraint on the `tx.mint` entries under the
-// new policy `key` (Re-audit R-06 removed the former mode ↔ tx.mint
-// assertion). Sign and quantity are enforced elsewhere: burn-only of a
-// brand-new policy is ledger-impossible (no prior tokens exist to burn),
-// and any first mint is validated by `issuance_mint`.
+// new policy `key`. Sign and quantity are enforced elsewhere: burn-only
+// of a brand-new policy is ledger-impossible (no prior tokens exist to
+// burn), and any first mint is validated by `issuance_mint`.
 // =========================================================================
 
 // Mixed mint+burn under the new policy: registration succeeds regardless

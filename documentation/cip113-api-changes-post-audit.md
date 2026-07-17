@@ -3,7 +3,7 @@ DOC-KIND: api-surface-delta
 AUDIENCE: off-chain integrators (tx builders, indexers, custodial software, wallets)
 FORMAT: agentic-first (before→after code blocks, file:symbol anchors, action tables, verifiable checklist) — also human-readable
 BASELINE: 8143853 (pre-audit, 2026-04-28)
-TARGET:   3a6d8d6 (main, 2026-07-16) + re-audit R-01..R-05 (R-01 landed; R-03/R-04 pending — see §12)
+TARGET:   3a6d8d6 (main, 2026-07-16) + re-audit R-01..R-06 (R-01/R-06 landed; R-03/R-04 pending — see §12)
 COMPANION: cip113-substandard-upgrade-guide.md  (the conceptual/behavioural layer: what the changes MEAN for a substandard author)
 CANONICAL-SOURCE: validators/ and lib/ always win over this doc; each claim is anchored to file:symbol
 -->
@@ -80,7 +80,7 @@ The rest of this document walks through the components that did change.
 | Area | Action |
 |---|---|
 | `registry_mint` parameters | **Add** a 3rd parameter `registry_spend_cred: Credential` when applying parameters. Your registry-mint policy id will change. |
-| `registry_mint.RegistryInsert` redeemer | **Reshape**: `{key, hashed_param}` → `{key, minting_logic_script}`. Drop `hashed_param`; supply the substandard's `minting_logic_script` credential. *(An interim revision also carried a `mode: RegistrationMode` field — removed by re-audit R-06, see §1.3.)* |
+| `registry_mint.RegistryInsert` redeemer | **Reshape**: `{key, hashed_param}` → `{key, minting_logic_script}`. Drop `hashed_param`; supply the substandard's `minting_logic_script` credential. |
 | `issuance_mint` parameters | **Add** a 4th parameter `plg_stake_cred: Credential` when applying parameters. Your programmable-token policy ids will change. |
 | `issuance_mint.mint` redeemer | **Simplify**: was `SmartTokenMintingAction { minting_logic_cred, minting_registry_proof }`, now just `MintingRegistryProof` directly. The `minting_logic_cred` field is gone — it's baked into the validator's parameters. |
 | `RegistryNode` datum | **Add** a new field `minting_logic_script: Credential` at position #3 (after `key` and `next`). Datum CBOR shape changed. |
@@ -130,29 +130,7 @@ pub type MintingRegistryProof {
 
 Shape preserved; **now the top-level redeemer** for `issuance_mint.mint(...)`.
 
-### 1.3 `RegistrationMode` — added by Finding 7, REMOVED by re-audit R-06
-
-```aiken
-// Interim revision only (never the final surface)
-pub type RegistrationMode {
-  RegisterOnly
-  RegisterAndMint
-}
-
-// Current
-(removed)
-```
-
-Finding 7 introduced a `mode: RegistrationMode` tag on `RegistryInsert` and a
-mode ↔ `tx.mint` consistency check. Re-audit R-06 removed both: the caller
-selects the mode, so they can always pick the constructor matching `tx.mint` —
-the check enforced no invariant and only duplicated information already in
-`tx.mint`. The *capability* Finding 7 added (registering without a first mint)
-is unchanged; it just no longer needs a tag. If you integrated against an
-interim revision that had `mode`, drop the field from your redeemer encoder.
-See [§6](#6-registration-flows--with-and-without-a-first-mint).
-
-### 1.4 `RegistryRedeemer.RegistryInsert` — RESHAPED
+### 1.3 `RegistryRedeemer.RegistryInsert` — RESHAPED
 
 ```aiken
 // Before
@@ -177,10 +155,8 @@ Changes:
   minting-logic credential that the new policy id is parameterised by. The
   validator cryptographically binds this to `key` via
   `is_programmable_token_id_valid` (audit Finding 3).
-- *(An interim revision also carried `mode: RegistrationMode` — removed by
-  re-audit R-06, see §1.3.)*
 
-### 1.5 `IssuanceCborHex` — unchanged
+### 1.4 `IssuanceCborHex` — unchanged
 
 Shape preserved.
 
@@ -272,7 +248,7 @@ Unchanged in shape:
 mint(redeemer: RegistryRedeemer, policy_id: PolicyId, self: Transaction)
 ```
 
-Only the `RegistryRedeemer.RegistryInsert` *variant* changed (see §1.4).
+Only the `RegistryRedeemer.RegistryInsert` *variant* changed (see §1.3).
 
 ### 3.3 New required withdrawal at `RegistryInsert` time
 
@@ -401,8 +377,9 @@ same transaction. Both shapes share the same registry-update invariants; they
 differ in **whether `tx.mint` carries entries under the new policy id** and
 **which validators run as a consequence**. There is no redeemer tag selecting
 between them — `registry_mint` does not constrain the first-mint shape under
-the new key at all (re-audit R-06, see §1.3); when a first mint is present it
-is validated by `issuance_mint`.
+the new key at all; when a first mint is present it is validated by
+`issuance_mint`. A substandard that wants a strict register-then-mint
+lifecycle must enforce it in its own minting logic — see §6.4.
 
 ### 6.1 Invariants common to both flows
 
@@ -466,14 +443,17 @@ the registry NFT policy in `tx.mint`, which both flows produce.
 
 (PLGlobal not required; see the table row above.)
 
-### 6.4 No mode tag, no consistency check (re-audit R-06)
+### 6.4 Enforcing a strict register-then-mint lifecycle (substandard's job)
 
-An interim revision carried a `mode: RegistrationMode` redeemer field asserted
-bidirectionally against `tx.mint` (Finding 7 — Separation of Concerns).
-Re-audit R-06 removed it: the caller selects the mode, so the assertion
-excluded no transaction shape — it only duplicated `tx.mint`. The flow split
-above is now purely a property of the transaction you build, not something you
-declare in the redeemer.
+The flow split above is purely a property of the transaction you build — the
+base layer does not forbid (or require) a first mint at registration time. If
+a substandard's policy demands that registration and issuance never happen in
+the same transaction, the enforcement point is the substandard's own
+minting-logic withdraw-0, which is guaranteed to run in both flows (proof of
+instance, §3.3) and at every mint. Give it an explicit running mode — e.g. a
+redeemer with `Register | Mint` arms — and in the `Register` arm assert that
+`tx.mint` carries no entries under the token's policy id. See the substandard
+development guide (`09-DEVELOPING-SUBSTANDARDS.md`) for the full pattern.
 
 ### 6.5 Off-chain decision tree
 
@@ -668,7 +648,7 @@ The second audit ("re-audit") reviewed the first-audit fixes. Status on `main`:
 | **R-03** | Remove the pair-local no-op guard on `ThirdPartyAct` (bypassable; aggregate check too costly) | none — a no-op respend becomes accepted; no CBOR change (§10 note) | **Pending** (branch `fix/r03-remove-pair-local-noop-guard`) |
 | **R-04** | Issuance custody escape — net-positive mints must land at PLB even when pre-existing supply exists | `issuance_mint` output-custody tightening; no signature change | **Pending** (two candidate branches) |
 | **R-05** | Unfracking module documentation (ADA-out allowed; non-ADA-non-programmable-out forbidden) | none (docs) | Landed |
-| **R-06** | `RegistryInsert.mode` was caller-selected and redundant — removed | `RegistryInsert` redeemer loses `mode`; `RegistrationMode` type deleted; `registry_mint` hash changes (§1.3, §6) | **Pending** |
+| **R-06** | Redundant registration-mode tag removed from `RegistryInsert` before release | `RegistryInsert` = `{key, minting_logic_script}` (§1.3); `registry_mint` hash changes | **Landed (#92)** |
 
 When R-03 and R-04 land in `main`, this section and §10/§4 will be updated.
 
@@ -682,7 +662,7 @@ When R-03 and R-04 land in `main`, this section and §10/§4 will be updated.
 | 3 | Registry init does not bind origin node to registry_spend | `registry_mint` parameters (new `registry_spend_cred`) |
 | 4 | Imprecise delegation scope | `issuance_mint` precise per-node delegation (`plgl_scope_covers`) |
 | 5 | Linked-list registry contention limitation | documented (#81) |
-| 7 | Separation of Concerns | `RegistryInsert` reshape + register-without-mint capability (`RegistrationMode` enum later removed by R-06) |
+| 7 | Separation of Concerns | `RegistryInsert` reshape + register-without-mint capability |
 | 8 | Inefficient membership check | `registry_mint` internal |
 | 9 | Indirect delegation signal | `issuance_mint` parameters (new `plg_stake_cred`) + withdrawal-based delegation |
 | 10 | Redundant single-mint redeemer check | removed from `issuance_mint` |
@@ -692,7 +672,7 @@ When R-03 and R-04 land in `main`, this section and §10/§4 will be updated.
 | 18 | Admin/control scope — protected prefixes | `RegistryNode.protected_prefixes` (§7, §10) |
 | 19 | Redundant length/ordering checks in RegistryInsert | `registry_mint` internal (#70) |
 | R-01 | Node spend cannot issue its own token | `registry_spend` guard (§7, §12) |
-| R-06 | Redundant caller-selected `RegistryInsert` mode | `mode` field + `RegistrationMode` removed (§1.3, §6.4) |
+| R-06 | Redundant `RegistryInsert` registration-mode tag | removed before release — final redeemer is `{key, minting_logic_script}` (§1.3) |
 
 The findings themselves live under `audit/` (first audit) and the re-audit
 tracking in the repo. This document captures the *resulting public-API surface*
@@ -708,9 +688,7 @@ When upgrading off-chain integration:
       address derived from `registry_mint` and `issuance_mint` has shifted
       because both validators gained a parameter.
 - [ ] Update transaction builders that call `RegistryInsert`: replace
-      `hashed_param` with `minting_logic_script`. (If you integrated against
-      an interim revision that had a `mode` field, drop it — re-audit R-06,
-      §1.3.)
+      `hashed_param` with `minting_logic_script`.
 - [ ] Update `RegistryNode` datum constructors to insert `minting_logic_script`
       at field position #3.
 - [ ] Update parsers reading existing registry UTxOs to handle both pre- and

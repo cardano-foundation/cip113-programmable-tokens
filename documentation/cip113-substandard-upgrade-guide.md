@@ -61,9 +61,8 @@ transaction may combine or separate:
   `issuance_mint.mint` with `MintingRegistryProof`.
 
 A registration transaction may take either shape — there is no redeemer tag
-selecting between them (re-audit R-06 removed the interim
-`mode: RegistrationMode` field; `registry_mint` does not inspect the first-mint
-entries under the new key at all):
+selecting between them, and `registry_mint` does not inspect the first-mint
+entries under the new key at all:
 
 - **Register only** — reserve the slot now, mint later (or never in this tx).
   `tx.mint` carries no entries under the new policy.
@@ -76,7 +75,10 @@ mint", that assumption is gone. A supply-aware substandard can now initialise
 its global state at registration time *before any token exists*; an RWA-style
 substandard can reserve the policy id and defer issuance. Critically, your
 `minting_logic_script` withdraw-0 must run **in both shapes** (proof of
-instance), even when nothing is minted. See §3.2.
+instance), even when nothing is minted. And because the base layer does not
+constrain the shape, **enforcing a strict register-then-mint lifecycle is your
+job**: if your policy forbids minting during registration, your minting logic
+must reject it itself. See §3.2.
 
 ### 1.2 The registry node is *the* binding between your scripts and the policy id
 
@@ -220,7 +222,7 @@ these are the dangerous ones.
 | B2 | Protocol-params datum gained `unfracking_cred` (field #3) | **LOUD** | Params decode fails / deploy tooling writes wrong datum | §3.1 |
 | B3 | PLG redeemer gained `UnfrackingAct`; `ThirdPartyAct` reshaped to `{registry_node_idx, outputs_start_idx}` | **LOUD** | Redeemer encode mismatch on the admin path | §3.1 |
 | B4 | `issuance_mint` / `registry_mint` gained parameters → new policy ids & addresses | **LOUD** | Every derived policy id/address shifts; old blueprints point at dead scripts | §3.7 |
-| B5 | `RegistryInsert` reshaped: `{key, hashed_param}` → `{key, minting_logic_script}` (an interim revision also had a `mode` field — removed by re-audit R-06) | **LOUD** | Redeemer encode mismatch on registration | §3.2 |
+| B5 | `RegistryInsert` reshaped: `{key, hashed_param}` → `{key, minting_logic_script}` | **LOUD** | Redeemer encode mismatch on registration | §3.2 |
 | B6 | `minting_logic_script` withdraw-0 required whether or not the registration carries a first mint | **LOUD** | Register-only tx rejected for missing proof-of-instance withdrawal | §3.2 |
 | B7 | `TransferAct` proof contract is exact — pure mints must NOT carry a proof (Finding 02) | **LOUD** | Surplus-proof or missing-proof rejection | §3.3 |
 | B8 | `ThirdPartyAct` continuing output must preserve `reference_script` (Finding 13) | **LOUD** | Seize-style tx rejected if it strips/replaces a ref script | §3.4 |
@@ -257,23 +259,33 @@ Ordered so that CBOR/parameter breakage (which blocks everything) comes first.
 ### 3.2 Rebuild the registration redeemer and always invoke your minting logic (B5, B6)
 
 - **WHAT CHANGED.** `RegistryInsert { key, minting_logic_script }` — no
-  `hashed_param`, and no `mode` tag (an interim revision had one; re-audit R-06
-  removed it as redundant — `registry_mint` does not inspect the first-mint
-  entries under the new key). Your `minting_logic_script` withdraw-0 is
-  required *whether or not* the registration carries a first mint
-  (`registry_mint.ak`; walkthrough in the API doc §6).
+  `hashed_param`. `registry_mint` does not inspect the first-mint entries
+  under the new key: whether a registration co-mints is purely a property of
+  the tx you build. Your `minting_logic_script` withdraw-0 is required
+  *whether or not* the registration carries a first mint (`registry_mint.ak`;
+  walkthrough in the API doc §6).
 - **WHY.** Finding 07 (Separation of Concerns) decoupled registration from
-  issuance and made the proof-of-instance withdrawal explicit; re-audit R-06
-  then dropped the caller-selected mode tag, which enforced no invariant.
+  issuance and made the proof-of-instance withdrawal explicit.
 - **WHAT YOU MUST DO.** Encode the two-field redeemer. Decide per registration
   whether to co-mint the first batch (validated by `issuance_mint` +
   `MintingRegistryProof.OutputIndex`) or defer issuance and mint later via
-  `issuance_mint` + `MintingRegistryProof.RefInput` — that choice is purely a
-  property of the tx you build. Include your minting-logic withdraw-0 in the
-  withdrawals of *both* flows.
+  `issuance_mint` + `MintingRegistryProof.RefInput`. Include your
+  minting-logic withdraw-0 in the withdrawals of *both* flows.
+- **IF YOU WANT A STRICT REGISTER-THEN-MINT LIFECYCLE.** The base layer will
+  not enforce it for you. Your minting-logic withdraw-0 fires in both flows,
+  so it must know *why* it is running — give it an explicit running mode,
+  e.g. a redeemer with `Register | Mint` arms. In the `Register` arm,
+  validate the registration and assert `tx.mint` carries **no entries under
+  your policy id** (resolve the policy id from the registry-node output being
+  created, or recompute it); in the `Mint` arm, validate issuance as usual.
+  Without this, nothing stops a registration transaction from also minting —
+  `issuance_mint` would run and your withdraw-0 (already present for the
+  proof of instance) would be its authorisation. See
+  `09-DEVELOPING-SUBSTANDARDS.md` for the pattern.
 - **HOW TO VERIFY.** A registration tx with no `key` entries in `tx.mint` and
   your minting-logic withdraw-0 present passes; the same tx without that
-  withdrawal fails.
+  withdrawal fails. If you implement the strict lifecycle: a registration tx
+  that also mints under your policy id is rejected *by your validator*.
 
 ### 3.3 Fix your transfer proof contract (B7)
 

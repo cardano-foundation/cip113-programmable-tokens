@@ -82,9 +82,6 @@ validator registry_mint(
         //
         // Whether a first mint of `key` occurs in the same tx is NOT
         // checked here: if it does, issuance_mint validates it as usual.
-        // (Re-audit R-06 removed the former caller-selected `mode` tag
-        // and its mode ↔ tx.mint assertion — the caller controlled both
-        // sides, so the check enforced no invariant.)
         expect
           list.any(
             self.withdrawals,

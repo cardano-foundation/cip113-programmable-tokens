@@ -116,9 +116,10 @@ Your issuance logic validator decides **who can mint and burn** tokens. This cou
 
 > **This same credential is also your registry-lifecycle authority.** It is
 > checked not only on mint/burn, but also when the token is registered and when
-> its registry node is updated. If those should be different powers, your
-> issuance logic must tell the contexts apart — see
-> [Registry Lifecycle & Upgradeability](#registry-lifecycle--upgradeability).
+> its registry node is updated. If those should be different powers — or if
+> your policy forbids minting during registration — your issuance logic must
+> tell the contexts apart; see
+> [Your issuance logic must know why it is running](#your-issuance-logic-must-know-why-it-is-running).
 
 ### 2. Transfer Logic (withdraw)
 
@@ -298,13 +299,19 @@ These are standard Aiken validators, not withdraw-zero validators. They follow t
 
 When a new programmable token is registered, a `RegistryNode` entry is created in the on-chain registry containing:
 
+- Your **issuance logic** credential (`minting_logic_script` — also baked into the `issuance_mint` policy as a parameter at token creation time)
 - Your **transfer logic** credential
 - Your **third-party transfer logic** credential
 - Your **global state** currency symbol (if applicable)
 
-The **issuance logic** credential is baked into the `issuance_mint` policy as a parameter at token creation time.
+The registry-update mechanics are handled by the core infrastructure (`registry_mint`), but **your issuance logic withdraw-0 runs at registration** — `registry_mint` requires it in `tx.withdrawals` as proof that your substandard instance authorises the registration (the *proof of instance* check). So your validators must be compiled, deployed, and able to validate a registration transaction before the token can be registered.
 
-Registration is handled by the core infrastructure (`registry_mint`). You don't need to implement anything for this step — but your validators must be compiled and their script hashes known at registration time.
+A registration **may or may not mint the first tokens in the same transaction** — the framework supports both and does not constrain the choice:
+
+- **Register and mint**: `tx.mint` carries the first batch under the new policy; `issuance_mint` runs and validates it as usual.
+- **Register only**: no entries under the new policy in `tx.mint`; `issuance_mint` never runs. Useful for RWA issuance, or for initialising global state before any token exists.
+
+**If your substandard requires a strict register-then-mint lifecycle** (no minting during registration), you must enforce it yourself — see [Your issuance logic must know why it is running](#your-issuance-logic-must-know-why-it-is-running).
 
 ### 2. Minting
 
@@ -408,6 +415,48 @@ programmable token, and applying different rules (different signers, thresholds,
 timelocks). The framework hands your validator the full transaction context; how
 finely to separate these powers is a substandard decision, not a framework
 default.
+
+### Your issuance logic must know why it is running
+
+The three contexts above mean your issuance withdraw-0 cannot assume "I am
+running, therefore tokens are being minted". In particular, at registration
+time the base layer does **not** constrain whether the transaction also mints
+the first tokens: `registry_mint` requires your withdraw-0 as proof of
+instance, and if a mint is present `issuance_mint` runs too — with your
+*already-present* withdrawal as its authorisation. A validator that
+rubber-stamps registrations therefore silently authorises co-mints as well.
+
+**If your substandard's policy is "register first, mint later", enforce it
+explicitly.** The recommended pattern is a redeemer on your issuance
+withdraw-0 that names the running mode:
+
+```aiken
+pub type IssuanceAction {
+  Register
+  UpdateNode
+  Mint
+  Burn
+}
+```
+
+Each arm validates only its own context:
+
+- `Register` — validate the registration (e.g. admin signature) **and assert
+  `tx.mint` carries no entries under your policy id**. Resolve the policy id
+  from the registry-node output being created in this transaction (its NFT's
+  asset name is the policy id, and its datum's `minting_logic_script` is your
+  own credential), or recompute it from the issuance template.
+- `UpdateNode` — validate the in-place node update (a registry node is being
+  spent, not created; apply whatever stricter authority you want here).
+- `Mint` / `Burn` — validate issuance as usual (sign of the `tx.mint` entries
+  distinguishes the two if you prefer a single arm).
+
+Cross-check the claimed mode against the transaction shape (registry node
+minted / spent / untouched, programmable-token entries in `tx.mint`) so a
+caller cannot pick a permissive arm for the wrong context. If instead your
+substandard is happy with atomic register-and-mint (the common case), a single
+arm that validates both concerns together is fine — just make that a
+deliberate choice, not an accident.
 
 ### Base-layer guarantee: lifecycle and issuance are separate transactions
 

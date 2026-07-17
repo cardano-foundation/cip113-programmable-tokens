@@ -94,9 +94,9 @@ pub type RegistryRedeemer {
   /// same tx is validated by `issuance_mint` as usual, and registering
   /// without any mint is equally valid (useful for real-world-asset
   /// issuance or supply-aware substandards that must initialise global
-  /// state before any token exists). Re-audit R-06 removed the former
-  /// caller-selected `mode: RegistrationMode` tag: the caller controlled
-  /// it, so asserting it against `tx.mint` enforced no invariant.
+  /// state before any token exists). A substandard that wants a strict
+  /// register-then-mint lifecycle must enforce it in its own minting
+  /// logic.
   RegistryInsert { key: ByteArray, minting_logic_script: Credential }
 }
 
