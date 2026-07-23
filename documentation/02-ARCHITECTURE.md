@@ -88,7 +88,7 @@ graph TB
     IM -->|"references"| ICH
 ```
 
-The diagram above shows the **core CIP-113 standard** (Token Custody, Coordination Layer, Registry, Token Issuance, Protocol Bootstrap) and indicates where **substandards** plug in. The core standard is deployed once and shared by all programmable tokens. Substandards are pluggable — different tokens can register different transfer logic and supporting validators depending on their compliance requirements, without modifying the core framework. See the [`substandards/`](../../substandards/) directory for implementations (dummy, freeze-and-seize).
+The diagram above shows the **core CIP-113 standard** (Token Custody, Coordination Layer, Registry, Token Issuance, Protocol Bootstrap) and indicates where **substandards** plug in. The core standard is deployed once and shared by all programmable tokens. Substandards are pluggable — different tokens can register different transfer logic and supporting validators depending on their compliance requirements, without modifying the core framework. See the [`substandards/`](https://github.com/cardano-foundation/cip113-programmable-tokens-platform/tree/main/src/substandards) directory for implementations (dummy, freeze-and-seize).
 
 ### Validator Reference
 
@@ -104,7 +104,7 @@ The diagram above shows the **core CIP-113 standard** (Token Custody, Coordinati
 | `issuance_mint` | Mint | `programmable_logic_base`, `registry_node_cs`, `minting_logic_cred`, `plg_stake_cred` | Mints/burns programmable tokens. Parameterized per token type. |
 | `issuance_cbor_hex_mint` | Mint | `utxo_ref` | One-shot mint of the reference NFT holding issuance script template bytes. |
 
-Substandard validators (transfer logic, denylist management, etc.) live in the [`substandards/`](../../substandards/) directory as separate Aiken modules.
+Substandard validators (transfer logic, denylist management, etc.) live in the [`substandards/`](https://github.com/cardano-foundation/cip113-programmable-tokens-platform/tree/main/src/substandards) directory as separate Aiken modules.
 
 ### Dual Validator Delegation
 
@@ -260,7 +260,7 @@ operations.
 
 ## Denylist System
 
-> **Note:** The denylist is part of the [freeze-and-seize substandard](../../substandards/freeze-and-seize/), not the core CIP-113 framework. It is documented here because it illustrates how substandards extend the core architecture.
+> **Note:** The denylist is part of the [freeze-and-seize substandard](https://github.com/cardano-foundation/cip113-programmable-tokens-platform/tree/main/src/substandards/freeze-and-seize), not the core CIP-113 framework. It is documented here because it illustrates how substandards extend the core architecture.
 
 The denylist uses the same sorted linked list pattern as the registry, but for credential hashes instead of policy IDs.
 

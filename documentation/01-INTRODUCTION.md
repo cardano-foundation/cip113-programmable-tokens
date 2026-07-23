@@ -49,8 +49,7 @@ The issuer of a regulated instrument remains legally accountable for it after is
 Phil DiSarro — author of the original reference implementation this codebase builds on — captured the intuition behind the design:
 
 > *"Think of programmable tokens as a mini ledger within Cardano."*
-
-(The mini-ledger framing is his; he uses it throughout the [CIP-113 review discussion](https://github.com/cardano-foundation/CIPs/pull/444#issuecomment-4084863264), where the protocol's key security invariant is stated as *"programmable tokens can never exist outside the mini-ledger"*.)
+> — from a [CIP-113 review comment](https://github.com/cardano-foundation/CIPs/pull/444#issuecomment-4084863264)
 
 All programmable tokens live inside one shared custody address, and every movement within that space passes through the framework's validation — admission rules, transfer rules, issuer controls. The custody address behaves like a small, self-governing ledger embedded in Cardano's ledger, with its own entry and transfer rules, while the tokens themselves remain ordinary native assets. Most of the architecture in the following chapters falls out of this one idea: a ledger needs a registry of what it tracks (the on-chain directory), rules for what makes a movement valid (substandard logic), and a boundary that nothing crosses unchecked (the shared custody address).
 
