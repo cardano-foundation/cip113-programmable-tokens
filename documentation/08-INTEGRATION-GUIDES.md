@@ -288,21 +288,6 @@ All programmable tokens live at addresses sharing the `programmable_logic_base` 
 
 This gives you an "account-like" view of programmable token holdings.
 
-#### Surfacing Co-location & Freeze Risk
-
-Wallets cannot render the hygiene and anti-injection warnings in
-[For Wallet Developers](#for-wallet-developers) without indexer support. For each
-programmable-token UTxO, expose:
-
-- The **count of distinct programmable policies** it holds (a "co-located" /
-  fracked-UTxO flag) — the signal behind the freeze-for-ransom warning.
-- Per policy, the **registry-derived risk data**: whether it is registered, and
-  its `transfer_logic_script` / `third_party_transfer_logic_script` and the admin
-  credential behind them, so a wallet can show who can freeze or seize it.
-- Enough transaction context to tell **newly-formed co-location** from a
-  **continuing output** (did an input already hold this policy combination?), so
-  wallets can suppress benign flags.
-
 #### Script Owners
 
 The stake credential can be a **script hash**, not just a verification key hash. This happens when a smart contract (DEX, lending protocol, DAO treasury, etc.) holds programmable tokens. Indexers must:
