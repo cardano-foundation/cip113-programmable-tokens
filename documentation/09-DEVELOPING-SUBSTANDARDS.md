@@ -241,6 +241,63 @@ Your validator has full access to the transaction via `self`. It can inspect inp
 6. Your transfer logic withdrawal validator runs and either succeeds or fails
 7. If all validators pass, the transaction is valid
 
+### Finding your own policy id
+
+A common need in substandard logic is to know **which programmable token
+policy you govern** — for example, to isolate your token's entries from other
+policies co-located in the same transaction, or to assert that `tx.mint`
+carries nothing under your policy.
+
+The first thing to understand is that **your substandard's own script hash is
+not the token's policy id.** Your transfer / third-party / issuance validators
+run as *withdraw-0 stake validators*; the token's policy id is the hash of the
+`issuance_mint` script, which is parameterized (among other things) by your
+**issuance** credential (`minting_logic_script`). So the policy id is derived
+from your issuance logic, not from the validator that is currently running.
+
+There are two ways to obtain it.
+
+**1. Resolve it at runtime from the registry node.** Your withdraw handler
+receives `account` — your validator's own credential (see [What your withdraw
+handler receives](#what-your-withdraw-handler-receives)). Every registered
+token's `RegistryNode` is present as a reference input on any transaction that
+moves it (the base layer needs it), and the node's NFT asset name **is** the
+policy id (`key`). So: scan the registry-node reference inputs for the node
+whose relevant logic field equals `account`, and read its `key`.
+
+```aiken
+// Locate registry nodes by their NFT (registry_node_cs, from the protocol-params
+// reference input or a validator parameter), then match the node whose logic
+// field is your own credential. That node's `key` is the policy id you govern.
+//   - transfer logic          → match node.transfer_logic_script == account
+//   - third-party logic       → match node.third_party_transfer_logic_script == account
+//   - issuance logic          → match node.minting_logic_script == account
+```
+
+One substandard credential can govern **several** tokens (many nodes can point
+at the same logic script), so treat this as "find *all* nodes referencing me"
+when your rules span more than one of your policies, not just the first.
+
+**2. Bake it in as a compile-time parameter.** Alternatively, parameterize your
+validator with the policy id directly. This is the cheapest option (no scan) and
+is what the example substandards do for related values (e.g. the PLB credential,
+`global_state_cs`). It works because the policy id depends on your **issuance**
+(`minting_logic_script`) credential — not on your transfer credential — so you
+can compute it before compiling your transfer and third-party validators.
+
+The one caveat is **dependency order**: fix your issuance-logic credential
+first, derive the policy id from the `issuance_mint` template, then bake that id
+into your other validators. Do **not** try to parameterize the issuance logic
+with its own policy id — that is circular (the id is a hash *of* the issuance
+script). `registry_mint` cryptographically binds the issuance credential to the
+policy id at registration (`is_programmable_token_id_valid`), so a runtime
+resolution and a correctly-derived compile-time parameter always agree.
+
+This is the general form of the narrower derivation shown for the registration
+path in [Your issuance logic must know why it is
+running](#your-issuance-logic-must-know-why-it-is-running), where the node is
+being *created* in the same transaction rather than referenced.
+
 ---
 
 ## Global State
