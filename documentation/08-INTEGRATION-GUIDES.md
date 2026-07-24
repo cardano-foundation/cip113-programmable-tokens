@@ -191,6 +191,81 @@ In general, programmable token addresses will hold minimal ADA (just the minimum
 | Caching a registry-node reference input | A registry node UTxO is consumed and re-created when a token is registered around it, or when its node is updated in place. A transfer that references a stale (now-spent) node UTxO will fail. Resolve the covering/exists node at build time, and on failure **re-resolve against the current registry and rebuild** rather than retrying the same reference. See the registration-contention limitation in [`02-ARCHITECTURE.md`](./02-ARCHITECTURE.md#registration-contention-a-linked-list-limitation). |
 | Caching a token's logic **credentials** | A registry node's `transfer_logic_script`, `third_party_transfer_logic_script`, `global_state_cs`, and `protected_prefixes` are **live, mutable configuration** — the token's issuer can update them in place, and the change is **retroactive** (it governs all existing holders on their next spend). Do not cache these credentials as immutable facts derived once at registration. Always resolve the **current** registry node at transaction-build time, and monitor registry-node updates for the policies you support. (`key`, `next`, and `minting_logic_script` are the only frozen fields.) |
 
+### UTxO Hygiene & Anti-Injection
+
+A programmable token can be **frozen** by its substandard — the token's
+`transfer_logic_script` (or an administrator via `third_party_transfer_logic_script`)
+can decline to authorize a spend. Because a single UTxO can hold assets of
+several policies at once, **a freeze applies to the whole UTxO, not to one
+asset**: if a UTxO holds a legitimate token *and* a frozen one, the legitimate
+token — and the UTxO's ADA — are locked with it until the frozen policy allows a
+spend. Nothing is stolen, but everything sharing that UTxO is held hostage.
+
+This is the mechanism behind a **freeze-for-ransom scam**: an attacker gets a
+freezable token co-located in a UTxO with a victim's real assets, then declines
+transfers until paid. The attacker cannot place a victim's asset into a UTxO
+directly (they don't hold it) — the co-location happens on the **victim's own
+side**, when a wallet merges an unsolicited token into a UTxO with real assets
+during coin selection or change construction. Wallet hygiene is therefore the
+primary defence.
+
+**Prevention — transaction construction:**
+
+- **Keep programmable tokens in single-policy UTxOs.** Coin selection and change
+  construction should not merge distinct programmable policies into one output.
+  A user who never co-locates policies cannot be freeze-ransomed across them.
+- **Keep ADA in a programmable-token UTxO at (or close to) the minimum-UTxO
+  value.** A freeze locks whatever ADA shares the UTxO; holding only the minimum
+  caps that hostage amount. Keep spendable ADA in ordinary (non-programmable)
+  UTxOs.
+- **Do not auto-consolidate unsolicited or unknown programmable-token UTxOs.**
+  Exclude them from automatic input selection so a dust UTxO cannot be swept into
+  a UTxO holding real assets behind the user's back. This is the single most
+  effective control against the scam above.
+
+**Detection — treat suspicious programmable tokens like suspicious NFTs/CNTs.**
+Wallets already flag, filter, or hide spam and scam **native tokens and NFTs**;
+extend that same infrastructure to cover programmable tokens. In addition to the
+usual signals (unsolicited receipt, no metadata, known-scam lists), programmable
+tokens expose extra risk data worth surfacing:
+
+- Whether the policy is **registered** at all, and — from its registry node —
+  **who can freeze or seize it** (`transfer_logic_script` /
+  `third_party_transfer_logic_script`, and the admin credential behind them). An
+  unregistered or unknown-logic token landing beside a user's assets is the
+  loudest signal.
+- **Newly-formed co-location.** Flag any output that places multiple distinct
+  programmable policies together when **no input already held that combination**
+  — i.e. the co-location is being created, not carried forward. Apply this both
+  to the wallet's own change and, critically, to any externally-built
+  transaction presented for signing (a dApp or tx-builder forming a co-mingled
+  output with the user's tokens). Suppress it for a **continuing output** (an
+  input already held the same combination) and for recognized dApp interactions.
+
+**Recovery — separating a co-mingled UTxO.** If assets do end up co-located, the
+holder can split the UTxO into single-policy UTxOs so a freeze on one policy no
+longer holds the others hostage. Depending on the deployed protocol version this
+is done by an ordinary owner-authorized re-arrangement of the holder's own
+UTxOs; where the protocol provides a dedicated same-owner restructuring action,
+it performs this split without requiring the frozen policy's consent, so the
+legitimate token is freed and the suspicious token is isolated in its own UTxO.
+The practical consequence for users: **freeze-for-ransom only works if the
+tokens cannot be separated** — a wallet that supports both the prevention above
+and this separation defangs the scam, and users should never pay.
+
+**Legitimate exceptions.** Multi-asset programmable UTxOs are not inherently
+suspicious:
+
+- **Same-policy companion assets** (e.g. a CIP-68 user token and its reference
+  NFT under one policy) are one policy, not co-location — do not flag them.
+- **dApp interactions** (e.g. a liquidity pool holding two programmable tokens)
+  legitimately produce multi-policy UTxOs. Flag-and-explain rather than block,
+  and suppress for continuing outputs and allow-listed contracts.
+
+The through-line: **hygiene prevents co-location, minimal-ADA caps the hostage,
+separation is the cure, and scam-token detection warns the user before they walk
+into the trap.**
+
 ---
 
 ## For Indexers and Explorers
@@ -208,6 +283,21 @@ All programmable tokens live at addresses sharing the `programmable_logic_base` 
 3. **Sum token quantities** per stake credential per policy ID.
 
 This gives you an "account-like" view of programmable token holdings.
+
+#### Surfacing Co-location & Freeze Risk
+
+Wallets cannot render the hygiene and anti-injection warnings in
+[For Wallet Developers](#for-wallet-developers) without indexer support. For each
+programmable-token UTxO, expose:
+
+- The **count of distinct programmable policies** it holds (a "co-located" /
+  fracked-UTxO flag) — the signal behind the freeze-for-ransom warning.
+- Per policy, the **registry-derived risk data**: whether it is registered, and
+  its `transfer_logic_script` / `third_party_transfer_logic_script` and the admin
+  credential behind them, so a wallet can show who can freeze or seize it.
+- Enough transaction context to tell **newly-formed co-location** from a
+  **continuing output** (did an input already hold this policy combination?), so
+  wallets can suppress benign flags.
 
 #### Script Owners
 
