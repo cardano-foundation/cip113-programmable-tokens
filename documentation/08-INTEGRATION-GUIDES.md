@@ -229,11 +229,15 @@ extend that same infrastructure to cover programmable tokens. In addition to the
 usual signals (unsolicited receipt, no metadata, known-scam lists), programmable
 tokens expose extra risk data worth surfacing:
 
-- Whether the policy is **registered** at all, and — from its registry node —
-  **who can freeze or seize it** (`transfer_logic_script` /
-  `third_party_transfer_logic_script`, and the admin credential behind them). An
-  unregistered or unknown-logic token landing beside a user's assets is the
-  loudest signal.
+- Whether a co-located token is a **registered programmable token** at all —
+  and if so, from its registry node, **who can freeze or seize it**
+  (`transfer_logic_script` / `third_party_transfer_logic_script` and the admin
+  credential behind them). A *registered* token with **unknown or untrusted
+  logic** sitting beside a user's assets is the loud signal: only a registered
+  token can freeze the shared UTxO (its transfer logic runs on the spend and can
+  decline). An **unregistered** co-located token is an ordinary native token —
+  it moves freely via a covering-node proof and cannot lock the UTxO, though it
+  may still be spam.
 - **Newly-formed co-location.** Flag any output that places multiple distinct
   programmable policies together when **no input already held that combination**
   — i.e. the co-location is being created, not carried forward. Apply this both
