@@ -23,7 +23,7 @@ fn programmable_logic(
   // Include both the base and global in the benchmark
   and {
     programmable_logic_base.programmable_logic_base.spend(
-      fixture.credential_validator_logic_global,
+      fixture.policy_protocol_params,
       None,
       Void,
       Void,

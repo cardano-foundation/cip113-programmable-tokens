@@ -18,6 +18,22 @@ pub type ProgrammableLogicGlobalParams {
   /// Appended LAST on purpose: the transfer / third-party hot path reads
   /// only the first two fields, so it pays nothing for this one.
   unfracking_cred: Credential,
+  /// Credential of the programmable-logic-global withdraw-0 validator.
+  /// Read by programmable_logic_base on every spend — this is what makes
+  /// PLG swappable in place: an upgrade rewrites this field instead of
+  /// re-deploying PLB (whose hash anchors every token address).
+  /// Appended after `unfracking_cred` to keep prior field indices stable.
+  prog_logic_global_cred: Credential,
+  /// Credential of the upgrade-authority withdraw-0 validator (trampoline 2).
+  /// Read ONLY by coordination_spend, and only on an upgrade transaction, to
+  /// decide *who* may rewrite this datum. Making it a datum field (rather than
+  /// a coordination_spend parameter) is what lets the upgrade authority itself
+  /// be swapped in place — e.g. federated multisig now, a governance-action
+  /// validator later — without moving the coordination UTxO. coordination_spend
+  /// never inspects the authority's internals (no signer keys here), so
+  /// retiring one authority model for another leaves no trace in this datum.
+  /// Appended last to keep prior field indices stable.
+  upgrade_logic_cred: Credential,
 }
 
 /// Locate the protocol-params NFT reference input and hand back the raw
@@ -62,6 +78,24 @@ pub fn prog_logic_cred_field(fields: List<Data>) -> Credential {
 pub fn unfracking_cred_field(fields: List<Data>) -> Credential {
   expect unfracking_cred: Credential = head_list(tail_list(tail_list(fields)))
   unfracking_cred
+}
+
+/// Field 3: the programmable-logic-global withdraw-0 credential.
+/// Read by programmable_logic_base on every spend.
+pub fn prog_logic_global_cred_field(fields: List<Data>) -> Credential {
+  expect prog_logic_global_cred: Credential = head_list(
+    tail_list(tail_list(tail_list(fields))),
+  )
+  prog_logic_global_cred
+}
+
+/// Field 4: the upgrade-authority withdraw-0 credential (trampoline 2).
+/// Read only by coordination_spend, only on an upgrade transaction.
+pub fn upgrade_logic_cred_field(fields: List<Data>) -> Credential {
+  expect upgrade_logic_cred: Credential = head_list(
+    tail_list(tail_list(tail_list(tail_list(fields)))),
+  )
+  upgrade_logic_cred
 }
 
 fn get_protocol_params_ref(

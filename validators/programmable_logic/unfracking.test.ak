@@ -797,7 +797,7 @@ test unfracking_full_composition_succeeds() {
   let tx = valid_unfracking_tx()
   and {
     programmable_logic_base.programmable_logic_base.spend(
-      fixture.credential_validator_logic_global,
+      fixture.policy_protocol_params,
       None,
       Void,
       Void,

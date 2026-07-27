@@ -44,6 +44,12 @@ fn valid_params_datum() -> Data {
       unfracking_cred: Script(
         #"00000000000000000000000000000000000000000000000000def17a",
       ),
+      prog_logic_global_cred: Script(
+        #"0000000000000000000000000000000000000000000000000001091c",
+      ),
+      upgrade_logic_cred: Script(
+        #"000000000000000000000000000000000000000000000000009c6ade",
+      ),
     },
   )
 }
