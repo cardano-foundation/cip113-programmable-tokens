@@ -343,6 +343,67 @@ test unfracking_preserves_unregistered_token_succeeds() {
   run_unfracking(tx)
 }
 
+// Adversarial-review coverage: a negative outputs_start_idx behaves
+// exactly like 0 (the drop walk treats n <= 0 as "drop nothing") — an
+// off-chain builder bug cannot unlock a different pairing.
+test unfracking_negative_outputs_start_idx_behaves_as_zero() {
+  run_unfracking_with(
+    valid_unfracking_tx(),
+    UnfrackingRedeemer { registry_node_idx: 1, outputs_start_idx: -1 },
+  )
+}
+
+// Layout freedom promised by the design: the stripped tokens may split
+// across SEVERAL owner-address outputs — the conservation fold sums them.
+test unfracking_regroup_across_multiple_outputs_succeeds() {
+  let tx = Transaction {
+    ..valid_unfracking_tx(),
+    outputs: [
+      fixture.some_output_with_programmable_tokens([(policy_b, "BAR", 100)]),
+      fixture.some_output_with_programmable_tokens([(policy_a, "FOO", 60)]),
+      fixture.some_output_with_programmable_tokens([(policy_a, "FOO", 40)]),
+    ],
+  }
+  run_unfracking(tx)
+}
+
+// The acted policy may carry several asset names — the full strip moves
+// the ENTIRE per-policy entry, and conservation compares whole dicts.
+test unfracking_multi_asset_name_acted_policy_succeeds() {
+  let tx = Transaction {
+    ..valid_unfracking_tx(),
+    inputs: [
+      fixture.some_input_with_programmable_tokens(
+        [(policy_a, "FOO", 100), (policy_a, "FOO2", 7), (policy_b, "BAR", 100)],
+        "unfracking input",
+      ),
+    ],
+    outputs: [
+      fixture.some_output_with_programmable_tokens([(policy_b, "BAR", 100)]),
+      fixture.some_output_with_programmable_tokens(
+        [(policy_a, "FOO", 100), (policy_a, "FOO2", 7)],
+      ),
+    ],
+  }
+  run_unfracking(tx)
+}
+
+// Non-PLB inputs (fee fuel etc.) interleave freely: they are skipped by
+// the owner pinning and by the pair walk without consuming an output.
+test unfracking_interleaved_non_plb_input_succeeds() {
+  let tx = Transaction {
+    ..valid_unfracking_tx(),
+    inputs: [
+      fixture.some_input_fuel("fee fuel"),
+      fixture.some_input_with_programmable_tokens(
+        [(policy_a, "FOO", 100), (policy_b, "BAR", 100)],
+        "unfracking input",
+      ),
+    ],
+  }
+  run_unfracking(tx)
+}
+
 // --------------------------------------------------------------- failure cases
 //
 // One delta per failure test (CLAUDE.md test conventions). Each test
@@ -471,6 +532,17 @@ test unfracking_fails_with_burn() fail {
       fixture.some_output_with_programmable_tokens([(policy_b, "BAR", 100)]),
       fixture.some_output_with_programmable_tokens([(policy_a, "FOO", 50)]),
     ],
+  }
+  run_unfracking(tx)
+}
+
+// The mint-zero rule is TOTAL: even a mint of an unrelated policy is
+// rejected — unfracking is pure restructuring and no mint has any
+// business riding it. ONE delta: an unrelated mint appears.
+test unfracking_fails_with_unrelated_policy_mint() fail {
+  let tx = Transaction {
+    ..valid_unfracking_tx(),
+    mint: from_asset(policy_unrelated, "RAND", 5),
   }
   run_unfracking(tx)
 }

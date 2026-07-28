@@ -110,6 +110,12 @@ fn locate_registry_node(
   registry_node_cs: PolicyId,
 ) -> Data {
   expect Some(node_ref) = aiken_list.at(reference_inputs, registry_node_idx)
+  // Load-bearing assumption (same as `registry_node.new_registry_node_getter`
+  // and the reasoning in params.ak): checking the POLICY ID alone suffices
+  // because registry NFTs are mint-gated by `registry_mint`, which binds the
+  // NFT asset name to the node's `key` and shape-checks the datum at Insert —
+  // so any UTxO carrying this policy is a genuine node whose datum fields
+  // (key, unfracking_logic_script) cannot lie.
   expect assets.peek_first(node_ref.output) == registry_node_cs
   expect InlineDatum(data) = node_ref.output.datum
   data
