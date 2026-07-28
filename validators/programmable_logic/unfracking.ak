@@ -266,14 +266,15 @@ fn validate_pairs_and_conservation(
         expect (output.datum == input.datum)?
         expect (output.reference_script == input.reference_script)?
 
-        // Peel ada off both sides — ada is deliberately unconstrained
-        // (see module docs; issue-#96 hazard class) — then one lockstep
-        // walk enforces the FULL-STRIP pair rule: byte-identical asset
-        // lists except the acted entry, present on the input side only.
-        let _input_lovelace, input_assets <- assets.split_lovelace(input.value)
-        let _output_lovelace, output_assets <- assets.split_lovelace(
-          output.value,
-        )
+        // Drop ada from both sides (guaranteed present and always first
+        // in a ledger Value — same idiom as `assets.collect`); ada is
+        // deliberately unconstrained in unfracking pairs (module docs;
+        // issue-#96 hazard class), so unlike the ThirdPartyAct ratchet
+        // the lovelace is not even read. One lockstep walk then enforces
+        // the FULL-STRIP pair rule: byte-identical asset lists except
+        // the acted entry, present on the input side only.
+        let input_assets = assets.from_value(input.value) |> list.tail
+        let output_assets = assets.from_value(output.value) |> list.tail
 
         let acted_tokens = strip_acted_entry(
           input_assets,
