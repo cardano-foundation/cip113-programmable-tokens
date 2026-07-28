@@ -80,11 +80,12 @@
 use aiken/collection/dict
 use aiken/collection/list.{foldl} as aiken_list
 use assets.{Assets}
-use cardano/address.{Address, Credential, Inline, Script, VerificationKey}
+use cardano/address.{Address, Credential}
 use cardano/assets.{PolicyId} as value
 use cardano/transaction.{Input, Output, Transaction}
 use list
 use pairs
+use programmable_logic/owner.{authorised_stake_cred}
 use registry_node.{with_key_and_unfracking_logic}
 use tokens.{Tokens}
 
@@ -163,15 +164,11 @@ fn pin_and_authorise_owner(
     [input, ..tail] -> {
       let output = input.output
       if output.address.payment_credential == prog_logic_cred {
-        expect Some(Inline(stake_cred)) = output.address.stake_credential
-        when stake_cred is {
-          VerificationKey(pkh) -> {
-            expect list.has_or_fail(extra_signatories, pkh)
-          }
-          Script(_hash) -> {
-            expect pairs.has_key_or_fail(withdrawals, stake_cred)
-          }
-        }
+        expect _stake_cred = authorised_stake_cred(
+          output.address,
+          list.has_or_fail(extra_signatories, _),
+          pairs.has_key_or_fail(withdrawals, _),
+        )
         output.address
       } else {
         pin_and_authorise_owner(
