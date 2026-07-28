@@ -1,7 +1,6 @@
 use aiken/collection/list
 use aiken/fuzz
 use aiken/primitive/bytearray
-use cardano/address.{Script, VerificationKey}
 use cardano/assets.{PolicyId, ada_asset_name, ada_policy_id} as value
 use cardano/fuzz as cardano
 use cardano/transaction.{InlineDatum, Input, Output}
