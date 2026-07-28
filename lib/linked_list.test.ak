@@ -27,8 +27,8 @@ test is_updated_directory_node_works() {
     transfer_logic_script: Script(#"11"),
     third_party_transfer_logic_script: Script(#"22"),
     minting_logic_script: Script(#"33"),
-    global_state_cs: #"",
     unfracking_logic_script: empty_vkey,
+    global_state_cs: #"",
   }
 
   let updated_node = RegistryNode {
@@ -37,8 +37,8 @@ test is_updated_directory_node_works() {
     transfer_logic_script: Script(#"11"),
     third_party_transfer_logic_script: Script(#"22"),
     minting_logic_script: Script(#"33"),
-    global_state_cs: #"",
     unfracking_logic_script: empty_vkey,
+    global_state_cs: #"",
   }
 
   is_updated_directory_node(updated_node, original, insert_key)
@@ -56,8 +56,8 @@ test is_updated_directory_node_negative() {
     transfer_logic_script: Script(#"11"),
     third_party_transfer_logic_script: Script(#"22"),
     minting_logic_script: Script(#"33"),
-    global_state_cs: #"",
     unfracking_logic_script: empty_vkey,
+    global_state_cs: #"",
   }
 
   let node = RegistryNode {
@@ -66,8 +66,8 @@ test is_updated_directory_node_negative() {
     transfer_logic_script: Script(#"11"),
     third_party_transfer_logic_script: Script(#"22"),
     minting_logic_script: Script(#"33"),
-    global_state_cs: #"",
     unfracking_logic_script: empty_vkey,
+    global_state_cs: #"",
   }
 
   !is_updated_directory_node(node, original, insert_key)
@@ -96,8 +96,8 @@ test is_inserted_directory_node_works() {
     transfer_logic_script: transfer_logic,
     third_party_transfer_logic_script: third_party_transfer_logic,
     minting_logic_script: minting_logic,
-    global_state_cs: global_state,
     unfracking_logic_script: empty_vkey,
+    global_state_cs: global_state,
   }
 
   is_inserted_directory_node(node, insert_key, next_key, minting_logic)
@@ -124,8 +124,8 @@ test origin_node_empty_keys() {
     transfer_logic_script: Script(#"11"),
     third_party_transfer_logic_script: Script(#"22"),
     minting_logic_script: Script(#"33"),
-    global_state_cs: #"",
     unfracking_logic_script: empty_vkey,
+    global_state_cs: #"",
   }
 
   origin_node.key == #"" && origin_node.next == #""
@@ -149,8 +149,8 @@ test is_updated_directory_node_rejects_transfer_logic_swap() fail {
     transfer_logic_script: Script(#"11"),
     third_party_transfer_logic_script: Script(#"22"),
     minting_logic_script: Script(#"33"),
-    global_state_cs: #"",
     unfracking_logic_script: empty_vkey,
+    global_state_cs: #"",
   }
 
   let tampered_node = RegistryNode {
@@ -160,8 +160,8 @@ test is_updated_directory_node_rejects_transfer_logic_swap() fail {
     // ^^^ ATTACKER'S SCRIPT — original was Script(#"11")
     third_party_transfer_logic_script: Script(#"22"),
     minting_logic_script: Script(#"33"),
-    global_state_cs: #"",
     unfracking_logic_script: empty_vkey,
+    global_state_cs: #"",
   }
 
   is_updated_directory_node(tampered_node, original, #"bb")
@@ -176,8 +176,8 @@ test is_updated_directory_node_rejects_third_party_logic_swap() fail {
     transfer_logic_script: Script(#"11"),
     third_party_transfer_logic_script: Script(#"22"),
     minting_logic_script: Script(#"33"),
-    global_state_cs: #"",
     unfracking_logic_script: empty_vkey,
+    global_state_cs: #"",
   }
 
   let tampered_node = RegistryNode {
@@ -187,8 +187,8 @@ test is_updated_directory_node_rejects_third_party_logic_swap() fail {
     third_party_transfer_logic_script: Script(#"deadbeef"),
     // ^^^ ATTACKER'S SCRIPT — original was Script(#"22")
     minting_logic_script: Script(#"33"),
-    global_state_cs: #"",
     unfracking_logic_script: empty_vkey,
+    global_state_cs: #"",
   }
 
   is_updated_directory_node(tampered_node, original, #"bb")
@@ -203,8 +203,8 @@ test is_updated_directory_node_rejects_global_state_swap() fail {
     transfer_logic_script: Script(#"11"),
     third_party_transfer_logic_script: Script(#"22"),
     minting_logic_script: Script(#"33"),
-    global_state_cs: #"",
     unfracking_logic_script: empty_vkey,
+    global_state_cs: #"",
   }
 
   let tampered_node = RegistryNode {
@@ -213,8 +213,8 @@ test is_updated_directory_node_rejects_global_state_swap() fail {
     transfer_logic_script: Script(#"11"),
     third_party_transfer_logic_script: Script(#"22"),
     minting_logic_script: Script(#"33"),
-    global_state_cs: #"deaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddead",
     unfracking_logic_script: empty_vkey,
+    global_state_cs: #"deaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddead",
   }
 
   // ^^^ TAMPERED — original was #""
@@ -234,8 +234,8 @@ test is_field_updated_registry_node_rejects_registry_nodes_differ() fail {
     minting_logic_script: Script(
       #"11111111111111111111111111111111111111111111111111111111",
     ),
-    global_state_cs: #"",
     unfracking_logic_script: empty_vkey,
+    global_state_cs: #"",
   }
   let new = RegistryNode {
     key: #"ab",
@@ -250,8 +250,8 @@ test is_field_updated_registry_node_rejects_registry_nodes_differ() fail {
     minting_logic_script: Script(
       #"11111111111111111111111111111111111111111111111111111111",
     ),
-    global_state_cs: #"",
     unfracking_logic_script: empty_vkey,
+    global_state_cs: #"",
   }
 
   is_field_updated_registry_node(new, original)
@@ -268,8 +268,8 @@ test is_field_updated_registry_node_update_true() {
       #"22222222222222222222222222222222222222222222222222222222",
     ),
     minting_logic_script: Script(#"33"),
-    global_state_cs: #"",
     unfracking_logic_script: empty_vkey,
+    global_state_cs: #"",
   }
   let new = RegistryNode {
     key: #"aa",
@@ -281,8 +281,8 @@ test is_field_updated_registry_node_update_true() {
       #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
     ),
     minting_logic_script: Script(#"33"),
-    global_state_cs: #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
     unfracking_logic_script: empty_vkey,
+    global_state_cs: #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
   }
 
   is_field_updated_registry_node(new, original)
@@ -310,8 +310,8 @@ fn valid_inserted_node() -> RegistryNode {
     minting_logic_script: Script(
       #"44444444444444444444444444444444444444444444444444444444",
     ),
-    global_state_cs: #"33333333333333333333333333333333333333333333333333333333",
     unfracking_logic_script: empty_vkey,
+    global_state_cs: #"33333333333333333333333333333333333333333333333333333333",
   }
 }
 
@@ -359,8 +359,8 @@ fn updatable_node() -> RegistryNode {
       #"22222222222222222222222222222222222222222222222222222222",
     ),
     minting_logic_script: Script(#"33"),
-    global_state_cs: #"",
     unfracking_logic_script: empty_vkey,
+    global_state_cs: #"",
   }
 }
 

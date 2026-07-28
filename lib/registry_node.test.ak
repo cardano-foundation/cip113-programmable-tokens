@@ -113,8 +113,8 @@ fn any_registry_node() -> Fuzzer<RegistryNode> {
       minting_logic_script,
       transfer_logic_script,
       third_party_transfer_logic_script,
-      global_state_cs,
       unfracking_logic_script,
+      global_state_cs,
     },
   )
 }
@@ -161,7 +161,7 @@ test prop_with_key_and_unfracking_logic_roundtrip(node via any_registry_node()) 
   }
 }
 
-// Deterministic off-by-one guard for the field-6 traversal: every field
+// Deterministic off-by-one guard for the field-5 traversal: every field
 // gets a DISTINCT, hand-chosen value so the assertions pin the exact
 // indices regardless of fuzz luck.
 test with_key_and_unfracking_logic_extracts_exact_fields() {
@@ -171,8 +171,8 @@ test with_key_and_unfracking_logic_extracts_exact_fields() {
     minting_logic_script: VerificationKey(#"a2"),
     transfer_logic_script: VerificationKey(#"a3"),
     third_party_transfer_logic_script: Script(#"a4"),
-    global_state_cs: #"a5",
     unfracking_logic_script: Script(#"a6"),
+    global_state_cs: #"a5",
   }
   let key, unfracking_logic_script <- with_key_and_unfracking_logic(node)
   and {

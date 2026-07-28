@@ -366,8 +366,8 @@ fn old_registry_node() -> RegistryNode {
     minting_logic_script: Script(test_minting_logic_hash),
     transfer_logic_script: Script(test_transfer_old),
     third_party_transfer_logic_script: Script(test_third_party_old),
-    global_state_cs: #"",
     unfracking_logic_script: empty_vkey,
+    global_state_cs: #"",
   }
 }
 
@@ -377,8 +377,8 @@ fn new_registry_node() -> RegistryNode {
     ..old_registry_node(),
     transfer_logic_script: Script(test_transfer_new),
     third_party_transfer_logic_script: Script(test_third_party_new),
-    global_state_cs: test_global_new,
     unfracking_logic_script: empty_vkey,
+    global_state_cs: test_global_new,
   }
 }
 

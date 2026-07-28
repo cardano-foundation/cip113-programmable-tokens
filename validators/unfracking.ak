@@ -26,7 +26,7 @@
 ////   * unfracking.withdraw (this validator) — enforces all the
 ////     Unfracking invariants, INCLUDING that the acted-on policy's
 ////     issuer-declared `unfracking_logic_script` withdraw-0 (registry
-////     node field 6) is present. Least permission by default: an unset
+////     node field 5) is present. Least permission by default: an unset
 ////     hook forbids unfracking for that policy outright.
 ////   * the owner's stake-script withdraw-0 (or a vkey signature) —
 ////     holder authorisation, same pattern as TransferAct.

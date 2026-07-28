@@ -14,7 +14,7 @@
 ////     unfracking's withdraw-0 (the delegation gate).
 ////   * unfracking.withdraw — enforces the v2 invariants tested here,
 ////     including that the acted-on policy's issuer hook withdraw-0
-////     (registry node field 6, `credential_unfracking_hook` in the
+////     (registry node field 5, `credential_unfracking_hook` in the
 ////     fixture) is present. No script, no party.
 ////   * the owner's stake-script withdraw-0 (transfer logic in the
 ////     default fixture) — or a vkey signature instead.
@@ -118,8 +118,8 @@ fn node_ref_with_hook(hook: Credential) -> Input {
             transfer_logic_script: fixture.credential_transfer_logic,
             third_party_transfer_logic_script: fixture.credential_3rd_party_logic,
             minting_logic_script: empty_vkey,
-            global_state_cs: "",
             unfracking_logic_script: hook,
+            global_state_cs: "",
           },
         ),
       ),

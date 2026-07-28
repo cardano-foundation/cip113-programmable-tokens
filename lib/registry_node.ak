@@ -35,8 +35,8 @@ pub const origin_node: RegistryNode =
     minting_logic_script: empty_vkey,
     transfer_logic_script: empty_vkey,
     third_party_transfer_logic_script: empty_vkey,
-    global_state_cs: #"",
     unfracking_logic_script: empty_vkey,
+    global_state_cs: #"",
   }
 
 /// Registry node in the linked list of registered programmable token policies
@@ -63,8 +63,6 @@ pub type RegistryNode {
   transfer_logic_script: Credential,
   /// The third party transfer logic script credential that handles admin actions (seizure, etc.)
   third_party_transfer_logic_script: Credential,
-  /// Optional global state NFT currency symbol for this policy
-  global_state_cs: ByteArray,
   /// Credential whose withdraw-0 must be invoked by any UnfrackingAct
   /// touching this policy — the issuer-declared unfracking constraint
   /// hook. `empty_vkey` means unfracking is FORBIDDEN for this policy
@@ -72,10 +70,13 @@ pub type RegistryNode {
   /// credential delegates to the issuer's hook validator; a
   /// `VerificationKey` credential gives signature-gated unfracking (a
   /// withdrawal against a vkey reward account requires that key's
-  /// signature). Appended LAST (index 6) so every existing positional
-  /// accessor (indices 0-5) keeps working unchanged. Freely mutable
-  /// through the registry-node update path, like the other logic fields.
+  /// signature). Sits at index 5, keeping the four logic-credential
+  /// fields contiguous (2-5) ahead of the scalar `global_state_cs`.
+  /// Freely mutable through the registry-node update path, like the
+  /// other logic fields.
   unfracking_logic_script: Credential,
+  /// Optional global state NFT currency symbol for this policy
+  global_state_cs: ByteArray,
 }
 
 pub fn new_registry_node_getter(
@@ -176,10 +177,10 @@ pub fn with_key_and_unfracking_logic(
 ) -> result {
   let fields = unconstr_fields(data)
   expect key: ByteArray = list.head(fields)
-  // RegistryNode field index 6: key=0, next=1, minting_logic=2,
-  // transfer_logic=3, third_party=4, global_state_cs=5, unfracking=6
+  // RegistryNode field index 5: key=0, next=1, minting_logic=2,
+  // transfer_logic=3, third_party=4, unfracking=5 (global_state_cs=6)
   expect unfracking_logic_script: Credential = list.head(
-    list.tail(list.tail(list.tail(list.tail(list.tail(list.tail(fields)))))),
+    list.tail(list.tail(list.tail(list.tail(list.tail(fields))))),
   )
   return(key, unfracking_logic_script)
 }
