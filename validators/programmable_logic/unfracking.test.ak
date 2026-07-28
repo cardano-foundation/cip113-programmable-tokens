@@ -210,9 +210,13 @@ test unfracking_multi_utxo_consolidation_succeeds() {
   run_unfracking(tx)
 }
 
-// v2: the acted balance may PARTIALLY decrease in a pair — the rest
-// regroups. Non-acted B stays byte-identical.
-test unfracking_partial_decrease_succeeds() {
+// Full strip: a PARTIAL strip leaving acted residue in the continuing
+// output is rejected. Requirements-driven: in the freeze case the
+// residue keeps the continuing UTxO needing the frozen policy's
+// transfer proof (still stuck), and partial same-owner rebalancing is
+// TransferAct's job — with transfer logic as the proper bouncer — not
+// this bypass's.
+test unfracking_fails_partial_strip_residue_in_pair() fail {
   let tx = Transaction {
     ..valid_unfracking_tx(),
     outputs: [
@@ -225,9 +229,10 @@ test unfracking_partial_decrease_succeeds() {
   run_unfracking(tx)
 }
 
-// v2: a no-change pair is legal — the acted balance may stay put (the
-// holder rebuilds the UTxO; conservation still balances).
-test unfracking_no_change_pair_succeeds() {
+// Full strip: a no-change pair (the acted balance stays put entirely)
+// is rejected for the same reason as the partial residue above — and it
+// would be pure churn besides.
+test unfracking_fails_acted_tokens_unmoved_in_pair() fail {
   let tx = Transaction {
     ..valid_unfracking_tx(),
     outputs: [
