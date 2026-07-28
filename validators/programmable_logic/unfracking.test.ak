@@ -410,10 +410,11 @@ test unfracking_interleaved_non_plb_input_succeeds() {
 // builds on `valid_unfracking_tx()` and overrides exactly one field.
 
 // v2 default-deny: the acted policy's registry node has NO hook set
-// (`empty_vkey`) — unfracking is forbidden outright. The hook
-// withdrawal is still present in the tx; the ONE delta is the registry
-// field, isolating the "no script, no party" rule from the
-// hook-invocation check below.
+// (`empty_vkey`) — unfracking is forbidden outright. There is no
+// explicit sentinel check: the invocation lookup itself is
+// unsatisfiable, because no ledger tx can carry a withdrawal keyed by
+// an empty hash. The hook withdrawal is still present in the tx; the
+// ONE delta is the registry field.
 test unfracking_fails_when_hook_unset() fail {
   let tx = Transaction {
     ..valid_unfracking_tx(),

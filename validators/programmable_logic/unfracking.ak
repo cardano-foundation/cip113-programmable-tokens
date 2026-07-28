@@ -39,7 +39,9 @@
 ////
 ////   * `tx.mint` is zero — unfracking is strictly value-preserving;
 ////     mint/burn is issuance_mint's job.
-////   * The acted-on policy's hook is set and its withdraw-0 is invoked.
+////   * The acted-on policy's hook withdraw-0 is invoked. Default-deny
+////     falls out: an unset hook is `empty_vkey`, and no ledger tx can
+////     carry a withdrawal keyed by an empty hash.
 ////   * SINGLE OWNER: every PLB input carries the same full address —
 ////     payment `prog_logic_cred` + the stake credential pinned by the
 ////     first PLB input. The owner authorises once: a vkey stake
@@ -83,7 +85,7 @@ use cardano/assets.{PolicyId} as value
 use cardano/transaction.{Input, Output, Transaction}
 use list
 use pairs
-use registry_node.{empty_vkey, with_key_and_unfracking_logic}
+use registry_node.{with_key_and_unfracking_logic}
 use tokens.{Tokens}
 
 /// Validate an Unfracking action. See module docstring for the full
@@ -105,12 +107,15 @@ pub fn validate_unfracking(
     registry_node,
   )
 
-  // Least permission by default: an issuer who never set the hook has
-  // FORBIDDEN unfracking for this policy. No script, no party.
-  expect (unfracking_logic != empty_vkey)?
-
   // The hook is always executed — same invocation style as the transfer
-  // and third-party logic scripts.
+  // and third-party logic scripts. This single check also carries the
+  // default-deny: an unset hook is `empty_vkey`, and no transaction can
+  // carry a withdrawal keyed by an empty hash (a reward account is a
+  // header byte + 28-byte hash; anything shorter fails phase-1
+  // deserialisation), so an issuer who never set the hook has FORBIDDEN
+  // unfracking for this policy. No script, no party. Same ledger
+  // impossibility the transfer / third-party invocations already rely
+  // on for the origin node's empty credentials.
   expect pairs.has_key_or_fail(self.withdrawals, unfracking_logic)
 
   // Pin the single owner from the first PLB input and authorise it once
