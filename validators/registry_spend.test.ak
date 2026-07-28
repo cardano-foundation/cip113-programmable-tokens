@@ -12,7 +12,7 @@ use cardano/transaction.{
   InlineDatum, Input, NoDatum, Output, OutputReference, Transaction,
 }
 use programmable_logic/params.{ProgrammableLogicGlobalParams}
-use registry_node.{RegistryNode, origin_node}
+use registry_node.{RegistryNode, empty_vkey, origin_node}
 use registry_spend
 
 // ---------------------------------------------------------------------------
@@ -367,6 +367,7 @@ fn old_registry_node() -> RegistryNode {
     transfer_logic_script: Script(test_transfer_old),
     third_party_transfer_logic_script: Script(test_third_party_old),
     global_state_cs: #"",
+    unfracking_logic_script: empty_vkey,
   }
 }
 
@@ -377,6 +378,7 @@ fn new_registry_node() -> RegistryNode {
     transfer_logic_script: Script(test_transfer_new),
     third_party_transfer_logic_script: Script(test_third_party_new),
     global_state_cs: test_global_new,
+    unfracking_logic_script: empty_vkey,
   }
 }
 

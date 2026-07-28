@@ -10,9 +10,10 @@ use cardano/assets.{AssetName, PolicyId, Value, ada_asset_name, ada_policy_id}
 use cardano/fuzz as cardano
 use cardano/transaction.{InlineDatum, Input, NoDatum, Output, Transaction}
 use programmable_logic/params.{ProgrammableLogicGlobalParams}
-use registry_node.{RegistryNode, empty_vkey}
+use registry_node.{RegistryNode, empty_vkey, sentinel_next_key}
 use types.{
   ProgrammableLogicGlobalRedeemer, TokenExists, TransferAct, UnfrackingAct,
+  UnfrackingRedeemer,
 }
 
 /// Some script credential for the transfer logic. Could also be a verification
@@ -44,6 +45,13 @@ pub const credential_validator_logic_global: Credential =
 /// script's withdraw-0.
 pub const credential_validator_unfracking: Credential =
   Credential.Script(#"00000000000000000000000000000000000000000000000000def17a")
+
+/// Arbitrary script credential representing an ISSUER's unfracking
+/// constraint hook (unfracking v2): the credential registered in a
+/// policy's `unfracking_logic_script` registry field, whose withdraw-0
+/// must accompany every UnfrackingAct on that policy.
+pub const credential_unfracking_hook: Credential =
+  Credential.Script(#"000000000000000000000000000000000000000000000000000b00c5")
 
 /// Arbitrary script hash representing the protocol params NFT's minting script
 pub const policy_protocol_params: PolicyId =
@@ -87,6 +95,9 @@ pub const withdrawals_unfracking: Pairs<Credential, Int> =
     Pair(credential_validator_unfracking, 0),
     // The artificial withdraw-0 authorising the script-staked PLB inputs
     Pair(credential_transfer_logic, 0),
+    // The artificial withdraw-0 of the acted-on policy's issuer hook
+    // (unfracking v2: the hook is always executed — no script, no party)
+    Pair(credential_unfracking_hook, 0),
   ]
 
 /// Parameters for a specific instance of the registry.
@@ -266,6 +277,7 @@ pub fn some_reference_input_tokens_registry_node_with(
             // PR-1: not exercised by transfer/3rd-party tests; placeholder.
             minting_logic_script: empty_vkey,
             global_state_cs: "",
+            unfracking_logic_script: empty_vkey,
           },
         ),
       ),
@@ -351,38 +363,81 @@ pub fn some_transfer(
   )
 }
 
-/// Baseline transaction for an Unfracking action (Finding 17). Takes
-/// the per-policy tokens that should be present at PLB and a layout
-/// rule for the outputs: one output per element of the outer list,
-/// each carrying the inner list of tokens.
+/// A registry-node reference input for the unfracking (v2) tests and
+/// benches: the node's `unfracking_logic_script` is set to
+/// `credential_unfracking_hook`, so an action on `key` is permitted
+/// exactly when that hook's withdraw-0 is present.
+pub fn some_reference_input_unfracking_registry_node(
+  key: ByteArray,
+  label: ByteArray,
+) -> Input {
+  Input {
+    output_reference: generate(cardano.output_reference(), label),
+    output: Output {
+      address: address.from_verification_key(
+        generate(cardano.verification_key_hash(), label),
+      ),
+      value: min_ada_value
+        |> assets.add(policy_tokens_registry, blake2b_256(key), 1),
+      datum: InlineDatum(
+        as_data(
+          RegistryNode {
+            key,
+            next: sentinel_next_key,
+            transfer_logic_script: credential_transfer_logic,
+            third_party_transfer_logic_script: credential_3rd_party_logic,
+            minting_logic_script: empty_vkey,
+            global_state_cs: "",
+            unfracking_logic_script: credential_unfracking_hook,
+          },
+        ),
+      ),
+      reference_script: None,
+    },
+  }
+}
+
+/// Baseline transaction for an Unfracking action (v2, registry-gated).
+/// Single-policy, ThirdPartyAct-shaped: ONE fracked PLB input holding
+/// `input_tokens` (which must include the acted-on policy) is paired
+/// with a continuing output holding `continuing_tokens` (the untouched
+/// non-acted remainder — byte-identity is the validator's per-pair
+/// rule), while the acted tokens land in an extra output at the same
+/// owner address holding `moved_tokens`.
 ///
-/// All inputs and outputs use the default `credential_transfer_logic`
-/// stake credential, so input authorisation comes from that script's
-/// withdraw-0 (part of `withdrawals_unfracking`, together with the PLG
-/// and unfracking withdraw-0s — the full script composition of
-/// a real unfracking transaction).
-///
-/// No registry node references are required — Unfracking does not
-/// consult the registry — so the only reference input is the
-/// protocol-params NFT.
+/// Outputs layout: [pair-continuing, extra] with `outputs_start_idx: 0`;
+/// reference inputs: [protocol params, acted policy's registry node]
+/// with `registry_node_idx: 1`. Withdrawals carry the full v2
+/// composition: PLG (base spends), the unfracking validator (PLG's
+/// delegation gate), the transfer-logic script (owner authorisation for
+/// the script-staked input), and the issuer's unfracking hook.
 pub fn some_unfracking(
+  acted_policy_key: ByteArray,
   input_tokens: List<(PolicyId, AssetName, Int)>,
-  output_layouts: List<List<(PolicyId, AssetName, Int)>>,
-) -> (Transaction, ProgrammableLogicGlobalRedeemer) {
-  let outputs = list.map(output_layouts, some_output_with_programmable_tokens)
+  continuing_tokens: List<(PolicyId, AssetName, Int)>,
+  moved_tokens: List<(PolicyId, AssetName, Int)>,
+) -> (Transaction, ProgrammableLogicGlobalRedeemer, UnfrackingRedeemer) {
   (
     Transaction {
       ..transaction.placeholder,
       inputs: [
         some_input_with_programmable_tokens(input_tokens, "unfracking input"),
       ],
-      outputs,
+      outputs: [
+        some_output_with_programmable_tokens(continuing_tokens),
+        some_output_with_programmable_tokens(moved_tokens),
+      ],
       reference_inputs: [
         some_reference_input_protocol_params(protocol_params, "protocol params"),
+        some_reference_input_unfracking_registry_node(
+          acted_policy_key,
+          "unfracking registry node",
+        ),
       ],
       withdrawals: withdrawals_unfracking,
     },
     UnfrackingAct,
+    UnfrackingRedeemer { registry_node_idx: 1, outputs_start_idx: 0 },
   )
 }
 

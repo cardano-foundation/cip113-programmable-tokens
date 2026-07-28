@@ -72,6 +72,7 @@ test registry_node_validation_for_transfer() {
     third_party_transfer_logic_script: test_third_party_transfer_logic_cred,
     minting_logic_script: empty_vkey,
     global_state_cs: #"",
+    unfracking_logic_script: empty_vkey,
   }
 
   // Node key should match the token CS
@@ -92,6 +93,7 @@ test covering_node_logic_for_non_existent_token() {
     third_party_transfer_logic_script: test_third_party_transfer_logic_cred,
     minting_logic_script: empty_vkey,
     global_state_cs: #"",
+    unfracking_logic_script: empty_vkey,
   }
 
   // Covering node should satisfy: covering_key < token_cs < next_key
@@ -296,6 +298,7 @@ fn third_party_registry_node_ref_input(
             third_party_transfer_logic_script: third_party_cred,
             minting_logic_script: empty_vkey,
             global_state_cs: "",
+            unfracking_logic_script: empty_vkey,
           },
         ),
       ),

@@ -7,7 +7,9 @@ use cardano/address.{Address, Credential, Script, VerificationKey}
 
 use cardano/assets.{AssetName, PolicyId, Value}
 use cardano/transaction.{Output}
-use registry_node.{RegistryNode, origin_node, origin_node_tn, sentinel_next_key}
+use registry_node.{
+  RegistryNode, empty_vkey, origin_node, origin_node_tn, sentinel_next_key,
+}
 use utils.{bytearray_lt, expect_inline_datum, has_currency_symbol}
 
 /// Validate the *common* structural properties of a registry-node output and
@@ -133,6 +135,12 @@ pub fn is_inserted_directory_node(
     (bytearray.length(node.global_state_cs) == 0 || is_28_bytes(
       node.global_state_cs,
     ))?,
+    // Unfracking v2: the hook is either UNSET (empty_vkey — unfracking
+    // forbidden for this policy, the default) or a strict 28-byte
+    // credential. The credential analogue of the global_state_cs rule.
+    (node.unfracking_logic_script == empty_vkey || is_28_byte_credential(
+      node.unfracking_logic_script,
+    ))?,
   }
 }
 
@@ -185,11 +193,17 @@ pub fn is_field_updated_registry_node(
       transfer_logic_script: new.transfer_logic_script,
       third_party_transfer_logic_script: new.third_party_transfer_logic_script,
       global_state_cs: new.global_state_cs,
+      unfracking_logic_script: new.unfracking_logic_script,
     },
     is_28_byte_credential(new.transfer_logic_script)?,
     is_28_byte_credential(new.third_party_transfer_logic_script)?,
     (bytearray.length(new.global_state_cs) == 0 || is_28_bytes(
       new.global_state_cs,
+    ))?,
+    // Unfracking v2: mutable like the other logic fields — an issuer may
+    // set, change, or UNSET (back to empty_vkey = forbidden) the hook.
+    (new.unfracking_logic_script == empty_vkey || is_28_byte_credential(
+      new.unfracking_logic_script,
     ))?,
   }
 }
