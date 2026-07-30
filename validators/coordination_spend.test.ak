@@ -65,11 +65,6 @@ fn coordination_value() -> Value {
     |> assets.add(params_nft_policy, "ProtocolParams", 1)
 }
 
-/// Current on-chain params (the datum being spent).
-fn old_params() -> ProgrammableLogicGlobalParams {
-  ProgrammableLogicGlobalParams { ..fixture.protocol_params }
-}
-
 /// Params after a legitimate PLG-swap upgrade: only `prog_logic_global_cred`
 /// changes; everything else (incl. the frozen anchors) is preserved.
 fn upgraded_params() -> ProgrammableLogicGlobalParams {
@@ -85,7 +80,7 @@ fn coordination_input() -> Input {
     output: Output {
       address: coordination_address(),
       value: coordination_value(),
-      datum: InlineDatum(as_data(old_params())),
+      datum: InlineDatum(as_data(fixture.protocol_params)),
       reference_script: None,
     },
   }
@@ -125,7 +120,7 @@ fn valid_upgrade_tx() -> Transaction {
 fn call(tx: Transaction) -> Bool {
   coordination_spend.coordination_spend.spend(
     "nonce",
-    Some(old_params()),
+    Some(fixture.protocol_params),
     Void,
     own_ref,
     tx,
@@ -389,7 +384,7 @@ test coord_fails_two_coordination_inputs() fail {
     output: Output {
       address: coordination_address(),
       value: assets.zero |> assets.add(ada_policy_id, ada_asset_name, 2_000_000),
-      datum: InlineDatum(as_data(old_params())),
+      datum: InlineDatum(as_data(fixture.protocol_params)),
       reference_script: None,
     },
   }
