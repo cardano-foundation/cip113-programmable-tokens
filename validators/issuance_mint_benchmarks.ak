@@ -80,7 +80,6 @@ fn registry_node_ref_input() -> Input {
           third_party_transfer_logic_script: empty_vkey,
           minting_logic_script: test_ml_cred,
           global_state_cs: #"",
-          protected_prefixes: [],
         },
       ),
       reference_script: None,

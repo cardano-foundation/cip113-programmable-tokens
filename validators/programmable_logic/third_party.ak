@@ -3,15 +3,14 @@
 //// Migrated from SmartTokens.Contracts.ProgrammableLogicBase (mkProgrammableLogicGlobal)
 
 use aiken/collection/dict
-use aiken/collection/list.{any, foldl} as aiken_list
-use aiken/primitive/bytearray
+use aiken/collection/list.{foldl} as aiken_list
 use assets
 use cardano/address.{Credential}
 use cardano/assets.{PolicyId} as value
 use cardano/transaction.{Input, Output, Transaction}
 use list
 use pairs
-use registry_node.{with_3rd_party_logic_and_protected}
+use registry_node.{with_key_and_3rd_party_logic}
 use tokens.{Tokens}
 
 pub fn validate_3rd_party(
@@ -20,10 +19,8 @@ pub fn validate_3rd_party(
   registry_node: Data,
   outputs_start_idx: Int,
 ) -> Bool {
-  // Extract registry details from datum, including the issuer-declared list of
-  // CIP-67 label prefixes that ThirdPartyAct (admin seizure) must NOT touch
-  // (Finding 18).
-  let policy_id, third_party_logic, protected_prefixes <- with_3rd_party_logic_and_protected(
+  // Extract registry details from datum
+  let policy_id, third_party_logic <- with_key_and_3rd_party_logic(
     registry_node,
   )
 
@@ -50,30 +47,10 @@ pub fn validate_3rd_party(
   validate_io_constraints_and_balance(
     prog_logic_cred,
     policy_id,
-    protected_prefixes,
     self.inputs,
     outputs,
     minted_or_burned,
     output_tokens,
-  )
-}
-
-/// Finding 18: select the subset of a policy's tokens whose asset name begins
-/// with one of the issuer-declared protected CIP-67 label prefixes. Prefixes
-/// are 4-byte (enforced at Insert time). `dict.filter` preserves the ascending
-/// key order, so two protected subsets compare byte-for-byte under `==`.
-fn protected_subset(
-  tokens: Tokens,
-  protected_prefixes: List<ByteArray>,
-) -> Tokens {
-  dict.filter(
-    tokens,
-    fn(asset_name, _quantity) {
-      any(
-        protected_prefixes,
-        fn(prefix) { bytearray.take(asset_name, 4) == prefix },
-      )
-    },
   )
 }
 
@@ -133,7 +110,6 @@ fn drop_accum_tokens(
 fn validate_io_constraints_and_balance(
   prog_logic_cred: Credential,
   policy_id: PolicyId,
-  protected_prefixes: List<ByteArray>,
   inputs: List<Input>,
   outputs: List<Output>,
   input_tokens: Tokens,
@@ -188,15 +164,32 @@ fn validate_io_constraints_and_balance(
         expect output.datum == input.datum
         expect output.reference_script == input.reference_script
 
+        // [AL] issue #96: peel the ada entry (empty policy id — always the
+        // first entry, since every UTxO holds lovelace) off BOTH sides before
+        // comparing the halves, and RATCHET it: the paired output must carry
+        // at least the input's lovelace. Splitting the full value put ada in
+        // the `before` half, so its byte-equality forced exact lovelace
+        // conservation per pair — and a protocol-parameter rise of the
+        // min-ADA calculation above an existing UTxO's lovelace made every
+        // ThirdPartyAct on it unsatisfiable forever (equality forbade the
+        // top-up that would absorb the rise). `>=` ONLY: lovelace is not a
+        // programmable asset, so accepting less would let the admin drain
+        // the holder's ada while seizing.
+        let input_lovelace, input_assets <- assets.split_lovelace(input.value)
+        let output_lovelace, output_assets <- assets.split_lovelace(
+          output.value,
+        )
+        expect (output_lovelace >= input_lovelace)?
+
         // Extract seized tokens as the delta between outputs and inputs for the
         // given policy, ensuring all else is equal.
-        let input_tokens_before, input_tokens_at, input_tokens_after <- assets.split_at(
-          input.value,
+        let input_tokens_before, input_tokens_at, input_tokens_after <- assets.assets_split_at(
+          input_assets,
           policy_id,
         )
 
-        let output_tokens_before, output_tokens_at, output_tokens_after <- assets.split_at(
-          output.value,
+        let output_tokens_before, output_tokens_at, output_tokens_after <- assets.assets_split_at(
+          output_assets,
           policy_id,
         )
 
@@ -228,39 +221,9 @@ fn validate_io_constraints_and_balance(
             (input_tokens_after == output_tokens_after)?,
           }
 
-        // Finding 18: the PROTECTED subset of the acted-on policy (tokens whose
-        // CIP-67 asset-name label prefix is on the issuer-declared list) must
-        // be byte-identical across the pair. This is "preserve, not fail": the
-        // seizable remainder of the same UTxO is still freely seizable (the
-        // conservation balance below allows it to be redirected), but a
-        // protected token must remain exactly where it is. Because the subsets
-        // are filtered out of the same per-policy dict (ascending order
-        // preserved), `==` is a byte-equality comparison. This blocks BOTH:
-        //   * EXTRACTION — the paired output would hold less of (or none of) a
-        //     protected token than the input, so the subsets differ; and
-        //   * ADMIN BURN — burning a protected token makes it vanish from the
-        //     output's protected subset while still present in the input's, so
-        //     the subsets differ. (The unprotected remainder may still be
-        //     burned via tx.mint, reconciled by the conservation balance.)
-        //
-        // Empty-list fast path: when no prefixes are protected (the default),
-        // skip the two `protected_subset` filters entirely — only a cheap
-        // list-empty check is paid per pair, keeping this case close to the
-        // pre-Finding-18 baseline.
-        expect
-          when protected_prefixes is {
-            [] -> True
-            _ ->
-              protected_subset(input_tokens_at, protected_prefixes) == protected_subset(
-                output_tokens_at,
-                protected_prefixes,
-              )
-          }
-
         validate_io_constraints_and_balance(
           prog_logic_cred,
           policy_id,
-          protected_prefixes,
           tail_inputs,
           list.tail(outputs),
           tokens.union(input_tokens, input_tokens_at),
@@ -270,7 +233,6 @@ fn validate_io_constraints_and_balance(
         validate_io_constraints_and_balance(
           prog_logic_cred,
           policy_id,
-          protected_prefixes,
           tail_inputs,
           outputs,
           input_tokens,

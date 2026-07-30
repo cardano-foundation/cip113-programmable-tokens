@@ -311,6 +311,26 @@ test prop_split_at_after_still_ordered(
   dict.from_pairs(after) == dict.empty || True
 }
 
+// -------------------------------------------------------------- split_lovelace
+
+test split_lovelace_extracts_lovelace_and_remaining_assets() {
+  let v = value.from_asset(ada_policy_id, ada_asset_name, 2_000_000)
+    |> value.add("policy", "TOK", 7)
+  let lovelace, rest <- assets.split_lovelace(v)
+  and {
+    (lovelace == 2_000_000)?,
+    (rest == assets.from_value(value.from_asset("policy", "TOK", 7)))?,
+  }
+}
+
+// A Value with no ada entry cannot occur on the ledger; the helper fails
+// loudly rather than mistaking the first asset policy for lovelace.
+test split_lovelace_fails_without_ada() fail {
+  let v = value.from_asset("policy", "TOK", 7)
+  let lovelace, _rest <- assets.split_lovelace(v)
+  lovelace >= 0
+}
+
 // --------------------------------------------------------------------- helpers
 
 fn assets_to_value(self: Assets) -> Value {

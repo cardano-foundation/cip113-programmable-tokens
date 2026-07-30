@@ -72,7 +72,6 @@ test registry_node_validation_for_transfer() {
     third_party_transfer_logic_script: test_third_party_transfer_logic_cred,
     minting_logic_script: empty_vkey,
     global_state_cs: #"",
-    protected_prefixes: [],
   }
 
   // Node key should match the token CS
@@ -93,7 +92,6 @@ test covering_node_logic_for_non_existent_token() {
     third_party_transfer_logic_script: test_third_party_transfer_logic_cred,
     minting_logic_script: empty_vkey,
     global_state_cs: #"",
-    protected_prefixes: [],
   }
 
   // Covering node should satisfy: covering_key < token_cs < next_key
@@ -298,7 +296,6 @@ fn third_party_registry_node_ref_input(
             third_party_transfer_logic_script: third_party_cred,
             minting_logic_script: empty_vkey,
             global_state_cs: "",
-            protected_prefixes: [],
           },
         ),
       ),
@@ -1848,250 +1845,85 @@ test third_party_act_reference_script_swapped_fails() fail {
 }
 
 // ---------------------------------------------------------------------------
-// Finding 18: protected CIP-67 label prefixes — admin seizure must PRESERVE
-// (not extract or burn) tokens whose asset-name label prefix is on the
-// issuer-declared `protected_prefixes` list, while everything else co-located
-// in the same UTxO stays freely seizable ("preserve, not fail").
+// [AL] issue #96: per-pair lovelace must RATCHET (output >= input), not be
+// strictly equal. `split_at` runs on the full Value, so the ada entry (empty
+// policy id, sorts first) lands in the `before` half and its byte-equality
+// forces the paired output to carry EXACTLY the input's lovelace. If a
+// protocol-parameter update raises the min-ADA calculation above an existing
+// UTxO's lovelace (even by 1), every ThirdPartyAct on that UTxO becomes
+// unsatisfiable forever — equality forbids the top-up that would absorb the
+// rise.
 // ---------------------------------------------------------------------------
 
-/// CIP-67 label-100 prefix (reference NFT) — the canonical protected prefix.
-const label_100_prefix: ByteArray = #"000643b0"
+/// A foreign programmable policy that sorts BEFORE `test_third_party_policy`,
+/// so it lives in the same `before` half as ada — guards that peeling ada off
+/// the pair comparison does not weaken the non-acted-on-policy byte-identity.
+const test_policy_sorting_before: PolicyId =
+  #"00000000000000000000000000000000000000000000000000000e00"
 
-/// A protected (label-100) reference-NFT asset name: the 4-byte prefix
-/// followed by an arbitrary suffix.
-const protected_asset_name: ByteArray = #"000643b0deadbeef"
-
-/// Build a registry-node reference input identical to
-/// `third_party_registry_node_ref_input` but with a non-empty
-/// `protected_prefixes` list.
-fn third_party_registry_node_ref_input_protected(
-  key: ByteArray,
-  third_party_cred: Credential,
-  protected_prefixes: List<ByteArray>,
-) -> Input {
-  Input {
-    output_reference: OutputReference {
-      transaction_id: #"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
-      output_index: 0,
-    },
-    output: Output {
-      address: Address {
-        payment_credential: Script(
-          #"00000000000000000000000000000000000000000000000000aabb",
-        ),
-        stake_credential: None,
-      },
-      value: from_asset(ada_policy_id, ada_asset_name, 1_000_000)
-        |> merge(
-            from_asset(fixture.policy_tokens_registry, blake2b_256(key), 1),
-          ),
-      datum: InlineDatum(
-        as_data(
-          RegistryNode {
-            key,
-            next: #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
-            transfer_logic_script: fixture.credential_transfer_logic,
-            third_party_transfer_logic_script: third_party_cred,
-            minting_logic_script: empty_vkey,
-            global_state_cs: "",
-            protected_prefixes,
-          },
-        ),
-      ),
-      reference_script: None,
-    },
+/// Spread a paired programmable-tokens output and add `delta` lovelace on top
+/// of the fixture's min-ada value (negative delta = drain).
+fn output_with_extra_lovelace(
+  tokens: List<(PolicyId, AssetName, Int)>,
+  delta: Int,
+) -> Output {
+  let base = fixture.some_output_with_programmable_tokens(tokens)
+  Output {
+    ..base,
+    value: base.value
+      |> merge(from_asset(ada_policy_id, ada_asset_name, delta)),
   }
 }
 
-/// Finding 18: a single PLB UTxO holds BOTH a seizable token ("FOO", 100) and
-/// a co-located protected label-100 NFT. The admin seizes all the FOO while
-/// the protected NFT is preserved byte-for-byte on the paired output. Proves
-/// "preserve, not fail": co-locating a protected token does NOT grief the
-/// seizure of everything else in the same UTxO.
-test third_party_act_protected_preserved_while_seizing_others() {
-  let tx = Transaction {
-    ..transaction.placeholder,
-    inputs: [
-      fixture.some_input_with_programmable_tokens(
-        [
-          (test_third_party_policy, "FOO", 100),
-          (test_third_party_policy, protected_asset_name, 1),
-        ],
-        "f18_preserve_input",
+// [AL] issue #96 positive: topping the paired output up by even a couple of
+// lovelace must be ACCEPTED — it is exactly the move that absorbs a min-ADA
+// parameter rise. Against the pre-fix code (strict before-half equality) this
+// test FAILS, proving the report.
+test third_party_act_pair_ada_topup_succeeds() {
+  validate_third_party_with_outputs(
+    [
+      // Paired output: identical token set, 2 lovelace MORE than its input.
+      output_with_extra_lovelace([], 2),
+      fixture.some_output_with_programmable_tokens([]),
+      fixture.some_output_with_seized_tokens(
+        [(test_third_party_policy, "FOO", 142)],
       ),
     ],
-    outputs: [
-      // Paired output: FOO seized, the protected NFT stays put.
-      fixture.some_output_with_programmable_tokens(
-        [(test_third_party_policy, protected_asset_name, 1)],
-      ),
-      // Remaining output: the 100 seized FOO stays at prog_logic_cred.
-      fixture.some_output_with_programmable_tokens(
-        [(test_third_party_policy, "FOO", 100)],
-      ),
-    ],
-    reference_inputs: [
-      fixture.some_reference_input_protocol_params(
-        fixture.protocol_params,
-        "protocol params",
-      ),
-      third_party_registry_node_ref_input_protected(
-        test_third_party_policy,
-        test_third_party_cred,
-        [label_100_prefix],
-      ),
-    ],
-    withdrawals: [
-      Pair(fixture.credential_validator_logic_global, 0),
-      Pair(test_third_party_cred, 0),
-    ],
-  }
-
-  let redeemer = ThirdPartyAct { registry_node_idx: 1, outputs_start_idx: 0 }
-
-  programmable_logic_global.programmable_logic_global.withdraw(
-    fixture.policy_protocol_params,
-    redeemer,
-    fixture.credential_validator_logic_global,
-    tx,
+    0,
   )
 }
 
-/// Finding 18: extracting a protected (label-100) token must FAIL. The paired
-/// output drops the protected NFT (and a remaining PLB output picks it up, so
-/// the conservation balance alone would be satisfied) — the protected-subset
-/// equality is what rejects it.
-test third_party_act_extract_protected_fails() fail {
-  let tx = Transaction {
-    ..transaction.placeholder,
-    inputs: [
-      fixture.some_input_with_programmable_tokens(
-        [(test_third_party_policy, protected_asset_name, 1)],
-        "f18_extract_input",
-      ),
-    ],
-    outputs: [
-      // Paired output: protected NFT removed — EXTRACTION.
+// [AL] issue #96 negative: the ratchet is one-way. Lovelace is NOT a
+// programmable asset — accepting less on the paired output would let the
+// admin drain the holder's ada while seizing. output < input must fail.
+test third_party_act_pair_ada_drain_fails() fail {
+  validate_third_party_with_outputs(
+    [
+      // Paired output: identical token set, 2 lovelace LESS than its input.
+      output_with_extra_lovelace([], -2),
       fixture.some_output_with_programmable_tokens([]),
-      // Remaining PLB output picks it up (balance would otherwise be happy).
-      fixture.some_output_with_programmable_tokens(
-        [(test_third_party_policy, protected_asset_name, 1)],
+      fixture.some_output_with_seized_tokens(
+        [(test_third_party_policy, "FOO", 142)],
       ),
     ],
-    reference_inputs: [
-      fixture.some_reference_input_protocol_params(
-        fixture.protocol_params,
-        "protocol params",
-      ),
-      third_party_registry_node_ref_input_protected(
-        test_third_party_policy,
-        test_third_party_cred,
-        [label_100_prefix],
-      ),
-    ],
-    withdrawals: [
-      Pair(fixture.credential_validator_logic_global, 0),
-      Pair(test_third_party_cred, 0),
-    ],
-  }
-
-  let redeemer = ThirdPartyAct { registry_node_idx: 1, outputs_start_idx: 0 }
-
-  programmable_logic_global.programmable_logic_global.withdraw(
-    fixture.policy_protocol_params,
-    redeemer,
-    fixture.credential_validator_logic_global,
-    tx,
+    0,
   )
 }
 
-/// Finding 18: burning a protected (label-100) token via mint(-1) must FAIL.
-/// The token vanishes from the paired output's protected subset while still
-/// present on the input — the protected-subset equality rejects it, even
-/// though the conservation balance is satisfied by the burn.
-test third_party_act_burn_protected_fails() fail {
-  let tx = Transaction {
-    ..transaction.placeholder,
-    inputs: [
-      fixture.some_input_with_programmable_tokens(
-        [(test_third_party_policy, protected_asset_name, 1)],
-        "f18_burn_input",
-      ),
-    ],
-    mint: from_asset(test_third_party_policy, protected_asset_name, -1),
-    outputs: [
-      // Paired output: protected NFT gone (burned).
+// [AL] issue #96 regression guard: ada shares the `before` half with every
+// policy that sorts below the acted-on one. Peeling ada off the comparison
+// must NOT loosen the rest of that half — injecting a foreign-policy token
+// into the paired output still fails.
+test third_party_act_pair_foreign_policy_injection_still_fails() fail {
+  validate_third_party_with_outputs(
+    [
+      // Paired output: a token of a NON-acted-on policy appears from nowhere.
+      output_with_extra_lovelace([(test_policy_sorting_before, "BAR", 1)], 0),
       fixture.some_output_with_programmable_tokens([]),
-    ],
-    reference_inputs: [
-      fixture.some_reference_input_protocol_params(
-        fixture.protocol_params,
-        "protocol params",
-      ),
-      third_party_registry_node_ref_input_protected(
-        test_third_party_policy,
-        test_third_party_cred,
-        [label_100_prefix],
+      fixture.some_output_with_seized_tokens(
+        [(test_third_party_policy, "FOO", 142)],
       ),
     ],
-    withdrawals: [
-      Pair(fixture.credential_validator_logic_global, 0),
-      Pair(test_third_party_cred, 0),
-    ],
-  }
-
-  let redeemer = ThirdPartyAct { registry_node_idx: 1, outputs_start_idx: 0 }
-
-  programmable_logic_global.programmable_logic_global.withdraw(
-    fixture.policy_protocol_params,
-    redeemer,
-    fixture.credential_validator_logic_global,
-    tx,
-  )
-}
-
-/// Finding 18 regression: an EMPTY `protected_prefixes` list reproduces exactly
-/// today's seizure behavior — the same scenario as
-/// `third_party_act_extract_protected_fails` PASSES when nothing is protected,
-/// because the protected subset is empty on both sides.
-test third_party_act_empty_protected_reproduces_today() {
-  let tx = Transaction {
-    ..transaction.placeholder,
-    inputs: [
-      fixture.some_input_with_programmable_tokens(
-        [(test_third_party_policy, protected_asset_name, 1)],
-        "f18_empty_protected_input",
-      ),
-    ],
-    outputs: [
-      fixture.some_output_with_programmable_tokens([]),
-      fixture.some_output_with_programmable_tokens(
-        [(test_third_party_policy, protected_asset_name, 1)],
-      ),
-    ],
-    reference_inputs: [
-      fixture.some_reference_input_protocol_params(
-        fixture.protocol_params,
-        "protocol params",
-      ),
-      third_party_registry_node_ref_input_protected(
-        test_third_party_policy,
-        test_third_party_cred,
-        [],
-      ),
-    ],
-    withdrawals: [
-      Pair(fixture.credential_validator_logic_global, 0),
-      Pair(test_third_party_cred, 0),
-    ],
-  }
-
-  let redeemer = ThirdPartyAct { registry_node_idx: 1, outputs_start_idx: 0 }
-
-  programmable_logic_global.programmable_logic_global.withdraw(
-    fixture.policy_protocol_params,
-    redeemer,
-    fixture.credential_validator_logic_global,
-    tx,
+    0,
   )
 }

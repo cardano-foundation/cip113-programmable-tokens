@@ -18,6 +18,16 @@ pub fn from_value(self: Value) -> Assets {
   self |> assets.to_dict |> dict.to_pairs
 }
 
+/// Split a Value into its lovelace quantity and the remaining (ada-less)
+/// assets. The ada entry (empty policy id) is guaranteed present in any
+/// ledger Value and sorts first, so it is peeled off the head; the function
+/// fails loudly on a Value without one.
+pub fn split_lovelace(self: Value, return: fn(Int, Assets) -> result) -> result {
+  expect [Pair("", ada), ..rest] = from_value(self)
+  expect [Pair(_, lovelace)] = dict.to_pairs(ada)
+  return(lovelace, rest)
+}
+
 /// Split an dictionnary at the given key. Returning the elements before (in reverse key order), the
 /// value at the key, and the elements after (in same key order).
 pub fn split_at(
