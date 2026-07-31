@@ -2027,10 +2027,6 @@ test prop_third_party_conservation_holds_for_any_seizure_split(
   )
 }
 
-// ∀ non-zero escapes: routing ANY portion of the seized tokens to a
-// non-PLB address (up to all of them) leaves the PLB-output total short of
-// the input total and breaks the conservation containment — seized tokens
-// cannot leave the programmable-logic base.
 // ------------------------------------------------- TransferAct properties
 //
 // Blaster-shaped (Tier 0): the transfer conservation walk quantified over
@@ -2135,6 +2131,10 @@ test prop_transfer_reconciles_any_mint(
   run_transfer(tx, redeemer)
 }
 
+// ∀ non-zero escapes: routing ANY portion of the seized tokens to a
+// non-PLB address (up to all of them) leaves the PLB-output total short of
+// the input total and breaks the conservation containment — seized tokens
+// cannot leave the programmable-logic base.
 test prop_third_party_rejects_any_seized_tokens_escaping_plb(
   escaped via fuzz.int_between(1, 142),
 ) fail {
@@ -2153,5 +2153,109 @@ test prop_third_party_rejects_any_seized_tokens_escaping_plb(
       },
     ],
     0,
+  )
+}
+
+// ------------------------- ThirdPartyAct input-side properties
+//
+// The fixed-42/100 helper above fuzzes only outputs; these quantify the
+// INPUT side: arbitrary acted-policy quantity plus an arbitrary
+// co-resident policy that the per-pair byte-identity must pin in place.
+
+/// A co-resident policy sorting AFTER the acted-on policy (…0f00 < …1f00),
+/// so it lands in the `after` half of the pair split.
+const test_co_resident_policy: PolicyId =
+  #"00000000000000000000000000000000000000000000000000001f00"
+
+/// Parametric single-pair ThirdPartyAct tx: ONE PLB input holding
+/// `in_tokens`, its paired output holding `paired_tokens`, and a seized
+/// PLB output holding `seized_tokens`. Ledger-shaped throughout.
+fn third_party_single_pair_tx(
+  in_tokens: List<(PolicyId, AssetName, Int)>,
+  paired_tokens: List<(PolicyId, AssetName, Int)>,
+  seized_tokens: List<(PolicyId, AssetName, Int)>,
+) -> Transaction {
+  Transaction {
+    ..transaction.placeholder,
+    fee: ledger_shape.realistic_fee,
+    inputs: ledger_shape.with_sequential_outrefs(
+      [fixture.some_input_with_programmable_tokens(in_tokens, "tp_input")],
+      fixture.inputs_txid,
+    ),
+    outputs: [
+      fixture.some_output_with_programmable_tokens(paired_tokens),
+      fixture.some_output_with_seized_tokens(seized_tokens),
+    ],
+    reference_inputs: ledger_shape.with_sequential_outrefs(
+      [
+        fixture.some_reference_input_protocol_params(
+          fixture.protocol_params,
+          "protocol params",
+        ),
+        third_party_registry_node_ref_input(
+          test_third_party_policy,
+          test_third_party_cred,
+        ),
+      ],
+      fixture.ref_inputs_txid,
+    ),
+    withdrawals: [
+      Pair(test_third_party_cred, 0),
+      Pair(fixture.credential_validator_logic_global, 0),
+    ],
+  }
+}
+
+fn run_third_party_single_pair(tx: Transaction) -> Bool {
+  programmable_logic_global.programmable_logic_global.withdraw(
+    fixture.policy_protocol_params,
+    ThirdPartyAct { registry_node_idx: 1, outputs_start_idx: 0 },
+    fixture.credential_validator_logic_global,
+    tx,
+  )
+}
+
+/// A pair of independent bounded quantities.
+fn any_two_quantities() -> Fuzzer<(Int, Int)> {
+  fuzz.both(
+    fuzz.int_between(1, 1_000_000_000),
+    fuzz.int_between(1, 1_000_000_000),
+  )
+}
+
+// ∀ (acted, co-resident) input quantities: a full seizure that keeps the
+// co-resident policy byte-identical in the paired output is accepted —
+// the input side is now quantified, not just the fixture's 42/100.
+test prop_third_party_preserves_any_co_resident_tokens(
+  (acted_qty, co_res_qty) via any_two_quantities(),
+) {
+  run_third_party_single_pair(
+    third_party_single_pair_tx(
+      [
+        (test_third_party_policy, "FOO", acted_qty),
+        (test_co_resident_policy, "BAR", co_res_qty),
+      ],
+      [(test_co_resident_policy, "BAR", co_res_qty)],
+      [(test_third_party_policy, "FOO", acted_qty)],
+    ),
+  )
+}
+
+// ∀ non-zero deltas: ANY change to the co-resident policy's quantity in
+// the paired output (including dropping it entirely) breaks the
+// byte-identity of the non-acted halves — a seizure cannot touch
+// co-resident tokens.
+test prop_third_party_rejects_any_co_resident_delta(
+  (co_res_qty, delta) via any_transfer_qty_and_part(),
+) fail {
+  run_third_party_single_pair(
+    third_party_single_pair_tx(
+      [
+        (test_third_party_policy, "FOO", 100),
+        (test_co_resident_policy, "BAR", co_res_qty),
+      ],
+      [(test_co_resident_policy, "BAR", co_res_qty - delta)],
+      [(test_third_party_policy, "FOO", 100)],
+    ),
   )
 }
