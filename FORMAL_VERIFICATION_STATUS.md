@@ -117,8 +117,15 @@ instead of waiting for Phil.
    - `linked_list.ak` `is_28_bytes` `==`→`>=`: **exactly the 2
      boolean-equivalence props redden** — the ⇔ shape catches the
      over-acceptance direction a plain positive test would miss.
-   Remaining: strip-walk skip, golden-layout reorder (type-level
-   mutation), full matrix write-up.
+   - `unfracking.ak` pairwise-equality skip (`expect True ||`): before
+     2026-07-31 this mutation passed the ENTIRE suite — the lockstep
+     walk's pairwise branch (co-resident policies sorting BEFORE the
+     acted one) had zero guards. Two new props (pre-acted co-resident
+     preserve/reject, `policy_pre` …0900) close the hole; the mutation
+     now reddens exactly `prop_unfracking_rejects_any_pre_acted_non_acted_delta`.
+     A REAL coverage gap found by mutation analysis.
+   Remaining: golden-layout reorder (type-level mutation), full matrix
+   write-up.
 3. Registry insert **end-to-end** property through `registry_mint`
    (fuzz keys through the real Insert tx, not just the lib helpers).
 4. **Benchmark-vs-ceiling CI pin** (from param doc): worst-case bench
@@ -139,10 +146,18 @@ instead of waiting for Phil.
      closes Valid goals with a NAMED axiom `Blaster.Tactic.blasterProven`
      (not `sorryAx`) — `#print axioms` now cleanly separates
      SMT-trusted from kernel-checked theorems.
-   Next rungs: two-entry withdrawal maps (the WdrlPairShaped analogue —
-   our unfracking carries FOUR withdrawals, so push the entry count),
-   unfracking mint-is-zero + hook-invocation theorems, budget/K
-   measurements per validator, adopt PR #51's Nix hermetic build +
-   jq -er extraction to kill blueprint staleness.
+   - **ENTRY-COUNT LADDER ✅ Valid at 1, 2 AND 4 withdrawal entries**
+     (2026-07-31 late): the wsc `WdrlPairShaped` cliff (Phil stuck at 2
+     on Plutarch's INDEX-based base) does not bite our SCAN-based
+     `has_key_or_fail` — rung 4 = exactly the width of the unfracking
+     composition. Each rung proved in seconds. Phil Q4 answered
+     empirically, favourably.
+   - Staleness guard added: `scripts/extract-flats.sh` (jq -er by
+     blueprint title, --check freshness mode) — the non-Nix version of
+     MPFS PR #51's extraction.
+   Next rungs: find the actual entry-count wall (8, 16…), mixed
+   vkey/script credential entries, unfracking mint-is-zero +
+   hook-invocation theorems (needs a rewarding-context builder), budget/K
+   measurements per validator, full Nix hermetic build.
 6. Unfracking **shape-shrinking** test (maxValueSize mitigation claim).
 7. `aiken check --max-success 500` nightly job.

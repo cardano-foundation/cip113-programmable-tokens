@@ -958,3 +958,40 @@ test prop_unfracking_rejects_any_non_acted_delta(
   )
   run_unfracking(tx)
 }
+
+/// A co-resident policy sorting BEFORE the acted policy (…0900 < …0a00):
+/// exercises the lockstep walk's PAIRWISE branch (entries consumed before
+/// the acted entry is reached), which the policy_b (…0b00) props — where
+/// the acted entry comes first — never touch.
+const policy_pre: ByteArray =
+  #"00000000000000000000000000000000000000000000000000000900"
+
+// ∀ quantities: a co-resident policy sorting BEFORE the acted one is
+// preserved byte-identically through the pairwise branch of the walk.
+test prop_unfracking_preserves_any_pre_acted_co_resident(
+  (a_qty, pre_qty) via fuzz.both(any_quantity(), any_quantity()),
+) {
+  let (tx, _, _) = fixture.some_unfracking(
+    policy_a,
+    [(policy_pre, "PRE", pre_qty), (policy_a, "FOO", a_qty)],
+    [(policy_pre, "PRE", pre_qty)],
+    [(policy_a, "FOO", a_qty)],
+  )
+  run_unfracking(tx)
+}
+
+// ∀ non-zero deltas: tampering with a co-resident policy that sorts
+// BEFORE the acted one (pairwise branch) is rejected. Isolation: moved
+// carries the full acted quantity, so conservation stays balanced and
+// the pairwise byte-identity is the only invariant firing.
+test prop_unfracking_rejects_any_pre_acted_non_acted_delta(
+  (pre_qty, delta) via any_quantity_and_part(),
+) fail {
+  let (tx, _, _) = fixture.some_unfracking(
+    policy_a,
+    [(policy_pre, "PRE", pre_qty), (policy_a, "FOO", 100)],
+    [(policy_pre, "PRE", pre_qty - delta)],
+    [(policy_a, "FOO", 100)],
+  )
+  run_unfracking(tx)
+}
