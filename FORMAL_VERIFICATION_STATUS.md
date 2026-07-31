@@ -34,15 +34,18 @@ Working file (local, like `CONTRACT_SURFACE_CHANGES.md`). Branch:
 
 ## Blockers
 
-1. **Tier-1 (Lean/Blaster on our UPLC) toolchain**: needs Lean 4.24.0
-   (elan) + Z3 **4.15.2 built from source** (newer Z3 regresses; see
-   Lean-blaster README) — not installed here; ~GBs + a long build.
-   Decision needed: local install vs container vs wait for the CBDE
-   (Q4 2026). Also pick base: IOG upstream `main` vs Phil's
-   Anastasia-Labs forks (PCB `cip153-value-builtins` @ `3fdd3fb`,
-   Lean-blaster D6 @ `4d320dd`) — Aiken output probably decodes on stock
-   PCB (we don't emit CIP-153 builtins), but the D6 tactic fix may still
-   be needed; unverifiable until the toolchain exists.
+1. **RESOLVED 2026-07-31**: Tier-1 toolchain INSTALLED locally (Giovanni
+   approved): elan + Lean 4.24.0, Z3 4.15.2 built from source at
+   `~/.local/bin/z3`, IOG upstream Lean-blaster + PlutusCoreBlaster
+   cloned to `~/Development/workspace/` and compiled. **SMOKE TEST
+   PASSED**: spike project `~/Development/workspace/cip113-lean-spike/`
+   imports all four flats (base 141 B, unfracking 1736 B, registry_mint
+   1928 B, PLG 2996 B — extracted from our `plutus.json`) via
+   `#import_uplc … single_cbor_hex` on STOCK upstream PCB `main`:
+   "Successfully decoded" ×4, `lake build` green (283 jobs). ⇒ Aiken
+   v1.1.22 PlutusV3 output needs NO fork for decode (answers Phil Q2).
+   Whether the D6 tactic fix is needed only shows up at `blaster`-proof
+   time, not decode time.
 2. **Full symbolic proofs don't scale yet** (upstream): Phil's unshaped
    P3 gets no verdict in 93 min; the shaped-contexts methodology is the
    only viable route today. Not our blocker to fix — but it bounds what
@@ -92,15 +95,22 @@ Working file (local, like `CONTRACT_SURFACE_CHANGES.md`). Branch:
      `prop_unfracking_rejects_any_fabrication_of_acted_tokens` — a
      surgical kill proving the fabrication guard is non-vacuous and
      uniquely owned by those tests.
-   Remaining: transfer containment removal, strip-walk skip, registry
-   28-byte checks, golden-layout reorder (needs a type-level mutation).
+   - `transfer.ak` output containment → `True`: **exactly 2 redden**
+     (`transfer_act_mint_insufficient_output_fails` +
+     `prop_transfer_rejects_any_shortfall`).
+   - `linked_list.ak` `is_28_bytes` `==`→`>=`: **exactly the 2
+     boolean-equivalence props redden** — the ⇔ shape catches the
+     over-acceptance direction a plain positive test would miss.
+   Remaining: strip-walk skip, golden-layout reorder (type-level
+   mutation), full matrix write-up.
 3. Registry insert **end-to-end** property through `registry_mint`
    (fuzz keys through the real Insert tx, not just the lib helpers).
 4. **Benchmark-vs-ceiling CI pin** (from param doc): worst-case bench
    scenarios as % of mainnet maxTxExUnits.
-5. **Tier-1 spike** once toolchain decision lands: export
-   `plutus.json` compiledCode → `.flat`, `#import_uplc` smallest
-   validator, restate one unfracking conservation prop as a Lean
-   theorem, record where the CEK budget wall sits for our bytecode.
+5. **Tier-1 next**: apply deployment params Lean-side (Phil's
+   `*Inputs` pattern), `#prep_uplc` the base validator at a small CEK
+   budget, then restate one unfracking conservation prop as a
+   `by blaster` theorem over a shaped context; record where the CEK
+   budget wall sits for our (2× smaller) bytecode.
 6. Unfracking **shape-shrinking** test (maxValueSize mitigation claim).
 7. `aiken check --max-success 500` nightly job.
