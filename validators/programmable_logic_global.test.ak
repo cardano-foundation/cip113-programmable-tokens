@@ -2,6 +2,7 @@
 
 use aiken/collection/list
 use aiken/crypto.{ScriptHash, blake2b_256}
+use aiken/fuzz
 use cardano/address.{Address, Credential, Inline, Script, VerificationKey}
 use cardano/assets.{
   AssetName, PolicyId, ada_asset_name, ada_policy_id, from_asset, merge, negate,
@@ -1926,6 +1927,99 @@ test third_party_act_pair_foreign_policy_injection_still_fails() fail {
       fixture.some_output_with_seized_tokens(
         [(test_third_party_policy, "FOO", 142)],
       ),
+    ],
+    0,
+  )
+}
+
+// ------------------------------------------------- ThirdPartyAct properties
+//
+// Blaster-shaped property tests (Tier 0 of the formal-verification plan):
+// each test quantifies a ThirdPartyAct invariant over ALL bounded integer
+// amounts instead of the fixture's canonical 42/100, using a single fuzzer
+// argument over a bounded domain — the shape the Aiken↔Blaster pipeline
+// (aiken-lang/aiken PR #1311) exports as a Lean theorem over the compiled
+// UPLC. The fixture inputs stay at 42 + 100 FOO; the fuzzers range over
+// the seizure split and the per-pair lovelace delta.
+
+// ∀ top-ups (issue #96 ratchet, `>=` direction): a paired output may carry
+// ANY amount of lovelace at or above the input's — min-ADA rises must be
+// absorbable at every scale.
+test prop_third_party_lovelace_ratchet_accepts_any_topup(
+  topup via fuzz.int_between(0, 1_000_000_000),
+) {
+  validate_third_party_with_outputs(
+    [
+      output_with_extra_lovelace([], topup),
+      fixture.some_output_with_programmable_tokens([]),
+      fixture.some_output_with_seized_tokens(
+        [(test_third_party_policy, "FOO", 142)],
+      ),
+    ],
+    0,
+  )
+}
+
+// ∀ non-zero drains (issue #96 ratchet, strict direction): a paired output
+// carrying ANY amount of lovelace below the input's is rejected — seizing
+// must not drain the holder's ada. The drain is bounded below the input's
+// 1_000_000 lovelace so the ada entry stays present and the ratchet
+// comparison (not the split_lovelace shape check) is the firing invariant.
+test prop_third_party_lovelace_ratchet_rejects_any_drain(
+  drain via fuzz.int_between(1, 999_999),
+) fail {
+  validate_third_party_with_outputs(
+    [
+      output_with_extra_lovelace([], -drain),
+      fixture.some_output_with_programmable_tokens([]),
+      fixture.some_output_with_seized_tokens(
+        [(test_third_party_policy, "FOO", 142)],
+      ),
+    ],
+    0,
+  )
+}
+
+// ∀ seizure splits: seizing any portion of the first input's 42 FOO (from
+// none — a no-op pair, legal post-R-03 — to all of it) balances, as long
+// as the acted-policy total (142) stays at PLB outputs.
+test prop_third_party_conservation_holds_for_any_seizure_split(
+  seized via fuzz.int_between(0, 42),
+) {
+  validate_third_party_with_outputs(
+    [
+      fixture.some_output_with_programmable_tokens(
+        [(test_third_party_policy, "FOO", 42 - seized)],
+      ),
+      fixture.some_output_with_programmable_tokens([]),
+      fixture.some_output_with_seized_tokens(
+        [(test_third_party_policy, "FOO", 100 + seized)],
+      ),
+    ],
+    0,
+  )
+}
+
+// ∀ non-zero escapes: routing ANY portion of the seized tokens to a
+// non-PLB address (up to all of them) leaves the PLB-output total short of
+// the input total and breaks the conservation containment — seized tokens
+// cannot leave the programmable-logic base.
+test prop_third_party_rejects_any_seized_tokens_escaping_plb(
+  escaped via fuzz.int_between(1, 142),
+) fail {
+  let escape_base = fixture.some_output_change("escape")
+  validate_third_party_with_outputs(
+    [
+      fixture.some_output_with_programmable_tokens([]),
+      fixture.some_output_with_programmable_tokens([]),
+      fixture.some_output_with_seized_tokens(
+        [(test_third_party_policy, "FOO", 142 - escaped)],
+      ),
+      Output {
+        ..escape_base,
+        value: escape_base.value
+          |> merge(from_asset(test_third_party_policy, "FOO", escaped)),
+      },
     ],
     0,
   )
