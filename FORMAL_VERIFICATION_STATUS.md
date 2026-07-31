@@ -83,8 +83,17 @@ Working file (local, like `CONTRACT_SURFACE_CHANGES.md`). Branch:
    `validate_third_party_with_outputs`.
 2. **Mutation-verification pass** (task #6): per property, mutate the
    guarded line, confirm exactly the matching test reddens, restore;
-   record the matrix. Spot-checks pending for: ratchet `>=`→`>`,
-   unfracking equality→containment, transfer containment removal.
+   record the matrix. Spot-checks DONE 2026-07-31:
+   - `third_party.ak` ratchet `>=`→`>`: **18 tests redden** (unit
+     baselines + `prop_third_party_lovelace_ratchet_accepts_any_topup`)
+     — invariant heavily covered.
+   - `unfracking.ak` conservation `==`→`tokens.contains`: **exactly 2
+     redden** — `unfracking_fails_acted_surplus` +
+     `prop_unfracking_rejects_any_fabrication_of_acted_tokens` — a
+     surgical kill proving the fabrication guard is non-vacuous and
+     uniquely owned by those tests.
+   Remaining: transfer containment removal, strip-walk skip, registry
+   28-byte checks, golden-layout reorder (needs a type-level mutation).
 3. Registry insert **end-to-end** property through `registry_mint`
    (fuzz keys through the real Insert tx, not just the lib helpers).
 4. **Benchmark-vs-ceiling CI pin** (from param doc): worst-case bench
