@@ -428,13 +428,35 @@ const prop_registry_address =
 /// exactly Ada + one `prop_node_cs` NFT named after the node key, inline
 /// datum, no reference script.
 fn node_output(node: RegistryNode) -> Output {
+  node_output_with_lovelace(node, 2_000_000)
+}
+
+fn node_output_with_lovelace(node: RegistryNode, lovelace: Int) -> Output {
   Output {
     address: prop_registry_address,
-    value: assets.from_lovelace(2_000_000)
+    value: assets.from_lovelace(lovelace)
       |> assets.add(prop_node_cs, node.key, 1),
     datum: InlineDatum(as_data(node)),
     reference_script: None,
   }
+}
+
+// ∀ lovelace amounts: a registry-node output is valid with ANY ada
+// quantity — the node-shape check constrains the NFT, not the lovelace.
+// This is the protocol-parameter robustness claim for the registry
+// lifecycle: a `coinsPerUTxOByte` rise (which raises the min-UTxO floor)
+// can always be absorbed by topping the node UTxO up at the next
+// insert/update, so no registry action is ever bricked by a min-ada
+// change (the issue-#96 hazard class, proven absent here).
+test prop_registry_node_valid_for_any_lovelace(
+  lovelace via fuzz.int_between(1, 1_000_000_000_000),
+) {
+  let node = valid_inserted_node()
+  validate_directory_node_output(
+    node_output_with_lovelace(node, lovelace),
+    prop_node_cs,
+    prop_registry_address,
+  ) == node
 }
 
 // ∀ hashes of length 0..40: an inserted node's transfer-logic credential

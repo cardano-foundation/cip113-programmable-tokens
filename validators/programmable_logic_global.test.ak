@@ -12,6 +12,7 @@ use cardano/transaction.{
   InlineDatum, Input, NoDatum, Output, OutputReference, Transaction,
 }
 use programmable_logic/fixture
+use programmable_logic/ledger_shape
 use programmable_logic/params.{ProgrammableLogicGlobalParams}
 use programmable_logic_global
 use registry_node.{RegistryNode, empty_vkey}
@@ -286,7 +287,11 @@ fn third_party_registry_node_ref_input(
         ),
         stake_credential: None,
       },
-      value: from_asset(ada_policy_id, ada_asset_name, 1_000_000)
+      value: from_asset(
+        ada_policy_id,
+        ada_asset_name,
+        ledger_shape.min_ada_per_output,
+      )
         |> merge(
             from_asset(fixture.policy_tokens_registry, blake2b_256(key), 1),
           ),
@@ -319,34 +324,42 @@ fn validate_third_party_with_outputs(
 ) -> Bool {
   let tx = Transaction {
     ..transaction.placeholder,
-    inputs: [
-      // Index 0 – prog_logic input A
-      fixture.some_input_with_programmable_tokens(
-        [(test_third_party_policy, "FOO", 42)],
-        "third_party_input_a",
-      ),
-      // Index 1 – prog_logic input B
-      fixture.some_input_with_programmable_tokens(
-        [(test_third_party_policy, "FOO", 100)],
-        "third_party_input_b",
-      ),
-    ],
+    fee: ledger_shape.realistic_fee,
+    inputs: ledger_shape.with_sequential_outrefs(
+      [
+        // Index 0 – prog_logic input A
+        fixture.some_input_with_programmable_tokens(
+          [(test_third_party_policy, "FOO", 42)],
+          "third_party_input_a",
+        ),
+        // Index 1 – prog_logic input B
+        fixture.some_input_with_programmable_tokens(
+          [(test_third_party_policy, "FOO", 100)],
+          "third_party_input_b",
+        ),
+      ],
+      fixture.inputs_txid,
+    ),
     outputs,
-    reference_inputs: [
-      // Index 0 – protocol params
-      fixture.some_reference_input_protocol_params(
-        fixture.protocol_params,
-        "protocol params",
-      ),
-      // Index 1 – registry node with real third-party credential
-      third_party_registry_node_ref_input(
-        test_third_party_policy,
-        test_third_party_cred,
-      ),
-    ],
+    reference_inputs: ledger_shape.with_sequential_outrefs(
+      [
+        // Index 0 – protocol params
+        fixture.some_reference_input_protocol_params(
+          fixture.protocol_params,
+          "protocol params",
+        ),
+        // Index 1 – registry node with real third-party credential
+        third_party_registry_node_ref_input(
+          test_third_party_policy,
+          test_third_party_cred,
+        ),
+      ],
+      fixture.ref_inputs_txid,
+    ),
+    // Ledger order: test_third_party_cred (…03d9) < PLG (…1091c).
     withdrawals: [
-      Pair(fixture.credential_validator_logic_global, 0),
       Pair(test_third_party_cred, 0),
+      Pair(fixture.credential_validator_logic_global, 0),
     ],
   }
 
@@ -452,7 +465,11 @@ test third_party_act_seized_tokens_escape_prog_cred_must_fail() fail {
       // Output 1: Eve's wallet receives the 42 FOO — ESCAPE!
       Output {
         address: eve_address,
-        value: from_asset(ada_policy_id, ada_asset_name, 1_000_000)
+        value: from_asset(
+          ada_policy_id,
+          ada_asset_name,
+          ledger_shape.min_ada_per_output,
+        )
           |> merge(from_asset(test_third_party_policy, "FOO", 42)),
         datum: NoDatum,
         reference_script: None,
@@ -1960,13 +1977,20 @@ test prop_third_party_lovelace_ratchet_accepts_any_topup(
   )
 }
 
+/// A drain strictly below the paired output's base lovelace
+/// (`min_ada_per_output`), so the ada entry survives the merge.
+fn any_sub_floor_drain() -> Fuzzer<Int> {
+  fuzz.int_between(1, ledger_shape.min_ada_per_output - 1)
+}
+
 // ∀ non-zero drains (issue #96 ratchet, strict direction): a paired output
 // carrying ANY amount of lovelace below the input's is rejected — seizing
 // must not drain the holder's ada. The drain is bounded below the input's
-// 1_000_000 lovelace so the ada entry stays present and the ratchet
-// comparison (not the split_lovelace shape check) is the firing invariant.
+// `min_ada_per_output` lovelace so the ada entry stays present and the
+// ratchet comparison (not the split_lovelace shape check) is the firing
+// invariant.
 test prop_third_party_lovelace_ratchet_rejects_any_drain(
-  drain via fuzz.int_between(1, 999_999),
+  drain via any_sub_floor_drain(),
 ) fail {
   validate_third_party_with_outputs(
     [

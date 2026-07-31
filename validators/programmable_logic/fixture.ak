@@ -9,6 +9,7 @@ use cardano/address.{Address, Credential, Inline}
 use cardano/assets.{AssetName, PolicyId, Value, ada_asset_name, ada_policy_id}
 use cardano/fuzz as cardano
 use cardano/transaction.{InlineDatum, Input, NoDatum, Output, Transaction}
+use programmable_logic/ledger_shape
 use programmable_logic/params.{ProgrammableLogicGlobalParams}
 use registry_node.{RegistryNode, empty_vkey, sentinel_next_key}
 use types.{
@@ -62,23 +63,25 @@ pub const policy_tokens_registry: PolicyId =
   #"000000000000000000000000000000000000000000000000000040de"
 
 /// Typical withdrawals found in a transfer transaction; used to artificially
-/// invoke global logic.
+/// invoke global logic. Entries are in LEDGER order (script credentials
+/// ascending bytewise — see `ledger_shape` rule 2), as `txInfoWdrl` would
+/// carry them on chain.
 pub const withdrawals_transfer: Pairs<Credential, Int> =
   [
-    // The artificial withdraw-0 to execute the global logic
-    Pair(credential_validator_logic_global, 0),
     // The artificial withdraw-0 to execute the transfer logic
     Pair(credential_transfer_logic, 0),
+    // The artificial withdraw-0 to execute the global logic
+    Pair(credential_validator_logic_global, 0),
   ]
 
 /// Typical withdrawals found in a 3rd party transaction; used to artificially
-/// invoke global logic.
+/// invoke global logic. Ledger order (see `withdrawals_transfer`).
 pub const withdrawals_3rd_party: Pairs<Credential, Int> =
   [
-    // The artificial withdraw-0 to execute the global logic
-    Pair(credential_validator_logic_global, 0),
     // The artificial withdraw-0 to execute the 3rd party logic
     Pair(credential_3rd_party_logic, 0),
+    // The artificial withdraw-0 to execute the global logic
+    Pair(credential_validator_logic_global, 0),
   ]
 
 /// Typical withdrawals found in an unfracking transaction (Finding 17).
@@ -87,17 +90,18 @@ pub const withdrawals_3rd_party: Pairs<Credential, Int> =
 /// UnfrackingAct), and the transfer-logic script (authorises the
 /// script-staked PLB inputs — same authorisation pattern as TransferAct;
 /// a vkey-staked holder signs instead and omits this one).
+/// Ledger order (see `withdrawals_transfer`).
 pub const withdrawals_unfracking: Pairs<Credential, Int> =
   [
-    // The artificial withdraw-0 to execute the global logic
-    Pair(credential_validator_logic_global, 0),
-    // The artificial withdraw-0 to execute the unfracking invariants
-    Pair(credential_validator_unfracking, 0),
     // The artificial withdraw-0 authorising the script-staked PLB inputs
     Pair(credential_transfer_logic, 0),
+    // The artificial withdraw-0 to execute the global logic
+    Pair(credential_validator_logic_global, 0),
     // The artificial withdraw-0 of the acted-on policy's issuer hook
     // (unfracking v2: the hook is always executed — no script, no party)
     Pair(credential_unfracking_hook, 0),
+    // The artificial withdraw-0 to execute the unfracking invariants
+    Pair(credential_validator_unfracking, 0),
   ]
 
 /// Parameters for a specific instance of the registry.
@@ -344,14 +348,27 @@ pub fn some_transfer(
   (
     Transaction {
       ..transaction.placeholder,
-      inputs: [
-        some_input_with_programmable_tokens(tokens, "programmable tokens input"),
-      ],
+      fee: ledger_shape.realistic_fee,
+      inputs: ledger_shape.with_sequential_outrefs(
+        [
+          some_input_with_programmable_tokens(
+            tokens,
+            "programmable tokens input",
+          ),
+        ],
+        inputs_txid,
+      ),
       outputs: [some_output_with_programmable_tokens(tokens)],
-      reference_inputs: [
-        some_reference_input_protocol_params(protocol_params, "protocol params"),
-        ..nodes
-      ],
+      reference_inputs: ledger_shape.with_sequential_outrefs(
+        [
+          some_reference_input_protocol_params(
+            protocol_params,
+            "protocol params",
+          ),
+          ..nodes
+        ],
+        ref_inputs_txid,
+      ),
       withdrawals: withdrawals_transfer,
     },
     node_idxs
@@ -420,20 +437,28 @@ pub fn some_unfracking(
   (
     Transaction {
       ..transaction.placeholder,
-      inputs: [
-        some_input_with_programmable_tokens(input_tokens, "unfracking input"),
-      ],
+      fee: ledger_shape.realistic_fee,
+      inputs: ledger_shape.with_sequential_outrefs(
+        [some_input_with_programmable_tokens(input_tokens, "unfracking input")],
+        inputs_txid,
+      ),
       outputs: [
         some_output_with_programmable_tokens(continuing_tokens),
         some_output_with_programmable_tokens(moved_tokens),
       ],
-      reference_inputs: [
-        some_reference_input_protocol_params(protocol_params, "protocol params"),
-        some_reference_input_unfracking_registry_node(
-          acted_policy_key,
-          "unfracking registry node",
-        ),
-      ],
+      reference_inputs: ledger_shape.with_sequential_outrefs(
+        [
+          some_reference_input_protocol_params(
+            protocol_params,
+            "protocol params",
+          ),
+          some_reference_input_unfracking_registry_node(
+            acted_policy_key,
+            "unfracking registry node",
+          ),
+        ],
+        ref_inputs_txid,
+      ),
       withdrawals: withdrawals_unfracking,
     },
     UnfrackingAct,
@@ -443,9 +468,23 @@ pub fn some_unfracking(
 
 // --------------------------------------------------------------------- helpers
 
-/// Some value with a non-zero ADA amount. Embodies typical values found on-chain.
+/// Some value meeting the min-UTxO floor (`ledger_shape` rule 3).
+/// Embodies typical values found on-chain.
 pub const min_ada_value: Value =
-  assets.zero |> assets.add(ada_policy_id, ada_asset_name, 1000000)
+  assets.zero
+    |> assets.add(
+        ada_policy_id,
+        ada_asset_name,
+        ledger_shape.min_ada_per_output,
+      )
+
+/// Shared transaction ids for `ledger_shape.with_sequential_outrefs`:
+/// inputs and reference inputs are DISJOINT sets, so each gets its own id.
+pub const inputs_txid: ByteArray =
+  #"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+
+pub const ref_inputs_txid: ByteArray =
+  #"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 
 /// Run a 'Fuzzer' in-place, using a label as a seed. This can be used to
 /// deterministically produce a single arbitrary value from a known fuzzer.

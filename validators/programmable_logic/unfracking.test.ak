@@ -85,9 +85,9 @@ fn valid_unfracking_tx() -> Transaction {
 /// transaction would carry. Used by the hook-invocation negative.
 const withdrawals_without_hook: Pairs<Credential, Int> =
   [
+    Pair(fixture.credential_transfer_logic, 0),
     Pair(fixture.credential_validator_logic_global, 0),
     Pair(fixture.credential_validator_unfracking, 0),
-    Pair(fixture.credential_transfer_logic, 0),
   ]
 
 /// Withdrawals for a vkey-staked owner (no transfer-logic withdraw-0
@@ -95,8 +95,8 @@ const withdrawals_without_hook: Pairs<Credential, Int> =
 const withdrawals_vkey_owner: Pairs<Credential, Int> =
   [
     Pair(fixture.credential_validator_logic_global, 0),
-    Pair(fixture.credential_validator_unfracking, 0),
     Pair(fixture.credential_unfracking_hook, 0),
+    Pair(fixture.credential_validator_unfracking, 0),
   ]
 
 /// The acted policy's registry node ref input with a caller-chosen hook
@@ -612,8 +612,8 @@ test unfracking_fails_missing_owner_authorisation() fail {
     ..valid_unfracking_tx(),
     withdrawals: [
       Pair(fixture.credential_validator_logic_global, 0),
-      Pair(fixture.credential_validator_unfracking, 0),
       Pair(fixture.credential_unfracking_hook, 0),
+      Pair(fixture.credential_validator_unfracking, 0),
     ],
   }
   run_unfracking(tx)
@@ -692,8 +692,8 @@ test plg_unfracking_gate_rejects_when_unfracking_script_not_invoked() fail {
   let tx = Transaction {
     ..valid_unfracking_tx(),
     withdrawals: [
-      Pair(fixture.credential_validator_logic_global, 0),
       Pair(fixture.credential_transfer_logic, 0),
+      Pair(fixture.credential_validator_logic_global, 0),
       Pair(fixture.credential_unfracking_hook, 0),
     ],
   }
