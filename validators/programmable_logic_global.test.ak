@@ -16,7 +16,10 @@ use programmable_logic/ledger_shape
 use programmable_logic/params.{ProgrammableLogicGlobalParams}
 use programmable_logic_global
 use registry_node.{RegistryNode, empty_vkey}
-use types.{ThirdPartyAct, TokenDoesNotExist, TokenExists, TransferAct}
+use types.{
+  ProgrammableLogicGlobalRedeemer, ThirdPartyAct, TokenDoesNotExist, TokenExists,
+  TransferAct,
+}
 use utils.{bytearray_lt}
 
 const test_registry_node_cs: PolicyId =
@@ -2028,6 +2031,110 @@ test prop_third_party_conservation_holds_for_any_seizure_split(
 // non-PLB address (up to all of them) leaves the PLB-output total short of
 // the input total and breaks the conservation containment — seized tokens
 // cannot leave the programmable-logic base.
+// ------------------------------------------------- TransferAct properties
+//
+// Blaster-shaped (Tier 0): the transfer conservation walk quantified over
+// all bounded quantities, through the canonical `fixture.some_transfer`
+// transaction (single registered policy, holder-authorised PLB input,
+// ledger-shaped).
+
+/// A bounded token quantity for transfer properties.
+fn any_transfer_qty() -> Fuzzer<Int> {
+  fuzz.int_between(1, 1_000_000_000)
+}
+
+/// A quantity plus a non-empty part of it (1 <= part <= total).
+fn any_transfer_qty_and_part() -> Fuzzer<(Int, Int)> {
+  let total <- fuzz.and_then(any_transfer_qty())
+  let part <- fuzz.map(fuzz.int_between(1, total))
+  (total, part)
+}
+
+const prop_transfer_policy: PolicyId =
+  #"00000000000000000000000000000000000000000000000000000e00"
+
+fn run_transfer(
+  tx: Transaction,
+  redeemer: ProgrammableLogicGlobalRedeemer,
+) -> Bool {
+  programmable_logic_global.programmable_logic_global.withdraw(
+    fixture.policy_protocol_params,
+    redeemer,
+    fixture.credential_validator_logic_global,
+    tx,
+  )
+}
+
+// ∀ quantities: moving a registered policy's tokens between PLB outputs
+// conserves — the canonical transfer is accepted at every scale.
+test prop_transfer_conserves_any_quantity(qty via any_transfer_qty()) {
+  let (tx, redeemer) = fixture.some_transfer(
+    [(prop_transfer_policy, "FOO", qty)],
+  )
+  run_transfer(tx, redeemer)
+}
+
+// ∀ non-zero shortfalls: a PLB output carrying less than the input (with
+// no burn to account for it) breaks the output-containment — programmable
+// tokens cannot leak out of PLB on a transfer.
+test prop_transfer_rejects_any_shortfall(
+  (qty, shortfall) via any_transfer_qty_and_part(),
+) fail {
+  let (tx, redeemer) = fixture.some_transfer(
+    [(prop_transfer_policy, "FOO", qty)],
+  )
+  let tx = Transaction {
+    ..tx,
+    outputs: [
+      fixture.some_output_with_programmable_tokens(
+        [(prop_transfer_policy, "FOO", qty - shortfall)],
+      ),
+    ],
+  }
+  run_transfer(tx, redeemer)
+}
+
+// ∀ burn amounts (partial through full): a burn reconciles the transfer
+// balance — outputs carry input minus burn, including the full-burn case
+// where the policy vanishes from outputs entirely.
+test prop_transfer_reconciles_any_burn(
+  (qty, burned) via any_transfer_qty_and_part(),
+) {
+  let (tx, redeemer) = fixture.some_transfer(
+    [(prop_transfer_policy, "FOO", qty)],
+  )
+  let tx = Transaction {
+    ..tx,
+    mint: from_asset(prop_transfer_policy, "FOO", -burned),
+    outputs: [
+      fixture.some_output_with_programmable_tokens(
+        [(prop_transfer_policy, "FOO", qty - burned)],
+      ),
+    ],
+  }
+  run_transfer(tx, redeemer)
+}
+
+// ∀ mint amounts: minting on top of a transfer raises the required
+// output total — outputs carrying input plus mint are accepted.
+test prop_transfer_reconciles_any_mint(
+  (qty, minted) via fuzz.both(any_transfer_qty(), any_transfer_qty()),
+) {
+  let (tx, redeemer) = fixture.some_transfer(
+    [(prop_transfer_policy, "FOO", qty)],
+  )
+  let tx = Transaction {
+    ..tx,
+    mint: from_asset(prop_transfer_policy, "FOO", minted),
+    outputs: [
+      fixture.some_output_with_programmable_tokens(
+        [(prop_transfer_policy, "FOO", qty + minted)],
+      ),
+    ],
+  }
+  run_transfer(tx, redeemer)
+}
+
 test prop_third_party_rejects_any_seized_tokens_escaping_plb(
   escaped via fuzz.int_between(1, 142),
 ) fail {

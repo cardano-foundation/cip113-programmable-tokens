@@ -520,6 +520,61 @@ test prop_directory_node_accepts_any_strictly_ordered_key_pair(
   }
 }
 
+// ∀ strictly-ordered 28-byte key triples k1 < k2 < k3: an insertion of k2
+// under the covering node (k1 → k3) yields a VALID pair of nodes — the
+// inserted node (k2 → k3) and the updated covering node (k1 → k2) both
+// pass their shape checks. This is the linked-list insertion invariant
+// quantified over the whole key space, not just the fixture constants.
+test prop_insert_chain_valid_for_any_ordered_key_triple(
+  (ka, kb, kc) via fuzz.tuple3(
+    fuzz.bytearray_fixed(28),
+    fuzz.bytearray_fixed(28),
+    fuzz.bytearray_fixed(28),
+  ),
+) {
+  if ka == kb || kb == kc || ka == kc {
+    // Insertion needs three distinct keys; discard the (astronomically
+    // rare) collision sample.
+    True
+  } else {
+    let (k1, k2, k3) = sort3(ka, kb, kc)
+    let original = RegistryNode { ..valid_inserted_node(), key: k1, next: k3 }
+    let inserted = RegistryNode { ..valid_inserted_node(), key: k2, next: k3 }
+    let updated = RegistryNode { ..original, next: k2 }
+    and {
+      is_inserted_directory_node(
+        inserted,
+        k2,
+        k3,
+        inserted.minting_logic_script,
+      )?,
+      is_updated_directory_node(updated, original, k2)?,
+      // Both nodes keep the strict ordering the output check enforces.
+      bytearray_lt(updated.key, updated.next)?,
+      bytearray_lt(inserted.key, inserted.next)?,
+    }
+  }
+}
+
+fn sort3(
+  a: ByteArray,
+  b: ByteArray,
+  c: ByteArray,
+) -> (ByteArray, ByteArray, ByteArray) {
+  let (lo, hi) = if bytearray_lt(a, b) {
+    (a, b)
+  } else {
+    (b, a)
+  }
+  if bytearray_lt(c, lo) {
+    (c, lo, hi)
+  } else if bytearray_lt(c, hi) {
+    (lo, c, hi)
+  } else {
+    (lo, hi, c)
+  }
+}
+
 // ∀ 28-byte key pairs: a node output whose key/next are NOT in strict
 // ascending order is rejected. The larger key (or the shared value, when
 // the pair collides) goes to `key`, so every sample violates strictness —
