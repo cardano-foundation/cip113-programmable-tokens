@@ -79,6 +79,22 @@ Working file (local, like `CONTRACT_SURFACE_CHANGES.md`). Branch:
      withdraw-0s — same `pdropList`-class cliff on our bytecode?
   5. Vacuity-probe tooling: automated or by hand?
 
+## MPFS PR #51 (cardano-foundation/cardano-mpfs-onchain) — reviewed 2026-07-31
+
+Paolo Veronelli's (CF) OPEN PR: the same Blaster bridge for the MPFS
+validators. Full notes in memory (`mpfs-blaster-bridge.md`). ADOPT from
+it: (1) hermetic Nix derivation that rebuilds the blueprint and injects
+the UPLC inside the proof build (kills blueprint staleness — our flats
+are hand-copied); (2) universally quantified script params (adopted
+already); (3) named Lean↔Aiken-fuzz mirroring (`/// **Lean: thm**`
+doc-comments); (4) `jq -er` blueprint extraction script (rename-safe);
+(5) cross-implementation golden vectors + CI freshness check. WE are
+ahead on: property depth (their 29 theorems are dispatch/datum/signature
+shell only), mutation testing (they have none), ledger-realism fixtures
+(none), CI enforcement of the formal layer (their bridge isn't in CI).
+Paolo is at CF and reachable — the Nix/bridge questions can go to him
+instead of waiting for Phil.
+
 ## Next steps (in order)
 
 1. Third-party **input-side** fuzzing (quantities, co-resident policies,
@@ -107,10 +123,26 @@ Working file (local, like `CONTRACT_SURFACE_CHANGES.md`). Branch:
    (fuzz keys through the real Insert tx, not just the lib helpers).
 4. **Benchmark-vs-ceiling CI pin** (from param doc): worst-case bench
    scenarios as % of mainnet maxTxExUnits.
-5. **Tier-1 next**: apply deployment params Lean-side (Phil's
-   `*Inputs` pattern), `#prep_uplc` the base validator at a small CEK
-   budget, then restate one unfracking conservation prop as a
-   `by blaster` theorem over a shaped context; record where the CEK
-   budget wall sits for our (2× smaller) bytecode.
+5. **Tier-1 FIRST THEOREM PROVEN (2026-07-31 night)** — spike repo
+   `~/Development/workspace/cip113-lean-spike/` (git-initialised):
+   - `#prep_uplc appliedBase … 600` succeeds on our bytecode (1.6 s, no
+     D6 failure, stock upstream everything incl. CardanoLedgerApiBlaster).
+   - `base_forces_plg_withdrawal_one_entry` ✅ Valid: ∀ deployment
+     param, ∀ one-entry withdrawal map (symbolic hash + amount),
+     acceptance ⟹ the withdrawal credential IS the parameter — the PLB
+     forwarding guarantee, universally quantified over deployments
+     (idiom adopted from cardano-mpfs-onchain PR #51).
+   - `exec_accepts` / `exec_rejects_foreign_withdrawal` kernel-checked
+     (native_decide via the `isHaltB` reflection idiom; axioms are the
+     standard native_decide set, NO sorry).
+   - TRUST-CHAIN IMPROVEMENT vs Phil's pin: upstream Blaster `main`
+     closes Valid goals with a NAMED axiom `Blaster.Tactic.blasterProven`
+     (not `sorryAx`) — `#print axioms` now cleanly separates
+     SMT-trusted from kernel-checked theorems.
+   Next rungs: two-entry withdrawal maps (the WdrlPairShaped analogue —
+   our unfracking carries FOUR withdrawals, so push the entry count),
+   unfracking mint-is-zero + hook-invocation theorems, budget/K
+   measurements per validator, adopt PR #51's Nix hermetic build +
+   jq -er extraction to kill blueprint staleness.
 6. Unfracking **shape-shrinking** test (maxValueSize mitigation claim).
 7. `aiken check --max-success 500` nightly job.
