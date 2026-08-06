@@ -102,6 +102,29 @@ reproduction steps. This file is the running log behind it.
   on every surface (ratchet/ada-free/any-lovelace props).
 - Suite: **326/326**.
 
+- **2026-08-06 — CI layer LIVE (both sides green on first runs)**:
+  - Spike repo published: https://github.com/easy1staking-com/cip113-lean-spike.
+  - Lean deps pinned by exact git rev in the spike lakefile
+    (Lean-blaster `083bae79`, PCB `a04042c4`, CLAB `5dab3c43` — stock
+    upstream); full rebuild green locally AND in CI.
+  - `verify.yml` (spike, on push/PR): parses the attested commit from
+    `flats/MANIFEST.md`, checks out this repo AT that commit, runs the
+    `extract-flats.sh --check` identity gate, then `lake build` (elan +
+    pinned Lean 4.24.0, Z3 4.15.2 release binary, `.lake` cached).
+    First run: **4m25s cold**, log-verified — 306 jobs, 4 artifacts
+    decoded, 3 theorems ✅ Valid, axiom separation correct.
+  - `fv-freshness.yml` (this repo, on push/PR): toolchain gated against
+    the blueprint preamble, `aiken build`, byte-compares the 4 tracked
+    `compiledCode` entries vs the spike's attested flats. RED = the
+    change alters bytes the theorems were proven against → re-attest
+    the spike. First run green. Note the division of labour: the
+    spike's `--check` pins a SNAPSHOT (goes stale on any new commit —
+    rerun `extract-flats.sh` to re-attest); `fv-freshness` tracks the
+    branch TIP by bytes, so docs/test-only commits stay green.
+  - Still pending (deliberate, not yet wired): weekly
+    `falsification-control.sh` cron (needs aiken in spike CI), nightly
+    `aiken check --max-success 500` here.
+
 ## Blockers
 
 1. **RESOLVED 2026-07-31**: Tier-1 toolchain INSTALLED locally (Giovanni
