@@ -190,9 +190,9 @@ ask, tracked in the status file.
 `FORMAL_VERIFICATION_STATUS.md`; this document;
 `documentation/design/protocol-param-sensitivity.md`.
 
-**`cip113-lean-spike`** (sibling checkout,
-`~/Development/workspace/cip113-lean-spike` — to be published alongside
-this branch):
+**`cip113-lean-spike`** —
+https://github.com/easy1staking-com/cip113-lean-spike (checked out as a
+sibling directory of this repo; `lakefile.lean` wires the paths):
 
 ```
 lakefile.lean            -- requires Blaster, PlutusCore, CardanoLedgerApi (order matters)
