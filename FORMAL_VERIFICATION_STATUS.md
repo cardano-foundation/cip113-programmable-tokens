@@ -53,6 +53,27 @@ reproduction steps. This file is the running log behind it.
     single-line validator mutations and require the pipeline to catch
     them — independent negative controls, per "don't let one person's
     imagination be the whole test".
+    - **DONE 2026-08-06 (first round, seeded by Codex — a different
+      model from the suite's author)**, tooling at
+      `~/Development/workspace/cip113-mutation-seeds/`
+      (`seed-mutations.sh` generates sealed patches, `run-seeds.sh`
+      judges CAUGHT/ESCAPED/INVALID). Result: **3/3 CAUGHT**, and the
+      unsealing analysis found a REAL suite defect anyway:
+      | seed | mutation | verdict |
+      |---|---|---|
+      | 1 | `linked_list.ak` node ordering `key < next` → `key != next` | CAUGHT, surgical: exactly `prop_directory_node_rejects_any_unordered_key_pair` + `registry_insert_fails_covering_key_ge_insert_key` |
+      | 2 | `registry_spend.ak` update auth read from `transfer_logic_script` instead of `minting_logic_script` | CAUGHT via over-rejection only (the 2 positive update tests). Unsealing revealed the update-path negatives could NOT catch the over-acceptance direction — see defect below. Now killed from both sides: + `fails_update_authorised_by_transfer_logic_withdrawal` |
+      | 3 | `unfracking.ak` unpaired-output owner match on payment credential only (stake-swap class) | CAUGHT, surgical: exactly `unfracking_fails_acted_tokens_to_other_stake_cred` |
+    - **Defect found by the exercise**: SIX pre-existing
+      `fails_update_*` negatives called the insert-path
+      `call_validator` (origin datum + placeholder own_ref), so
+      `find_input` failed before any update-branch check ran — every
+      one passed vacuously, regardless of its claimed invariant.
+      Fixed with `call_update_validator` (real spent-node datum +
+      matching own_ref); all six now exercise their real invariants,
+      suite 331/331. This is the "check that cannot fail is
+      decoration" failure mode, caught precisely because the seeds
+      were independent.
 
 - **Tier-0 property suite** (`21a5535`): 15 Blaster-shaped properties —
   unfracking conservation/strip (7), ThirdPartyAct ratchet + conservation

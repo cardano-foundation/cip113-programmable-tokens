@@ -425,6 +425,23 @@ fn update_transaction() -> Transaction {
   }
 }
 
+/// Update-path invocation: real spent-node datum + matching own_ref, so the
+/// validator reaches the update branch's actual checks. The insert-path
+/// `call_validator` (origin datum + placeholder own_ref) must NOT be used for
+/// update tests: `find_input` fails on the placeholder ref first, making every
+/// negative pass vacuously regardless of the invariant it claims to exercise
+/// — exactly what the 2026-08-06 independent-seed exercise caught (six
+/// decorative negatives).
+fn call_update_validator(tx: Transaction) -> Bool {
+  registry_spend.registry_spend.spend(
+    test_protocol_params_cs,
+    Some(old_registry_node()),
+    as_data(Void),
+    test_node_own_ref(),
+    tx,
+  )
+}
+
 // Happy path: creator updates the 3 mutable fields with proper authorisation.
 test registry_spend_update_node() {
   registry_spend.registry_spend.spend(
@@ -440,7 +457,7 @@ test registry_spend_update_node() {
 // pairs.has_key returns False → validator returns False.
 test fails_update_without_minting_logic_withdrawal() fail {
   let tx = Transaction { ..update_transaction(), withdrawals: [] }
-  call_validator(tx)
+  call_update_validator(tx)
 }
 
 // Reject: a different credential is invoked, not the node's minting_logic_script.
@@ -449,7 +466,21 @@ test fails_update_wrong_withdrawal_credential() fail {
     ..update_transaction(),
     withdrawals: [Pair(Script(test_other_minting_hash), 0)],
   }
-  call_validator(tx)
+  call_update_validator(tx)
+}
+
+// Independent-seed regression (2026-08-06, seed 2): update authorised by
+// ONLY the node's transfer-logic withdrawal. A credential-swap mutation
+// (reading authorisation from transfer_logic_script instead of
+// minting_logic_script) is caught by the positive update tests through
+// over-rejection; this test pins the over-ACCEPTANCE direction of the
+// same mutant, so the swap is killed from both sides.
+test fails_update_authorised_by_transfer_logic_withdrawal() fail {
+  let tx = Transaction {
+    ..update_transaction(),
+    withdrawals: [Pair(Script(test_transfer_old), 0)],
+  }
+  call_update_validator(tx)
 }
 
 // Reject: tampering with an immutable field (minting_logic_script). key/next are
@@ -464,7 +495,7 @@ test fails_update_changes_minting_logic() fail {
     ..update_transaction(),
     outputs: [registry_node_output(tampered)],
   }
-  call_validator(tx)
+  call_update_validator(tx)
 }
 
 // Reject: relocating the node NFT to a different address (theft). The continuing
@@ -478,7 +509,7 @@ test fails_update_relocates_nft() fail {
     },
   }
   let tx = Transaction { ..update_transaction(), outputs: [relocated] }
-  call_validator(tx)
+  call_update_validator(tx)
 }
 
 // Reject: two continuing node outputs (batching / double-satisfaction). The
@@ -491,7 +522,7 @@ test fails_update_two_node_outputs() fail {
       registry_node_output(new_registry_node()),
     ],
   }
-  call_validator(tx)
+  call_update_validator(tx)
 }
 
 // Reject: malformed mutable value — a non-28-byte transfer_logic_script.
@@ -504,7 +535,7 @@ test fails_update_malformed_transfer_logic() fail {
     ..update_transaction(),
     outputs: [registry_node_output(bad)],
   }
-  call_validator(tx)
+  call_update_validator(tx)
 }
 
 // ========================================================================
