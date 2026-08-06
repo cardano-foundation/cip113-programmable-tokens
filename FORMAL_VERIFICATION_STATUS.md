@@ -1,9 +1,58 @@
 # Formal verification & test-hardening — status, blockers, next steps
 
 Working file (local, like `CONTRACT_SURFACE_CHANGES.md`). Branch:
-`test/blaster-tier0-properties`. Last update: 2026-07-31.
+`test/blaster-tier0-properties`. Last update: 2026-08-06.
+
+**Front door for evaluators:**
+`documentation/design/formal-verification-methodology.md` — criteria,
+claims vocabulary, identity + falsification discipline, trust base,
+reproduction steps. This file is the running log behind it.
 
 ## Done
+
+- **2026-08-06 — identity + falsification discipline** (triggered by
+  paolino's `aiken-blaster-verification` skill,
+  https://gist.github.com/paolino/3d9b79baffc075606bdd1ba4f9002f81):
+  - **Methodology doc** written (path above) — the single unified
+    description of all four layers; external-evaluator oriented.
+  - **Claims vocabulary adopted**: `blaster` theorems are **SMT-VALID
+    (no proof term)** (Z3 `unsat` + named axiom `blasterProven`), the
+    `native_decide` executions are **KERNEL-PROVED**; run outcomes are
+    ESTABLISHED / REFUTED / COULD-NOT-EVALUATE with everything unclean
+    RED. All prior "✅ Valid" wording in this file should be read as
+    SMT-VALID (no proof term).
+  - **Identity triple mechanised**: `extract-flats.sh` now also emits
+    `flats/MANIFEST.md` (source commit + dirty flag, compiler from the
+    blueprint's own preamble, blueprint/flat sha256s,
+    `BuiltinSemanticsVariant = E` with evidence pointers); `--check`
+    verifies flats AND manifest, and was itself falsified (corrupted
+    flat + tampered manifest both turn it red).
+  - **Real toolchain drift caught by the mechanical check**: blueprint
+    built by Aiken v1.1.22+39d6b04, installed CLI was v1.1.21+42babe5
+    (and this file previously said "v1.1.22" on trust). Fixed:
+    `aikup install v1.1.22` — now byte-matching the preamble.
+  - **CBOR wrapping settled empirically**: Aiken blueprint
+    `compiledCode` is SINGLE CBOR-wrapped flat (inner bytes `010100…` =
+    flat version header). Paolo's skill says `double_cbor_hex` — true
+    for the on-chain tx-witness encoding, not for blueprints; worth a
+    correction note to him.
+  - **Full-pipeline falsification control**
+    (`scripts/falsification-control.sh`, 5 legs, ALL GREEN 2026-08-06):
+    toolchain identity → flats freshness → **clean rebuild reproduces
+    committed `compiledCode` byte-for-byte** (source→blueprint
+    correspondence now established, not assumed) → mutant (withdrawal
+    check gutted → `True`, rebuilt through real `aiken build`, 94 vs
+    141 B) → `controls/MutantControl.lean`: the clean-Valid forwarding
+    theorem comes back **Falsified with a counterexample** (accepted
+    foreign hash `"!0!"` ≠ param) and the mutant ACCEPTS the context
+    the clean artifact rejects (kernel-checked) → baseline restored +
+    re-verified. The Lean gate has now been shown able to fail.
+  - Spike repo hygiene: `.lake/` untracked, `README.md` added (claims
+    table with labels, layout, prerequisites, run + lineage).
+  - **STANDING ASK (Giovanni / any reviewer)**: seed 2–3 undisclosed
+    single-line validator mutations and require the pipeline to catch
+    them — independent negative controls, per "don't let one person's
+    imagination be the whole test".
 
 - **Tier-0 property suite** (`21a5535`): 15 Blaster-shaped properties —
   unfracking conservation/strip (7), ThirdPartyAct ratchet + conservation
