@@ -1,0 +1,76 @@
+# FV artifact freshness: does this change alter the compiled validators
+# that the formal-verification effort has attested?
+#
+# Rebuilds the blueprint from the PR/branch source and byte-compares the
+# four tracked `compiledCode` entries against the attested flats in
+# easy1staking-com/cip113-lean-spike. RED means the change alters deployed
+# artifact bytes that Lean theorems were proven against — either revert,
+# or re-attest the spike (scripts/extract-flats.sh there) and re-run its
+# `verify` workflow so the theorems are re-established on the new bytes.
+#
+# This is the cross-repo half of the discipline; the spike's own verify.yml
+# checks internal consistency at the attested commit.
+name: fv-freshness
+
+on:
+  push:
+    branches: [test/blaster-tier0-properties]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  freshness:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aiken-lang/setup-aiken@v1
+        with:
+          version: v1.1.22
+
+      - name: Toolchain must match the committed blueprint's preamble
+        run: |
+          BP="$(jq -er '.preamble.compiler.version' plutus.json)"
+          INSTALLED="$(aiken --version | awk '{print $2}')"
+          [ "$INSTALLED" = "$BP" ] || {
+            echo "COULD-NOT-EVALUATE: installed aiken '$INSTALLED' != blueprint compiler '$BP'" >&2
+            echo "Update this workflow's setup-aiken version alongside the blueprint." >&2
+            exit 1
+          }
+
+      - name: Rebuild blueprint from source
+        run: aiken build
+
+      - name: Checkout attested flats (cip113-lean-spike)
+        uses: actions/checkout@v4
+        with:
+          repository: easy1staking-com/cip113-lean-spike
+          path: .fv-spike
+
+      - name: Byte-compare rebuilt compiledCode vs attested flats
+        run: |
+          status=0
+          while IFS=: read -r title name; do
+            code="$(jq -er --arg t "$title" \
+              '.validators[] | select(.title == $t) | .compiledCode' plutus.json)"
+            if [ "$code" != "$(cat ".fv-spike/flats/$name.flat")" ]; then
+              echo "DRIFT: '$title' no longer matches attested $name.flat" >&2
+              status=1
+            else
+              echo "ok: $name ($((${#code} / 2)) bytes)"
+            fi
+          done <<'EOF'
+          programmable_logic_base.programmable_logic_base.spend:programmable_logic_base
+          unfracking.unfracking.withdraw:unfracking
+          registry_mint.registry_mint.mint:registry_mint
+          programmable_logic_global.programmable_logic_global.withdraw:programmable_logic_global
+          EOF
+          if [ "$status" != 0 ]; then
+            echo "" >&2
+            echo "This change alters compiled validator bytes that the Lean theorems" >&2
+            echo "in cip113-lean-spike were proven against. Re-attest there" >&2
+            echo "(scripts/extract-flats.sh + commit) and let its verify workflow" >&2
+            echo "re-establish the theorems on the new bytes." >&2
+          fi
+          exit "$status"
