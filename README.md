@@ -115,7 +115,7 @@ All tests should pass (280+ unit tests and benchmarks at the time of writing).
 
 - **[Introduction](./documentation/01-INTRODUCTION.md)** — Problem statement, concepts, and benefits
 - **[Architecture](./documentation/02-ARCHITECTURE.md)** — System design, validator coordination, on-chain data structures, and validation flows
-- **[Control Scope & Admin Authority](./documentation/03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md)** — What issuers can and cannot do: third-party action scope, protected prefixes, registry lifecycle authority
+- **[Control Scope & Admin Authority](./documentation/03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md)** — What issuers can and cannot do: third-party action scope, asset-name protection, registry lifecycle authority
 - **[Developing Substandards](./documentation/09-DEVELOPING-SUBSTANDARDS.md)** — Guide for implementing new substandards (issuance, transfer, and third-party logic)
 - **[Integration Guides](./documentation/08-INTEGRATION-GUIDES.md)** — For wallet developers, indexers, and dApp developers
 
@@ -129,7 +129,7 @@ These components form the shared infrastructure that all programmable tokens use
 
 #### 1. Token Registry (On-Chain Directory)
 
-A sorted linked list of registered programmable tokens, implemented as on-chain UTxOs with NFT markers. Each registry entry contains the token policy ID, the substandard's issuance (minting-logic), transfer, and third-party (issuer control) script credentials, an optional global state reference, and a list of protected asset-name prefixes that third-party actions may never seize or burn. The sorted structure enables O(1) membership and non-membership proofs via covering nodes. Entries are live configuration: the governance fields can be updated in place by the token's lifecycle authority (its issuance credential), while the policy ID and that authority itself are immutable.
+A sorted linked list of registered programmable tokens, implemented as on-chain UTxOs with NFT markers. Each registry entry contains the token policy ID, the substandard's issuance (minting-logic), transfer, third-party (issuer control), and unfracking-hook script credentials, and an optional global state reference. The sorted structure enables O(1) membership and non-membership proofs via covering nodes. Entries are live configuration: the governance fields can be updated in place by the token's lifecycle authority (its issuance credential), while the policy ID and that authority itself are immutable.
 
 #### 2. Programmable Logic Base + Global Validator
 
@@ -252,7 +252,8 @@ This implementation is based on the foundational [CIP-143 (Interoperable Program
 - ✅ One-shot minting policies for protocol components
 - ✅ Custody no-escape guarantee — minted programmable tokens cannot bypass the shared custody address
 - ✅ Registry entries mutable only by the token's lifecycle authority; policy ID and that authority itself immutable
-- ✅ Protected asset-name prefixes exempt from third-party seizure/burn
+- ✅ Unfracking is default-deny — forbidden unless the issuer declares a hook on the registry node
+- ✅ Third-party actions cannot drain lovelace (paired outputs ratchet `>=` the input's lovelace)
 
 ## Security Considerations
 
