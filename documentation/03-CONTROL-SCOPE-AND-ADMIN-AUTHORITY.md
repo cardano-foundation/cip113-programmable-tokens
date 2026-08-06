@@ -57,17 +57,19 @@ CIP-68/102-aware substandard:
   reference NFT's datum (the transfer path does not pin output datums, so a
   CIP-68-aware substandard can permit datum updates), or handling royalty
   payouts. This is the substandard author's responsibility, not the framework's.
-- **`ThirdPartyAct` is forbidden from interfering** with them: list labels
-  100/500 in the node's protected prefixes (§2.2) and the administrator can
-  neither seize nor burn the companion assets. Only the owner — through the
-  substandard's transfer logic — can move them.
+- **Shielding them from `ThirdPartyAct` is the substandard's job** (§2.2). The
+  core framework exempts no asset name from seizure, but it does guarantee that
+  policy A's `third_party_transfer_logic_script` is invoked on every
+  `ThirdPartyAct` touching A — so a CIP-68/102-aware substandard can refuse any
+  administrative action that moves or burns its label-100/500 companion assets.
 - CIP-68/102 consumers locate companion assets by *policy id + CIP-67 label asset
   name* and read their datum regardless of on-chain location, so
   interoperability holds without any escape.
 
-In short: keep everything in the mini-ledger, make the substandard
-CIP-68/102-aware, and protect the companion labels. The administrator cannot
-seize, burn, or move them; a correctly-implemented substandard can.
+In short: keep everything in the mini-ledger and make the substandard
+CIP-68/102-aware. Whether the administrator can seize, burn, or move the
+companion labels is decided by the substandard's third-party logic — the
+framework enforces no label policy of its own.
 
 ---
 
@@ -110,24 +112,38 @@ subject amount within the PLB across all outputs — so amounts are
 escape. An increase on one UTxO must therefore be backed by a decrease on
 another seized input or by a mint of A.
 
-### 2.2 Protected prefixes — extraction the admin cannot perform
+### 2.2 Asset-name protection — a substandard responsibility
 
-The `RegistryNode` carries `protected_prefixes`: an **issuer-declared,
-append-only** list of 4-byte CIP-67 asset-name label prefixes, kept in
-**strictly ascending order** (which deduplicates it and lets the framework
-validate the list and the append-only invariant in a single pass).
+The core framework applies **no asset-name policy of its own**: within policy A,
+every asset name is equally seizable as far as `programmable_logic_global` and
+`third_party.ak` are concerned.
 
-`ThirdPartyAct` may **not extract or burn** any token of policy A whose asset
-name begins with a protected prefix. On each paired UTxO the protected-labelled
-tokens must be **byte-equal** between input and continuing output; only the
-non-protected remainder may be seized or otherwise changed. This is
-**"preserve, not fail"**:
-co-locating a protected token in a UTxO does **not** block the admin from
-seizing everything else in it, and the protected token simply stays put.
+Prefix protection lives at the **substandard** layer instead. The framework
+guarantees that policy A's registered `third_party_transfer_logic_script` is
+invoked on **every** `ThirdPartyAct` touching A, so a substandard that wants to
+shield CIP-67 companion assets (label 100 reference NFTs, label 500 royalty
+tokens, …) enforces that rule inside its own third-party logic — where it can
+express whatever policy it needs, including one that changes over time.
 
-The list is **append-only** — a registry-node update may only *add* prefixes,
-never remove one. Protection, once declared, cannot be revoked to enable a later
-seizure.
+> **Changed in [#97](https://github.com/cardano-foundation/cip113-programmable-tokens/pull/97).**
+> A `RegistryNode.protected_prefixes` field previously encoded this in the core.
+> It was removed: the list was unbounded and every registry insertion paid an
+> O(*n*) cost over the covering node's list, so an attacker could grind policy
+> ids to place maximally-bloated nodes at chosen positions and push subsequent
+> insertions past execution limits — bricking registration
+> ([#94](https://github.com/cardano-foundation/cip113-programmable-tokens/issues/94)).
+> Keeping the core unopinionated removes that amplification surface while
+> preserving the capability one layer up.
+
+### 2.3 The lovelace ratchet
+
+On each paired UTxO the continuing output must carry **at least** the input's
+lovelace (`>=`, not equality). Lovelace is not a programmable asset, so an
+administrator may never drain it while seizing. The relation is an inequality
+rather than an equality so that a later protocol-parameter rise in the min-ADA
+calculation cannot render an existing UTxO permanently unseizable — the action
+may top the UTxO up to absorb the rise
+([#96](https://github.com/cardano-foundation/cip113-programmable-tokens/issues/96)).
 
 Typical use: protect CIP-68 reference NFTs (label 100, prefix `000643b0`) and
 CIP-102 royalty tokens (label 500, prefix `001f4d70`), so administrative seizure
@@ -211,11 +227,16 @@ permanent limitation.
 
 ### 3.2 Registry-node update authority
 
-A node's three mutable fields — `transfer_logic_script`,
-`third_party_transfer_logic_script`, `global_state_cs` — and growth of
-`protected_prefixes` can be changed through the registry lifecycle (update) path,
+A node's four mutable fields — `transfer_logic_script`,
+`third_party_transfer_logic_script`, `unfracking_logic_script`, and
+`global_state_cs` — can be changed through the registry lifecycle (update) path,
 authorised by the registration credential (`minting_logic_script`). `key`,
 `next`, and `minting_logic_script` are frozen.
+
+`unfracking_logic_script` may be set, changed, or **unset** back to `empty_vkey`
+(which forbids unfracking for the policy again); the other three credentials
+must each be a 28-byte credential, and `global_state_cs` is either empty or a
+28-byte policy id.
 
 Two properties integrators must understand:
 

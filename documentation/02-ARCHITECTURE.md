@@ -302,15 +302,20 @@ type RegistryNode {
   minting_logic_script: Credential,            // Stake validator for issuance / registration authority
   transfer_logic_script: Credential,           // Stake validator for transfer rules
   third_party_transfer_logic_script: Credential, // Stake validator for seizure/freeze
+  unfracking_logic_script: Credential,         // Issuer-declared unfracking hook; empty_vkey = unfracking forbidden
   global_state_cs: ByteArray,                  // Optional NFT for global state (e.g., denylist)
-  protected_prefixes: List<ByteArray>,         // Append-only CIP-67 label prefixes ThirdPartyAct may not seize/burn
 }
 ```
 
-`protected_prefixes` is an issuer-declared, append-only list of 4-byte CIP-67
-asset-name label prefixes (kept in strictly ascending order) that the admin path
-cannot extract or burn — see
-[`03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md`](./03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md) §2.2.
+`unfracking_logic_script` is the issuer-declared unfracking constraint hook.
+**Least permission by default:** `empty_vkey` (the empty verification-key
+credential) means unfracking is **forbidden** for this policy. A `Script`
+credential delegates the decision to the issuer's hook validator; a
+`VerificationKey` credential gives signature-gated unfracking (a withdrawal
+against a vkey reward account requires that key's signature). It sits at index
+5 so the four logic-credential fields stay contiguous (2–5) ahead of the scalar
+`global_state_cs`, and it is freely mutable through the registry-node update
+path like the other logic fields.
 
 ### BlacklistNode (freeze-and-seize substandard)
 
@@ -438,17 +443,23 @@ Key invariant: the total programmable token value in outputs at the `prog_logic_
 The `ThirdPartyAct` redeemer handles administrative / compliance operations — forced transfer, seizure, freeze enforcement, or burn. It differs from transfers:
 
 1. **No ownership check** — the `third_party_transfer_logic_script` authorizes the action instead of the stake credential owner
-2. **Amount redistribution** — `ThirdPartyAct` is a forced transfer: the subject policy's non-protected tokens on each paired output may be decreased, fully removed, increased, or left unchanged. Aggregate conservation (below) keeps the *total* non-protected subject amount across all PLB outputs accounting for every seized input plus any mint/burn — tokens are redistributed within the PLB, never created from nothing or made to escape
+2. **Amount redistribution** — `ThirdPartyAct` is a forced transfer: the subject policy's tokens on each paired output may be decreased, fully removed, increased, or left unchanged. Aggregate conservation (below) keeps the *total* subject amount across all PLB outputs accounting for every seized input plus any mint/burn — tokens are redistributed within the PLB, never created from nothing or made to escape
 3. **Per-pair mapping** — each spent PLB input is paired positionally with a continuing output (the first pair starts at `outputs_start_idx`); the action covers every PLB input that holds the subject policy
-4. **Preservation** — the paired output must preserve the holder's address, datum, **and reference script**, changing only the subject policy's non-protected tokens; all non-subject tokens are conserved byte-for-byte
-5. **Anti-injection / anti-DoS** — the paired input must already hold the subject policy, so the admin can neither inject the policy onto a UTxO that never held it nor drag an unrelated UTxO into the action
-6. **Protected prefixes** — tokens whose CIP-67 label prefix is on the node's `protected_prefixes` list cannot be extracted or burned ("preserve, not fail")
+4. **Preservation** — the paired output must preserve the holder's address, datum, **and reference script**, changing only the subject policy's tokens; all non-subject policies are conserved byte-for-byte
+5. **Lovelace ratchet** — the paired output must carry **at least** the input's lovelace (`>=`, not equality). Lovelace is not a programmable asset, so the admin may never drain it; the inequality exists so a later protocol-parameter rise in the min-ADA calculation cannot make an existing UTxO permanently unseizable
+6. **Anti-injection / anti-DoS** — the paired input must already hold the subject policy, so the admin can neither inject the policy onto a UTxO that never held it nor drag an unrelated UTxO into the action
 7. **One policy per transaction** — `ThirdPartyAct` targets exactly one registry node (see scope note below)
 
-> **Scope & limits.** The full extraction scope — protected prefixes, the
-> freeze-vs-extract asymmetry, who is seizable (holder scope), and the
+> **Scope & limits.** The full extraction scope — the freeze-vs-extract
+> asymmetry, who is seizable (holder scope), and the
 > single-policy-per-transaction constraint — is specified in
 > [`03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md`](./03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md).
+>
+> **Companion-asset protection is a substandard responsibility.** The core
+> framework does not exempt any asset name from seizure. Because the subject
+> policy's `third_party_transfer_logic_script` is invoked on *every*
+> `ThirdPartyAct`, a substandard that wants to shield CIP-67 reference tokens
+> (label 100, 500, …) enforces that rule in its own third-party logic.
 
 ### Token Registration Flow
 
