@@ -1,6 +1,7 @@
 use aiken/collection/list
 use aiken/fuzz
 use aiken/primitive/bytearray
+use cardano/address.{Script, VerificationKey}
 use cardano/assets.{PolicyId, ada_asset_name, ada_policy_id} as value
 use cardano/fuzz as cardano
 use cardano/transaction.{InlineDatum, Input, Output}
@@ -8,6 +9,7 @@ use registry_node.{
   RegistryNode, new_registry_node_getter, sentinel_next_key,
   with_key_and_3rd_party_logic, with_key_and_minting_logic,
   with_key_and_next_key, with_key_and_transfer_logic,
+  with_key_and_unfracking_logic,
 }
 use utils.{bytearray_lt}
 
@@ -103,6 +105,7 @@ fn any_registry_node() -> Fuzzer<RegistryNode> {
   let third_party_transfer_logic_script <- fuzz.and_then(cardano.credential())
   let minting_logic_script <- fuzz.and_then(cardano.credential())
   let global_state_cs <- fuzz.and_then(cardano.policy_id())
+  let unfracking_logic_script <- fuzz.and_then(cardano.credential())
   fuzz.constant(
     RegistryNode {
       key,
@@ -110,6 +113,7 @@ fn any_registry_node() -> Fuzzer<RegistryNode> {
       minting_logic_script,
       transfer_logic_script,
       third_party_transfer_logic_script,
+      unfracking_logic_script,
       global_state_cs,
     },
   )
@@ -146,6 +150,34 @@ test prop_with_key_and_minting_logic_roundtrip(node via any_registry_node()) {
   and {
     (key == node.key)?,
     (minting_logic_script == node.minting_logic_script)?,
+  }
+}
+
+test prop_with_key_and_unfracking_logic_roundtrip(node via any_registry_node()) {
+  let key, unfracking_logic_script <- with_key_and_unfracking_logic(node)
+  and {
+    (key == node.key)?,
+    (unfracking_logic_script == node.unfracking_logic_script)?,
+  }
+}
+
+// Deterministic off-by-one guard for the field-5 traversal: every field
+// gets a DISTINCT, hand-chosen value so the assertions pin the exact
+// indices regardless of fuzz luck.
+test with_key_and_unfracking_logic_extracts_exact_fields() {
+  let node = RegistryNode {
+    key: #"a0",
+    next: #"a1",
+    minting_logic_script: VerificationKey(#"a2"),
+    transfer_logic_script: VerificationKey(#"a3"),
+    third_party_transfer_logic_script: Script(#"a4"),
+    unfracking_logic_script: Script(#"a6"),
+    global_state_cs: #"a5",
+  }
+  let key, unfracking_logic_script <- with_key_and_unfracking_logic(node)
+  and {
+    (key == #"a0")?,
+    (unfracking_logic_script == Script(#"a6"))?,
   }
 }
 

@@ -12,7 +12,7 @@ use programmable_logic_base
 use programmable_logic_global
 use types.{
   ProgrammableLogicGlobalRedeemer, ThirdPartyAct, TokenDoesNotExist, TokenExists,
-  TransferAct,
+  TransferAct, UnfrackingRedeemer,
 }
 use unfracking
 
@@ -766,23 +766,26 @@ bench many_outputs((self, redeemer) via sample_many_outputs) {
 fn programmable_logic_unfracking(
   self: Transaction,
   redeemer: ProgrammableLogicGlobalRedeemer,
+  unfracking_redeemer: UnfrackingRedeemer,
 ) -> Bool {
   and {
     programmable_logic(self, redeemer),
     unfracking.unfracking.withdraw(
       fixture.policy_protocol_params,
-      Void,
+      unfracking_redeemer,
       fixture.credential_validator_unfracking,
       self,
     ),
   }
 }
 
-/// --- Bench: unfracking baseline (Finding 17) ------------------------------------------------------
+/// --- Bench: unfracking baseline (v2) --------------------------------------------------------------
 ///
-/// The canonical Unfracking case: a single multi-policy PLB UTxO is
-/// broken into one single-policy UTxO per policy. Both new UTxOs stay
-/// at PLB under the holder's authorised stake credential.
+/// The canonical unfracking case under the v2 single-policy model: a
+/// fracked PLB UTxO holding two policies is acted on for policy A — the
+/// paired continuing output keeps policy B untouched while all of A
+/// regroups into its own UTxO at the same owner address. The acted
+/// policy's registry hook withdraw-0 is part of the composition.
 ///
 /// Calls the `programmable_logic_unfracking` wrapper so the base.spend
 /// and PLG-gate costs are also accounted for.
@@ -791,26 +794,30 @@ test unfracking_baseline_two_policies() {
   let policy_a: PolicyId = #"00000000000000000000000000000000000000000000000000000a00"
   let policy_b: PolicyId = #"00000000000000000000000000000000000000000000000000000b00"
 
-  let (self, redeemer) = fixture.some_unfracking(
+  let (self, redeemer, unfracking_redeemer) = fixture.some_unfracking(
+    policy_a,
     [(policy_a, "FOO", 100), (policy_b, "BAR", 100)],
-    [[(policy_a, "FOO", 100)], [(policy_b, "BAR", 100)]],
+    [(policy_b, "BAR", 100)],
+    [(policy_a, "FOO", 100)],
   )
 
-  programmable_logic_unfracking(self, redeemer)
+  programmable_logic_unfracking(self, redeemer, unfracking_redeemer)
 }
 
-/// --- Bench: unfracking — policies axis (Finding 17) -----------------------------------------------
+/// --- Bench: unfracking — policies axis (v2) -------------------------------------------------------
 ///
-/// Scales the number of distinct policies in a single fracked PLB
-/// UTxO. The holder splits all of them into one single-policy output
-/// each — the worst-case `(N inputs, N outputs)` shape for the
-/// equality check (assets are sorted by policy on both sides, so the
-/// comparison cost is linear in the policy count).
+/// Scales the number of NON-acted policies co-resident in the fracked
+/// UTxO. The action extracts the single acted policy; every other
+/// policy must be byte-identical across the pair, so the per-pair
+/// comparison cost is linear in the co-resident policy count (the
+/// before/after halves of the ada-less split).
 /// ------------------------------------------------------------------------------------------------
 fn sample_unfracking_many_policies(
   size: Int,
-) -> Fuzzer<(Transaction, ProgrammableLogicGlobalRedeemer)> {
-  let tokens: List<(PolicyId, AssetName, Int)> <- fuzz.map(
+) -> Fuzzer<(Transaction, ProgrammableLogicGlobalRedeemer, UnfrackingRedeemer)> {
+  let acted_policy: PolicyId = #"00000000000000000000000000000000000000000000000000000a00"
+
+  let other_tokens: List<(PolicyId, AssetName, Int)> <- fuzz.map(
     fuzz.list_between(
       cardano.policy_id() |> fuzz.map(fn(policy) { (policy, "FOO", 42) }),
       size + 1,
@@ -818,14 +825,16 @@ fn sample_unfracking_many_policies(
     ),
   )
 
-  // Each policy gets its own single-policy output.
-  let output_layouts = list.map(tokens, fn(t) { [t] })
-
-  fixture.some_unfracking(tokens, output_layouts)
+  fixture.some_unfracking(
+    acted_policy,
+    [(acted_policy, "ACT", 100), ..other_tokens],
+    other_tokens,
+    [(acted_policy, "ACT", 100)],
+  )
 }
 
 bench unfracking_many_policies(
-  (self, redeemer) via sample_unfracking_many_policies,
+  (self, redeemer, unfracking_redeemer) via sample_unfracking_many_policies,
 ) {
-  programmable_logic_unfracking(self, redeemer)
+  programmable_logic_unfracking(self, redeemer, unfracking_redeemer)
 }

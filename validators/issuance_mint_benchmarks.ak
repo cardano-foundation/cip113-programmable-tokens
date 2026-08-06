@@ -79,6 +79,7 @@ fn registry_node_ref_input() -> Input {
           transfer_logic_script: empty_vkey,
           third_party_transfer_logic_script: empty_vkey,
           minting_logic_script: test_ml_cred,
+          unfracking_logic_script: empty_vkey,
           global_state_cs: #"",
         },
       ),

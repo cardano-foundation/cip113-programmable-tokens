@@ -14,7 +14,7 @@ use cardano/transaction.{
   Withdraw,
 }
 use issuance_mint
-use registry_node.{RegistryNode}
+use registry_node.{RegistryNode, empty_vkey}
 use types.{
   MintingRegistryProof, OutputIndex, RefInput, TokenExists, TransferAct,
 }
@@ -72,6 +72,7 @@ fn registry_node_output(key: ByteArray) -> Output {
           // Must match the validator's `minting_logic_cred` parameter
           // (= `test_ml_cred` via `call_validator`). Defense-in-depth #3.
           minting_logic_script: test_ml_cred,
+          unfracking_logic_script: empty_vkey,
           global_state_cs: #"",
         },
       ),
@@ -284,6 +285,7 @@ test registry_nft_missing_fails() fail {
             #"66666666666666666666666666666666666666666666666666666666",
           ),
           minting_logic_script: test_ml_cred,
+          unfracking_logic_script: empty_vkey,
           global_state_cs: #"",
         },
       ),
@@ -326,6 +328,7 @@ test wrong_registry_cs_nft_fails() fail {
             #"66666666666666666666666666666666666666666666666666666666",
           ),
           minting_logic_script: test_ml_cred,
+          unfracking_logic_script: empty_vkey,
           global_state_cs: #"",
         },
       ),
@@ -749,6 +752,7 @@ test case1_first_mint_with_shared_transfer_logic() {
             #"66666666666666666666666666666666666666666666666666666666",
           ),
           minting_logic_script: test_ml_cred,
+          unfracking_logic_script: empty_vkey,
           global_state_cs: #"",
         },
       ),

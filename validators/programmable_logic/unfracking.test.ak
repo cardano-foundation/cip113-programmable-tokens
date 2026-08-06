@@ -1,139 +1,175 @@
-//// Tests for the Finding 17 Unfracking action.
+//// Tests for the Unfracking action — v2 (registry-gated,
+//// ThirdPartyAct-shaped). See `documentation/design/unfracking-v2-registry-hook.md`.
 ////
 //// The fixtures sit at the top of the file (per CLAUDE.md), every test
 //// is built by spreading a known-good fixture and overriding one field
-//// to expose the invariant under test. Names read as specs:
+//// to expose the invariant under test. Names read as specs.
 ////
-////   * unfracking_<scenario>_succeeds / _fails — describes the shape.
-////
-//// Script composition: a real unfracking transaction runs THREE
-//// scripts, and the fixture transaction carries the withdrawals for
-//// all of them (`fixture.withdrawals_unfracking`):
+//// Script composition: a real unfracking transaction carries up to
+//// FOUR withdraw-0s (`fixture.withdrawals_unfracking`):
 ////
 ////   * programmable_logic_base.spend — per PLB input; requires PLG's
 ////     withdraw-0.
 ////   * programmable_logic_global.withdraw (UnfrackingAct) — requires
 ////     unfracking's withdraw-0 (the delegation gate).
-////   * unfracking.withdraw — enforces the invariants tested
-////     here.
-////
-//// The invariant tests drive `unfracking` directly; the gate
-//// tests at the bottom drive PLG; one end-to-end test composes all
-//// three, mirroring the benchmark wrapper pattern.
-////
-//// Authorisation: the default fixture uses `credential_transfer_logic`
-//// (a Script) as the PLB stake credential — same as the rest of the
-//// programmable_logic fixtures. So a valid Unfracking tx invokes that
-//// script's withdraw-0; a vkey-only Unfracking tx wires
-//// `VerificationKey(pkh)` and signs as that pkh.
+////   * unfracking.withdraw — enforces the v2 invariants tested here,
+////     including that the acted-on policy's issuer hook withdraw-0
+////     (registry node field 5, `credential_unfracking_hook` in the
+////     fixture) is present. No script, no party.
+////   * the owner's stake-script withdraw-0 (transfer logic in the
+////     default fixture) — or a vkey signature instead.
 
-use cardano/address.{Address, Credential, VerificationKey}
-use cardano/assets.{ada_asset_name, ada_policy_id, from_asset, merge}
-use cardano/transaction.{InlineDatum, Input, NoDatum, Output, Transaction}
+use cardano/address.{Credential, VerificationKey}
+use cardano/assets.{
+  AssetName, PolicyId, ada_asset_name, ada_policy_id, from_asset, merge,
+}
+use cardano/transaction.{InlineDatum, Input, Output, Transaction}
 use programmable_logic/fixture
 use programmable_logic/params.{ProgrammableLogicGlobalParams}
 use programmable_logic_base
 use programmable_logic_global
-use types.{UnfrackingAct}
+use registry_node.{RegistryNode, empty_vkey, sentinel_next_key}
+use types.{UnfrackingAct, UnfrackingRedeemer}
 use unfracking
 
-// --------------------------------------------------------------------- types
+// --------------------------------------------------------------------- consts
 
-/// Two policies used across the Unfracking tests; the whole point of
-/// Unfracking is to split tokens of multiple policies into separate
-/// UTxOs, so all the interesting scenarios involve at least two.
+/// The acted-on policy: the one the unfracking action names via its
+/// registry node and regroups into its own UTxO(s).
 const policy_a: ByteArray =
   #"00000000000000000000000000000000000000000000000000000a00"
 
+/// A co-resident registered policy that must remain byte-identical in
+/// the paired continuing output.
 const policy_b: ByteArray =
   #"00000000000000000000000000000000000000000000000000000b00"
 
-/// A non-programmable / unregistered policy. Unfracking does not consult
-/// the registry at all, so its handling has to be value-conservation
-/// only: it goes in, it must come out at PLB.
+/// A non-programmable / unregistered policy parked in the fracked UTxO.
+/// Non-acted byte-identity pins it in place like any other policy.
 const policy_unrelated: ByteArray =
   #"aabbccddaabbccddaabbccddaabbccddaabbccddaabbccddaabbccdd"
 
-/// A second authorised vkey holder, used to exercise the "user owns
-/// two of their own credentials and shuffles between them" case.
+/// A vkey holder, for the signature-authorised owner path.
 const second_vkey_pkh: ByteArray =
   #"deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
 
-/// A third-party (Eve) credential the user has NOT authorised. Used
-/// to pin the back-door-closure: tokens MUST NOT be routable to a
-/// stake credential not present in the input set.
+/// A third-party (Eve) credential the owner has NOT authorised.
 const eve_vkey_pkh: ByteArray =
   #"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
 
-const redeemer = UnfrackingAct
+const plg_redeemer = UnfrackingAct
+
+const unfracking_redeemer =
+  UnfrackingRedeemer { registry_node_idx: 1, outputs_start_idx: 0 }
 
 // ----------------------------------------------------------------- fixtures
 
-/// The canonical "happy path" Unfracking input: one PLB UTxO at the
-/// default `credential_transfer_logic` script stake credential, holding
-/// 100 A + 100 B + min_ada. This is the multi-policy "fracked" state
-/// the action exists to break apart.
-fn valid_fracked_input() -> Input {
-  fixture.some_input_with_programmable_tokens(
-    [(policy_a, "FOO", 100), (policy_b, "BAR", 100)],
-    "fracked input",
-  )
-}
-
-/// Two outputs at PLB, each holding one of the two policies — the
-/// canonical "unfracked" shape. Both inherit `credential_transfer_logic`
-/// from `fixture.some_output_with_programmable_tokens`.
-fn unfracked_outputs() -> List<Output> {
-  [
-    fixture.some_output_with_programmable_tokens([(policy_a, "FOO", 100)]),
-    fixture.some_output_with_programmable_tokens([(policy_b, "BAR", 100)]),
-  ]
-}
-
-/// The valid Unfracking transaction skeleton: one fracked PLB input,
-/// two single-policy PLB outputs, no mint, and the full unfracking
-/// withdrawal composition — PLG (for the base spends), the
-/// unfracking script itself (PLG's delegation gate), and the
-/// transfer-logic script whose withdraw-0 discharges the authorisation
-/// requirement (the input's stake credential is that script).
+/// The canonical "happy path" v2 unfracking transaction, from the
+/// shared fixture: ONE fracked PLB input (100 A + 100 B) at the default
+/// script stake credential; the paired continuing output keeps B
+/// byte-for-byte while all of A regroups into an extra output at the
+/// same owner address. Reference inputs: protocol params (0) and the
+/// acted policy's registry node with the hook set (1).
 fn valid_unfracking_tx() -> Transaction {
-  Transaction {
-    ..transaction.placeholder,
-    inputs: [valid_fracked_input()],
-    outputs: unfracked_outputs(),
-    reference_inputs: [
-      fixture.some_reference_input_protocol_params(
-        fixture.protocol_params,
-        "protocol params",
+  let (tx, _, _) = fixture.some_unfracking(
+    policy_a,
+    [(policy_a, "FOO", 100), (policy_b, "BAR", 100)],
+    [(policy_b, "BAR", 100)],
+    [(policy_a, "FOO", 100)],
+  )
+  tx
+}
+
+/// Withdrawals WITHOUT the issuer hook — the composition a pre-v2
+/// transaction would carry. Used by the hook-invocation negative.
+const withdrawals_without_hook: Pairs<Credential, Int> =
+  [
+    Pair(fixture.credential_validator_logic_global, 0),
+    Pair(fixture.credential_validator_unfracking, 0),
+    Pair(fixture.credential_transfer_logic, 0),
+  ]
+
+/// Withdrawals for a vkey-staked owner (no transfer-logic withdraw-0
+/// needed — the owner signs instead).
+const withdrawals_vkey_owner: Pairs<Credential, Int> =
+  [
+    Pair(fixture.credential_validator_logic_global, 0),
+    Pair(fixture.credential_validator_unfracking, 0),
+    Pair(fixture.credential_unfracking_hook, 0),
+  ]
+
+/// The acted policy's registry node ref input with a caller-chosen hook
+/// credential. Spread base is the shared fixture node; the only delta
+/// is the `unfracking_logic_script` value.
+fn node_ref_with_hook(hook: Credential) -> Input {
+  let base = fixture.some_reference_input_unfracking_registry_node(
+    policy_a,
+    "unfracking registry node",
+  )
+  Input {
+    ..base,
+    output: Output {
+      ..base.output,
+      datum: InlineDatum(
+        as_data(
+          RegistryNode {
+            key: policy_a,
+            next: sentinel_next_key,
+            transfer_logic_script: fixture.credential_transfer_logic,
+            third_party_transfer_logic_script: fixture.credential_3rd_party_logic,
+            minting_logic_script: empty_vkey,
+            unfracking_logic_script: hook,
+            global_state_cs: "",
+          },
+        ),
       ),
-    ],
-    withdrawals: fixture.withdrawals_unfracking,
+    },
+  }
+}
+
+/// Spread a programmable-tokens output and add `delta` lovelace on top
+/// of the fixture's min-ada value (negative delta = drain). Ada is
+/// deliberately unconstrained in unfracking pairs — both directions
+/// must PASS (cf. the ThirdPartyAct lovelace ratchet, issue #96, where
+/// only the increase is legal).
+fn output_with_extra_lovelace(
+  tokens: List<(PolicyId, AssetName, Int)>,
+  delta: Int,
+) -> Output {
+  let base = fixture.some_output_with_programmable_tokens(tokens)
+  Output {
+    ..base,
+    value: base.value
+      |> merge(from_asset(ada_policy_id, ada_asset_name, delta)),
   }
 }
 
 /// Dispatch helper — drives the standalone `unfracking.withdraw`
-/// validator (where the Finding 17 invariants live) over a
-/// caller-provided transaction. The redeemer is opaque `Data` — the
-/// validator infers everything from the transaction shape.
-fn run_unfracking(tx: Transaction) -> Bool {
+/// validator with an explicit redeemer.
+fn run_unfracking_with(tx: Transaction, redeemer: UnfrackingRedeemer) -> Bool {
   unfracking.unfracking.withdraw(
     fixture.policy_protocol_params,
-    Void,
+    redeemer,
     fixture.credential_validator_unfracking,
     tx,
   )
 }
 
+/// Dispatch helper with the canonical redeemer (node ref at index 1,
+/// paired outputs from index 0).
+fn run_unfracking(tx: Transaction) -> Bool {
+  run_unfracking_with(tx, unfracking_redeemer)
+}
+
 /// Dispatch helper — drives `programmable_logic_global.withdraw` with
-/// the `UnfrackingAct` redeemer over a caller-provided transaction.
-/// Under that redeemer PLG is only a delegation gate: it requires the
-/// withdraw-0 of the credential named by the protocol-params datum's
-/// `unfracking_cred` field to be present and checks nothing else.
-/// Mirrors the helper shape used in the existing 3rd-party tests.
+/// the `UnfrackingAct` redeemer. Under that redeemer PLG is only a
+/// delegation gate: it requires the withdraw-0 of the credential named
+/// by the protocol-params datum's `unfracking_cred` field and checks
+/// nothing else.
 fn run_plg_unfracking_gate(tx: Transaction) -> Bool {
   programmable_logic_global.programmable_logic_global.withdraw(
     fixture.policy_protocol_params,
-    redeemer,
+    plg_redeemer,
     fixture.credential_validator_logic_global,
     tx,
   )
@@ -141,38 +177,62 @@ fn run_plg_unfracking_gate(tx: Transaction) -> Bool {
 
 // --------------------------------------------------------------- happy paths
 
-// Finding 17: the canonical unfracking case — one multi-policy PLB
-// UTxO is broken into one single-policy UTxO per policy. Both new
-// UTxOs stay at PLB under the holder's authorised stake credential.
-// No mint, no transfer-logic interaction beyond the withdraw-0 that
-// authorises the original input.
-test unfracking_split_two_policies_into_two_outputs_succeeds() {
+// v2 canonical case: the fracked A+B UTxO is acted on for A; the paired
+// continuing output keeps B untouched, all of A regroups into its own
+// UTxO at the same owner address, the issuer hook withdraw-0 is present.
+test unfracking_split_acted_policy_from_fracked_utxo_succeeds() {
   run_unfracking(valid_unfracking_tx())
 }
 
-// Finding 17: holders aren't forced into a 1-policy-per-output layout.
-// Half of each policy goes to output 1, the other half to output 2.
-// The validator only cares that totals at PLB are unchanged and that
-// each output's stake credential is authorised.
-test unfracking_partial_split_succeeds() {
+// v2: consolidation across multiple fracked UTxOs of the same owner —
+// N inputs, N paired continuing outputs (each keeping its non-acted
+// remainder), one extra output collecting ALL the acted tokens.
+test unfracking_multi_utxo_consolidation_succeeds() {
+  let input_2 = fixture.some_input_with_programmable_tokens(
+    [(policy_a, "FOO", 50), (policy_b, "BAR", 50)],
+    "unfracking input 2",
+  )
   let tx = Transaction {
     ..valid_unfracking_tx(),
+    inputs: [
+      fixture.some_input_with_programmable_tokens(
+        [(policy_a, "FOO", 100), (policy_b, "BAR", 100)],
+        "unfracking input",
+      ),
+      input_2,
+    ],
     outputs: [
-      fixture.some_output_with_programmable_tokens(
-        [(policy_a, "FOO", 50), (policy_b, "BAR", 50)],
-      ),
-      fixture.some_output_with_programmable_tokens(
-        [(policy_a, "FOO", 50), (policy_b, "BAR", 50)],
-      ),
+      fixture.some_output_with_programmable_tokens([(policy_b, "BAR", 100)]),
+      fixture.some_output_with_programmable_tokens([(policy_b, "BAR", 50)]),
+      fixture.some_output_with_programmable_tokens([(policy_a, "FOO", 150)]),
     ],
   }
   run_unfracking(tx)
 }
 
-// Finding 17: a degenerate but legal case — one input, one identical
-// output. The user is paying fees from a non-PLB fuel input (not
-// modelled here) and rebuilding the UTxO. Conservation holds.
-test unfracking_identity_reshape_succeeds() {
+// Full strip: a PARTIAL strip leaving acted residue in the continuing
+// output is rejected. Requirements-driven: in the freeze case the
+// residue keeps the continuing UTxO needing the frozen policy's
+// transfer proof (still stuck), and partial same-owner rebalancing is
+// TransferAct's job — with transfer logic as the proper bouncer — not
+// this bypass's.
+test unfracking_fails_partial_strip_residue_in_pair() fail {
+  let tx = Transaction {
+    ..valid_unfracking_tx(),
+    outputs: [
+      fixture.some_output_with_programmable_tokens(
+        [(policy_a, "FOO", 40), (policy_b, "BAR", 100)],
+      ),
+      fixture.some_output_with_programmable_tokens([(policy_a, "FOO", 60)]),
+    ],
+  }
+  run_unfracking(tx)
+}
+
+// Full strip: a no-change pair (the acted balance stays put entirely)
+// is rejected for the same reason as the partial residue above — and it
+// would be pure churn besides.
+test unfracking_fails_acted_tokens_unmoved_in_pair() fail {
   let tx = Transaction {
     ..valid_unfracking_tx(),
     outputs: [
@@ -184,340 +244,429 @@ test unfracking_identity_reshape_succeeds() {
   run_unfracking(tx)
 }
 
-// Finding 17: vkey-authorised holder unfracks their own PLB UTxO.
-// The stake credential is a vkey rather than a script, so authorisation
-// comes from `extra_signatories` instead of `withdrawals`. The
-// transfer_logic withdraw-0 is omitted because nothing in this tx
-// relies on the transfer logic — and the validator must not require it.
-test unfracking_vkey_authorised_succeeds() {
-  let vkey_cred = VerificationKey(second_vkey_pkh)
-  let input = fixture.some_input_with_programmable_tokens_with(
-    vkey_cred,
-    [(policy_a, "FOO", 100), (policy_b, "BAR", 100)],
-    "vkey input",
-  )
-  let outputs = [
-    fixture.some_output_with_programmable_tokens_with(
-      vkey_cred,
-      [(policy_a, "FOO", 100)],
-    ),
-    fixture.some_output_with_programmable_tokens_with(
-      vkey_cred,
-      [(policy_b, "BAR", 100)],
-    ),
-  ]
-  let tx = Transaction {
-    ..valid_unfracking_tx(),
-    inputs: [input],
-    outputs,
-    extra_signatories: [second_vkey_pkh],
-    withdrawals: [
-      Pair(fixture.credential_validator_logic_global, 0),
-      Pair(fixture.credential_validator_unfracking, 0),
-    ],
-  }
-  run_unfracking(tx)
-}
-
-// Finding 17 — multi-input consolidation, same owner. Two PLB UTxOs at
-// the SAME stake credential are spent and consolidated into a single
-// PLB output (still at the same address). Exercises the
-// `do_collect_plb_inputs` continuation in the HAPPY PATH — every other
-// positive test uses a single PLB input and never reaches the
-// continuation; the only cross-cred test that does reach it triggers the
-// rejection branch. This test pins that the continuation also accepts
-// when subsequent PLB inputs share the target credential. Per-policy
-// totals add up (100+50=150 for both A and B); single owner throughout;
-// no mint.
-test unfracking_multi_input_consolidation_succeeds() {
-  let input_1 = fixture.some_input_with_programmable_tokens(
-    [(policy_a, "FOO", 100), (policy_b, "BAR", 100)],
-    "consolidation input 1",
-  )
-  let input_2 = fixture.some_input_with_programmable_tokens(
-    [(policy_a, "FOO", 50), (policy_b, "BAR", 50)],
-    "consolidation input 2",
-  )
-  let consolidated = fixture.some_output_with_programmable_tokens(
-    [(policy_a, "FOO", 150), (policy_b, "BAR", 150)],
-  )
-  let tx = Transaction {
-    ..valid_unfracking_tx(),
-    inputs: [input_1, input_2],
-    outputs: [consolidated],
-  }
-  run_unfracking(tx)
-}
-
-// Finding 17 — single-owner invariant. Unfracking is a SAME-OWNER
-// restructuring action: tokens crossing between stake credentials is a
-// transfer (and must invoke `transfer_logic_script`), not an unfracking.
-// Here two PLB UTxOs use DIFFERENT stake credentials (one script-staked,
-// one vkey-staked). Even if the holder controls both, the validator must
-// reject — otherwise Unfracking would be "transfer-without-transfer-logic"
-// between credentials the holder happens to own. The first PLB input
-// pins the target stake_cred; the second's mismatched cred triggers
-// `expect stake_cred == existing` in `collect_plb_inputs` and the tx
-// fails. This `fail` test locks in that boundary.
-test unfracking_inputs_with_different_stake_creds_rejected() fail {
-  let vkey_cred = VerificationKey(second_vkey_pkh)
-  // Input A: default script stake credential
-  let input_script = fixture.some_input_with_programmable_tokens(
-    [(policy_a, "FOO", 100)],
-    "script input",
-  )
-  // Input B: vkey stake credential
-  let input_vkey = fixture.some_input_with_programmable_tokens_with(
-    vkey_cred,
-    [(policy_b, "BAR", 100)],
-    "vkey input",
-  )
-  // Outputs swap which cred holds which policy — both creds are
-  // authorised so this is legal.
-  let outputs = [
-    fixture.some_output_with_programmable_tokens_with(
-      vkey_cred,
-      [(policy_a, "FOO", 100)],
-    ),
-    fixture.some_output_with_programmable_tokens([(policy_b, "BAR", 100)]),
-  ]
-  let tx = Transaction {
-    ..valid_unfracking_tx(),
-    inputs: [input_script, input_vkey],
-    outputs,
-    extra_signatories: [second_vkey_pkh],
-    // Script-staked input requires the script's withdraw-0; vkey
-    // input is covered by the signatory above.
-    withdrawals: fixture.withdrawals_unfracking,
-  }
-  run_unfracking(tx)
-}
-
-// Finding 17: an unrelated / unregistered policy that happens to share
-// a UTxO with programmable tokens is preserved across the reshape too.
-// The validator doesn't consult the registry under Unfracking, so it
-// treats the unregistered token the same as the registered ones —
-// total at PLB unchanged.
-test unfracking_preserves_unregistered_token_at_plb_succeeds() {
-  let input = fixture.some_input_with_programmable_tokens(
-    [
-      (policy_a, "FOO", 100), (policy_b, "BAR", 100),
-      (policy_unrelated, "RAND", 1),
-    ],
-    "mixed input",
-  )
-  let outputs = [
-    fixture.some_output_with_programmable_tokens([(policy_a, "FOO", 100)]),
-    fixture.some_output_with_programmable_tokens(
-      [(policy_b, "BAR", 100), (policy_unrelated, "RAND", 1)],
-    ),
-  ]
-  let tx = Transaction { ..valid_unfracking_tx(), inputs: [input], outputs }
-  run_unfracking(tx)
-}
-
-// --------------------------------------------------------------- failure cases
-//
-// One delta per failure test (CLAUDE.md test conventions). Each test
-// builds on `valid_unfracking_tx()` and overrides exactly one field
-// — the spec-shaped diff in the body is what tells the reader which
-// invariant the test is locking in.
-
-// Finding 17: the destination stake credential must be in the
-// authorisation set. ONE delta vs the happy path — second output's
-// stake credential is Eve (a vkey the user did NOT sign for). This is
-// the core back-door Unfracking has to slam shut, otherwise it becomes
-// "transfer-without-transfer-logic" and bypasses the substandard.
-test unfracking_output_to_unauthorised_stake_credential_fails() fail {
-  let eve_cred = VerificationKey(eve_vkey_pkh)
+// v2: paired outputs may start later in the outputs list; earlier
+// owner-address outputs (here: the regrouped acted tokens) are counted
+// by the drop-accumulate walk. Mirrors third_party_act_prog_outputs_skipped.
+test unfracking_paired_outputs_skipped_succeeds() {
   let tx = Transaction {
     ..valid_unfracking_tx(),
     outputs: [
       fixture.some_output_with_programmable_tokens([(policy_a, "FOO", 100)]),
-      // ONE delta: stake credential is Eve, not the input's cred.
+      fixture.some_output_with_programmable_tokens([(policy_b, "BAR", 100)]),
+    ],
+  }
+  run_unfracking_with(
+    tx,
+    UnfrackingRedeemer { registry_node_idx: 1, outputs_start_idx: 1 },
+  )
+}
+
+// v2: ada is deliberately UNCONSTRAINED per pair — an increase passes.
+// (Contrast: ThirdPartyAct ratchets, issue #96 — here the single owner
+// authorised the action and ada is not a programmable asset.)
+test unfracking_pair_ada_increase_succeeds() {
+  let tx = Transaction {
+    ..valid_unfracking_tx(),
+    outputs: [
+      output_with_extra_lovelace([(policy_b, "BAR", 100)], 2),
+      fixture.some_output_with_programmable_tokens([(policy_a, "FOO", 100)]),
+    ],
+  }
+  run_unfracking(tx)
+}
+
+// v2: ada decrease passes too — the owner is free to rebalance min-ADA
+// across the restructured layout (and a min-ADA parameter rise can
+// never brick the action).
+test unfracking_pair_ada_decrease_succeeds() {
+  let tx = Transaction {
+    ..valid_unfracking_tx(),
+    outputs: [
+      output_with_extra_lovelace([(policy_b, "BAR", 100)], -2),
+      fixture.some_output_with_programmable_tokens([(policy_a, "FOO", 100)]),
+    ],
+  }
+  run_unfracking(tx)
+}
+
+// v2: vkey-staked owner authorises by signing; no transfer-logic
+// withdraw-0 needed. Hook and validator withdrawals remain.
+test unfracking_vkey_owner_succeeds() {
+  let vkey_cred = VerificationKey(second_vkey_pkh)
+  let tx = Transaction {
+    ..valid_unfracking_tx(),
+    inputs: [
+      fixture.some_input_with_programmable_tokens_with(
+        vkey_cred,
+        [(policy_a, "FOO", 100), (policy_b, "BAR", 100)],
+        "vkey input",
+      ),
+    ],
+    outputs: [
       fixture.some_output_with_programmable_tokens_with(
-        eve_cred,
+        vkey_cred,
         [(policy_b, "BAR", 100)],
+      ),
+      fixture.some_output_with_programmable_tokens_with(
+        vkey_cred,
+        [(policy_a, "FOO", 100)],
+      ),
+    ],
+    extra_signatories: [second_vkey_pkh],
+    withdrawals: withdrawals_vkey_owner,
+  }
+  run_unfracking(tx)
+}
+
+// v2: an unregistered token parked in the fracked UTxO is pinned by the
+// same non-acted byte-identity as any registered policy — it stays in
+// the continuing output, and the action still succeeds.
+test unfracking_preserves_unregistered_token_succeeds() {
+  let tx = Transaction {
+    ..valid_unfracking_tx(),
+    inputs: [
+      fixture.some_input_with_programmable_tokens(
+        [
+          (policy_a, "FOO", 100), (policy_b, "BAR", 100),
+          (policy_unrelated, "RAND", 1),
+        ],
+        "unfracking input",
+      ),
+    ],
+    outputs: [
+      fixture.some_output_with_programmable_tokens(
+        [(policy_b, "BAR", 100), (policy_unrelated, "RAND", 1)],
+      ),
+      fixture.some_output_with_programmable_tokens([(policy_a, "FOO", 100)]),
+    ],
+  }
+  run_unfracking(tx)
+}
+
+// Adversarial-review coverage: a negative outputs_start_idx behaves
+// exactly like 0 (the drop walk treats n <= 0 as "drop nothing") — an
+// off-chain builder bug cannot unlock a different pairing.
+test unfracking_negative_outputs_start_idx_behaves_as_zero() {
+  run_unfracking_with(
+    valid_unfracking_tx(),
+    UnfrackingRedeemer { registry_node_idx: 1, outputs_start_idx: -1 },
+  )
+}
+
+// Layout freedom promised by the design: the stripped tokens may split
+// across SEVERAL owner-address outputs — the conservation fold sums them.
+test unfracking_regroup_across_multiple_outputs_succeeds() {
+  let tx = Transaction {
+    ..valid_unfracking_tx(),
+    outputs: [
+      fixture.some_output_with_programmable_tokens([(policy_b, "BAR", 100)]),
+      fixture.some_output_with_programmable_tokens([(policy_a, "FOO", 60)]),
+      fixture.some_output_with_programmable_tokens([(policy_a, "FOO", 40)]),
+    ],
+  }
+  run_unfracking(tx)
+}
+
+// The acted policy may carry several asset names — the full strip moves
+// the ENTIRE per-policy entry, and conservation compares whole dicts.
+test unfracking_multi_asset_name_acted_policy_succeeds() {
+  let tx = Transaction {
+    ..valid_unfracking_tx(),
+    inputs: [
+      fixture.some_input_with_programmable_tokens(
+        [(policy_a, "FOO", 100), (policy_a, "FOO2", 7), (policy_b, "BAR", 100)],
+        "unfracking input",
+      ),
+    ],
+    outputs: [
+      fixture.some_output_with_programmable_tokens([(policy_b, "BAR", 100)]),
+      fixture.some_output_with_programmable_tokens(
+        [(policy_a, "FOO", 100), (policy_a, "FOO2", 7)],
       ),
     ],
   }
   run_unfracking(tx)
 }
 
-// Finding 17: per-policy total at PLB must be conserved. ONE delta
-// vs the happy path — output B carries 150 tokens where input held 100.
-// (The extra 50 would have had to come from somewhere; the equality
-// check catches it without us having to model the missing input.)
-test unfracking_output_surplus_fails() fail {
+// Non-PLB inputs (fee fuel etc.) interleave freely: they are skipped by
+// the owner pinning and by the pair walk without consuming an output.
+test unfracking_interleaved_non_plb_input_succeeds() {
+  let tx = Transaction {
+    ..valid_unfracking_tx(),
+    inputs: [
+      fixture.some_input_fuel("fee fuel"),
+      fixture.some_input_with_programmable_tokens(
+        [(policy_a, "FOO", 100), (policy_b, "BAR", 100)],
+        "unfracking input",
+      ),
+    ],
+  }
+  run_unfracking(tx)
+}
+
+// --------------------------------------------------------------- failure cases
+//
+// One delta per failure test (CLAUDE.md test conventions). Each test
+// builds on `valid_unfracking_tx()` and overrides exactly one field.
+
+// v2 default-deny: the acted policy's registry node has NO hook set
+// (`empty_vkey`) — unfracking is forbidden outright. There is no
+// explicit sentinel check: the invocation lookup itself is
+// unsatisfiable, because no ledger tx can carry a withdrawal keyed by
+// an empty hash. The hook withdrawal is still present in the tx; the
+// ONE delta is the registry field.
+test unfracking_fails_when_hook_unset() fail {
+  let tx = Transaction {
+    ..valid_unfracking_tx(),
+    reference_inputs: [
+      fixture.some_reference_input_protocol_params(
+        fixture.protocol_params,
+        "protocol params",
+      ),
+      node_ref_with_hook(empty_vkey),
+    ],
+  }
+  run_unfracking(tx)
+}
+
+// v2: the hook is set but its withdraw-0 is NOT invoked — the action
+// must fail. ONE delta: the hook withdrawal is removed.
+test unfracking_fails_when_hook_not_invoked() fail {
+  let tx = Transaction {
+    ..valid_unfracking_tx(),
+    withdrawals: withdrawals_without_hook,
+  }
+  run_unfracking(tx)
+}
+
+// v2: acted tokens may ONLY land at the owner address. ONE delta: the
+// regrouped output carries Eve's stake credential — the owner-side
+// conservation total comes up short and the equality rejects.
+test unfracking_fails_acted_tokens_to_other_stake_cred() fail {
   let tx = Transaction {
     ..valid_unfracking_tx(),
     outputs: [
-      fixture.some_output_with_programmable_tokens([(policy_a, "FOO", 100)]),
-      // ONE delta: 150 BAR, not 100.
-      fixture.some_output_with_programmable_tokens([(policy_b, "BAR", 150)]),
+      fixture.some_output_with_programmable_tokens([(policy_b, "BAR", 100)]),
+      fixture.some_output_with_programmable_tokens_with(
+        VerificationKey(eve_vkey_pkh),
+        [(policy_a, "FOO", 100)],
+      ),
     ],
   }
   run_unfracking(tx)
 }
 
-// Finding 17: per-policy total at PLB must be conserved (the other
-// direction). ONE delta — output B has only 50 of the 100 BAR; the
-// remaining 50 would be leaking somewhere off PLB.
-test unfracking_output_shortfall_fails() fail {
+// v2: every NON-acted policy must be byte-identical across the pair.
+// ONE delta: the continuing output keeps only 90 of the 100 B.
+test unfracking_fails_non_acted_delta_in_pair() fail {
   let tx = Transaction {
     ..valid_unfracking_tx(),
     outputs: [
+      fixture.some_output_with_programmable_tokens([(policy_b, "BAR", 90)]),
       fixture.some_output_with_programmable_tokens([(policy_a, "FOO", 100)]),
-      // ONE delta: 50 BAR, not 100.
-      fixture.some_output_with_programmable_tokens([(policy_b, "BAR", 50)]),
     ],
   }
   run_unfracking(tx)
 }
 
-// Finding 17: tokens cannot leak to a non-PLB address (proven by the
-// conservation rule + ledger value preservation, but worth pinning
-// explicitly). ONE delta — output B is at an Eve-payment-credential
-// non-PLB address, so 100 BAR is removed from the PLB tally.
-test unfracking_token_leak_to_non_plb_output_fails() fail {
-  let eve_address = Address {
-    payment_credential: VerificationKey(eve_vkey_pkh),
-    stake_credential: None,
-  }
-  let leaky_output = Output {
-    address: eve_address,
-    value: from_asset(ada_policy_id, ada_asset_name, 1_000_000)
-      |> merge(from_asset(policy_b, "BAR", 100)),
-    datum: NoDatum,
-    reference_script: None,
-  }
-  let tx = Transaction {
-    ..valid_unfracking_tx(),
-    outputs: [
-      fixture.some_output_with_programmable_tokens([(policy_a, "FOO", 100)]),
-      // ONE delta: B goes to Eve instead of staying at PLB.
-      leaky_output,
-    ],
-  }
-  run_unfracking(tx)
-}
-
-// Finding 17: script-staked PLB input requires the script's withdraw-0.
-// ONE delta — the transfer_logic withdrawal is removed. Authorisation
-// scan halts on the first PLB input.
-test unfracking_missing_script_authorisation_fails() fail {
-  let tx = Transaction {
-    ..valid_unfracking_tx(),
-    // ONE delta: the transfer_logic withdraw-0 is gone; the PLG and
-    // unfracking withdraw-0s remain (they are tx plumbing,
-    // not input authorisation).
-    withdrawals: [
-      Pair(fixture.credential_validator_logic_global, 0),
-      Pair(fixture.credential_validator_unfracking, 0),
-    ],
-  }
-  run_unfracking(tx)
-}
-
-// Finding 17: vkey-staked PLB input requires the vkey to sign. ONE
-// delta vs `unfracking_vkey_authorised_succeeds` — `extra_signatories`
-// is empty, so the authorisation check fails on the input.
-test unfracking_missing_vkey_signatory_fails() fail {
-  let vkey_cred = VerificationKey(second_vkey_pkh)
-  let input = fixture.some_input_with_programmable_tokens_with(
-    vkey_cred,
-    [(policy_a, "FOO", 100), (policy_b, "BAR", 100)],
-    "vkey input",
+// v2: the paired continuing output must preserve the datum — a
+// co-resident policy's stateful datum cannot be disturbed by another
+// policy's unfracking. ONE delta: an inline datum appears on the
+// continuing output (the input has NoDatum).
+test unfracking_fails_pair_datum_changed() fail {
+  let cont = fixture.some_output_with_programmable_tokens(
+    [(policy_b, "BAR", 100)],
   )
-  let outputs = [
-    fixture.some_output_with_programmable_tokens_with(
-      vkey_cred,
-      [(policy_a, "FOO", 100)],
-    ),
-    fixture.some_output_with_programmable_tokens_with(
-      vkey_cred,
-      [(policy_b, "BAR", 100)],
-    ),
-  ]
   let tx = Transaction {
     ..valid_unfracking_tx(),
-    inputs: [input],
-    outputs,
-    // ONE delta: no signatory for second_vkey_pkh.
-    extra_signatories: [],
-    withdrawals: [
-      Pair(fixture.credential_validator_logic_global, 0),
-      Pair(fixture.credential_validator_unfracking, 0),
+    outputs: [
+      Output { ..cont, datum: InlineDatum(as_data(Void)) },
+      fixture.some_output_with_programmable_tokens([(policy_a, "FOO", 100)]),
     ],
   }
   run_unfracking(tx)
 }
 
-// Finding 17: minting is forbidden during Unfracking. ONE delta — a
-// positive mint of policy_a. Without this rule, a holder could
-// disguise a mint as an unfracking and skip issuance_mint's
-// authorisation checks.
-test unfracking_with_mint_fails() fail {
+// v2: the paired continuing output must preserve the reference script
+// (Finding 13 applies to unfracking too). ONE delta: a reference
+// script appears on the continuing output.
+test unfracking_fails_pair_reference_script_changed() fail {
+  let cont = fixture.some_output_with_programmable_tokens(
+    [(policy_b, "BAR", 100)],
+  )
   let tx = Transaction {
     ..valid_unfracking_tx(),
-    // ONE delta: non-empty mint.
+    outputs: [
+      Output {
+        ..cont,
+        reference_script: Some(
+          #"a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+        ),
+      },
+      fixture.some_output_with_programmable_tokens([(policy_a, "FOO", 100)]),
+    ],
+  }
+  run_unfracking(tx)
+}
+
+// v2: minting is forbidden — unfracking is strictly value-preserving.
+// The outputs are adjusted so ONLY the mint-zero rule can reject
+// (isolation: with the mint accepted, conservation would balance).
+test unfracking_fails_with_mint() fail {
+  let tx = Transaction {
+    ..valid_unfracking_tx(),
     mint: from_asset(policy_a, "FOO", 50),
     outputs: [
-      fixture.some_output_with_programmable_tokens([(policy_a, "FOO", 150)]),
       fixture.some_output_with_programmable_tokens([(policy_b, "BAR", 100)]),
+      fixture.some_output_with_programmable_tokens([(policy_a, "FOO", 150)]),
     ],
   }
   run_unfracking(tx)
 }
 
-// Finding 17: burning is forbidden during Unfracking. ONE delta — a
-// negative mint of policy_a. Same rule as mint, written for
-// completeness because burns are the other ledger-level value mutation
-// that would otherwise need to be threaded into the conservation
-// equality.
-test unfracking_with_burn_fails() fail {
+// v2: burning is forbidden for the same reason.
+test unfracking_fails_with_burn() fail {
   let tx = Transaction {
     ..valid_unfracking_tx(),
-    // ONE delta: negative mint (burn).
     mint: from_asset(policy_a, "FOO", -50),
     outputs: [
-      fixture.some_output_with_programmable_tokens([(policy_a, "FOO", 50)]),
       fixture.some_output_with_programmable_tokens([(policy_b, "BAR", 100)]),
+      fixture.some_output_with_programmable_tokens([(policy_a, "FOO", 50)]),
     ],
   }
   run_unfracking(tx)
 }
 
-// Finding 17: the proof-of-instance for an Unfracking action lives on
-// the input authorisation only — transfer_logic must NOT be invoked
-// implicitly. This is a sanity check that the happy-path fixture's
-// withdrawals are loadbearing for the script-authorisation case, not
-// for any (nonexistent) "transfer_logic must always run" rule. ONE
-// delta vs `unfracking_vkey_authorised_succeeds` — purely demonstrates
-// that the absence of transfer_logic doesn't itself fail when no
-// script-staked PLB input demands it.
-test unfracking_vkey_path_does_not_require_transfer_logic() {
-  let vkey_cred = VerificationKey(second_vkey_pkh)
-  let input = fixture.some_input_with_programmable_tokens_with(
-    vkey_cred,
-    [(policy_a, "FOO", 100)],
-    "vkey input solo",
-  )
-  let outputs = [
-    fixture.some_output_with_programmable_tokens_with(
-      vkey_cred,
-      [(policy_a, "FOO", 100)],
-    ),
-  ]
+// The mint-zero rule is TOTAL: even a mint of an unrelated policy is
+// rejected — unfracking is pure restructuring and no mint has any
+// business riding it. ONE delta: an unrelated mint appears.
+test unfracking_fails_with_unrelated_policy_mint() fail {
   let tx = Transaction {
     ..valid_unfracking_tx(),
-    inputs: [input],
-    outputs,
+    mint: from_asset(policy_unrelated, "RAND", 5),
+  }
+  run_unfracking(tx)
+}
+
+// v2 single-owner invariant: a second PLB input with a DIFFERENT stake
+// credential is rejected — cross-owner restructuring is a transfer in
+// disguise. Both creds are authorised (signature + script withdrawal),
+// so the only rejection can come from the single-owner rule; the
+// paired outputs mirror each input to keep the pair checks satisfied.
+test unfracking_fails_two_stake_creds_among_inputs() fail {
+  let vkey_cred = VerificationKey(second_vkey_pkh)
+  let tx = Transaction {
+    ..valid_unfracking_tx(),
+    inputs: [
+      fixture.some_input_with_programmable_tokens(
+        [(policy_a, "FOO", 100), (policy_b, "BAR", 100)],
+        "unfracking input",
+      ),
+      fixture.some_input_with_programmable_tokens_with(
+        vkey_cred,
+        [(policy_a, "FOO", 50)],
+        "second owner input",
+      ),
+    ],
+    outputs: [
+      fixture.some_output_with_programmable_tokens([(policy_b, "BAR", 100)]),
+      fixture.some_output_with_programmable_tokens_with(vkey_cred, []),
+      fixture.some_output_with_programmable_tokens([(policy_a, "FOO", 150)]),
+    ],
     extra_signatories: [second_vkey_pkh],
-    // PLG + unfracking withdraw-0s only; no transfer_logic.
+  }
+  run_unfracking(tx)
+}
+
+// v2: a paired input must already hold the acted policy — a UTxO with
+// none of it has no business in this action (spend it via TransferAct).
+// ONE delta: a second input holding only B joins the action.
+test unfracking_fails_input_without_acted_policy() fail {
+  let tx = Transaction {
+    ..valid_unfracking_tx(),
+    inputs: [
+      fixture.some_input_with_programmable_tokens(
+        [(policy_a, "FOO", 100), (policy_b, "BAR", 100)],
+        "unfracking input",
+      ),
+      fixture.some_input_with_programmable_tokens(
+        [(policy_b, "BAR", 50)],
+        "no acted policy input",
+      ),
+    ],
+    outputs: [
+      fixture.some_output_with_programmable_tokens([(policy_b, "BAR", 100)]),
+      fixture.some_output_with_programmable_tokens([(policy_b, "BAR", 50)]),
+      fixture.some_output_with_programmable_tokens([(policy_a, "FOO", 100)]),
+    ],
+  }
+  run_unfracking(tx)
+}
+
+// v2: script-staked owner requires the stake script's withdraw-0. ONE
+// delta: the transfer-logic withdrawal is removed (PLG, unfracking and
+// hook withdrawals remain — they are plumbing, not owner authorisation).
+test unfracking_fails_missing_owner_authorisation() fail {
+  let tx = Transaction {
+    ..valid_unfracking_tx(),
     withdrawals: [
       Pair(fixture.credential_validator_logic_global, 0),
       Pair(fixture.credential_validator_unfracking, 0),
+      Pair(fixture.credential_unfracking_hook, 0),
+    ],
+  }
+  run_unfracking(tx)
+}
+
+// v2 conservation is a strict EQUALITY: fabricated surplus (150 out
+// where 100 came in, no mint) is rejected, not just leakage.
+test unfracking_fails_acted_surplus() fail {
+  let tx = Transaction {
+    ..valid_unfracking_tx(),
+    outputs: [
+      fixture.some_output_with_programmable_tokens([(policy_b, "BAR", 100)]),
+      fixture.some_output_with_programmable_tokens([(policy_a, "FOO", 150)]),
+    ],
+  }
+  run_unfracking(tx)
+}
+
+// v2 conservation, other direction: a shortfall means acted tokens
+// leaked somewhere off the owner address.
+test unfracking_fails_acted_shortfall() fail {
+  let tx = Transaction {
+    ..valid_unfracking_tx(),
+    outputs: [
+      fixture.some_output_with_programmable_tokens([(policy_b, "BAR", 100)]),
+      fixture.some_output_with_programmable_tokens([(policy_a, "FOO", 60)]),
+    ],
+  }
+  run_unfracking(tx)
+}
+
+// v2: the registry node reference must carry the registry NFT — a
+// forged node (right shape, wrong NFT policy) is rejected at lookup.
+test unfracking_fails_registry_node_wrong_nft() fail {
+  let genuine = fixture.some_reference_input_unfracking_registry_node(
+    policy_a,
+    "unfracking registry node",
+  )
+  let forged = Input {
+    ..genuine,
+    output: Output {
+      ..genuine.output,
+      value: fixture.min_ada_value
+        |> merge(from_asset(policy_unrelated, "FAKE", 1)),
+    },
+  }
+  let tx = Transaction {
+    ..valid_unfracking_tx(),
+    reference_inputs: [
+      fixture.some_reference_input_protocol_params(
+        fixture.protocol_params,
+        "protocol params",
+      ),
+      forged,
     ],
   }
   run_unfracking(tx)
@@ -527,63 +676,52 @@ test unfracking_vkey_path_does_not_require_transfer_logic() {
 //
 // Under UnfrackingAct, programmable_logic_global does not validate the
 // unfracking invariants itself — it only requires the unfracking
-// withdraw-0 to be present (its script hash is a PLG parameter). These
-// tests pin the gate from both sides, plus the responsibility boundary.
+// withdraw-0 to be present (its credential read from the params datum).
 
-// Finding 17: the PLG gate accepts as soon as the unfracking
-// withdraw-0 is present — the happy-path tx carries it in
-// `withdrawals_unfracking`.
+// The PLG gate accepts as soon as the unfracking withdraw-0 is present.
 test plg_unfracking_gate_accepts_when_unfracking_script_invoked() {
   run_plg_unfracking_gate(valid_unfracking_tx())
 }
 
-// Finding 17: UnfrackingAct without the unfracking withdraw-0
-// must be rejected by PLG — otherwise the redeemer would unlock PLB
-// inputs with NO invariant checks at all. ONE delta vs the happy path:
-// the unfracking withdrawal is removed (PLG's own and the
-// transfer-logic one remain).
+// UnfrackingAct without the unfracking withdraw-0 must be rejected by
+// PLG — otherwise the redeemer would unlock PLB inputs with NO
+// invariant checks at all. ONE delta: the unfracking withdrawal is
+// removed.
 test plg_unfracking_gate_rejects_when_unfracking_script_not_invoked() fail {
   let tx = Transaction {
     ..valid_unfracking_tx(),
-    // ONE delta: no unfracking withdraw-0.
     withdrawals: [
       Pair(fixture.credential_validator_logic_global, 0),
       Pair(fixture.credential_transfer_logic, 0),
+      Pair(fixture.credential_unfracking_hook, 0),
     ],
   }
   run_plg_unfracking_gate(tx)
 }
 
-// Finding 17: responsibility boundary. PLG deliberately does NOT check
-// the unfracking invariants — a conservation-violating tx (output
-// surplus) still passes the PLG gate because the unfracking
-// withdraw-0 is present. This is not a hole: the same tx is rejected
-// by unfracking itself (`unfracking_output_surplus_fails`
-// above), and on-chain BOTH scripts must pass. The test exists so a
-// future "defensive" duplicate check in PLG shows up as a deliberate
-// design change, not an accident.
+// Responsibility boundary: PLG deliberately does NOT check the
+// unfracking invariants — a conservation-violating tx still passes the
+// PLG gate because the unfracking withdraw-0 is present. The same tx is
+// rejected by unfracking itself (`unfracking_fails_acted_surplus`);
+// on-chain BOTH scripts must pass.
 test plg_unfracking_gate_delegates_invariants_to_unfracking_script() {
   let tx = Transaction {
     ..valid_unfracking_tx(),
     outputs: [
-      fixture.some_output_with_programmable_tokens([(policy_a, "FOO", 100)]),
-      // Invariant violation (150 BAR out of 100 in) — invisible to PLG.
-      fixture.some_output_with_programmable_tokens([(policy_b, "BAR", 150)]),
+      fixture.some_output_with_programmable_tokens([(policy_b, "BAR", 100)]),
+      fixture.some_output_with_programmable_tokens([(policy_a, "FOO", 150)]),
     ],
   }
   run_plg_unfracking_gate(tx)
 }
 
-// Finding 17: the gate's target credential is READ FROM the
-// protocol-params datum (`unfracking_cred`, field 2) — not baked into
-// the validator. ONE delta vs the happy path: the params datum names
-// Eve's credential as the unfracking script. The genuine
-// unfracking withdraw-0 is still present in the tx, but it no
-// longer matches what the datum demands, so the gate must reject.
+// The gate's target credential is READ FROM the protocol-params datum
+// (`unfracking_cred`, field 2) — not baked into the validator. ONE
+// delta: the params datum names Eve's credential as the unfracking
+// script; the genuine withdraw-0 no longer matches and the gate rejects.
 test plg_unfracking_gate_sources_cred_from_protocol_params() fail {
   let tx = Transaction {
     ..valid_unfracking_tx(),
-    // ONE delta: params datum carries a different unfracking_cred.
     reference_inputs: [
       fixture.some_reference_input_protocol_params(
         ProgrammableLogicGlobalParams {
@@ -591,6 +729,10 @@ test plg_unfracking_gate_sources_cred_from_protocol_params() fail {
           unfracking_cred: VerificationKey(eve_vkey_pkh),
         },
         "protocol params",
+      ),
+      fixture.some_reference_input_unfracking_registry_node(
+        policy_a,
+        "unfracking registry node",
       ),
     ],
   }
@@ -605,11 +747,8 @@ type LegacyTwoFieldParams {
   prog_logic_cred: Credential,
 }
 
-// Finding 17: a legacy 2-field params datum cannot authorise an
-// UnfrackingAct — the branch extracts datum field 2 and crashes when
-// it is absent. (The transfer / third-party branches read only fields
-// 0-1, so the datum extension is additive for them; UnfrackingAct is
-// the one branch that REQUIRES the extended shape.)
+// A legacy 2-field params datum cannot authorise an UnfrackingAct — the
+// branch extracts datum field 2 and crashes when it is absent.
 test plg_unfracking_gate_fails_on_legacy_two_field_params() fail {
   let modern = fixture.some_reference_input_protocol_params(
     fixture.protocol_params,
@@ -631,21 +770,29 @@ test plg_unfracking_gate_fails_on_legacy_two_field_params() fail {
   }
   let tx = Transaction {
     ..valid_unfracking_tx(),
-    // ONE delta: the params datum lacks the unfracking_cred field.
-    reference_inputs: [legacy],
+    reference_inputs: [
+      legacy,
+      fixture.some_reference_input_unfracking_registry_node(
+        policy_a,
+        "unfracking registry node",
+      ),
+    ],
   }
   run_plg_unfracking_gate(tx)
 }
 
 // ------------------------------------------------------- end-to-end composition
 
-// Finding 17: the full on-chain composition of an unfracking
-// transaction — every script that runs on-chain must accept the same
-// tx (mirrors the `programmable_logic` wrapper in benchmarks.ak):
+// The full on-chain composition of a v2 unfracking transaction — every
+// framework script that runs on-chain must accept the same tx:
 //
 //   * programmable_logic_base.spend for the fracked PLB input,
 //   * programmable_logic_global.withdraw with UnfrackingAct (gate),
-//   * unfracking.withdraw (invariants).
+//   * unfracking.withdraw (invariants + issuer-hook gating).
+//
+// (The issuer's hook script itself is substandard territory; the
+// framework's obligation — that its withdrawal is present — is what the
+// unfracking validator asserts.)
 test unfracking_full_composition_succeeds() {
   let tx = valid_unfracking_tx()
   and {

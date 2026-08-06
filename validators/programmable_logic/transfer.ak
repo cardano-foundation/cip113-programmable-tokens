@@ -1,11 +1,12 @@
 use aiken/builtin.{equals_bytearray, less_than_bytearray}
 use aiken/collection/dict.{Dict}
 use assets.{Assets}
-use cardano/address.{Credential, Inline, Script, VerificationKey}
+use cardano/address.{Credential}
 use cardano/assets.{AssetName, PolicyId} as value
 use cardano/transaction.{Input, Output, Transaction}
 use list
 use pairs
+use programmable_logic/owner.{authorised_stake_cred}
 use registry_node.{with_key_and_next_key, with_key_and_transfer_logic}
 use tokens
 use types.{RegistryProof, TokenDoesNotExist, TokenExists}
@@ -88,15 +89,11 @@ fn collect_input_assets(
     fn(input, select, discard) {
       let output = input.output
       if output.address.payment_credential == prog_logic_cred {
-        expect Some(Inline(stake_cred)) = output.address.stake_credential
-        when stake_cred is {
-          VerificationKey(pkh) -> {
-            expect has_signatory(pkh)
-          }
-          Script(_hash) -> {
-            expect has_withdrawal(stake_cred)
-          }
-        }
+        expect _stake_cred = authorised_stake_cred(
+          output.address,
+          has_signatory,
+          has_withdrawal,
+        )
         select(output)
       } else {
         discard()

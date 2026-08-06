@@ -4,7 +4,7 @@ use linked_list.{
   is_field_updated_registry_node, is_inserted_directory_node,
   is_updated_directory_node,
 }
-use registry_node.{RegistryNode}
+use registry_node.{RegistryNode, empty_vkey}
 use utils.{bytearray_lt}
 
 // Helper to create a test address
@@ -27,6 +27,7 @@ test is_updated_directory_node_works() {
     transfer_logic_script: Script(#"11"),
     third_party_transfer_logic_script: Script(#"22"),
     minting_logic_script: Script(#"33"),
+    unfracking_logic_script: empty_vkey,
     global_state_cs: #"",
   }
 
@@ -36,6 +37,7 @@ test is_updated_directory_node_works() {
     transfer_logic_script: Script(#"11"),
     third_party_transfer_logic_script: Script(#"22"),
     minting_logic_script: Script(#"33"),
+    unfracking_logic_script: empty_vkey,
     global_state_cs: #"",
   }
 
@@ -54,6 +56,7 @@ test is_updated_directory_node_negative() {
     transfer_logic_script: Script(#"11"),
     third_party_transfer_logic_script: Script(#"22"),
     minting_logic_script: Script(#"33"),
+    unfracking_logic_script: empty_vkey,
     global_state_cs: #"",
   }
 
@@ -63,6 +66,7 @@ test is_updated_directory_node_negative() {
     transfer_logic_script: Script(#"11"),
     third_party_transfer_logic_script: Script(#"22"),
     minting_logic_script: Script(#"33"),
+    unfracking_logic_script: empty_vkey,
     global_state_cs: #"",
   }
 
@@ -92,6 +96,7 @@ test is_inserted_directory_node_works() {
     transfer_logic_script: transfer_logic,
     third_party_transfer_logic_script: third_party_transfer_logic,
     minting_logic_script: minting_logic,
+    unfracking_logic_script: empty_vkey,
     global_state_cs: global_state,
   }
 
@@ -119,6 +124,7 @@ test origin_node_empty_keys() {
     transfer_logic_script: Script(#"11"),
     third_party_transfer_logic_script: Script(#"22"),
     minting_logic_script: Script(#"33"),
+    unfracking_logic_script: empty_vkey,
     global_state_cs: #"",
   }
 
@@ -143,6 +149,7 @@ test is_updated_directory_node_rejects_transfer_logic_swap() fail {
     transfer_logic_script: Script(#"11"),
     third_party_transfer_logic_script: Script(#"22"),
     minting_logic_script: Script(#"33"),
+    unfracking_logic_script: empty_vkey,
     global_state_cs: #"",
   }
 
@@ -153,6 +160,7 @@ test is_updated_directory_node_rejects_transfer_logic_swap() fail {
     // ^^^ ATTACKER'S SCRIPT — original was Script(#"11")
     third_party_transfer_logic_script: Script(#"22"),
     minting_logic_script: Script(#"33"),
+    unfracking_logic_script: empty_vkey,
     global_state_cs: #"",
   }
 
@@ -168,6 +176,7 @@ test is_updated_directory_node_rejects_third_party_logic_swap() fail {
     transfer_logic_script: Script(#"11"),
     third_party_transfer_logic_script: Script(#"22"),
     minting_logic_script: Script(#"33"),
+    unfracking_logic_script: empty_vkey,
     global_state_cs: #"",
   }
 
@@ -178,6 +187,7 @@ test is_updated_directory_node_rejects_third_party_logic_swap() fail {
     third_party_transfer_logic_script: Script(#"deadbeef"),
     // ^^^ ATTACKER'S SCRIPT — original was Script(#"22")
     minting_logic_script: Script(#"33"),
+    unfracking_logic_script: empty_vkey,
     global_state_cs: #"",
   }
 
@@ -193,6 +203,7 @@ test is_updated_directory_node_rejects_global_state_swap() fail {
     transfer_logic_script: Script(#"11"),
     third_party_transfer_logic_script: Script(#"22"),
     minting_logic_script: Script(#"33"),
+    unfracking_logic_script: empty_vkey,
     global_state_cs: #"",
   }
 
@@ -202,6 +213,7 @@ test is_updated_directory_node_rejects_global_state_swap() fail {
     transfer_logic_script: Script(#"11"),
     third_party_transfer_logic_script: Script(#"22"),
     minting_logic_script: Script(#"33"),
+    unfracking_logic_script: empty_vkey,
     global_state_cs: #"deaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddead",
   }
 
@@ -222,6 +234,7 @@ test is_field_updated_registry_node_rejects_registry_nodes_differ() fail {
     minting_logic_script: Script(
       #"11111111111111111111111111111111111111111111111111111111",
     ),
+    unfracking_logic_script: empty_vkey,
     global_state_cs: #"",
   }
   let new = RegistryNode {
@@ -237,6 +250,7 @@ test is_field_updated_registry_node_rejects_registry_nodes_differ() fail {
     minting_logic_script: Script(
       #"11111111111111111111111111111111111111111111111111111111",
     ),
+    unfracking_logic_script: empty_vkey,
     global_state_cs: #"",
   }
 
@@ -254,6 +268,7 @@ test is_field_updated_registry_node_update_true() {
       #"22222222222222222222222222222222222222222222222222222222",
     ),
     minting_logic_script: Script(#"33"),
+    unfracking_logic_script: empty_vkey,
     global_state_cs: #"",
   }
   let new = RegistryNode {
@@ -266,8 +281,121 @@ test is_field_updated_registry_node_update_true() {
       #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
     ),
     minting_logic_script: Script(#"33"),
+    unfracking_logic_script: empty_vkey,
     global_state_cs: #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
   }
 
+  is_field_updated_registry_node(new, original)
+}
+
+// ------------------------------------------------- unfracking hook field (v2)
+//
+// `unfracking_logic_script` is either UNSET (empty_vkey — unfracking
+// forbidden, the default every other test in this file uses) or a
+// strict 28-byte credential. Enforced at Insert and Update; the field
+// itself is freely mutable through the update path.
+
+/// The valid inserted-node shape from `is_inserted_directory_node_works`,
+/// lifted so the hook tests below can spread it with one delta.
+fn valid_inserted_node() -> RegistryNode {
+  RegistryNode {
+    key: #"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    next: #"cccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    transfer_logic_script: Script(
+      #"11111111111111111111111111111111111111111111111111111111",
+    ),
+    third_party_transfer_logic_script: Script(
+      #"22222222222222222222222222222222222222222222222222222222",
+    ),
+    minting_logic_script: Script(
+      #"44444444444444444444444444444444444444444444444444444444",
+    ),
+    unfracking_logic_script: empty_vkey,
+    global_state_cs: #"33333333333333333333333333333333333333333333333333333333",
+  }
+}
+
+// Insert accepts a SET hook (28-byte script credential). The unset
+// (empty_vkey) acceptance is covered by `is_inserted_directory_node_works`.
+test is_inserted_directory_node_accepts_set_unfracking_hook() {
+  let node = RegistryNode {
+    ..valid_inserted_node(),
+    unfracking_logic_script: Script(
+      #"55555555555555555555555555555555555555555555555555555555",
+    ),
+  }
+  is_inserted_directory_node(
+    node,
+    node.key,
+    node.next,
+    node.minting_logic_script,
+  )
+}
+
+// Insert rejects a malformed hook: non-empty but not 28 bytes.
+test is_inserted_directory_node_rejects_malformed_unfracking_hook() fail {
+  let node = RegistryNode {
+    ..valid_inserted_node(),
+    unfracking_logic_script: Script(#"5555"),
+  }
+  is_inserted_directory_node(
+    node,
+    node.key,
+    node.next,
+    node.minting_logic_script,
+  )
+}
+
+/// A valid updatable node (the `is_field_updated_registry_node_update_true`
+/// original), lifted for the hook update tests.
+fn updatable_node() -> RegistryNode {
+  RegistryNode {
+    key: #"aa",
+    next: #"cc",
+    transfer_logic_script: Script(
+      #"11111111111111111111111111111111111111111111111111111111",
+    ),
+    third_party_transfer_logic_script: Script(
+      #"22222222222222222222222222222222222222222222222222222222",
+    ),
+    minting_logic_script: Script(#"33"),
+    unfracking_logic_script: empty_vkey,
+    global_state_cs: #"",
+  }
+}
+
+// Update may SET the hook (opt a policy into unfracking).
+test is_field_updated_registry_node_allows_setting_unfracking_hook() {
+  let original = updatable_node()
+  let new = RegistryNode {
+    ..original,
+    unfracking_logic_script: Script(
+      #"66666666666666666666666666666666666666666666666666666666",
+    ),
+  }
+  is_field_updated_registry_node(new, original)
+}
+
+// Update may UNSET the hook back to empty_vkey — the field is plainly
+// mutable (no ratchet): revoking it forbids future unfracking, which is
+// the same authority the update path already holds over transfer logic.
+test is_field_updated_registry_node_allows_unsetting_unfracking_hook() {
+  let original = RegistryNode {
+    ..updatable_node(),
+    unfracking_logic_script: Script(
+      #"66666666666666666666666666666666666666666666666666666666",
+    ),
+  }
+  let new = RegistryNode { ..original, unfracking_logic_script: empty_vkey }
+  is_field_updated_registry_node(new, original)
+}
+
+// Update rejects a malformed hook: non-empty but not 28 bytes.
+test is_field_updated_registry_node_rejects_malformed_unfracking_hook() fail {
+  let original = updatable_node()
+  let new = RegistryNode {
+    ..original,
+    unfracking_logic_script: Script(#"6666"),
+  }
   is_field_updated_registry_node(new, original)
 }

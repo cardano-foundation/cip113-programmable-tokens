@@ -1,291 +1,337 @@
-//// Unfracking invariants (Finding 17)
+//// Unfracking invariants — v2 (registry-gated, ThirdPartyAct-shaped)
 ////
-//// This module is the engine of the standalone `unfracking`
-//// withdraw-0 validator. Under the `UnfrackingAct` redeemer,
+//// This module is the engine of the standalone `unfracking` withdraw-0
+//// validator. Under the `UnfrackingAct` redeemer,
 //// `programmable_logic_global` (PLG) does NOT run this logic — it only
 //// requires `unfracking`'s withdrawal to be present, keeping the
-//// hot-path PLG reference script small. See `unfracking`'s
-//// module docs for the delegation rationale and the composition of
-//// scripts in an unfracking transaction.
+//// hot-path PLG reference script small. See `unfracking`'s module docs
+//// for the delegation rationale.
 ////
-//// Finding 17: lets a holder restructure their own PLB UTxOs without
-//// invoking any substandard transfer logic. The validator's contract is
-//// minimal — same owner across all PLB inputs and outputs, per-policy
-//// totals conserved at PLB, no mint — so the holder is free to pick any
-//// layout they want for the resulting outputs.
+//// An unfracking action lets a holder restructure the PLB UTxOs they
+//// own for ONE registered policy — the motivating case being a
+//// "fracked" UTxO holding several policies, where a freeze scoped to
+//// one policy locks them all together. Acting on that one policy moves
+//// its tokens into their own UTxO(s) while everything else stays put.
 ////
-//// The audit-finding motivation: a "fracked" PLB UTxO holds programmable
-//// tokens from multiple policies in the same UTxO; a freeze (or other
-//// per-policy compliance action) scoped to one of those policies locks
-//// them all together, because the freeze applies to whole UTxOs rather
-//// than to individual asset classes. Unfracking exists so the holder
-//// can break that fracked UTxO into single-policy outputs (or any other
-//// shape they prefer) and stop co-locating the blast radius onto
-//// unrelated policies.
+//// v2 changes vs v1 (see design doc `unfracking-v2-registry-hook.md`):
 ////
-//// Single-owner invariant
-//// ----------------------
+////   * SINGLE-POLICY per action, named by a registry node — no longer a
+////     whole-UTxO free-for-all restructuring.
+////   * REGISTRY-GATED, least permission by default: the acted-on
+////     policy's `unfracking_logic_script` withdraw-0 must be invoked in
+////     the same transaction. An UNSET hook (`empty_vkey`) means
+////     unfracking is FORBIDDEN for that policy. No script, no party.
+////     Issuers opt in explicitly; stateful (datum-carrying) tokens get
+////     their restructuring constraints enforced by their own hook.
+////   * ThirdPartyAct-SHAPED pairing, FULL STRIP: every PLB input is
+////     paired positionally with a continuing output; per pair the
+////     address, datum, reference script and every NON-acted policy's
+////     tokens are byte-identical, ada is free, and the acted policy is
+////     stripped ENTIRELY — present in the input, absent from the
+////     continuing output. Partial strips are rejected: a continuing
+////     output still carrying the acted policy would still require that
+////     policy's transfer proof on every future spend (still stuck, in
+////     the freeze case), and any partial same-owner rebalancing is
+////     TransferAct's job — with the policy's transfer logic as the
+////     proper bouncer — not this bypass's.
 ////
-//// Unfracking is by design a SAME-OWNER restructuring action. All PLB
-//// inputs and all PLB outputs must share ONE stake credential — the one
-//// pinned by the first PLB input we encounter. A multi-credential variant
-//// would let tokens cross between owners without invoking
-//// `transfer_logic_script` (the bouncer that gates real transfers); that
-//// is a transfer in disguise, not an unfracking. If a holder controls two
-//// of their own credentials and wants to shuffle tokens between them,
-//// that is a TransferAct between two owners (one of which is also them),
-//// not an Unfracking.
+//// Invariants enforced here:
 ////
-//// What this action permits:
-////   * Spending one or more PLB inputs the caller is authorised over —
-////     either by signing for a vkey stake credential or by invoking the
-////     script's withdraw-0 (same authorisation pattern as TransferAct).
-////   * Reshaping the value of those inputs into any number of PLB
-////     outputs, each at the same payment_credential (PLB) and the same
-////     stake_credential pinned by the first PLB input.
-////   * Free choice of datum and reference_script on each new PLB output.
-////     Unfracking is by design a layout-restructuring action.
-////   * Moving ADA (lovelace) out of the PLB. The per-policy conservation
-////     check compares NON-ADA assets only — the accumulator drops the
-////     leading lovelace entry (`assets.from_value |> list.tail`), so ADA is
-////     excluded from the input==output equality. This is deliberate:
-////     unfracking reshapes the UTxO layout, changing each UTxO's min-ADA
-////     requirement, so the holder must stay free to rebalance min-ADA and
-////     pay fees. ADA carries no programmable-token semantics, so letting it
-////     move (including to a non-PLB output) is harmless.
+////   * `tx.mint` is zero — unfracking is strictly value-preserving;
+////     mint/burn is issuance_mint's job.
+////   * The acted-on policy's hook withdraw-0 is invoked. Default-deny
+////     falls out: an unset hook is `empty_vkey`, and no ledger tx can
+////     carry a withdrawal keyed by an empty hash.
+////   * SINGLE OWNER: every PLB input carries the same full address —
+////     payment `prog_logic_cred` + the stake credential pinned by the
+////     first PLB input. The owner authorises once: a vkey stake
+////     credential signs (`extra_signatories`), a script stake
+////     credential's withdraw-0 must be invoked (same pattern as
+////     TransferAct). Restructuring across owners would be a transfer in
+////     disguise, bypassing `transfer_logic_script`.
+////   * PER PAIR: `address`, `datum`, `reference_script` byte-identical;
+////     the ada-less asset lists are compared in ONE lockstep walk that
+////     requires them byte-identical EXCEPT the acted policy's entry,
+////     which must be present on the input side and absent on the output
+////     side (full strip; a pair without the acted policy has no
+////     business in an unfracking action). Ada is deliberately
+////     UNCONSTRAINED: the single owner authorised the action, ada is
+////     not a programmable asset, and any equality would re-create the
+////     issue-#96 hazard (a min-ADA parameter rise bricking the action).
+////   * CONSERVATION, strict equality: the acted policy's total over
+////     the NON-PAIRED outputs at the OWNER address equals its total
+////     over the PLB inputs (paired outputs cannot carry it at all).
+////     Equality (not containment) because mint is zero and PLB tokens
+////     cannot enter from non-PLB inputs — and it pins both directions:
+////     no leak (shortfall) and no fabrication (surplus). Counting ONLY
+////     owner-address outputs is what forces acted tokens to land at
+////     the owner: a token routed to any other stake credential leaves
+////     the owner-side total short and the equality fails.
 ////
-//// What this action forbids:
-////   * Any mint or burn (`tx.mint` must be zero). Unfracking is strictly
-////     value-preserving; mint/burn is issuance_mint's job.
-////   * Sending programmable tokens to a non-PLB address. Falls out for free
-////     from `total_output_at_plb == total_input_at_plb` per policy + ledger
-////     value conservation + mint==0: any PLB-side surplus would have to
-////     come from a non-PLB input (rare/impossible in honest setups), and
-////     any leak to non-PLB would force a PLB-side deficit which the
-////     equality rejects.
-////   * Moving ANY non-ADA token out of the PLB — including NON-programmable
-////     (unregistered) tokens that merely happen to sit in a PLB UTxO. The
-////     conservation equality covers the WHOLE non-ADA asset set and does
-////     not distinguish registered policies, so every non-ADA token present
-////     at PLB on the input side must remain at PLB on the output side. Only
-////     ADA (above) is exempt. Rationale: one cheap equality pins
-////     everything, so unfracking can never be an escape hatch for any
-////     token. The trade-off is that a foreign token parked in a PLB UTxO
-////     cannot be extracted via unfracking (it must leave through a proper
-////     transfer) — acceptable, since the PLB is not meant to custody
-////     arbitrary foreign assets.
-////   * Mixing different stake credentials across PLB inputs (or routing
-////     a PLB output to a stake_cred other than the one pinned by the
-////     inputs). This is the back-door we have to slam shut, otherwise
-////     Unfracking becomes "transfer-without-transfer-logic".
+//// What falls out for free:
 ////
-//// Cost shape: O(|inputs| + |outputs|) for the per-input authorisation
-//// scan and the per-output stake-credential equality check. The asset
-//// equality check is O(|policies| + |tokens|) over the canonically-sorted
-//// `Assets` collected from each side. Authorisation is checked exactly
-//// once per transaction (on the first PLB input that pins the stake
-//// credential); subsequent inputs share the same credential and inherit
-//// the authorisation.
+////   * Non-acted tokens (registered or not) cannot move or escape — the
+////     per-pair byte-identity pins them where they are.
+////   * A co-resident policy's stateful DATUM is untouched by another
+////     policy's unfracking — datums continue byte-for-byte in pairs.
+////   * Acted tokens cannot escape the PLB: they may only land at the
+////     owner address, whose payment credential IS the PLB.
 
+use aiken/collection/dict
+use aiken/collection/list.{foldl} as aiken_list
 use assets.{Assets}
-use cardano/address.{Credential, Inline, Script, VerificationKey}
-use cardano/assets as value
+use cardano/address.{Address, Credential}
+use cardano/assets.{PolicyId} as value
 use cardano/transaction.{Input, Output, Transaction}
 use list
 use pairs
+use programmable_logic/owner.{authorised_stake_cred}
+use registry_node.{with_key_and_unfracking_logic}
+use tokens.{Tokens}
 
 /// Validate an Unfracking action. See module docstring for the full
-/// invariant list.
+/// invariant list. `registry_node` is the acted-on policy's registry
+/// datum (located and NFT-authenticated by the caller);
+/// `outputs_start_idx` is the index where the paired continuing outputs
+/// begin, same discipline as ThirdPartyAct.
 pub fn validate_unfracking(
   self: Transaction,
   prog_logic_cred: Credential,
+  registry_node: Data,
+  outputs_start_idx: Int,
 ) -> Bool {
-  // Finding 17: Unfracking is value-preserving by construction. Any
-  // mint/burn would silently change the policy totals we then compare
-  // input-vs-output equal — easier and clearer to refuse the redeemer
-  // outright when mint is non-empty than to thread mint deltas through
-  // the equality check.
+  // Unfracking is value-preserving by construction: any mint/burn would
+  // silently change the totals the conservation equality compares.
   expect value.is_zero(self.mint)
 
-  let has_signatory = list.has_or_fail(self.extra_signatories, _)
-  let has_withdrawal_cred = pairs.has_key_or_fail(self.withdrawals, _)
+  let policy_id, unfracking_logic <- with_key_and_unfracking_logic(
+    registry_node,
+  )
 
-  // Two-phase input scan:
-  //   * `collect_plb_inputs`    — finds and authorises the FIRST PLB input,
-  //                                pinning its stake_cred as the target.
-  //                                Fails the tx if no PLB input is found
-  //                                (Unfracking with zero PLB inputs is
-  //                                meaningless).
-  //   * `do_collect_plb_inputs` — continues accumulating from remaining
-  //                                inputs with the target known; every
-  //                                PLB input it sees must match the target.
-  // Splitting the loop along the find-first/continue-with-target boundary
-  // keeps `Option<Credential>` out of the hot loop entirely.
-  let input_assets, owner_cred <- collect_plb_inputs(
+  // The hook is always executed — same invocation style as the transfer
+  // and third-party logic scripts. This single check also carries the
+  // default-deny: an unset hook is `empty_vkey`, and no transaction can
+  // carry a withdrawal keyed by an empty hash (a reward account is a
+  // header byte + 28-byte hash; anything shorter fails phase-1
+  // deserialisation), so an issuer who never set the hook has FORBIDDEN
+  // unfracking for this policy. No script, no party. Same ledger
+  // impossibility the transfer / third-party invocations already rely
+  // on for the origin node's empty credentials.
+  expect pairs.has_key_or_fail(self.withdrawals, unfracking_logic)
+
+  // Pin the single owner from the first PLB input and authorise it once
+  // (signature for a vkey stake credential, withdraw-0 for a script one).
+  let owner_address = pin_and_authorise_owner(
     self.inputs,
     prog_logic_cred,
-    has_signatory,
-    has_withdrawal_cred,
+    self.extra_signatories,
+    self.withdrawals,
   )
 
-  // Output scan: collect Assets from outputs at PLB AND require every
-  // such output's stake credential to equal `owner_cred`. Folding both
-  // checks into the same traversal keeps the cost down.
-  let output_assets = collect_plb_outputs(
+  // Outputs before the paired region: accumulate acted-policy tokens
+  // sitting at the owner address (the "optional other UTxOs" that
+  // receive regrouped tokens).
+  let output_tokens, outputs <- drop_accum_owner_tokens(
     self.outputs,
-    prog_logic_cred,
-    owner_cred,
-    [],
+    outputs_start_idx,
+    owner_address,
+    policy_id,
+    dict.empty,
   )
 
-  // Conservation per policy/token: the total at PLB must be identical
-  // input-to-output. Equality (not containment) is intentional — see
-  // module docstring on why the two-way bound forces ledger
-  // conservation to do the no-escape work for us.
-  input_assets == output_assets
+  validate_pairs_and_conservation(
+    prog_logic_cred,
+    owner_address,
+    policy_id,
+    self.inputs,
+    outputs,
+    dict.empty,
+    output_tokens,
+  )
 }
 
-/// Phase 1 of the input scan: find the FIRST PLB input, authorise its
-/// stake credential, and delegate the rest of the scan to
-/// `do_collect_plb_inputs` with that credential pinned. Recurses on
-/// non-PLB inputs until the first PLB is encountered.
-///
-/// Aborts the validator if no PLB input is found — Unfracking with zero
-/// PLB inputs is meaningless. This `fail` plays the role of the
-/// `expect Some(target) = target_cred` check the entry point used to
-/// carry; pulling it into the helper keeps `Option<Credential>` out of
-/// the hot loop entirely.
-fn collect_plb_inputs(
+/// Find the FIRST PLB input, authorise its stake credential, and return
+/// its full address as the pinned owner address. Aborts if no PLB input
+/// exists — unfracking with zero PLB inputs is meaningless.
+fn pin_and_authorise_owner(
   inputs: List<Input>,
   prog_logic_cred: Credential,
-  has_signatory: fn(ByteArray) -> Bool,
-  has_withdrawal_cred: fn(Credential) -> Bool,
-  return: fn(Assets, Credential) -> result,
-) -> result {
+  extra_signatories: List<ByteArray>,
+  withdrawals: Pairs<Credential, Int>,
+) -> Address {
   when inputs is {
     [] -> fail
     [input, ..tail] -> {
       let output = input.output
       if output.address.payment_credential == prog_logic_cred {
-        expect Some(Inline(stake_cred)) = output.address.stake_credential
-        // First PLB input — authorise the cred once and pin it. The
-        // authorisation covers every subsequent PLB input that shares
-        // this cred (the single-owner invariant `do_collect_plb_inputs`
-        // enforces).
-        when stake_cred is {
-          VerificationKey(pkh) -> {
-            expect has_signatory(pkh)
-          }
-          Script(_hash) -> {
-            expect has_withdrawal_cred(stake_cred)
-          }
-        }
-        let initial_assets = output.value
-          |> assets.from_value
-          |> list.tail
-        do_collect_plb_inputs(
-          tail,
-          prog_logic_cred,
-          stake_cred,
-          initial_assets,
-          return,
+        expect _stake_cred = authorised_stake_cred(
+          output.address,
+          list.has_or_fail(extra_signatories, _),
+          pairs.has_key_or_fail(withdrawals, _),
         )
+        output.address
       } else {
-        collect_plb_inputs(
+        pin_and_authorise_owner(
           tail,
           prog_logic_cred,
-          has_signatory,
-          has_withdrawal_cred,
-          return,
+          extra_signatories,
+          withdrawals,
         )
       }
     }
   }
 }
 
-/// Phase 2 of the input scan: continue accumulating from remaining PLB
-/// inputs with a known `target_cred`. Every PLB input encountered must
-/// have a stake credential equal to `target_cred`; otherwise the tx is
-/// rejected — that single-cred invariant is what keeps Unfracking
-/// same-owner-only. No `Option<Credential>` in this loop; the caller
-/// (`collect_plb_inputs`) only delegates here once it has authorised
-/// and pinned the target.
-fn do_collect_plb_inputs(
-  inputs: List<Input>,
-  prog_logic_cred: Credential,
-  target_cred: Credential,
-  acc_assets: Assets,
-  return: fn(Assets, Credential) -> result,
-) -> result {
-  when inputs is {
-    [] -> return(acc_assets, target_cred)
-    [input, ..tail] -> {
-      let output = input.output
-      if output.address.payment_credential == prog_logic_cred {
-        expect Some(Inline(stake_cred)) = output.address.stake_credential
-        expect stake_cred == target_cred
-        let next_assets = assets.union(
-          output.value
-            |> assets.from_value
-            |> list.tail,
-          acc_assets,
-        )
-        do_collect_plb_inputs(
-          tail,
-          prog_logic_cred,
-          target_cred,
-          next_assets,
-          return,
-        )
-      } else {
-        do_collect_plb_inputs(
-          tail,
-          prog_logic_cred,
-          target_cred,
-          acc_assets,
-          return,
-        )
-      }
-    }
-  }
-}
-
-/// Walk outputs once, summing non-ADA assets of every PLB-bound output
-/// and requiring its stake credential to equal `target_cred` — the
-/// credential pinned by the first PLB input. Routing PLB tokens to any
-/// other stake credential would be a transfer in disguise (no
-/// transfer_logic invoked) — exactly what Finding 17's recommendation
-/// says Unfracking must NOT permit.
-///
-/// Tail-recursive: accumulates into `acc_assets` so the recursive call
-/// is the last thing the function does, leaving no deferred work on
-/// the call stack. `assets.union` is `dict.union_with(_, _, sum_if_non_zero)`
-/// which is commutative + associative per key, so the order of
-/// accumulation does not affect the final value. Same accumulator
-/// pattern as `do_collect_plb_inputs`; matches the optimisation
-/// recommendation in the Aiken docs ("Write Tail-Recursive Functions").
-fn collect_plb_outputs(
+/// Drop `n` outputs from the list, accumulating acted-policy tokens from
+/// the dropped outputs that sit at the OWNER address. Same shape as
+/// ThirdPartyAct's `drop_accum_tokens`, but filtered on the full owner
+/// address (payment + stake) rather than the payment credential alone —
+/// acted tokens may only regroup at the owner.
+fn drop_accum_owner_tokens(
   outputs: List<Output>,
+  n: Int,
+  owner_address: Address,
+  policy_id: PolicyId,
+  acc: Tokens,
+  return: fn(Tokens, List<Output>) -> result,
+) -> result {
+  if n <= 0 {
+    return(acc, outputs)
+  } else {
+    expect [output, ..tail_outputs] = outputs
+
+    let loop = drop_accum_owner_tokens(
+      tail_outputs,
+      n - 1,
+      owner_address,
+      policy_id,
+      _,
+      return,
+    )
+
+    if output.address == owner_address {
+      loop(tokens.union(acc, output.value |> value.tokens(policy_id)))
+    } else {
+      loop(acc)
+    }
+  }
+}
+
+/// Walk PLB inputs paired positionally with continuing outputs (the
+/// ThirdPartyAct walk, single-owner flavoured), then settle the
+/// conservation equality once inputs are exhausted.
+fn validate_pairs_and_conservation(
   prog_logic_cred: Credential,
-  target_cred: Credential,
-  acc_assets: Assets,
-) -> Assets {
-  when outputs is {
-    [] -> acc_assets
-    [output, ..tail] ->
-      if output.address.payment_credential == prog_logic_cred {
-        expect Some(Inline(stake_cred)) = output.address.stake_credential
-        // Single-owner gate: outputs may only carry the pinned cred.
-        expect stake_cred == target_cred
-        let next_assets = assets.union(
-          output.value
-            |> assets.from_value
-            |> list.tail,
-          acc_assets,
+  owner_address: Address,
+  policy_id: PolicyId,
+  inputs: List<Input>,
+  outputs: List<Output>,
+  input_tokens: Tokens,
+  output_tokens: Tokens,
+) -> Bool {
+  when inputs is {
+    [] -> {
+      // Accumulate acted-policy tokens from the remaining (unpaired)
+      // outputs at the owner address — under full strip these are the
+      // ONLY outputs that may carry the acted policy — then require
+      // STRICT equality with the input-side total: no leak, no
+      // fabrication, owner-only destinations.
+      let total_output_tokens = foldl(
+        outputs,
+        output_tokens,
+        fn(output, acc) {
+          if output.address == owner_address {
+            tokens.union(output.value |> value.tokens(policy_id), acc)
+          } else {
+            acc
+          }
+        },
+      )
+
+      (total_output_tokens == input_tokens)?
+    }
+
+    [Input { output: input, .. }, ..tail_inputs] ->
+      if input.address.payment_credential == prog_logic_cred {
+        // Single-owner invariant: every PLB input carries the pinned
+        // owner address (payment + stake). A second stake credential in
+        // the input set would make this a cross-owner transfer in
+        // disguise.
+        expect (input.address == owner_address)?
+
+        // The paired continuing output preserves address, datum AND
+        // reference script (Finding 13 applies to unfracking too).
+        let output = list.head(outputs)
+        expect (output.address == input.address)?
+        expect (output.datum == input.datum)?
+        expect (output.reference_script == input.reference_script)?
+
+        // Drop ada from both sides (guaranteed present and always first
+        // in a ledger Value — same idiom as `assets.collect`); ada is
+        // deliberately unconstrained in unfracking pairs (module docs;
+        // issue-#96 hazard class), so unlike the ThirdPartyAct ratchet
+        // the lovelace is not even read. One lockstep walk then enforces
+        // the FULL-STRIP pair rule: byte-identical asset lists except
+        // the acted entry, present on the input side only.
+        let input_assets = assets.from_value(input.value) |> list.tail
+        let output_assets = assets.from_value(output.value) |> list.tail
+
+        let acted_tokens = strip_acted_entry(
+          input_assets,
+          output_assets,
+          policy_id,
         )
-        collect_plb_outputs(tail, prog_logic_cred, target_cred, next_assets)
+
+        validate_pairs_and_conservation(
+          prog_logic_cred,
+          owner_address,
+          policy_id,
+          tail_inputs,
+          list.tail(outputs),
+          tokens.union(input_tokens, acted_tokens),
+          output_tokens,
+        )
       } else {
-        collect_plb_outputs(tail, prog_logic_cred, target_cred, acc_assets)
+        validate_pairs_and_conservation(
+          prog_logic_cred,
+          owner_address,
+          policy_id,
+          tail_inputs,
+          outputs,
+          input_tokens,
+          output_tokens,
+        )
       }
+  }
+}
+
+/// The full-strip pair rule in one lockstep walk over the two ada-less
+/// asset lists (both canonically sorted): every entry must be
+/// byte-identical across the pair EXCEPT the acted policy's entry,
+/// which must be PRESENT on the input side and is skipped — the
+/// remaining input tail must then equal the entire remaining output.
+/// Returns the acted entry's tokens for the conservation total.
+///
+/// Failure modes, all loud:
+///   * input lacks the acted policy — the walk runs past where the
+///     entry would sort (or off the end) and the pairwise equality (or
+///     the head `expect`) fails;
+///   * output still carries the acted policy (partial strip / no-op) —
+///     the tail equality fails on that entry;
+///   * any non-acted delta, extra or missing entry — the pairwise
+///     equality fails.
+fn strip_acted_entry(
+  input_assets: Assets,
+  output_assets: Assets,
+  policy_id: PolicyId,
+) -> Tokens {
+  expect [Pair(policy, policy_tokens), ..input_rest] = input_assets
+  if policy == policy_id {
+    expect (input_rest == output_assets)?
+    policy_tokens
+  } else {
+    expect [output_head, ..output_rest] = output_assets
+    expect (Pair(policy, policy_tokens) == output_head)?
+    strip_acted_entry(input_rest, output_rest, policy_id)
   }
 }

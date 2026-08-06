@@ -27,28 +27,30 @@ pub type ProgrammableLogicGlobalRedeemer {
     /// Starting index in outputs where processed outputs begin
     outputs_start_idx: Int,
   }
-  /// Finding 17: Unfracking action — let a holder redistribute the
-  /// programmable tokens they already hold across multiple PLB UTxOs
-  /// WITHOUT invoking any substandard transfer logic. Used to break
-  /// up multi-policy UTxOs into single-policy UTxOs so a freeze on
-  /// one policy stops collateral-damaging unrelated policies that
-  /// happened to share the same UTxO.
+  /// Unfracking action (v2, registry-gated) — a holder restructures
+  /// the PLB UTxOs they own for ONE registered policy, e.g. to break a
+  /// multi-policy "fracked" UTxO apart so a freeze on one policy stops
+  /// collateral-damaging unrelated policies in the same UTxO.
   ///
-  /// No payload: the unfracking validator infers everything it needs
-  /// from the transaction shape. Caller proves authorisation by
-  /// signing for (or invoking the script of) every PLB input being
-  /// unfracked; the validator enforces value conservation per policy
-  /// at the PLB boundary and refuses to route tokens to any stake
-  /// credential the caller did not authorise.
-  ///
-  /// The invariants do NOT live in programmable_logic_global: under
-  /// this redeemer, PLG only requires that the standalone
-  /// `unfracking` withdraw-0 validator (whose credential is the
-  /// `unfracking_cred` field of the protocol-params datum) is invoked
-  /// in the same transaction. This keeps the hot-path PLG reference
-  /// script ~600 bytes smaller; only unfracking transactions pay for
-  /// the unfracking logic.
+  /// No payload here: under this redeemer PLG only requires that the
+  /// standalone `unfracking` withdraw-0 validator (whose credential is
+  /// the `unfracking_cred` field of the protocol-params datum) is
+  /// invoked in the same transaction. The acted-on policy, the pairing
+  /// hints, and every invariant live with that validator (see
+  /// `UnfrackingRedeemer`), keeping the hot-path PLG reference script
+  /// small; only unfracking transactions pay for the unfracking logic.
   UnfrackingAct
+}
+
+/// Redeemer of the standalone `unfracking` withdraw-0 validator (v2).
+/// Same index-hint discipline as `ThirdPartyAct`: an unfracking action
+/// is single-policy, names its registry node, and pairs every PLB input
+/// positionally with a continuing output starting at `outputs_start_idx`.
+pub type UnfrackingRedeemer {
+  /// Index of the acted-on policy's registry node in reference inputs
+  registry_node_idx: Int,
+  /// Starting index in outputs where the paired continuing outputs begin
+  outputs_start_idx: Int,
 }
 
 /// Redeemer for the issuance minting policy.
