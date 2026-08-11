@@ -9,7 +9,89 @@ Last update: 2026-08-11.
 claims vocabulary, identity + falsification discipline, trust base,
 reproduction steps. This file is the running log behind it.
 
+## Phil's wsc-containment-proofs — inventory + migration matrix (2026-08-11)
+
+Source: Anastasia-Labs/CardanoLedgerApiBlaster branch
+`wsc-containment-proofs` (fetched into
+`~/Development/workspace/CardanoLedgerApiBlaster`, remote `anastasia`;
+worktree at /tmp/wsc-proofs during inventory). Full agent inventory
+distilled here so it never needs re-deriving.
+
+**His scorecard**: P1–P6 all PROVED VALID over 14 node-realizable
+shapes; composed containment proved as a REDUCTION to 4 leaves (1 of 4
+bytecode, 3 shape restriction) under 28 project axioms; top claim
+("tokens cannot exist outside the mini-ledger") NOT proved in full
+generality; coverage of the shape family provably FALSE (3 witnesses
+outside all 16 shapes; enumeration priced at 3×10^14 skeletons — do not
+attempt coverage).
+
+**Load-bearing walls + workarounds (port these, in order):**
+1. `#prep_uplc` memory cliff: UNSHAPED prep of the global validator
+   dies at 20–35 GB for budgets ≥2300. SHAPED prep (family leaves as
+   prep-function arguments = statement-level skeleton) at 4400 runs in
+   ~1.5 s. RULE: never prep unshaped; cut the narrowest skeleton first,
+   widen one dimension at a time, re-measure. (Bit us immediately: our
+   first PrepGlobal draft was unshaped — killed, restructured.)
+2. eqData translation failure (Lean-blaster#138): `eqData` on
+   constructor-headed args breaks the SMT translator UNSHAPED; shaped
+   skeletons reduce it to equalsByteString/equalsInteger — another
+   reason shapes work.
+3. Single-dimension cuts can be enough (his SHAPE B1W: freezing ONLY
+   the withdrawal-map length closed P3 in 5 s) — try minimal cuts
+   before full skeletons.
+4. Two-sided K pinning: measure witness K where CEK halts at K and
+   errors at K−1, against the real bytecode — binds the budget axiom.
+5. Four-point bar per shape: (a) theorem Valid, (b) vacuity probe
+   (¬POST expect-Falsified at the SAME prep), (c) concrete witness with
+   two-sided K, (d) realizability (validXContext + redeemer coverage;
+   note CLAB's validScriptContext OMITS Conway MissingRedeemers — he
+   added `redeemerCovered`; port it).
+
+**Migration matrix (his → ours):**
+| his | invariant | ours | status |
+|---|---|---|---|
+| P3 base escape | spend at base forces global/seize wdrl | `base_forces_plg_withdrawal_{1,2,4}` | DONE (stronger: ∀-param, no redeemer-index residual) |
+| P1 transfer containment | outAtBase ≥ inAtBase + mint | T1-escape + T1-conservation (`PropsGlobal.lean`) | **DONE 2026-08-11** (see below) |
+| P2 seize (2a structure / 2b containment) | pairwise addr/datum/refScript preserved; ada ratchet; seized policy contained | ThirdPartyAct analog — pairs with our Finding-13 pairing + #96 lovelace ratchet | TODO (Stage 2) |
+| P4 minting custody (4 arms) | registered policy mints can't land off-base | issuance_mint / R-04 analog | TODO |
+| P5 non-member registration | covering-node proof authenticates | registry_mint insert (TokenDoesNotExist arm) | TODO |
+| P6 member registration | mint added at base, no base input consumed | registry_mint + issuance path | TODO |
+| composition | reduction to leaves + realizable classes | Stage 3 | TODO (after ≥2 leaf validators proven) |
+| goldens + K-MEASUREMENTS | 13 hand-audited vectors vs real CEK | port pattern over our fixture txs | TODO |
+| Coverage.lean negative result | shape family provably incomplete | replicate the honesty artifact once ≥2 families exist | TODO |
+
+**Trust-base difference to preserve**: Phil needs 3 UNPUBLISHED branches
+(his repro is machine-local); we are stock-upstream pinned + public — keep
+it that way; do NOT adopt his substrate bundle.
+
 ## Done
+
+- **2026-08-11 — STAGE-1 CONTAINMENT THEOREMS ON THE COMPILED PLG**
+  (`formal-verification/Cip113Spike/{PrepGlobal,PropsGlobal}.lean`,
+  family T1: TransferAct, 1 registered policy, 1 PLB input, 1 output,
+  2 ref inputs [params + registry node], shaped prep at 4400 —
+  2.3 s build):
+  - `t1_escape` SMT-VALID: ∀ symbolic output payment credential C,
+    ∀ symbolic qIn qOut — acceptance of the compiled PLG forces
+    C = the PLB credential. THE "tokens cannot escape the jail"
+    theorem, TransferAct path, on deployed bytes.
+  - `t1_conservation` SMT-VALID: with C = PLB, acceptance forces
+    qOut ≥ qIn (the compiled `tokens.contains` guarantee).
+  - Vacuity probe (wsc four-point bar, point b): negation of t1_escape
+    ✅ Expected Falsified at the same prep — family non-vacuous.
+  - Kernel-checked execs: honest transfer accepted; escape to foreign
+    credential rejected; quantity shortfall rejected.
+  - Method notes: prep MUST be shaped (first attempt was unshaped =
+    Phil's 20–35 GB cliff; killed at 0.8 GB, restructured so the T1
+    leaves are the prep function's arguments). CLAB gotchas:
+    `IsData.toData` lives at `CardanoLedgerApi.IsData.Class.IsData`;
+    stake cred is `.StakingHash (.PubKeyCredential k)` (Data-identical
+    to Aiken's `Some(Inline(..))`); big contexts need
+    `set_option maxRecDepth 65536`.
+  - NOT yet: two-sided K pinning, realizability audit (bar points c/d);
+    ∀-deployment param quantification; multi-output/multi-policy rungs;
+    ThirdPartyAct + UnfrackingAct branches. Tracked in the migration
+    matrix above.
 
 - **2026-08-11 — MONOREPO CONSOLIDATION** (Paolo's recommendation,
   seconded): the Lean spike repo was folded into this repo at

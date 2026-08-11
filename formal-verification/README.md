@@ -28,6 +28,8 @@ verifies.
 | PLB rejects a context whose only withdrawal is a foreign credential | KERNEL-PROVED (`exec_rejects_foreign_withdrawal`) |
 | ∀ deployment param, ∀ 1/2/4-entry withdrawal maps (symbolic hashes + amounts): PLB acceptance forces the param to be present — the forwarding guarantee | SMT-VALID, no proof term (`base_forces_plg_withdrawal_{one,two,four}_entries`) |
 | The pipeline can tell working code from broken code (mutant rebuilt through the real Aiken pipeline → theorem Falsified with counterexample, mutant accepts the rejected context) | ESTABLISHED (`scripts/falsification-control.sh`, all 5 legs) |
+| ∀ symbolic output credential + quantities in family T1 (TransferAct, 1 policy, 1 PLB input, 1 output): PLG acceptance forces the output credential to BE the PLB — tokens cannot escape the jail | SMT-VALID, no proof term (`t1_escape`; vacuity probe Expected Falsified) |
+| Same family, output pinned at the PLB: acceptance forces qOut ≥ qIn | SMT-VALID, no proof term (`t1_conservation`) |
 
 Identity for every claim: `flats/MANIFEST.md` (compiler from the
 blueprint's own preamble, sha256s, `BuiltinSemanticsVariant = E` /
@@ -45,6 +47,8 @@ scripts/falsification-control.sh -- 5-leg harness falsification (see below)
 Cip113Spike/Smoke.lean     -- artifact decode smoke test
 Cip113Spike/PrepBase.lean  -- parameter evidence, #prep_uplc, identity note
 Cip113Spike/PropsBase.lean -- executions + the withdrawal-forcing theorem ladder
+Cip113Spike/PrepGlobal.lean -- PLG artifact import (prep is SHAPED, in PropsGlobal)
+Cip113Spike/PropsGlobal.lean -- T1 containment family: escape + conservation theorems
 controls/MutantControl.lean -- expect-Falsified control; NEVER in the default build
 ```
 
