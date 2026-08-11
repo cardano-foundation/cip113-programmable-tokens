@@ -74,7 +74,7 @@ representation-level contract between the validators, the SDK, and the
 Lean fixtures.
 
 **Layer 4 — theorems over the compiled bytecode.**
-Repository `cip113-lean-spike` (see §6). The compiled artifact is
+`formal-verification/` in this repo (see §6). The compiled artifact is
 imported with `#import_uplc`, prepared for symbolic execution with
 `#prep_uplc`, and reasoned about along the wsc-poc shaped-contexts
 methodology: concrete accepting/rejecting executions first (non-vacuity
@@ -120,11 +120,14 @@ Every Lean-tier claim carries the triple:
 
 **source commit + toolchain + `BuiltinSemanticsVariant`**
 
-mechanically, via `cip113-lean-spike/flats/MANIFEST.md`, which is
+mechanically, via `formal-verification/flats/MANIFEST.md`, which is
 generated (never hand-edited) by `scripts/extract-flats.sh` from:
 
-- the source repo's `git rev-parse HEAD` (plus a dirty-tree flag scoped
-  to compile-relevant inputs);
+- the source commit — **implicit** since the 2026-08-11 consolidation:
+  the Aiken sources, the blueprint, and the flats live in this one
+  repository, so the source commit for every claim is the commit
+  containing the manifest (CI enforces per push that a clean rebuild
+  reproduces the committed blueprint and that the flats match it);
 - the blueprint's **own** `.preamble.compiler` field — not prose, and
   not whatever `aiken` happens to be installed (this distinction caught
   a real drift on 2026-08-06: blueprint built by v1.1.22+39d6b04,
@@ -185,29 +188,39 @@ ask, tracked in the status file.
 
 ## 6. Resources and repository map
 
-**This repo** (branch `test/blaster-tier0-properties`): property suite
-+ `ledger_shape` + golden layouts under `validators/` and `lib/`;
-`FORMAL_VERIFICATION_STATUS.md`; this document;
-`documentation/design/protocol-param-sensitivity.md`.
+Everything lives in **this repository** (single-commit identity for the
+whole effort):
 
-**`cip113-lean-spike`** —
-https://github.com/easy1staking-com/cip113-lean-spike (checked out as a
-sibling directory of this repo; `lakefile.lean` wires the paths):
+- Property suite + `ledger_shape` + golden layouts under `validators/`
+  and `lib/`; `FORMAL_VERIFICATION_STATUS.md`; this document;
+  `documentation/design/protocol-param-sensitivity.md`.
+- The Lean tier under `formal-verification/`:
 
 ```
-lakefile.lean            -- requires Blaster, PlutusCore, CardanoLedgerApi (order matters)
-flats/*.flat             -- extracted compiledCode hex (4 validators)
-flats/MANIFEST.md        -- the identity triple, mechanically generated
-scripts/extract-flats.sh -- extraction + --check freshness gate
-scripts/falsification-control.sh -- the five-leg control of §5
-Cip113Spike/Smoke.lean   -- decode smoke test (all 4 artifacts)
-Cip113Spike/PrepBase.lean  -- parameter evidence + #prep_uplc, identity note
-Cip113Spike/PropsBase.lean -- executions + the withdrawal-forcing theorem ladder
-controls/MutantControl.lean -- expect-Falsified control (never in default build)
+formal-verification/
+  lakefile.lean            -- requires Blaster, PlutusCore, CardanoLedgerApi (order matters),
+                              each pinned by exact git rev
+  flats/*.flat             -- extracted compiledCode hex (4 validators)
+  flats/MANIFEST.md        -- the identity triple, mechanically generated
+  scripts/extract-flats.sh -- extraction + --check freshness gate
+  scripts/falsification-control.sh -- the five-leg control of §5
+  Cip113Spike/Smoke.lean   -- decode smoke test (all 4 artifacts)
+  Cip113Spike/PrepBase.lean  -- parameter evidence + #prep_uplc, identity note
+  Cip113Spike/PropsBase.lean -- executions + the withdrawal-forcing theorem ladder
+  controls/MutantControl.lean -- expect-Falsified control (never in default build)
 ```
+
+- CI: `.github/workflows/formal-verification.yml` re-establishes the
+  full chain per push (toolchain gate, blueprint reproducibility, flats
+  freshness, `lake build` re-discharging every theorem).
+
+History: the Lean tier started as a standalone spike repo
+(`easy1staking-com/cip113-lean-spike`, archived 2026-08-11 with its
+history intact) and was folded in so verification and code cannot
+drift apart.
 
 **Toolchain** (all public, Apache-2.0):
-- Lean 4.24.0 via elan; Z3 4.15.2 (built from source).
+- Lean 4.24.0 via elan; Z3 4.15.2 (release binary or source build).
 - `input-output-hk/Lean-blaster` — the `#blaster` command/tactic
   (Lean → SMT-LIB → Z3), counterexample generation.
 - `input-output-hk/PlutusCoreBlaster` — Lean model of UPLC, the CEK
@@ -266,18 +279,16 @@ brew install elan-init jq && elan default stable   # Lean via elan
 # build Z3 4.15.2 from source into PATH (see Lean-blaster README)
 aikup install v1.1.22                              # must match blueprint preamble
 
-# 2. Clone side-by-side
-git clone <this-repo>            cip113-programmable-tokens   # branch test/blaster-tier0-properties
-git clone <cip113-lean-spike>    cip113-lean-spike
-git clone https://github.com/input-output-hk/Lean-blaster
-git clone https://github.com/input-output-hk/PlutusCoreBlaster
-git clone https://github.com/input-output-hk/CardanoLedgerApiBlaster
+# 2. Clone — one repo; lake fetches the three Lean deps automatically
+#    at the exact revs pinned in formal-verification/lakefile.lean
+git clone <this-repo> cip113-programmable-tokens
+cd cip113-programmable-tokens
 
-# 3. Aiken tier (330 tests incl. all prop_* and golden layouts)
-cd cip113-programmable-tokens && aiken check
+# 3. Aiken tier (incl. all prop_* and golden layouts)
+aiken check
 
 # 4. Lean tier
-cd ../cip113-lean-spike
+cd formal-verification
 ./scripts/extract-flats.sh --check   # identity gate — must be green
 lake build                           # smoke + prep + theorem ladder
 

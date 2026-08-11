@@ -1,7 +1,8 @@
 # Formal verification & test-hardening — status, blockers, next steps
 
 Working file (local, like `CONTRACT_SURFACE_CHANGES.md`). Branch:
-`test/blaster-tier0-properties`. Last update: 2026-08-06.
+`feat/formal-verification` (supersedes `test/blaster-tier0-properties`).
+Last update: 2026-08-11.
 
 **Front door for evaluators:**
 `documentation/design/formal-verification-methodology.md` — criteria,
@@ -9,6 +10,31 @@ claims vocabulary, identity + falsification discipline, trust base,
 reproduction steps. This file is the running log behind it.
 
 ## Done
+
+- **2026-08-11 — MONOREPO CONSOLIDATION** (Paolo's recommendation,
+  seconded): the Lean spike repo was folded into this repo at
+  `formal-verification/` on new branch `feat/formal-verification`
+  (forked from `test/blaster-tier0-properties` + `origin/main` merged
+  in — zero content delta, the FV branch already contained #98's
+  content). Consequences:
+  - **The source-commit axis of the identity triple is now implicit** —
+    sources, blueprint, flats, and theorems share one commit. The
+    MANIFEST no longer records a cross-repo commit, and the re-attest
+    dance ("MANIFEST goes stale on every cip113 commit") is gone.
+  - **One CI workflow replaces two**:
+    `.github/workflows/formal-verification.yml` (replaces the spike's
+    `verify.yml` + this repo's `fv-freshness.yml`) enforces per push:
+    aiken == blueprint preamble → clean rebuild reproduces committed
+    `plutus.json` byte-for-byte → `extract-flats.sh --check` →
+    `lake build` re-discharges every theorem. A validator change that
+    forgets re-attestation turns the SAME PR red.
+  - `extract-flats.sh` / `falsification-control.sh` now derive the repo
+    root from their own location (no `CIP113_REPO`, no sibling
+    checkout); Lean sources unchanged (flat paths are
+    package-root-relative).
+  - `easy1staking-com/cip113-lean-spike` archived with a pointer README
+    (history preserved there). `cip113-mutation-seeds` stays separate
+    deliberately — second-author independence is its point.
 
 - **2026-08-06 — identity + falsification discipline** (triggered by
   paolino's `aiken-blaster-verification` skill,
