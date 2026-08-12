@@ -9,6 +9,102 @@ Last update: 2026-08-11.
 claims vocabulary, identity + falsification discipline, trust base,
 reproduction steps. This file is the running log behind it.
 
+## 2026-08-12 — Paolo's PR-101 review: triage + adoption
+
+**Reviews + triage.** Paolo Veronelli reviewed PR #101 at `02c7b86`
+(one commit before `ce515dc`, so *without* `PropsGlobal.lean`). His three
+review files and our item-by-item triage live under
+`formal-verification/reviews/2026-08-12-paolino-pr101/`
+(`1-invariants-findings.md`, `2-audit-coverage-plan.md`,
+`3-adversarial-critique.md`, `TRIAGE.md`). Every triage item was checked
+against actual source before acceptance. The batch plan (Part D of the
+triage) is the running TODO at the bottom of this section.
+
+**Standing rules adopted.** R1–R6 (Part C of the triage) are now binding
+across every tier; see §3a of the methodology doc for the full text.
+
+**Claims reframing (from C5).** His central premise "the PLG has no
+theorem tier" is now stale for the TransferAct branch: `ce515dc`
+discharges `t1_escape` (output payment credential forced = PLB — the
+anti-escape/containment theorem) and `t1_conservation` (qOut ≥ qIn) as
+SMT-VALID over the compiled 2996 B PLG. Per his ask, the PLG's *enforcing*
+coverage is now stated per branch:
+
+| PLG branch | proof-tier status |
+|---|---|
+| TransferAct | **SMT-VALID** (T1 family: `t1_escape` + `t1_conservation`) |
+| ThirdPartyAct | enforcing check at proof tier: **NONE** (TESTED only) |
+| UnfrackingAct | **NONE** (TESTED only) |
+| registry validators (registry_mint / registry_spend) | **NONE** at proof tier |
+
+TESTED here is the Layer-1 property suite + goldens; NONE means no
+theorem-tier (KERNEL-PROVED or SMT-VALID) result yet exists for that
+branch.
+
+**Disclosure obligations for the docs rewrite.** These MUST feed the
+planned protocol-documentation rewrite (see CLAUDE.md "Upcoming: CIP-113
+documentation rewrite"). Each is a documentation finding surfaced by the
+review, not a code bug:
+
+- **V4 — seizure & mutability.** Seizure destinations are
+  *holder-unspendable, admin-recovery-only* — NOT permanently
+  unspendable. And programmable tokens are *issuer-mutable*: a seizing
+  hook can be installed **post-issuance**. Both facts must be stated
+  plainly; "permanently locked" language is wrong.
+- **V6 — datum / ref-script continuity.** Enforced in ThirdPartyAct and
+  unfracking, but **NOT** in TransferAct. This is an interface obligation
+  on substandards (they must preserve datum/ref-script on the transfer
+  path themselves), and must be documented as such.
+- **V8 — DoS surface.** `new_withdrawal_checker` is
+  O(policies × withdrawals) — a multi-party DoS surface; and `maxValueSize`
+  bounds fracked UTxOs (bench pin exists). Disclose both.
+- **V14 — substandard-hook aliasing.** Two registry nodes can name the
+  same hook; one withdrawal entry satisfies both; the core never binds a
+  hook's redeemer to the node-set that named it. Needs normative guidance
+  (a tx touching aliased nodes A+B must reject unless the hook proves B).
+- **V15 — unfracking rescue is default-forbidden** (`empty_vkey`), so the
+  hostile-freeze mitigation is **opt-in by the issuer**. Carries a
+  wallet-UX obligation: **no cross-policy auto-consolidation** (or
+  unfracking gains are silently undone).
+- **V18 / R3 — reachability polarity.** Over-approximated ∀-safety is
+  strictly stronger and free; a REFUTED counterexample needs a
+  ledger-reachability check before it is a finding.
+
+**C2 uniqueness — accepted as COVERED, no theorem.** The PLG entry is
+unique by construction: `has_key_or_fail` returns at the first hit,
+ledger map keying makes duplicate credentials unreachable, and the
+composition is restrictive-only. One methodology sentence; no theorem
+owed.
+
+**Batch plan (Part D) — running TODO:**
+
+- [~] **Batch 1a — docs (this session, in progress):** adopt R1–R6;
+  C5 claims reframing; trust-base additions (optimizer / `blasterProven`
+  / fuel-as-coordinate); disclosures V4/V6/V8/V14/V15/V18; stale
+  `transfer.ak` comment (V3). *(scripts/README owned by a separate agent;
+  .lean edits by a later agent.)*
+- [~] **Batch 1b — harness (in progress, separate agent):**
+  EXP-0c/V16 `DELIBERATELY_UNVERIFIED` extraction gate (his #2);
+  V13 deployment-manifest checker + vkey-param demonstration (his #1);
+  V20 axiom gates + trust-base/MANIFEST coordinates (his #5).
+- [ ] **Batch 2 — cheap PLB Lean additions, one build:** C11 else-arm
+  reject; C9 vkey-tag twin; C10 slot-2/4 witnesses + MutantControl 4-entry;
+  C1 2-input witness; C6 redeemer witnesses (R2b form); V10 relational
+  range rung; C14(iii) unit-halt upgrade; `exec_rejects_no_transfer_logic`
+  control + `t1_conservation` non-vacuity probe.
+- [ ] **Batch 3 — proof work (PLG prep template now exists):** V4
+  two-owner auth (elevated); V7 covering-input double-sat (elevated);
+  V1(c) UnfrackingAct forwarding rung; V7 ordering; V2 per-branch
+  conservation; V19 boundaries; V9 ∀-lovelace; V11/V12 decoy+datum runs;
+  V6b layout.
+- [ ] **Batch 4 — DEFER:** V8/C8 width ladder; EXP-0b builtin probe;
+  C4 ledger-shaped witness rung; V3 issuance×PLG composition.
+
+**REJECTs.** V17 (integer domain) — N/A by form (arbitrary-precision;
+keep S-7 as an Aiken-tier seed). S-10 — withdrawn by Paolo himself
+(peek_first→full-scan is a liveness improvement; the decoy it targeted is
+R3-unreachable).
+
 ## Phil's wsc-containment-proofs — inventory + migration matrix (2026-08-11)
 
 Source: Anastasia-Labs/CardanoLedgerApiBlaster branch

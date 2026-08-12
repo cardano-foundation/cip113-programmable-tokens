@@ -28,6 +28,14 @@ COULD-NOT-EVALUATE.
   flat version header, not another CBOR major-type-2 byte). The
   double-wrapped form is the on-chain tx-witness encoding, not the
   blueprint encoding.
+- **Prep fuel** (R6, identity coordinate 3): acceptance formally means
+  "halts within N CEK steps", and N is baked per-artifact into the Lean
+  `#prep_uplc` commands under `Cip113Spike/`. Read mechanically from
+  those lines (not hardcoded here):
+    - `programmable_logic_base` (`appliedBase`): **600**
+    - `programmable_logic_global` (`appliedT1`, SHAPED prep): **4400**
+  A claim quoted without its fuel is a claim missing a coordinate.
+- **Aiken build environment** (R6, identity coordinate 4): default (env/default.ak — repo has an env/ dir; `aiken build` with no --env uses default).
 
 ## Blueprint
 
@@ -45,3 +53,20 @@ COULD-NOT-EVALUATE.
 | `unfracking.flat` | `unfracking.unfracking.withdraw` | 1736 | `c180d34c79badf6169ff6515f080ffcae8f563841866ef1266f30b88e954b56b` |
 | `registry_mint.flat` | `registry_mint.registry_mint.mint` | 1928 | `19d93d5df87d125f7f1ae072a8c9d02ed18b060962d188a1b3ef75713f06943e` |
 | `programmable_logic_global.flat` | `programmable_logic_global.programmable_logic_global.withdraw` | 2996 | `9a0e0695665f2eed4a8a3dbec43088f4768524d30ae0ad56bb6fdf587bcf814c` |
+
+## Deliberately unverified (declared subset — EXP-0c / V16, seed S-12)
+
+The flats above are a strict SUBSET of the blueprint's validators. The
+titles below are present in the blueprint but carry NO flat and NO
+theorem — the omission is DECLARED here, not silent. `extract-flats.sh
+--check` goes RED if the blueprint grows any title that is in neither
+this list nor the extracted set, so the subset can never drift open
+quietly.
+
+| blueprint title | reason unverified |
+|---|---|
+| `registry_spend.registry_spend.spend` | no flat yet — decoy-node authentication rests on registry_mint×registry_spend induction; least-verified item in the repo (V7/V11.3, seed S-17) |
+| `protocol_params_mint.protocol_params_mint.mint` | no flat yet — write-once one-shot mint; deployment-time construction gate, covered instead by scripts/deployment-manifest-check.sh (V11.2/V13) |
+| `issuance_mint.issuance_mint.mint` | no flat yet — issuance×PLG three-hop composition deferred (blocked on the rewarding-context builder, seeds S-13/14/15) |
+| `issuance_cbor_hex_mint.issuance_cbor_hex_mint.mint` | no flat yet — CBOR-hex issuance variant; same deferral as issuance_mint |
+| `always_fail.always_fail.spend` | no flat needed — unconditional fail (the params-NFT lock target); nothing to verify beyond `fail` |

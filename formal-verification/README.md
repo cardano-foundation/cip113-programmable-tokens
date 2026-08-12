@@ -42,8 +42,14 @@ claim above is COULD-NOT-EVALUATE.
 ```
 lakefile.lean              -- requires Blaster FIRST, then PlutusCore, CardanoLedgerApi
 flats/                     -- extracted compiledCode + MANIFEST.md (generated)
-scripts/extract-flats.sh   -- extraction + --check identity gate
+scripts/extract-flats.sh   -- extraction + --check identity gate (now also
+                              a completeness gate: every blueprint title
+                              must be extracted or DELIBERATELY_UNVERIFIED)
+scripts/deployment-manifest-check.sh -- pre-submission trust-root closure
+                              checker (V13); the only catch for a
+                              misconfigured params datum
 scripts/falsification-control.sh -- 5-leg harness falsification (see below)
+examples/deployment-manifest.example.json -- schema example for the closure checker
 Cip113Spike/Smoke.lean     -- artifact decode smoke test
 Cip113Spike/PrepBase.lean  -- parameter evidence, #prep_uplc, identity note
 Cip113Spike/PropsBase.lean -- executions + the withdrawal-forcing theorem ladder
@@ -72,9 +78,11 @@ reproduces the committed blueprint byte-for-byte, flats + manifest fresh,
 ## Run (from this directory)
 
 ```sh
-./scripts/extract-flats.sh --check   # identity gate first
+./scripts/extract-flats.sh --check   # identity + completeness gate first
 lake build                           # decode + prep + all theorems
 ./scripts/falsification-control.sh   # falsify the harness before trusting green
+./scripts/deployment-manifest-check.sh examples/deployment-manifest.example.json
+                                     # trust-root closure BEFORE any deployment
 ```
 
 The falsification control never touches the working tree (temp git

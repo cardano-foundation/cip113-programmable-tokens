@@ -113,6 +113,85 @@ CEK machine stops we distinguish a *refused builtin dispatch* (tooling
 limitation) from a *validator-logic error* (a fact about the program);
 a harness that cannot tell the two apart has not produced a result.
 
+## 3a. Standing rules for every check (R1–R6, adopted 2026-08-12 from external review)
+
+Six rules bind every check this effort produces, at any tier. They were
+adopted wholesale from Paolo Veronelli's PR-101 review (the review files
+and their triage live under
+`formal-verification/reviews/2026-08-12-paolino-pr101/`). They sit above
+the vocabulary of §3: a run is not eligible for an ESTABLISHED or
+REFUTED disposition until it satisfies the rules that apply to it —
+otherwise its outcome is COULD-NOT-EVALUATE, no matter how green the
+build.
+
+**R1 — twin-context, with a localisation leg.** A rejecting run proves
+nothing on its own: `isHaltB … = false` cannot tell validator-logic
+rejection apart from a decode failure, a wrapper `expect`, or a builtin
+the CEK model refuses to dispatch. So every rejecting run ships an
+*accepting twin* built in the same skeleton, differing in exactly one
+field. When the rejection is load-bearing (we want to claim "rejected by
+check X", not merely "this context is rejected") we add the localisation
+leg: mutate only the intended guard, prove the flat's sha256 changed,
+and require that run to flip. Absent the twin, the disposition is
+COULD-NOT-EVALUATE.
+
+**R2 — no ∀-family without an inhabitant.** Every symbolic
+context-family we quantify over ships one `native_decide` accepting
+witness *inside* that family, with the quantified parameter in the
+**last** slot (so the witness exercises the full scan depth, not a
+first-hit short-circuit). A ∀-theorem over a family the machine has
+never been shown to accept is presumed vacuous.
+
+**R2b — independence is relational or witness-set, never an
+implication.** This is the intellectual core of the whole discipline, so
+it is stated at length. To claim a validator *ignores* an input `x`
+(redeemer, a datum field, a validity range), the tempting shape is
+`∀ x, accepts(ctx, x) → P`. That shape is unsound as an independence
+claim: **narrowing acceptance can never falsify an implication.** Seed a
+mutant that accepts only when `x` is, say, the unit redeemer — the
+antecedent `accepts(ctx, x)` is now false for every other `x`, the
+implication is vacuously true, and the theorem stays Valid *while the
+seeded bug is live*. The control has survived its own violation, which
+is the decoration failure mode in its sharpest form. The rule: state
+independence **relationally**, `accepts(ctx, x₁) ↔ accepts(ctx, x₂)`
+over two discriminating values, or as a **witness set** — accepting
+`native_decide` runs at each discriminating shape of `x`. Both are
+kernel-checkable and both actually redden under the narrowing mutant.
+The witness-set form is the cheaper and is preferred.
+
+**R3 — reachability cuts by polarity.** An over-approximated ESTABLISHED
+∀-safety claim is *strictly stronger* and costs nothing extra — we do
+not narrow a family "for realism", because a safety property that holds
+over a superset of reachable contexts still holds over the reachable
+ones. The asymmetry is on the other side: a REFUTED counterexample is
+only a finding once it survives a ledger-reachability check, since a
+context the ledger can never produce cannot be exploited.
+
+**R4 — every positive check ships a seeded violation it must catch.** A
+check that has never been shown able to fail is decoration. For an
+independence theorem the seed is the introduction of the dependence; for
+a conservation theorem it is a fabrication; and so on. Every check row
+in the status file names its seed, or carries an explicit
+"NONE — caveat named".
+
+**R5 — `.prop` and `.exec` are distinct objects.** The imported artifact
+yields two Lean values that must not be conflated. `.exec` is the raw
+`cekExecuteProgram` term (computable — this is what the `native_decide`
+kernel executions run). `.prop` is the output of the Blaster prep-time
+optimizer (`Blaster.Optimize.main`, noncomputable — this is what the
+`blaster` tactic quantifies over for SMT-VALID claims). **No theorem
+connects the two, and the gap is invisible to `#print axioms`.** The
+optimizer is therefore named explicitly in the trust base (§7), and SMT
+claims carry prop-side concrete controls to mirror the exec pair.
+
+**R6 — identity is five coordinates, not three.** §4's triple grows to:
+compiler, semantics variant, **fuel**, **build environment**, and the
+function/artifact under test. Fuel (600 for PLB-shaped runs, 4400 for
+PLG-shaped) is *baked into* `.exec` and `.prop`, so "acceptance"
+literally means "halts within N steps"; the build environment
+(`env/default.ak` vs `env/with_assertions.ak`) selects which source
+compiles. Both are recorded next to every claim.
+
 ## 4. Identity discipline
 
 A claim about compiled code is only as good as its stated identity.
@@ -270,6 +349,32 @@ Stated so nobody cites this effort for more than it establishes:
 6. **The manifest cannot prove source→blueprint correspondence by
    itself** — that is exactly what leg 2 of the falsification control
    rebuilds and byte-compares for; run it, don't infer it.
+7. **The Blaster prep-time optimizer is trusted for every SMT-VALID
+   claim.** The object the `blaster` tactic quantifies over is `.prop` =
+   `Blaster.Optimize.main` output; the kernel executions run a *different*
+   object, `.exec` (raw `cekExecuteProgram`). No theorem connects the two
+   (R5), and the disconnect is invisible to `#print axioms`. Any bug in
+   the optimizer that changed `.prop`'s acceptance set relative to `.exec`
+   would silently invalidate the SMT layer while leaving the kernel layer
+   correct; the mitigation is the prop-side concrete controls, not a proof.
+8. **`Blaster.Tactic.blasterProven` inhabits every Prop.** The axiom that
+   closes an SMT-VALID goal is type-agnostic: it produces a term of *any*
+   proposition, so its presence in `#print axioms` certifies only that Z3
+   returned `unsat` on the negated goal — an **operational** fact about a
+   solver run, not a kernel fact about the proposition. An SMT-VALID label
+   therefore has operational meaning only; it is not a kernel proof, and a
+   mistranslation in Blaster's Lean→SMT-LIB layer or a Z3 defect would
+   both present as a Valid SMT-VALID theorem.
+9. **Fuel is a coordinate of the claim, not a background constant** (R6).
+   "Acceptance" in every claim formally means "the CEK machine halts
+   within the prep budget — 600 steps for PLB-shaped runs, 4400 for
+   PLG-shaped, under variant E". "Rejection" means "error or budget
+   exhaustion within that same budget". Because budget exhaustion and a
+   genuine validator-logic error are the same observable at a single
+   fuel bound, the twin-context discipline (R1) is what makes any
+   rejection claim meaningful: without an accepting twin at the same
+   budget, a "rejected" outcome could be nothing but the fuel wall, and
+   is recorded as COULD-NOT-EVALUATE.
 
 ## 8. Reproducing from a fresh checkout
 

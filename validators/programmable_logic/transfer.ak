@@ -78,11 +78,13 @@ fn collect_input_assets(
   //
   // Side-effect to watch: with this fix the transfer path no longer
   // accidentally rejects a pure mint routed to a non-PLB address. That
-  // custody check belongs in issuance_mint; its current `or { plg_invoked,
-  // validate_mint_outputs }` delegation is too broad — same root cause as
-  // finding 04 (which documents the ThirdPartyAct + mint escape), now
-  // exposed as a TransferAct + mint variant too. Tightening issuance_mint's
-  // delegation closes both. Tracked separately.
+  // custody check belongs in issuance_mint, and it now enforces it directly:
+  // its RefInput arm delegates only via `or { plgl_delegates_for_own_registry_node,
+  // custody_ok }` — PLGlobal is trusted solely for the exact registry node the
+  // mint's own redeemer named, and `no_escape` (custody_ok) catches any token
+  // this validator mints regardless. This closed Finding 04 / re-audit R-04
+  // (the earlier broad `plg_invoked` delegation let mints of non-covered
+  // policies escape on both the ThirdPartyAct and TransferAct + mint paths).
   let plb_inputs = assets.collect(
     tx.inputs,
     [],
