@@ -22,6 +22,12 @@
 #  4. Lean control: `controls/MutantControl.lean` must show the clean
 #     artifact's Valid theorem FALSIFIED on the mutant (solve-result: 1)
 #     and the mutant accepting the context the clean artifact rejects.
+#  4b. AUTH mutant (V4/S-16): in a FRESH worktree, gate transfer.ak's
+#     per-input owner-auth `expect` to fire only for the first tx input
+#     (the "auth-first-input-only" bug that passes every single-input
+#     control), rebuild through the real pipeline, extract the mutant PLG
+#     flat, and require `controls/AuthMutantControl.lean` to show the
+#     clean-rejected TWO-owner context ACCEPTED by the mutant.
 #  5. Restore + baseline re-verification: worktree removed (main tree
 #     was never touched), `--check` re-run, clean `lake build` green.
 #
@@ -88,6 +94,50 @@ echo "== Leg 4: Lean control — theorem must be FALSIFIED on the mutant =="
 (cd "$FV" && lake build >/dev/null && lake env lean controls/MutantControl.lean) \
   || red "MutantControl failed — either the theorem was NOT falsified (harness cannot distinguish broken code) or the control could not evaluate"
 echo "   Falsified as expected + mutant accepts the rejected context (kernel-checked)"
+
+echo "== Leg 4b: AUTH mutant (V4/S-16) — first-input-only owner check =="
+# A SECOND, independent seeded bug on a DISTINCT invariant: the per-input
+# owner-authorisation `expect` in transfer.ak's `collect_input_assets` is
+# gated so it fires ONLY for the first transaction input — the
+# "auth-first-input-only" hole Paolo's V4 observation targets, which every
+# SINGLE-input control passes. Built in a FRESH worktree (the leg-2/3
+# worktree carries the base mutation): mutate `transfer.ak`, rebuild
+# through the real pipeline, extract the mutant PLG flat, assert it
+# differs, and require the CLEAN-rejected two-owner context to be ACCEPTED
+# by the mutant (controls/AuthMutantControl.lean, kernel-checked).
+AUTH_WORKTREE="$(mktemp -d /tmp/cip113-authmut-XXXXXX)"
+PLG_TITLE="programmable_logic_global.programmable_logic_global.withdraw"
+PLG_MUTANT_FLAT="$FV/controls/flats/programmable_logic_global_mutant.flat"
+CLEAN_PLG_FLAT="$FV/flats/programmable_logic_global.flat"
+auth_cleanup() {
+  git -C "$REPO" worktree remove --force "$AUTH_WORKTREE" 2>/dev/null || true
+  rm -rf "$AUTH_WORKTREE"
+  rm -f "$PLG_MUTANT_FLAT"
+}
+git -C "$REPO" worktree add --detach "$AUTH_WORKTREE" HEAD >/dev/null
+TRANSFER="$AUTH_WORKTREE/validators/programmable_logic/transfer.ak"
+grep -q 'expect _stake_cred = authorised_stake_cred(' "$TRANSFER" \
+  || { auth_cleanup; red "auth mutation anchor not found in $TRANSFER — validator changed; update this control"; }
+# Gate the per-input auth `expect` on "this input is the FIRST tx input",
+# so owners of inputs after index 0 are never checked. Compiles (uses only
+# `list.head`, in scope, and the stdlib `input.output_reference` field).
+perl -0pi -e 's/expect _stake_cred = authorised_stake_cred\(\s*output\.address,\s*has_signatory,\s*has_withdrawal,\s*\)/if input.output_reference == list.head(tx.inputs).output_reference {\n          expect _stake_cred = authorised_stake_cred(\n            output.address,\n            has_signatory,\n            has_withdrawal,\n          )\n        } else {\n          Void\n        }/' "$TRANSFER"
+grep -q 'if input.output_reference == list.head(tx.inputs).output_reference' "$TRANSFER" \
+  || { auth_cleanup; red "auth mutation did not apply"; }
+(cd "$AUTH_WORKTREE" && aiken build 2>/dev/null) \
+  || { auth_cleanup; red "auth mutant 'aiken build' failed"; }
+PLG_MUTANT_CODE="$(jq -er --arg t "$PLG_TITLE" \
+  '.validators[] | select(.title == $t) | .compiledCode' "$AUTH_WORKTREE/plutus.json")"
+CLEAN_PLG_CODE="$(cat "$CLEAN_PLG_FLAT")"
+[ "$PLG_MUTANT_CODE" != "$CLEAN_PLG_CODE" ] \
+  || { auth_cleanup; red "auth mutant PLG compiledCode identical to clean — mutation never reached the artifact under test"; }
+mkdir -p "$(dirname "$PLG_MUTANT_FLAT")"
+printf '%s' "$PLG_MUTANT_CODE" > "$PLG_MUTANT_FLAT"
+echo "   auth mutant PLG differs from clean ($((${#PLG_MUTANT_CODE} / 2)) vs $((${#CLEAN_PLG_CODE} / 2)) bytes)"
+(cd "$FV" && lake build >/dev/null && lake env lean controls/AuthMutantControl.lean) \
+  || { auth_cleanup; red "AuthMutantControl failed — the clean-rejected two-owner context was NOT accepted by the first-input-only mutant (harness cannot distinguish the auth hole) or the control could not evaluate"; }
+auth_cleanup
+echo "   first-input-only mutant ACCEPTS the clean-rejected two-owner context (kernel-checked)"
 
 echo "== Leg 5: restore + baseline re-verification =="
 cleanup

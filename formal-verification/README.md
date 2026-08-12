@@ -33,6 +33,7 @@ verifies.
 | Dropping the transfer-logic withdrawal from an otherwise-accepting T1 context rejects — the substandard-invocation guarantee on the compiled PLG | KERNEL-PROVED (`exec_rejects_no_transfer_logic`) |
 | PLB witness/control suite per standing rules R1/R2/R2b: non-spend purpose rejected (dispatch gate), vkey-tagged same-bytes credential rejected (tag sensitivity), 2/4-entry maps accepted with param in last slot, two PLB inputs accepted, three discriminating redeemer shapes accepted, structurally different validity range accepted, accepting halt value is the unit constant | KERNEL-PROVED (`exec_rejects_nonspend_purpose`, `exec_rejects_vkey_tagged_param`, `exec_accepts_{two,four}_entries`, `exec_accepts_two_inputs`, `exec_accepts_redeemer_*`, `exec_accepts_range_variant`, `exec_accepts_unit`) |
 | Axiom drift reddens the build: every `#print axioms` is pinned by `#guard_msgs`, falsified live on both tiers (seeded `sorry` → mismatch; dropped `blasterProven` → mismatch) | ESTABLISHED (claim-integrity gate, CI-enforced) |
+| Two-owner authorization (V4/S-16): with two PLB inputs of distinct owners, an unauthorized second owner rejects on the compiled PLG (vkey and script-staked flavours, accepting twins per R1); a seeded first-input-only auth mutant ACCEPTS the same context (falsification Leg 4b) | KERNEL-PROVED (`PropsGlobalAuth.lean`, 4 controls) + ESTABLISHED (auth mutant leg) |
 
 Identity for every claim: `flats/MANIFEST.md` (compiler from the
 blueprint's own preamble, sha256s, `BuiltinSemanticsVariant = E` /

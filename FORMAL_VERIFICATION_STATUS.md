@@ -122,11 +122,23 @@ owed.
   - Deferred honestly: V10 full relational SMT rung (base prep doesn't
     expose range as a leaf; not worth reshaping yet); second independent
     Lean-tier mutation (needs falsification-control.sh changes).
-- [ ] **Batch 3 — proof work (PLG prep template now exists):** V4
-  two-owner auth (elevated); V7 covering-input double-sat (elevated);
-  V1(c) UnfrackingAct forwarding rung; V7 ordering; V2 per-branch
-  conservation; V19 boundaries; V9 ∀-lovelace; V11/V12 decoy+datum runs;
-  V6b layout.
+- [~] **Batch 3 — proof work (PLG prep template now exists):**
+  - [x] **V4/S-16 two-owner auth (DONE 2026-08-12):**
+    `PropsGlobalAuth.lean` T2 family (two PLB inputs, distinct owners,
+    same policy — VALUE AGGREGATES via `assets.union` but auth fires
+    PER INPUT inside the collect closure, transfer.ak:94-98, which is
+    exactly why single-input controls can't see a first-input-only
+    bug). Four KERNEL-PROVED controls (both-authorized accept /
+    second-owner-unauthorized REJECT / script-owner withdrawal accept /
+    absent-withdrawal reject; R1 one-field deltas) + falsification
+    **Leg 4b**: seeded first-input-only auth mutant (compiling,
+    gate on `output_reference == head(inputs)`) ACCEPTS the
+    clean-rejected context. lake 309 jobs green; ALL LEGS GREEN.
+    SMT rung deferred (no natural shaped T2 prep this batch).
+  - [ ] V7 covering-input double-sat (elevated, S-17); V1(c)
+    UnfrackingAct forwarding rung; V7 ordering; V2 per-branch
+    conservation; V19 boundaries; V9 ∀-lovelace; V11/V12 decoy+datum
+    runs; V6b layout.
 - [ ] **Batch 4 — DEFER:** V8/C8 width ladder; EXP-0b builtin probe;
   C4 ledger-shaped witness rung; V3 issuance×PLG composition.
 
