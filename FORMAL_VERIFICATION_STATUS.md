@@ -78,20 +78,50 @@ owed.
 
 **Batch plan (Part D) — running TODO:**
 
-- [~] **Batch 1a — docs (this session, in progress):** adopt R1–R6;
-  C5 claims reframing; trust-base additions (optimizer / `blasterProven`
-  / fuel-as-coordinate); disclosures V4/V6/V8/V14/V15/V18; stale
-  `transfer.ak` comment (V3). *(scripts/README owned by a separate agent;
-  .lean edits by a later agent.)*
-- [~] **Batch 1b — harness (in progress, separate agent):**
-  EXP-0c/V16 `DELIBERATELY_UNVERIFIED` extraction gate (his #2);
-  V13 deployment-manifest checker + vkey-param demonstration (his #1);
-  V20 axiom gates + trust-base/MANIFEST coordinates (his #5).
-- [ ] **Batch 2 — cheap PLB Lean additions, one build:** C11 else-arm
-  reject; C9 vkey-tag twin; C10 slot-2/4 witnesses + MutantControl 4-entry;
-  C1 2-input witness; C6 redeemer witnesses (R2b form); V10 relational
-  range rung; C14(iii) unit-halt upgrade; `exec_rejects_no_transfer_logic`
-  control + `t1_conservation` non-vacuity probe.
+- [x] **Batch 1a — docs (DONE 2026-08-12, commit 136e057):** R1–R6
+  adopted (methodology §3a); C5 claims reframing; trust-base additions
+  (optimizer / `blasterProven` / fuel-as-coordinate); disclosures
+  V4/V6/V8/V14/V15/V18; stale `transfer.ak` comment fixed (V3),
+  aiken check 331/331.
+- [x] **Batch 1b — harness (DONE 2026-08-12, commit 136e057):**
+  EXP-0c/V16 `DELIBERATELY_UNVERIFIED` extraction gate, S-12 falsified
+  both ways; V13 `deployment-manifest-check.sh` + example manifest,
+  3 seeded-bad manifests RED (wrong cred / vkey constructor / co-asset);
+  R6 MANIFEST coordinates (prep fuel read mechanically from the
+  `#prep_uplc` lines; aiken build env). Declared UNVERIFIABLE: blueprint
+  hashes are pre-parameterization, so applied-hash closure needs
+  `aiken blueprint apply` (out of scope, listed as WARN lines).
+- [x] **Batch 2 — cheap Lean additions (DONE 2026-08-12):** all landed,
+  lake build green (308 jobs), falsification-control ALL 5 LEGS GREEN.
+  - C12/V20: every `#print axioms` wrapped in `#guard_msgs` (whitespace
+    := lax) — axiom drift now REDDENS the build; file-wide
+    `warn.sorry false` removed, scoped per-blaster-theorem. S-20a
+    falsified live on BOTH tiers (sorry→sorryAx mismatch; dropped
+    blasterProven → mismatch). Pinned sets: native_decide =
+    `[propext, Classical.choice, Lean.ofReduceBool, Lean.trustCompiler,
+    Quot.sound]`; blaster = `[propext, Classical.choice, Quot.sound,
+    Blaster.Tactic.blasterProven]`.
+  - C4: treasury fields `Data.I 1` → `Constr 1 []` (V3 Maybe-Lovelace
+    Nothing) in mkCtx AND mkT1; all verdicts + axiom sets unchanged.
+  - PLB witnesses (all KERNEL-PROVED, budget 600):
+    `exec_rejects_nonspend_purpose` (C11 — pins the DISPATCH gate, not
+    an in-body else-arm: harness purpose-gates spendingInputs; honest
+    scope noted in source), `exec_rejects_vkey_tagged_param` (C9 —
+    tag-sensitivity), `exec_accepts_{two,four}_entries` (C10 — param in
+    LAST slot), `exec_accepts_two_inputs` (C1), three redeemer witnesses
+    (C6, witness-set form), `exec_accepts_range_variant` (V10 witness
+    pair), `exec_accepts_unit` (C14(iii) — **the V3 wrapper's accepting
+    halt value IS the unit constant**, reflected via `haltIsUnitB` +
+    soundness lemma, native_decide).
+  - PLG (shaped-only, no new prep): `exec_rejects_no_transfer_logic`
+    (KERNEL-PROVED — concrete raw cekExecuteProgram over mkT1NoTL at
+    4400; locks the substandard-invocation guarantee) +
+    `t1_conservation` symbolic non-vacuity probe (Expected-Falsified,
+    counterexample qIn=qOut=0).
+  - MutantControl: 4-entry rung added (Expected-Falsified on the mutant).
+  - Deferred honestly: V10 full relational SMT rung (base prep doesn't
+    expose range as a leaf; not worth reshaping yet); second independent
+    Lean-tier mutation (needs falsification-control.sh changes).
 - [ ] **Batch 3 — proof work (PLG prep template now exists):** V4
   two-owner auth (elevated); V7 covering-input double-sat (elevated);
   V1(c) UnfrackingAct forwarding rung; V7 ordering; V2 per-branch

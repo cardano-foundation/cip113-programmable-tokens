@@ -35,13 +35,17 @@ Controls (the wsc four-point bar, minus realizability — tracked):
   exec_rejects_escape        — tokens routed to a foreign payment
                                credential are rejected, kernel-checked.
   exec_rejects_shortfall     — qOut < qIn is rejected, kernel-checked.
-  anonymous #blaster probe   — vacuity probe for T1-escape: its negation
-                               is Expected-Falsified (an accepting run
-                               exists inside the family).
-TODO (tracked in FORMAL_VERIFICATION_STATUS.md): an
-  exec_rejects_no_transfer_logic control (drop T's withdrawal — the
-  substandard-invocation guarantee) and a symbolic non-vacuity probe
-  for T1-conservation.
+  exec_rejects_no_transfer_logic — drop T's withdrawal (keep own-PLG) →
+                               reject, kernel-checked. Locks the
+                               substandard-invocation guarantee. Run as a
+                               CONCRETE raw exec over `mkT1NoTL` (SHAPED
+                               discipline: no new PLG prep). Added 2026-08-12.
+  #blaster probe (t1_escape)     — vacuity probe: `accepts → c ≠ PLB` is
+                               Expected-Falsified (an accepting run at
+                               C = PLB exists inside the family).
+  #blaster probe (t1_conservation) — vacuity probe: `accepts → qIn > qOut`
+                               is Expected-Falsified (an accepting run with
+                               qIn ≤ qOut exists at C = PLB). Added 2026-08-12.
 -/
 import Cip113Spike.PrepGlobal
 import Cip113Spike.PropsBase
@@ -56,7 +60,6 @@ open PlutusCore.Data (Data)
 open PlutusCore.ByteString (ByteString)
 open PlutusCore.UPLC.Utils (isSuccessful)
 
-set_option warn.sorry false
 set_option maxHeartbeats 0
 set_option maxRecDepth 65536
 
@@ -153,8 +156,10 @@ def mkT1 (outPay : Credential) (qIn qOut : Int) : ScriptContext :=
     , txInfoId := ByteString.mk ""
     , txInfoVotes := []
     , txInfoProposalProcedures := []
-    , txInfoCurrentTreasuryAmount := Data.I 1
-    , txInfoTreasuryDonation := Data.I 1 }
+    -- C4: `Maybe Lovelace` fields encode `Nothing` as `Constr 1 []`;
+    -- bare `Data.I 1` is outside the V3 encoder image.
+    , txInfoCurrentTreasuryAmount := Data.Constr 1 []
+    , txInfoTreasuryDonation := Data.Constr 1 [] }
   , scriptContextRedeemer := transferRdmr
   , scriptContextScriptInfo := .RewardingScript ownCred }
 
@@ -189,9 +194,48 @@ theorem exec_rejects_shortfall :
     isHaltB (appliedT1.exec plbHash 5 4) = false := by
   native_decide
 
+-- ===================================================================
+-- Batch-2 PLG additions (SHAPED-ONLY: no new `#prep_uplc` of the 3 KB
+-- PLG). The shaped prep bakes mkT1's withdrawal map, so the variant
+-- below is run as a CONCRETE RAW execution — `cekExecuteProgram` on the
+-- imported script (exactly what `appliedT1.exec` reduces to, minus the
+-- prep-time optimizer), which does NOT touch the prep memory cliff.
+-- ===================================================================
+
+open PlutusCore.UPLC.CekMachine (cekExecuteProgram)
+
+-- C5 / ce515dc review — SUBSTANDARD-INVOCATION GUARANTEE. Drop the
+-- transfer-logic withdrawal entry (keep the own-PLG entry) → reject. The
+-- PLG's TransferAct arm requires the acted node's `transfer_logic_script`
+-- to be a withdraw-0 of the tx; without T's entry the delegation check
+-- fails. `mkT1NoTL` is mkT1 with the wdrl narrowed to `[(ownCred, 0)]`
+-- and the redeemer set correspondingly (no Rewarding tlogCred entry).
+-- Twin (R1, one field: the tlog wdrl entry) = `exec_accepts_transfer`.
+def mkT1NoTL (outPay : Credential) (qIn qOut : Int) : ScriptContext :=
+  { mkT1 outPay qIn qOut with
+    scriptContextTxInfo :=
+      { (mkT1 outPay qIn qOut).scriptContextTxInfo with
+        txInfoWdrl := [(ownCred, 0)]
+        txInfoRedeemers :=
+          [ (.Spending inRef, Data.Constr 0 [])
+          , (.Rewarding ownCred, transferRdmr) ] } }
+
+/-- Concrete raw exec of the imported PLG on a hand-built input list
+(no prep). Mirrors `t1Inputs` but over `mkT1NoTL`. -/
+def execNoTL (c : ByteString) (qIn qOut : Int) :
+    PlutusCore.UPLC.CekMachine.State :=
+  cekExecuteProgram programmableLogicGlobal.script
+    (toTerm paramsPolicy ::
+      rewardingInputs (mkT1NoTL (.ScriptCredential c) qIn qOut)) 4400
+
+theorem exec_rejects_no_transfer_logic :
+    isHaltB (execNoTL plbHash 5 5) = false := by
+  native_decide
+
 -- T1-ESCAPE: for EVERY script payment credential C the output may carry
 -- the tokens to, acceptance of the compiled PLG FORCES C to be the PLB
 -- credential — inside this family, the jail is the only destination.
+set_option warn.sorry false in
 theorem t1_escape :
     ∀ (c : ByteString) (qIn qOut : Int),
       isSuccessful
@@ -210,6 +254,7 @@ theorem t1_escape :
 -- T1-CONSERVATION: with the output pinned at the PLB, acceptance FORCES
 -- qOut ≥ qIn — the compiled `tokens.contains` guarantee: nothing leaks
 -- on the way back into the jail.
+set_option warn.sorry false in
 theorem t1_conservation :
     ∀ (qIn qOut : Int),
       isSuccessful
@@ -217,8 +262,26 @@ theorem t1_conservation :
       qIn ≤ qOut := by
   blaster (timeout: 900)
 
-#print axioms exec_accepts_transfer
-#print axioms t1_escape
-#print axioms t1_conservation
+-- Vacuity probe for T1-CONSERVATION (wsc four-point bar, point b),
+-- mirroring the t1_escape probe: the NEGATION `accepts → qIn > qOut`
+-- must be Falsified, i.e. the family DOES contain an accepting run with
+-- qIn ≤ qOut (conservation is not vacuously true over an empty accepting
+-- set at C = PLB). SMT-VALID-tier (`.prop`), symbolic in qIn/qOut.
+#blaster (timeout: 900) (solve-result: 1)
+  [∀ (qIn qOut : Int),
+    isSuccessful
+      (appliedT1.prop plbHash qIn qOut) →
+    qIn > qOut]
+
+-- Claim-integrity gate (C12/V20): pin each theorem's axiom set so the
+-- build reddens on drift. Whitespace normalized (single-line compare).
+--   KERNEL-PROVED (native_decide): ofReduceBool + trustCompiler present.
+/-- info: 'CIP113.exec_accepts_transfer' depends on axioms: [propext, Classical.choice, Lean.ofReduceBool, Lean.trustCompiler, Quot.sound] -/
+#guard_msgs(whitespace := lax) in #print axioms exec_accepts_transfer
+--   SMT-VALID (blaster): blasterProven present, no reduce/compiler axioms.
+/-- info: 'CIP113.t1_escape' depends on axioms: [propext, Classical.choice, Quot.sound, Blaster.Tactic.blasterProven] -/
+#guard_msgs(whitespace := lax) in #print axioms t1_escape
+/-- info: 'CIP113.t1_conservation' depends on axioms: [propext, Classical.choice, Quot.sound, Blaster.Tactic.blasterProven] -/
+#guard_msgs(whitespace := lax) in #print axioms t1_conservation
 
 end CIP113

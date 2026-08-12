@@ -52,6 +52,22 @@ def mutantInputs (stakeCred : Credential) (ctx : ScriptContext) : List PlutusCor
         (CIP113.mkCtx [(.ScriptCredential h, amt)])) →
     h = param]
 
+-- Control 1b (C10 leg 2): the FOUR-entry forwarding rung
+-- (`base_forces_plg_withdrawal_four_entries`, Valid on the clean
+-- artifact) must ALSO come back Falsified on the mutant — the mutant
+-- accepts regardless of whether the param is anywhere in the map, so
+-- the deeper-scan rung is not spuriously preserved. Extends the mutant
+-- control beyond the 1-entry rung.
+#blaster (timeout: 1800) (solve-result: 1)
+  [∀ (param h1 h2 h3 h4 : ByteString) (a1 a2 a3 a4 : Int),
+    isSuccessful
+      (appliedMutant.prop (.ScriptCredential param)
+        (CIP113.mkCtx
+          [ (.ScriptCredential h1, a1), (.ScriptCredential h2, a2)
+          , (.ScriptCredential h3, a3), (.ScriptCredential h4, a4)
+          ])) →
+    (h1 = param ∨ h2 = param ∨ h3 = param ∨ h4 = param)]
+
 -- Control 2: the exact context the CLEAN artifact rejects
 -- (exec_rejects_foreign_withdrawal) is ACCEPTED by the mutant —
 -- kernel-checked evidence the mutation reached the CEK semantics.

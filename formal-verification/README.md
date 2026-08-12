@@ -29,7 +29,10 @@ verifies.
 | ∀ deployment param, ∀ 1/2/4-entry withdrawal maps (symbolic hashes + amounts): PLB acceptance forces the param to be present — the forwarding guarantee | SMT-VALID, no proof term (`base_forces_plg_withdrawal_{one,two,four}_entries`) |
 | The pipeline can tell working code from broken code (mutant rebuilt through the real Aiken pipeline → theorem Falsified with counterexample, mutant accepts the rejected context) | ESTABLISHED (`scripts/falsification-control.sh`, all 5 legs) |
 | ∀ symbolic output credential + quantities in family T1 (TransferAct, 1 policy, 1 PLB input, 1 output): PLG acceptance forces the output credential to BE the PLB — tokens cannot escape the jail | SMT-VALID, no proof term (`t1_escape`; vacuity probe Expected Falsified) |
-| Same family, output pinned at the PLB: acceptance forces qOut ≥ qIn | SMT-VALID, no proof term (`t1_conservation`) |
+| Same family, output pinned at the PLB: acceptance forces qOut ≥ qIn | SMT-VALID, no proof term (`t1_conservation`; non-vacuity probe Expected Falsified) |
+| Dropping the transfer-logic withdrawal from an otherwise-accepting T1 context rejects — the substandard-invocation guarantee on the compiled PLG | KERNEL-PROVED (`exec_rejects_no_transfer_logic`) |
+| PLB witness/control suite per standing rules R1/R2/R2b: non-spend purpose rejected (dispatch gate), vkey-tagged same-bytes credential rejected (tag sensitivity), 2/4-entry maps accepted with param in last slot, two PLB inputs accepted, three discriminating redeemer shapes accepted, structurally different validity range accepted, accepting halt value is the unit constant | KERNEL-PROVED (`exec_rejects_nonspend_purpose`, `exec_rejects_vkey_tagged_param`, `exec_accepts_{two,four}_entries`, `exec_accepts_two_inputs`, `exec_accepts_redeemer_*`, `exec_accepts_range_variant`, `exec_accepts_unit`) |
+| Axiom drift reddens the build: every `#print axioms` is pinned by `#guard_msgs`, falsified live on both tiers (seeded `sorry` → mismatch; dropped `blasterProven` → mismatch) | ESTABLISHED (claim-integrity gate, CI-enforced) |
 
 Identity for every claim: `flats/MANIFEST.md` (compiler from the
 blueprint's own preamble, sha256s, `BuiltinSemanticsVariant = E` /
