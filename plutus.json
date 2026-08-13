@@ -322,7 +322,7 @@
           }
         },
         {
-          "title": "always_fail_hash",
+          "title": "coordination_addr_hash",
           "schema": {
             "$ref": "#/definitions/ByteArray"
           }
@@ -344,7 +344,7 @@
           }
         },
         {
-          "title": "always_fail_hash",
+          "title": "coordination_addr_hash",
           "schema": {
             "$ref": "#/definitions/ByteArray"
           }

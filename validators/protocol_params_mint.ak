@@ -7,7 +7,8 @@ use assets.{has_policy_nft_strictly} as my_assets
 // This validator ensures:
 // 1. The specified UTXO is consumed (one-shot minting)
 // 2. Exactly one token is minted with the correct token name
-// 3. The token is sent to an always-fail address with an inline datum containing ProgrammableLogicGlobalParams
+// 3. The token is sent to the coordination address (locked by the
+//    coordination_spend rails) with an inline datum containing ProgrammableLogicGlobalParams
 
 use cardano/address
 use cardano/assets.{PolicyId}
@@ -18,7 +19,7 @@ use programmable_logic/params.{
 
 validator protocol_params_mint(
   utxo_ref: OutputReference,
-  always_fail_hash: ByteArray,
+  coordination_addr_hash: ByteArray,
 ) {
   mint(_redeemer: Data, own_policy: PolicyId, self: Transaction) {
     trace @"Starting protocol_params_mint validation"
@@ -30,9 +31,9 @@ validator protocol_params_mint(
     // Token name must be "ProtocolParams"
     expect has_policy_nft_strictly(self.mint, own_policy, protocol_params_token)
 
-    // The always-fail address where the NFT must be locked
-    let expected_address = address.from_script(always_fail_hash)
-    // Find the output at the always-fail address
+    // The coordination address where the NFT must be locked
+    let expected_address = address.from_script(coordination_addr_hash)
+    // Find the output at the coordination address
     expect Some(nft_output) = list.find(
       self.outputs,
       fn(output) {
@@ -42,7 +43,7 @@ validator protocol_params_mint(
     expect InlineDatum(datum) = nft_output.datum
     expect _params: ProgrammableLogicGlobalParams = datum
 
-    // NFT must be locked at the always-fail address
+    // NFT must be locked at the coordination address
     (nft_output.address == expected_address)?
   }
 
