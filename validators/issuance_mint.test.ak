@@ -1247,6 +1247,42 @@ test coordination_datum_without_params_nft_cannot_delegate_fails() fail {
   call_validator(rdmr, tx)
 }
 
+// In-place upgradability follow-up (2026-08-13 cross-provider review):
+// order-independent coordination discovery on the SUCCESS path. Every
+// other positive delegation fixture places the registry node at
+// reference-input position 0 with the coordination UTxO after it; here
+// the AUTHENTIC coordination UTxO (params NFT + datum naming the invoked
+// credential) sits at position 0 and the registry node at position 1.
+// Custody is violated (case-4 shape, 25 tokens at a non-PLB output), so
+// this can only pass because (a) the value-keyed locate finds the
+// coordination UTxO regardless of its position and (b) the registry-index
+// binding (RefInput 1 / node_idx 1) is untouched by the reorder —
+// delegation fires against the datum-resolved credential.
+//
+// Isolation note per convention 3: the index pair (`RefInput(1)` /
+// `TokenExists { node_idx: 1 }`) moves in lockstep with the reordered
+// `reference_inputs` — a single conceptual delta against
+// `delegation_uses_live_plg_cred_from_coordination_datum` (the two
+// reference inputs are swapped) even though three literals change.
+test delegation_locates_coordination_ahead_of_registry_node() {
+  let rdmr = RefInput(1)
+  let tx = Transaction {
+    ..case4_defers_tx_with(test_plg_cred),
+    reference_inputs: [
+      coordination_ref_input(test_plg_cred),
+      some_ref_input(registry_node_output(test_own_policy)),
+    ],
+    redeemers: [
+      Pair(Mint(test_own_policy), as_data(rdmr)),
+      Pair(
+        Withdraw(test_plg_cred),
+        as_data(TransferAct { proofs: [TokenExists { node_idx: 1 }] }),
+      ),
+    ],
+  }
+  call_validator(rdmr, tx)
+}
+
 // ========================================================================
 // CIP-68 metadata token minting
 //
