@@ -37,7 +37,6 @@
 ////     delay is enforced in v1.
 
 use aiken/collection/list
-use cardano/address.{Credential}
 use cardano/assets
 use cardano/transaction.{InlineDatum, OutputReference, Transaction, find_input}
 use pairs
@@ -98,20 +97,13 @@ validator coordination_spend(_nonce: ByteArray) {
       // Authorisation (trampoline 2): the CURRENT datum's upgrade authority must
       // approve, via its withdraw-0. Read from the OLD datum on purpose — the
       // sitting authority authorises every change, including a change of authority.
-      authority_invoked(self.withdrawals, old_params.upgrade_logic_cred),
+      // The upgrade authority's withdraw-0 must be present; mirrors the
+      // trampoline-1 check in programmable_logic_base.
+      self.withdrawals |> pairs.has_key_or_fail(old_params.upgrade_logic_cred),
     }
   }
 
   else(_) {
     fail
   }
-}
-
-/// The upgrade authority's withdraw-0 must be present. `pairs.has_key_or_fail`
-/// mirrors the trampoline-1 check in programmable_logic_base.
-fn authority_invoked(
-  withdrawals: Pairs<Credential, Int>,
-  upgrade_logic_cred: Credential,
-) -> Bool {
-  withdrawals |> pairs.has_key_or_fail(upgrade_logic_cred)
 }
