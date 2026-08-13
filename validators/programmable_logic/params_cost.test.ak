@@ -13,10 +13,13 @@
 ////       redeemer branch needs via the `*_field` accessors.
 ////
 //// Datum generations: 2-field (pre-Finding-17), 3-field (Finding 17
-//// added `unfracking_cred`), 4-field (upgradability appended
-//// `prog_logic_global_cred`, read by PLB on every spend). The 2- and
-//// 3-field shapes are kept as local types so their measurements stay
-//// reproducible after the production type moved on.
+//// added `unfracking_cred`), 5-field (upgradability appended
+//// `prog_logic_global_cred`, read by PLB on every spend, then
+//// `upgrade_logic_cred`, read only by `coordination_spend` on an
+//// upgrade transaction — not the transfer hot path — so it gets no
+//// per-field cost row of its own below). The 2- and 3-field shapes
+//// are kept as local types so their measurements stay reproducible
+//// after the production type moved on.
 ////
 //// Representative run (aiken v1.1.22; deltas above each family's
 //// locate+unwrap baseline):
@@ -24,10 +27,10 @@
 ////   (a) 2-field builtins, both fields ........ +13.5k mem / +3.6M cpu
 ////   (b) 2-field full expect .................. +21.0k mem / +6.2M cpu
 ////   (b) 3-field full expect .................. +35.5k mem / +11.3M cpu
-////   (b) 4-field full expect .................. +48.7k mem / +16.3M cpu
-////   (c) 4-field split, fields 0-1 (PLG) ...... +13.2k mem / +2.9M cpu
-////   (c) 4-field split, field 2 (unfracking) .. +10.1k mem / +2.2M cpu
-////   (c) 4-field split, field 3 (PLB) ......... +10.3k mem / +2.3M cpu
+////   (b) 5-field full expect .................. +48.7k mem / +16.3M cpu
+////   (c) 5-field split, fields 0-1 (PLG) ...... +13.2k mem / +2.9M cpu
+////   (c) 5-field split, field 2 (unfracking) .. +10.1k mem / +2.2M cpu
+////   (c) 5-field split, field 3 (PLB) ......... +10.3k mem / +2.3M cpu
 ////
 //// i.e. full deserialisation costs ~4.7x the split approach in mem and
 //// ~7x in cpu on any single-consumer path; the split keeps each
@@ -88,7 +91,7 @@ const legacy3_params: LegacyThreeFieldParams =
   }
 
 /// Reference inputs as they appear in the tx fixtures, with an
-/// arbitrary datum in place of the current 4-field one.
+/// arbitrary datum in place of the current 5-field one.
 fn ref_inputs_with_datum(datum: Data) -> List<Input> {
   let modern = fixture.some_reference_input_protocol_params(
     fixture.protocol_params,
@@ -117,8 +120,8 @@ fn v3_ref_inputs() -> List<Input> {
   ref_inputs_with_datum(as_data(legacy3_params))
 }
 
-/// Same layout with the current (4-field) params datum.
-fn v4_ref_inputs() -> List<Input> {
+/// Same layout with the current (5-field) params datum.
+fn v5_ref_inputs() -> List<Input> {
   [
     fixture.some_reference_input_protocol_params(
       fixture.protocol_params,
@@ -181,10 +184,10 @@ test cost_baseline_locate_and_unwrap_v3() {
   datum == as_data(legacy3_params)
 }
 
-/// Same cost floor over the current 4-field inputs (their construction
+/// Same cost floor over the current 5-field inputs (their construction
 /// cost differs slightly, so each family gets its own baseline).
-test cost_baseline_locate_and_unwrap_v4() {
-  let input = locate_params_ref(v4_ref_inputs(), fixture.policy_protocol_params)
+test cost_baseline_locate_and_unwrap_v5() {
+  let input = locate_params_ref(v5_ref_inputs(), fixture.policy_protocol_params)
   expect InlineDatum(datum) = input.output.datum
   datum == as_data(fixture.protocol_params)
 }
@@ -228,12 +231,12 @@ test cost_v3_full_expect() {
   }
 }
 
-// ----------------------------------------- v4 datum (current, 4 fields)
+// ----------------------------------------- v5 datum (current, 5 fields)
 
-/// (b) Full `expect` deserialisation of the 4-field datum — what the
+/// (b) Full `expect` deserialisation of the 5-field datum — what the
 /// simplest implementation would pay on EVERY redeemer branch.
-test cost_v4_full_expect() {
-  let input = locate_params_ref(v4_ref_inputs(), fixture.policy_protocol_params)
+test cost_v5_full_expect() {
+  let input = locate_params_ref(v5_ref_inputs(), fixture.policy_protocol_params)
   expect InlineDatum(datum) = input.output.datum
   expect p: ProgrammableLogicGlobalParams = datum
   and {
@@ -247,9 +250,9 @@ test cost_v4_full_expect() {
 /// (c) Production, transfer/3rd-party branch: fields 0-1 only —
 /// identical work to the legacy 2-field extraction, i.e. the appended
 /// fields cost the PLG hot path nothing.
-test cost_v4_split_first_two() {
+test cost_v5_split_first_two() {
   let fields <- with_protocol_params_fields(
-    v4_ref_inputs(),
+    v5_ref_inputs(),
     fixture.policy_protocol_params,
   )
   and {
@@ -259,9 +262,9 @@ test cost_v4_split_first_two() {
 }
 
 /// (c) Production, unfracking branch: field 2 only.
-test cost_v4_split_third_only() {
+test cost_v5_split_third_only() {
   let fields <- with_protocol_params_fields(
-    v4_ref_inputs(),
+    v5_ref_inputs(),
     fixture.policy_protocol_params,
   )
   unfracking_cred_field(fields) == fixture.credential_validator_unfracking
@@ -269,18 +272,18 @@ test cost_v4_split_third_only() {
 
 /// (c) Production, PLB spend (upgradability trampoline): field 3 only —
 /// the extraction cost added to every programmable-token spend.
-test cost_v4_split_fourth_only() {
+test cost_v5_split_fourth_only() {
   let fields <- with_protocol_params_fields(
-    v4_ref_inputs(),
+    v5_ref_inputs(),
     fixture.policy_protocol_params,
   )
   prog_logic_global_cred_field(fields) == fixture.credential_validator_logic_global
 }
 
 /// (c) Split upper bound: all four fields via the accessors.
-test cost_v4_split_all_four() {
+test cost_v5_split_all_four() {
   let fields <- with_protocol_params_fields(
-    v4_ref_inputs(),
+    v5_ref_inputs(),
     fixture.policy_protocol_params,
   )
   and {
