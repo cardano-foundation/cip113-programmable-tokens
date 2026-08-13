@@ -1,3 +1,4 @@
+use aiken/builtin.{unconstr_fields}
 use aiken/collection/dict
 use aiken/collection/list
 // Programmable Token Issuance Minting Policy
@@ -6,7 +7,8 @@ use aiken/collection/list
 
 use cardano/address.{Credential, Inline}
 use cardano/assets.{PolicyId}
-use cardano/transaction.{Output, ScriptPurpose, Transaction, Withdraw}
+use cardano/transaction.{Input, Output, ScriptPurpose, Transaction, Withdraw}
+use programmable_logic/params
 use registry_node.{RegistryNode}
 use types.{
   MintingRegistryProof, OutputIndex, ProgrammableLogicGlobalRedeemer, RefInput,
@@ -21,13 +23,16 @@ validator issuance_mint(
   registry_node_cs: PolicyId,
   // <- the hash of the contract of the logic for minting.
   minting_logic_cred: Credential,
-  // PLGlobal stake credential. Looked up in `tx.redeemers` (as the
-  // `Withdraw(plg_stake_cred)` script-purpose) to fetch PLGlobal's
-  // currently-running redeemer; presence == invocation. issuance_mint
-  // delegates mint-output custody to PLGlobal iff that redeemer names
-  // (by `registry_node_idx` or by `TokenExists { node_idx }` proof) the
-  // SAME registry node our own `RefInput { index }` already verified.
-  plg_stake_cred: Credential,
+  // One-shot protocol-params NFT policy — the protocol's permanent anchor,
+  // the same parameter PLB and PLGlobal take. Read ONLY inside the
+  // `RefInput` delegation branch, where it locates the coordination UTxO
+  // among `reference_inputs` and reads the LIVE PLGlobal credential from
+  // its datum (field 3, `prog_logic_global_cred`). Delegation then keys on
+  // THAT credential, so an in-place PLG upgrade automatically retires the
+  // old credential as a mint-custody delegate. Coordination UTxO absent ⇒
+  // no delegation ⇒ local `no_escape` custody (fail-safe). The OutputIndex
+  // path never reads it.
+  params_policy: PolicyId,
 ) {
   mint(redeemer: MintingRegistryProof, own_policy: PolicyId, self: Transaction) {
     // Single-pass withdrawal scan for ONLY the substandard's minting-logic
@@ -103,7 +108,8 @@ validator issuance_mint(
           // did (it then enforces our PLB custody); otherwise enforce here.
           plgl_delegates_for_own_registry_node(
             self.redeemers,
-            plg_stake_cred,
+            self.reference_inputs,
+            params_policy,
             index,
           ),
           custody_ok()?,
@@ -185,22 +191,51 @@ fn verify_registry_node(
 /// `own_policy`. If so, PLGlobal will validate `own_policy`'s mint custody
 /// at runtime and issuance_mint can safely delegate.
 ///
+/// PLGlobal's credential is NOT a parameter: it is the LIVE one read from
+/// the coordination UTxO's datum (field 3, `prog_logic_global_cred`), so
+/// delegation trust tracks in-place PLG upgrades — a retired credential
+/// can no longer act as a mint-custody delegate.
+///
 /// We only need to compare indices — `own_registry_node_idx` is the index
 /// from issuance_mint's RefInput redeemer, which `verify_registry_node`
 /// has already shown to correspond to `own_policy`. So "same index" ⇒
 /// "same policy" without re-extracting any key.
 ///
-/// Returns False when PLGlobal isn't invoked at all (`None` from the
-/// redeemer lookup) or when PLGlobal's redeemer names a different
-/// registry node.
+/// Every `None` case — no coordination UTxO among the reference inputs,
+/// PLGlobal not invoked at all, or PLGlobal's redeemer naming a different
+/// registry node — returns False, falling back to local custody. The
+/// coordination locate is deliberately non-failing (`list.find` +
+/// `has_nft_strict`) so non-delegating RefInput mints need no coordination
+/// ref input.
 fn plgl_delegates_for_own_registry_node(
   redeemers: Pairs<ScriptPurpose, Data>,
-  plg_stake_cred: Credential,
+  reference_inputs: List<Input>,
+  params_policy: PolicyId,
   own_registry_node_idx: Int,
 ) -> Bool {
-  when find_plgl_redeemer(redeemers, plg_stake_cred) is {
+  when
+    list.find(
+      reference_inputs,
+      fn(ref_input) {
+        assets.has_nft_strict(
+          ref_input.output.value,
+          params_policy,
+          params.protocol_params_token,
+        )
+      },
+    )
+  is {
     None -> False
-    Some(plg_redeemer) -> plgl_scope_covers(plg_redeemer, own_registry_node_idx)
+    Some(coordination_ref) -> {
+      let plg_cred = params.prog_logic_global_cred_field(
+        unconstr_fields(expect_inline_datum(coordination_ref.output)),
+      )
+      when find_plgl_redeemer(redeemers, plg_cred) is {
+        None -> False
+        Some(plg_redeemer) ->
+          plgl_scope_covers(plg_redeemer, own_registry_node_idx)
+      }
+    }
   }
 }
 
