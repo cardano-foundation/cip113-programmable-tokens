@@ -22,9 +22,6 @@ use programmable_logic/params.{ProgrammableLogicGlobalParams}
 // Constants
 // ---------------------------------------------------------------------------
 
-const params_nft_policy: ByteArray =
-  #"000000000000000000000000000000000000000000000000000005ef"
-
 /// The coordination address: payment credential = coordination_spend's own
 /// script hash (arbitrary here), stake credential fixed.
 const coordination_cred: Credential =
@@ -62,7 +59,7 @@ const own_ref: OutputReference =
 fn coordination_value() -> Value {
   assets.zero
     |> assets.add(ada_policy_id, ada_asset_name, 2_000_000)
-    |> assets.add(params_nft_policy, "ProtocolParams", 1)
+    |> assets.add(fixture.policy_protocol_params, "ProtocolParams", 1)
 }
 
 /// Params after a legitimate PLG-swap upgrade: only `prog_logic_global_cred`
@@ -289,7 +286,7 @@ test coord_fails_dropping_nft() fail {
 test coord_fails_draining_ada() fail {
   let drained = assets.zero
     |> assets.add(ada_policy_id, ada_asset_name, 1_000_000)
-    |> assets.add(params_nft_policy, "ProtocolParams", 1)
+    |> assets.add(fixture.policy_protocol_params, "ProtocolParams", 1)
   let tx = Transaction {
     ..valid_upgrade_tx(),
     outputs: [

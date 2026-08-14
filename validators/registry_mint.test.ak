@@ -953,8 +953,8 @@ const ism_registry_cs: PolicyId =
 const ism_ml_cred: Credential =
   Script(#"aa33333333333333333333333333333333333333333333333333333333")
 
-const ism_plg_cred: Credential =
-  Script(#"aa55555555555555555555555555555555555555555555555555555555")
+const ism_params_policy: PolicyId =
+  #"aa5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e"
 
 const ism_own_policy: PolicyId =
   #"aa44444444444444444444444444444444444444444444444444444444"
@@ -1024,7 +1024,7 @@ fn call_issuance_validator(rdmr: MintingRegistryProof, tx: Transaction) -> Bool 
     ism_plb_cred,
     ism_registry_cs,
     ism_ml_cred,
-    ism_plg_cred,
+    ism_params_policy,
     rdmr,
     ism_own_policy,
     tx,
