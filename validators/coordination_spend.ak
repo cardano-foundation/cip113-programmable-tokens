@@ -39,6 +39,7 @@
 use aiken/collection/list
 use cardano/assets
 use cardano/transaction.{InlineDatum, OutputReference, Transaction, find_input}
+use linked_list.{is_28_byte_credential}
 use pairs
 use programmable_logic/params.{ProgrammableLogicGlobalParams}
 
@@ -92,6 +93,18 @@ validator coordination_spend(_nonce: ByteArray) {
       // deliberately outside upgrade scope.
       (new_params.prog_logic_cred == old_params.prog_logic_cred)?,
       (new_params.registry_node_cs == old_params.registry_node_cs)?,
+      // Mutable authority credentials must be well-formed (28-byte hashes).
+      // We cannot verify a credential resolves to an executable script — that is
+      // out of reach on-chain — but a WRONG-LENGTH credential can never be
+      // satisfied (no withdrawal key can equal it), which permanently bricks the
+      // field it gates: `prog_logic_global_cred` is PLB's per-spend gate (bricks
+      // every token), `upgrade_logic_cred` gates all future upgrades (bricks the
+      // coordination UTxO itself), and `unfracking_cred` gates unfracking. The
+      // frozen anchors above are already well-formed by construction (equal to
+      // the mint-validated old datum), so only the mutable fields are checked.
+      is_28_byte_credential(new_params.unfracking_cred)?,
+      is_28_byte_credential(new_params.prog_logic_global_cred)?,
+      is_28_byte_credential(new_params.upgrade_logic_cred)?,
       // No reference script may be attached to the coordination UTxO.
       (cont.reference_script == None)?,
       // Authorisation (trampoline 2): the CURRENT datum's upgrade authority must

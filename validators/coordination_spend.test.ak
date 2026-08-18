@@ -17,6 +17,7 @@ use cardano/transaction.{
 use coordination_spend
 use programmable_logic/fixture
 use programmable_logic/params.{ProgrammableLogicGlobalParams}
+use registry_node.{empty_vkey}
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -427,6 +428,69 @@ test coord_fails_reference_script_attached() fail {
           #"abababababababababababababababababababababababababababab00",
         ),
       },
+    ],
+  }
+  call(tx)
+}
+
+// ---------------------------------------------------------------------------
+// Credential well-formedness (unsatisfiable-credential brick)
+// ---------------------------------------------------------------------------
+//
+// The datum rail above only TYPE-casts the continuing params
+// (`expect new_params: ProgrammableLogicGlobalParams`). A `Credential` carries
+// no length obligation, so an upgrade can write an empty / malformed / never-
+// satisfiable credential into a MUTABLE authority field and the cast still
+// succeeds. The frozen-anchor check covers only `prog_logic_cred` and
+// `registry_node_cs`, so the mutable authority fields are unprotected.
+//
+// The two reproductions below are KNOWN-RED until a credential well-formedness
+// rail is added (e.g. reject non-28-byte credentials, as the registry path
+// already does via `is_28_byte_credential`). Their positive controls already
+// exist above — `coord_upgrade_succeeds` (a well-formed 28-byte
+// `prog_logic_global_cred` is accepted) and `coord_authority_handover_succeeds`
+// (a well-formed `upgrade_logic_cred` change is accepted) — so such a guard
+// would not over-reject legitimate upgrades.
+
+// KNOWN-RED: `prog_logic_global_cred` is PLB's spend gate, read on every token
+// spend. `empty_vkey` (VerificationKey("")) is the repo's own "unset" sentinel
+// and can never equal any withdrawal key, so `has_key_or_fail` can never match
+// — every programmable token is frozen forever. coordination_spend SHOULD
+// reject this upgrade; it currently ACCEPTS, so this `fail` test is red until
+// the guard lands.
+test coord_rejects_unsatisfiable_plg_cred() fail {
+  let tx = Transaction {
+    ..valid_upgrade_tx(),
+    outputs: [
+      continuing_output(
+        ProgrammableLogicGlobalParams {
+          ..fixture.protocol_params,
+          prog_logic_global_cred: empty_vkey,
+        },
+        coordination_value(),
+        coordination_address(),
+      ),
+    ],
+  }
+  call(tx)
+}
+
+// KNOWN-RED: `upgrade_logic_cred` is the authority gate for FUTURE upgrades.
+// Writing an unsatisfiable value here means no later upgrade can ever be
+// authorised — the coordination UTxO, and the whole wiring it governs, is
+// frozen. coordination_spend SHOULD reject this but currently ACCEPTS.
+test coord_rejects_unsatisfiable_upgrade_cred() fail {
+  let tx = Transaction {
+    ..valid_upgrade_tx(),
+    outputs: [
+      continuing_output(
+        ProgrammableLogicGlobalParams {
+          ..fixture.protocol_params,
+          upgrade_logic_cred: empty_vkey,
+        },
+        coordination_value(),
+        coordination_address(),
+      ),
     ],
   }
   call(tx)
