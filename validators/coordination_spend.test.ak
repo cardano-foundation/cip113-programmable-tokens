@@ -9,7 +9,7 @@
 //// single rail: NFT/value continuity, singleton in/out at the address, address
 //// preservation, datum well-formedness, the frozen anchors, and authorisation.
 
-use cardano/address.{Address, Credential, Inline, Script}
+use cardano/address.{Address, Credential, Inline, Script, VerificationKey}
 use cardano/assets.{Value, ada_asset_name, ada_policy_id}
 use cardano/transaction.{
   InlineDatum, Input, NoDatum, Output, OutputReference, Transaction,
@@ -430,4 +430,83 @@ test coord_fails_reference_script_attached() fail {
     ],
   }
   call(tx)
+}
+
+// ---------------------------------------------------------------------------
+// Credential well-formedness (NEW-2)
+//
+// An upgrade may rewrite the mutable credential fields, but not to a value that
+// can never be satisfied. A Cardano reward account is a header byte + a 28-byte
+// hash, so a credential carrying an empty or wrong-length hash can never appear
+// in `tx.withdrawals` — the same ledger impossibility the unfracking hook relies
+// on for its default-deny. Writing one here is a ONE-WAY BRICK: an unsatisfiable
+// `upgrade_logic_cred` makes this validator's own authority check permanently
+// unsatisfiable, with no repair path, and an unsatisfiable
+// `prog_logic_global_cred` makes every programmable-token UTxO unspendable.
+// ---------------------------------------------------------------------------
+
+/// A credential whose hash can never key a reward account.
+const unsatisfiable_cred: Credential = VerificationKey(#"")
+
+/// A credential with a hash of the wrong length (4 bytes, not 28).
+const short_cred: Credential = Script(#"deadbeef")
+
+/// An upgrade transaction whose continuing datum is `params`.
+fn upgrade_tx_with(params: ProgrammableLogicGlobalParams) -> Transaction {
+  Transaction {
+    ..valid_upgrade_tx(),
+    outputs: [
+      continuing_output(params, coordination_value(), coordination_address()),
+    ],
+  }
+}
+
+// Reject: the upgrade authority itself is set to an unsatisfiable credential.
+// This is the unrecoverable case — no later upgrade could repair it.
+test coord_fails_unsatisfiable_upgrade_authority() fail {
+  call(
+    upgrade_tx_with(
+      ProgrammableLogicGlobalParams {
+        ..fixture.protocol_params,
+        upgrade_logic_cred: unsatisfiable_cred,
+      },
+    ),
+  )
+}
+
+// Reject: PLG's credential is set to an unsatisfiable one, which would make
+// every PLB spend on the deployment fail immediately.
+test coord_fails_unsatisfiable_plg_cred() fail {
+  call(
+    upgrade_tx_with(
+      ProgrammableLogicGlobalParams {
+        ..fixture.protocol_params,
+        prog_logic_global_cred: unsatisfiable_cred,
+      },
+    ),
+  )
+}
+
+// Reject: the unfracking credential is set to an unsatisfiable one.
+test coord_fails_unsatisfiable_unfracking_cred() fail {
+  call(
+    upgrade_tx_with(
+      ProgrammableLogicGlobalParams {
+        ..fixture.protocol_params,
+        unfracking_cred: unsatisfiable_cred,
+      },
+    ),
+  )
+}
+
+// Reject: a wrong-length (non-28-byte) hash is refused just as an empty one is.
+test coord_fails_wrong_length_credential() fail {
+  call(
+    upgrade_tx_with(
+      ProgrammableLogicGlobalParams {
+        ..fixture.protocol_params,
+        prog_logic_global_cred: short_cred,
+      },
+    ),
+  )
 }

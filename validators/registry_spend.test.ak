@@ -9,7 +9,7 @@
 use cardano/address.{Address, Script, VerificationKey}
 use cardano/assets.{PolicyId, ada_asset_name, ada_policy_id, from_asset}
 use cardano/transaction.{
-  InlineDatum, Input, NoDatum, Output, OutputReference, Transaction,
+  InlineDatum, Input, NoDatum, Output, OutputReference, Transaction, find_input,
 }
 use programmable_logic/params.{ProgrammableLogicGlobalParams}
 use registry_node.{RegistryNode, empty_vkey, origin_node}
@@ -130,6 +130,25 @@ fn placeholder_own_ref() -> OutputReference {
     transaction_id: #"0000000000000000000000000000000000000000000000000000000000000000",
     output_index: 0,
   }
+}
+
+/// Harness for the UPDATE branch. `call_validator` above hardcodes the minting
+/// branch's throwaway `placeholder_own_ref`, which matches no input in the
+/// update fixture — so `registry_spend`'s
+/// `expect Some(own_input) = find_input(self.inputs, own_ref)` aborts before a
+/// single line of update-branch logic runs, and every negative test routed
+/// through it passed for the wrong reason. This harness supplies the real spent
+/// node's datum and reference, and asserts `find_input` succeeds first so any
+/// remaining failure is attributable to the check the test actually targets.
+fn call_update_validator(tx: Transaction) -> Bool {
+  expect Some(_) = find_input(tx.inputs, test_node_own_ref())
+  registry_spend.registry_spend.spend(
+    test_protocol_params_cs,
+    Some(old_registry_node()),
+    as_data(Void),
+    test_node_own_ref(),
+    tx,
+  )
 }
 
 // ========================================================================
@@ -446,7 +465,7 @@ test registry_spend_update_node() {
 // pairs.has_key returns False → validator returns False.
 test fails_update_without_minting_logic_withdrawal() fail {
   let tx = Transaction { ..update_transaction(), withdrawals: [] }
-  call_validator(tx)
+  call_update_validator(tx)
 }
 
 // Reject: a different credential is invoked, not the node's minting_logic_script.
@@ -455,7 +474,7 @@ test fails_update_wrong_withdrawal_credential() fail {
     ..update_transaction(),
     withdrawals: [Pair(Script(test_other_minting_hash), 0)],
   }
-  call_validator(tx)
+  call_update_validator(tx)
 }
 
 // Reject: tampering with an immutable field (minting_logic_script). key/next are
@@ -470,7 +489,7 @@ test fails_update_changes_minting_logic() fail {
     ..update_transaction(),
     outputs: [registry_node_output(tampered)],
   }
-  call_validator(tx)
+  call_update_validator(tx)
 }
 
 // Reject: relocating the node NFT to a different address (theft). The continuing
@@ -484,7 +503,7 @@ test fails_update_relocates_nft() fail {
     },
   }
   let tx = Transaction { ..update_transaction(), outputs: [relocated] }
-  call_validator(tx)
+  call_update_validator(tx)
 }
 
 // Reject: two continuing node outputs (batching / double-satisfaction). The
@@ -497,7 +516,7 @@ test fails_update_two_node_outputs() fail {
       registry_node_output(new_registry_node()),
     ],
   }
-  call_validator(tx)
+  call_update_validator(tx)
 }
 
 // Reject: malformed mutable value — a non-28-byte transfer_logic_script.
@@ -510,7 +529,7 @@ test fails_update_malformed_transfer_logic() fail {
     ..update_transaction(),
     outputs: [registry_node_output(bad)],
   }
-  call_validator(tx)
+  call_update_validator(tx)
 }
 
 // ========================================================================
