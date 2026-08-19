@@ -1,5 +1,5 @@
 use aiken/builtin.{head_list, tail_list, unconstr_fields}
-use assets
+use aiken/collection/dict
 use cardano/address.{Credential}
 use cardano/assets.{PolicyId} as value
 use cardano/transaction.{InlineDatum, Input, Output}
@@ -103,7 +103,11 @@ fn get_protocol_params_ref(
   ref_inputs: List<Input>,
 ) -> Input {
   let head = head_list(ref_inputs)
-  if assets.peek_first(head.output) == protocol_params_cs {
+  // Direct policy lookup (dict.get, early-exit on the sorted value): total and
+  // order-independent. Skips reference inputs that do not carry the params
+  // policy — including token-less reference-script UTxOs, on which the old
+  // `peek_first` (head of the ada-less token list) aborted rather than skipped.
+  if !dict.is_empty(value.tokens(head.output.value, protocol_params_cs)) {
     head
   } else {
     get_protocol_params_ref(protocol_params_cs, tail_list(ref_inputs))

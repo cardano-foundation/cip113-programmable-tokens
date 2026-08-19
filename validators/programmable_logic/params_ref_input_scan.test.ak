@@ -18,14 +18,12 @@
 //// `peek_first` on it and aborts.
 ////
 //// The suite previously had NO test constructing a token-less reference input,
-//// so this shape was uncovered. `..._aborts_..._first` LOCKS IN the current
-//// (abortive) behaviour; it is `fail`-annotated so it stays green today. When
-//// the scan is made total over token-less reference inputs (e.g. a
-//// `has_currency_symbol` membership scan, mirroring `registry_spend.ak`), this
-//// test must be flipped to a passing assertion. `..._ok_when_params_first`
-//// isolates the cause: the same two inputs succeed when the params NFT is
-//// reached first, so the divergence is purely `peek_first`'s partiality under
-//// reference-input ordering.
+//// so this shape was uncovered. Issue #103 replaced the `peek_first` head-read
+//// with a direct, total policy lookup (`value.tokens |> dict.is_empty`), so a
+//// token-less reference input is now SKIPPED rather than aborted on.
+//// `..._finds_params_despite_adaonly_refscript_first` pins that the params NFT
+//// is found even when such an input is ordered first; `..._ok_when_params_first`
+//// keeps the control (params NFT reached first).
 
 use cardano/address
 use cardano/transaction.{Input, NoDatum, Output, OutputReference}
@@ -63,11 +61,11 @@ fn params_ref_input() -> Input {
   )
 }
 
-// KNOWN BEHAVIOUR (Finding 082 / issue #103): an Ada-only reference-script input
-// ordered before the params NFT aborts the scan (`peek_first` on a token-less
-// value). `fail`-annotated so it is green today and documents the brick; FLIP
-// to a passing assertion when the scan is made total.
-test params_scan_aborts_on_adaonly_refscript_first() fail {
+// Finding 082 / issue #103 (FIXED): an Ada-only reference-script input ordered
+// before the params NFT is skipped, and the scan still finds the params NFT.
+// Previously `peek_first` aborted on that token-less value; the scan now uses a
+// direct, total policy lookup.
+test params_scan_finds_params_despite_adaonly_refscript_first() {
   let ref_inputs = [ada_only_reference_script_input(), params_ref_input()]
   let fields <- with_protocol_params_fields(
     ref_inputs,
