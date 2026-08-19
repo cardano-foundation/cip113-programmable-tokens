@@ -23,7 +23,7 @@ use cardano/address.{Credential, VerificationKey}
 use cardano/assets.{
   AssetName, PolicyId, ada_asset_name, ada_policy_id, from_asset, merge,
 }
-use cardano/transaction.{InlineDatum, Input, Output, Transaction}
+use cardano/transaction.{DatumHash, InlineDatum, Input, Output, Transaction}
 use programmable_logic/fixture
 use programmable_logic/params.{ProgrammableLogicGlobalParams}
 use programmable_logic_base
@@ -205,6 +205,39 @@ test unfracking_multi_utxo_consolidation_succeeds() {
       fixture.some_output_with_programmable_tokens([(policy_b, "BAR", 100)]),
       fixture.some_output_with_programmable_tokens([(policy_b, "BAR", 50)]),
       fixture.some_output_with_programmable_tokens([(policy_a, "FOO", 150)]),
+    ],
+  }
+  run_unfracking(tx)
+}
+
+// A destination output (a freshly created PLB UTxO receiving the regrouped
+// acted tokens) carrying a datum HASH is rejected: it would be unspendable
+// without the preimage, so it could never be seized. One delta against the
+// consolidation happy path: the acted-policy destination is datum-hashed.
+test unfracking_rejects_datum_hash_destination() fail {
+  let input_2 = fixture.some_input_with_programmable_tokens(
+    [(policy_a, "FOO", 50), (policy_b, "BAR", 50)],
+    "unfracking input 2",
+  )
+  let destination_with_hash = Output {
+    ..fixture.some_output_with_programmable_tokens([(policy_a, "FOO", 150)]),
+    datum: DatumHash(
+      #"deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef00",
+    ),
+  }
+  let tx = Transaction {
+    ..valid_unfracking_tx(),
+    inputs: [
+      fixture.some_input_with_programmable_tokens(
+        [(policy_a, "FOO", 100), (policy_b, "BAR", 100)],
+        "unfracking input",
+      ),
+      input_2,
+    ],
+    outputs: [
+      fixture.some_output_with_programmable_tokens([(policy_b, "BAR", 100)]),
+      fixture.some_output_with_programmable_tokens([(policy_b, "BAR", 50)]),
+      destination_with_hash,
     ],
   }
   run_unfracking(tx)
