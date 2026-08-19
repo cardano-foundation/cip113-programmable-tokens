@@ -59,3 +59,50 @@ test multisig_ignores_non_signers() fail {
 test multisig_no_double_count_from_duplicates() fail {
   call([alice, alice])
 }
+
+// ---------------------------------------------------------------------------
+// Parameter characterization (Finding 054 — deployment-trust, not enforced)
+// ---------------------------------------------------------------------------
+//
+// `signers` and `threshold` are compile-time parameters; the validator does not
+// bounds-check them. This is a deliberate deployment-trust boundary (the script
+// hash is deterministic from its parameters, so a misconfiguration is publicly
+// verifiable before use, and `upgrade_multisig` is a reference authority). The
+// existing `call` fixes them at ([alice, bob, carol], 2); the harness below
+// varies them so the unguarded behaviour is documented rather than silent. If a
+// future change decides to enforce bounds, these characterizations flip.
+
+fn call_with(
+  signers: List<ByteArray>,
+  threshold: Int,
+  signatories: List<ByteArray>,
+) -> Bool {
+  upgrade_multisig.upgrade_multisig.withdraw(
+    signers,
+    threshold,
+    Void,
+    Void,
+    Transaction { ..transaction.placeholder, extra_signatories: signatories },
+  )
+}
+
+// A non-positive threshold authorises with ZERO approvals — i.e. a
+// permissionless authority. Recorded as current (unguarded) behaviour.
+test multisig_nonpositive_threshold_authorises_with_no_signers() {
+  call_with([alice, bob, carol], 0, [])
+}
+
+// A duplicated signer in the PARAMETER inflates the count, because `approvals`
+// iterates `signers` (not the ledger-deduplicated `extra_signatories`): here
+// alice's single signature is counted twice, so a nominal 2-of-3 is satisfied
+// by ONE signer. Recorded as current (unguarded) behaviour.
+test multisig_duplicate_signer_in_parameter_inflates_count() {
+  call_with([alice, alice, bob], 2, [alice])
+}
+
+// A threshold greater than the number of signers can never be reached — the
+// authority (and every future upgrade) is permanently unsatisfiable. Recorded
+// as current (unguarded) behaviour.
+test multisig_threshold_above_signer_count_never_authorises() {
+  !call_with([alice, bob], 3, [alice, bob])
+}
