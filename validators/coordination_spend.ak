@@ -39,6 +39,7 @@
 use aiken/collection/list
 use cardano/assets
 use cardano/transaction.{InlineDatum, OutputReference, Transaction, find_input}
+use linked_list.{is_28_byte_credential}
 use pairs
 use programmable_logic/params.{ProgrammableLogicGlobalParams}
 
@@ -92,6 +93,17 @@ validator coordination_spend(_nonce: ByteArray) {
       // deliberately outside upgrade scope.
       (new_params.prog_logic_cred == old_params.prog_logic_cred)?,
       (new_params.registry_node_cs == old_params.registry_node_cs)?,
+      // Every MUTABLE credential must be a well-formed 28-byte hash. A reward
+      // account is a header byte + 28-byte hash, so a wrong-length hash can
+      // never appear in tx.withdrawals. Writing one here is a ONE-WAY BRICK:
+      // an unsatisfiable upgrade_logic_cred makes this validator's own
+      // authority check below permanently unsatisfiable, with no repair path,
+      // and an unsatisfiable prog_logic_global_cred makes every programmable
+      // token UTxO unspendable. Same rule linked_list.ak already applies to
+      // every registry-node credential.
+      is_28_byte_credential(new_params.prog_logic_global_cred)?,
+      is_28_byte_credential(new_params.unfracking_cred)?,
+      is_28_byte_credential(new_params.upgrade_logic_cred)?,
       // No reference script may be attached to the coordination UTxO.
       (cont.reference_script == None)?,
       // Authorisation (trampoline 2): the CURRENT datum's upgrade authority must

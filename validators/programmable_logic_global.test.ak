@@ -1934,3 +1934,127 @@ test third_party_act_pair_foreign_policy_injection_still_fails() fail {
     0,
   )
 }
+
+// ===========================================================================
+// COVERAGE REPAIR (mutation testing found both of these controls untested).
+//
+// `choose_registered_token_with` in programmable_logic/transfer.ak carries the
+// two checks that make CIP-113's central promise true — that a REGISTERED
+// token's transfer logic governs every transfer, and that a token can only be
+// declared UNREGISTERED by a covering node that genuinely covers it. Deleting
+// either broke no test in the suite. The tests named for them
+// (`transfer_logic_script_must_be_invoked`, `covering_node_logic_for_non_
+// existent_token`) never invoke a validator; they assert `list.has` on a
+// hand-built list and re-implement the range check inside the test.
+// ===========================================================================
+
+const cov_owner_pkh: ByteArray =
+  #"0badc0de0badc0de0badc0de0badc0de0badc0de0badc0de0badc0de"
+
+const cov_unregistered: PolicyId =
+  #"55555555555555555555555555555555555555555555555555555555"
+
+/// A TransferAct over one registered policy, owned by a VKEY signer so that
+/// dropping the transfer-logic withdrawal does not also destroy the ownership
+/// proof. (That confound is why this test was awkward to write before: the
+/// shipped fixture stakes PLB inputs with `credential_transfer_logic`, so the
+/// two concerns were tested by the same withdrawal — see finding L-09.)
+fn cov_transfer(with_transfer_logic: Bool) -> Bool {
+  let tokens = [
+    (#"f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1", "FOO", 10),
+  ]
+  let (tx, redeemer) = fixture.some_transfer(tokens)
+  let tx = Transaction {
+    ..tx,
+    inputs: [
+      fixture.some_input_with_programmable_tokens_with(
+        VerificationKey(cov_owner_pkh),
+        tokens,
+        "programmable tokens input",
+      ),
+    ],
+    extra_signatories: [cov_owner_pkh],
+    withdrawals: if with_transfer_logic {
+      [
+        Pair(fixture.credential_validator_logic_global, 0),
+        Pair(fixture.credential_transfer_logic, 0),
+      ]
+    } else {
+      [Pair(fixture.credential_validator_logic_global, 0)]
+    },
+  }
+  programmable_logic_global.programmable_logic_global.withdraw(
+    fixture.policy_protocol_params,
+    redeemer,
+    fixture.credential_validator_logic_global,
+    tx,
+  )
+}
+
+test transfer_with_token_transfer_logic_invoked_succeeds() {
+  cov_transfer(True)
+}
+
+/// GUARDS: `expect has_withdrawal(transfer_logic_script)` (transfer.ak).
+/// A registered token may not move without its transfer logic approving.
+test fails_transfer_without_token_transfer_logic() fail {
+  cov_transfer(False)
+}
+
+/// A TransferAct over an UNREGISTERED policy, proved absent by a covering
+/// node supplied at reference-input index 1.
+fn cov_absence(node_key: ByteArray, node_next: ByteArray) -> Bool {
+  let tokens = [(cov_unregistered, "FOO", 1)]
+  let tx = Transaction {
+    ..transaction.placeholder,
+    inputs: [
+      fixture.some_input_with_programmable_tokens(tokens, "unregistered in"),
+    ],
+    outputs: [fixture.some_output_with_programmable_tokens(tokens)],
+    reference_inputs: [
+      fixture.some_reference_input_protocol_params(
+        fixture.protocol_params,
+        "protocol params",
+      ),
+      fixture.some_reference_input_tokens_registry_node(
+        node_key,
+        node_next,
+        "covering node",
+      ),
+    ],
+    withdrawals: fixture.withdrawals_transfer,
+  }
+  programmable_logic_global.programmable_logic_global.withdraw(
+    fixture.policy_protocol_params,
+    TransferAct { proofs: [TokenDoesNotExist { node_idx: 1 }] },
+    fixture.credential_validator_logic_global,
+    tx,
+  )
+}
+
+/// Control: the covering node genuinely spans the policy, so the absence
+/// proof is valid and the transfer is allowed.
+test transfer_absence_proof_with_covering_node_succeeds() {
+  cov_absence(
+    #"11111111111111111111111111111111111111111111111111111111",
+    #"99999999999999999999999999999999999999999999999999999999",
+  )
+}
+
+/// GUARDS: `expect less_than_bytearray(key, policy)` (transfer.ak).
+/// The named node starts ABOVE the policy, so it cannot prove absence.
+test fails_absence_proof_when_node_starts_above_policy() fail {
+  cov_absence(
+    #"66666666666666666666666666666666666666666666666666666666",
+    #"99999999999999999999999999999999999999999999999999999999",
+  )
+}
+
+/// GUARDS: `expect less_than_bytearray(policy, next)` (transfer.ak).
+/// The named node ends BELOW the policy, so it cannot prove absence.
+test fails_absence_proof_when_node_ends_below_policy() fail {
+  cov_absence(
+    #"11111111111111111111111111111111111111111111111111111111",
+    #"22222222222222222222222222222222222222222222222222222222",
+  )
+}
