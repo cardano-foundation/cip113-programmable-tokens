@@ -209,6 +209,9 @@ fn drop_accum_owner_tokens(
     )
 
     if output.address == owner_address {
+      // Destination outputs are freshly created PLB UTxOs; keep them seizable
+      // (no datum hash, no reference script).
+      expect assets.is_seizable_output_shape(output)?
       loop(tokens.union(acc, output.value |> value.tokens(policy_id)))
     } else {
       loop(acc)
@@ -240,6 +243,9 @@ fn validate_pairs_and_conservation(
         output_tokens,
         fn(output, acc) {
           if output.address == owner_address {
+            // Destination outputs are freshly created PLB UTxOs; keep them
+            // seizable (no datum hash, no reference script).
+            expect assets.is_seizable_output_shape(output)?
             tokens.union(output.value |> value.tokens(policy_id), acc)
           } else {
             acc

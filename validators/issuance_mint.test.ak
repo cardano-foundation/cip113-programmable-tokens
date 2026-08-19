@@ -11,8 +11,8 @@ use aiken/fuzz
 use cardano/address.{Address, Credential, Inline, Script}
 use cardano/assets.{PolicyId, ada_asset_name, ada_policy_id, from_asset}
 use cardano/transaction.{
-  InlineDatum, Input, Mint, NoDatum, Output, OutputReference, Spend, Transaction,
-  Withdraw,
+  DatumHash, InlineDatum, Input, Mint, NoDatum, Output, OutputReference, Spend,
+  Transaction, Withdraw,
 }
 use issuance_mint
 use programmable_logic/fixture
@@ -263,9 +263,37 @@ test valid_mint_with_ref_input() {
   call_validator(valid_redeemer(), valid_mint_tx())
 }
 
+// A minted PLB output carrying a datum HASH is rejected: such a UTxO is
 // `reference_inputs` is deliberately absent — this test is the proof that
 // the OutputIndex path needs no coordination ref input (the coordination
 // read is lazy: only the RefInput delegation branch performs it).
+
+// A minted PLB output carrying a datum HASH is rejected: such a UTxO is
+// unspendable without the preimage, so it could never be seized.
+test mint_rejects_datum_hash_output() fail {
+  let bad = Output {
+    ..mint_output(100),
+    datum: DatumHash(
+      #"deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef00",
+    ),
+  }
+  let tx = Transaction { ..valid_mint_tx(), outputs: [bad] }
+  call_validator(valid_redeemer(), tx)
+}
+
+// A minted PLB output carrying a reference script is rejected: it would bloat
+// the mandatory seizure continuing-output.
+test mint_rejects_reference_script_output() fail {
+  let bad = Output {
+    ..mint_output(100),
+    reference_script: Some(
+      #"b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
+    ),
+  }
+  let tx = Transaction { ..valid_mint_tx(), outputs: [bad] }
+  call_validator(valid_redeemer(), tx)
+}
+
 test valid_mint_with_output_index() {
   let rdmr = OutputIndex(1)
   let tx = Transaction {

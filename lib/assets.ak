@@ -2,7 +2,7 @@ use aiken/builtin.{less_than_bytearray, less_than_equals_bytearray}
 use aiken/collection/dict
 use cardano/address.{Credential, Inline}
 use cardano/assets.{AssetName, PolicyId, Value}
-use cardano/transaction.{Output}
+use cardano/transaction.{DatumHash, Output}
 use env
 use list
 use tokens.{Tokens}
@@ -194,10 +194,34 @@ pub fn collect_output_assets(
     fn(output, select, discard) {
       if output.address.payment_credential == prog_logic_cred {
         expect Some(Inline(..)) = output.address.stake_credential
+        expect is_seizable_output_shape(output)?
         select(output)
       } else {
         discard()
       }
     },
   )
+}
+
+/// A programmable-token (PLB) output must stay seizable by a third party.
+///
+///   * A datum HASH is forbidden: to spend a datum-hash UTxO the ledger
+///     requires the datum preimage in the transaction witness, so a holder
+///     could pin an output with a secret preimage and make it unspendable by
+///     anyone but themselves — a third-party seizure could never be
+///     constructed. Only `NoDatum` or an inline datum is allowed.
+///   * A reference script is forbidden: a seizure must reproduce the paired
+///     input's reference script byte-for-byte in the continuing output, so a
+///     large one would bloat the (unavoidable, per-UTxO-atomic) seizure
+///     transaction past `maxTxSize`. Programmable-token UTxOs have no
+///     legitimate need to carry a reference script.
+///
+/// Enforced at every PLB-output creation site (transfer, mint, unfracking
+/// destinations) so the property holds inductively for all PLB UTxOs.
+pub fn is_seizable_output_shape(output: Output) -> Bool {
+  let datum_is_not_hash = when output.datum is {
+    DatumHash(_) -> False
+    _ -> True
+  }
+  datum_is_not_hash && output.reference_script == None
 }
