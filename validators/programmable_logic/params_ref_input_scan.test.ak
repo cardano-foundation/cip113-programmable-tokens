@@ -1,29 +1,24 @@
-//// Characterization tests for the protocol-params reference-input scan.
+//// Characterization tests for the protocol-params reference-input lookup.
 ////
-//// `get_protocol_params_ref` locates the protocol-params UTxO by walking
-//// `reference_inputs` and calling `assets.peek_first` on EACH one until a
-//// policy id matches `protocol_params_cs`. `peek_first` is
+//// `with_protocol_params_fields` no longer SCANS `reference_inputs` for the
+//// params NFT. The PLG/PLB redeemers now carry an explicit `params_idx`, and
+//// the lookup is a direct `list.at(reference_inputs, params_idx)` followed by
+//// an authentication `expect` that the indexed output actually holds the
+//// `protocol_params_cs` policy (the params NFT).
 ////
-////     list.head(list.tail(from_value(self.value))).1st
+//// Under the old scan model, an Ada-only reference-script UTxO (Ada +
+//// `reference_script`, no tokens — the canonical CIP-33 shape) ordered BEFORE
+//// the params NFT would be `peek_first`-probed and abort the script (Finding
+//// 082). With the index model that failure is structurally impossible: an
+//// input the caller does not point `params_idx` at is never inspected. A
+//// token-less reference input at index 0 is simply never touched when the
+//// params UTxO is addressed at its real index.
 ////
-//// which — as its own doc comment states — "fails loudly if the output holds
-//// no tokens (beyond Ada)": for an Ada-only value `from_value` yields a single
-//// entry, `list.tail` yields `[]`, and `list.head([])` aborts the script.
-////
-//// A reference-script UTxO is exactly such an output (Ada-only + a
-//// `reference_script`, no tokens) and is the canonical way a script is supplied
-//// to a transaction (CIP-33) — via `reference_inputs`, whose order in the
-//// script context is fixed by `(tx_id, output_index)`, not by the builder. So
-//// if such an input is ordered BEFORE the params NFT input, the scan calls
-//// `peek_first` on it and aborts.
-////
-//// The suite previously had NO test constructing a token-less reference input,
-//// so this shape was uncovered. Issue #103 replaced the `peek_first` head-read
-//// with a direct, total policy lookup (`value.tokens |> dict.is_empty`), so a
-//// token-less reference input is now SKIPPED rather than aborted on.
-//// `..._finds_params_despite_adaonly_refscript_first` pins that the params NFT
-//// is found even when such an input is ordered first; `..._ok_when_params_first`
-//// keeps the control (params NFT reached first).
+//// `..._finds_params_when_indexed_past_adaonly_refscript` pins that the params
+//// NFT is found at index 1 even though an Ada-only reference-script input sits
+//// at index 0 (that index-0 input is never inspected). `..._fails_index_points_
+//// at_adaonly_input` pins that pointing `params_idx` at the token-less input
+//// aborts on the NFT-authentication `expect`.
 
 use cardano/address
 use cardano/transaction.{Input, NoDatum, Output, OutputReference}
@@ -62,26 +57,28 @@ fn params_ref_input() -> Input {
 }
 
 // Finding 082 / issue #103 (FIXED): an Ada-only reference-script input ordered
-// before the params NFT is skipped, and the scan still finds the params NFT.
-// Previously `peek_first` aborted on that token-less value; the scan now uses a
-// direct, total policy lookup.
-test params_scan_finds_params_despite_adaonly_refscript_first() {
+// before the params NFT no longer aborts anything. The redeemer's `params_idx`
+// addresses the params UTxO directly (here index 1); the token-less input at
+// index 0 is never inspected, so the 082 abort is structurally impossible.
+test params_lookup_finds_params_when_indexed_past_adaonly_refscript() {
   let ref_inputs = [ada_only_reference_script_input(), params_ref_input()]
   let fields <- with_protocol_params_fields(
     ref_inputs,
     fixture.policy_protocol_params,
+    1,
   )
   registry_node_cs_field(fields) == fixture.policy_tokens_registry
 }
 
-// Control: the SAME two inputs with the params NFT reached first — the scan
-// matches on the first element and never calls `peek_first` on the Ada-only
-// input, so the lookup succeeds.
-test params_scan_ok_when_params_input_first() {
-  let ref_inputs = [params_ref_input(), ada_only_reference_script_input()]
+// Pointing `params_idx` at the Ada-only input (index 0) must abort: that output
+// does not hold the params policy, so the NFT-authentication `expect` inside
+// `with_protocol_params_fields` fails.
+test params_lookup_fails_index_points_at_adaonly_input() fail {
+  let ref_inputs = [ada_only_reference_script_input(), params_ref_input()]
   let fields <- with_protocol_params_fields(
     ref_inputs,
     fixture.policy_protocol_params,
+    0,
   )
   registry_node_cs_field(fields) == fixture.policy_tokens_registry
 }

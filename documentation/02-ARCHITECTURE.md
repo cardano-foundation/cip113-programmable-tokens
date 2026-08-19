@@ -344,26 +344,37 @@ type ProgrammableLogicGlobalParams {
 
 **Global validator** (`ProgrammableLogicGlobalRedeemer`):
 
+Every variant carries `params_idx` — the index of the protocol-params NFT UTxO
+in `reference_inputs`. The validator addresses that reference input directly
+(`list.at`) and authenticates it by the one-shot params NFT, rather than
+scanning the reference-input set. The index is a position into the ledger's
+canonical `reference_inputs` ordering (see [Reference inputs and redeemer
+indices](./09-DEVELOPING-SUBSTANDARDS.md#reference-inputs-and-redeemer-indices)).
+
 ```aiken
 type ProgrammableLogicGlobalRedeemer {
   // Normal transfer: one proof per non-ADA policy in the inputs
-  TransferAct { proofs: List<RegistryProof> }
+  TransferAct { params_idx: Int, proofs: List<RegistryProof> }
   // Administrative action — forced transfer / seizure / freeze enforcement /
   // burn (see 03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md). Exactly one policy per
   // transaction; acts on every PLB input holding the subject policy; paired
   // continuing outputs begin at outputs_start_idx.
   ThirdPartyAct {
+    params_idx: Int,        // The protocol-params NFT UTxO in reference inputs
     registry_node_idx: Int, // The subject policy's registry node (one policy per tx)
     outputs_start_idx: Int,
   }
   // Finding 17: Unfracking — a holder redistributes the programmable tokens they
   // already hold across their own PLB UTxOs, WITHOUT invoking any substandard
-  // transfer logic. Value-preserving, same-owner. No payload: the standalone
-  // `unfracking` withdraw-0 validator (its credential is the params datum's
-  // `unfracking_cred`) enforces the invariants; PLG only checks it is invoked.
-  UnfrackingAct
+  // transfer logic. Value-preserving, same-owner. The standalone `unfracking`
+  // withdraw-0 validator (its credential is the params datum's `unfracking_cred`)
+  // enforces the invariants; PLG only checks it is invoked.
+  UnfrackingAct { params_idx: Int }
 }
 ```
+
+The `programmable_logic_base` spend redeemer is the same `params_idx` as an
+`Int` (it too reads the params UTxO, once per spent input).
 
 **Registry proofs** (`RegistryProof`):
 

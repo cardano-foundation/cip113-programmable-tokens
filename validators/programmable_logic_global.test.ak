@@ -47,10 +47,10 @@ test transfer_act_redeemer() {
   let proof1 = TokenExists { node_idx: 0 }
   let proof2 = TokenDoesNotExist { node_idx: 1 }
 
-  let redeemer = TransferAct { proofs: [proof1, proof2] }
+  let redeemer = TransferAct { params_idx: 0, proofs: [proof1, proof2] }
 
   when redeemer is {
-    TransferAct { proofs } -> list.length(proofs) == 2
+    TransferAct { proofs, .. } -> list.length(proofs) == 2
     _ -> False
   }
 }
@@ -353,7 +353,11 @@ fn validate_third_party_with_outputs(
     ],
   }
 
-  let redeemer = ThirdPartyAct { registry_node_idx: 1, outputs_start_idx }
+  let redeemer = ThirdPartyAct {
+    params_idx: 0,
+    registry_node_idx: 1,
+    outputs_start_idx,
+  }
 
   programmable_logic_global.programmable_logic_global.withdraw(
     fixture.policy_protocol_params,
@@ -477,7 +481,11 @@ test third_party_act_seized_tokens_escape_prog_cred_must_fail() fail {
     ],
   }
 
-  let redeemer = ThirdPartyAct { registry_node_idx: 1, outputs_start_idx: 0 }
+  let redeemer = ThirdPartyAct {
+    params_idx: 0,
+    registry_node_idx: 1,
+    outputs_start_idx: 0,
+  }
 
   programmable_logic_global.programmable_logic_global.withdraw(
     fixture.policy_protocol_params,
@@ -529,7 +537,7 @@ fn valid_seize_tx() -> Transaction {
 fn run_seize_tx(tx: Transaction) -> Bool {
   programmable_logic_global.programmable_logic_global.withdraw(
     fixture.policy_protocol_params,
-    ThirdPartyAct { registry_node_idx: 1, outputs_start_idx: 0 },
+    ThirdPartyAct { params_idx: 0, registry_node_idx: 1, outputs_start_idx: 0 },
     fixture.credential_validator_logic_global,
     tx,
   )
@@ -631,7 +639,11 @@ test third_party_act_partial_seizure_succeeds() {
     ],
   }
 
-  let redeemer = ThirdPartyAct { registry_node_idx: 1, outputs_start_idx: 0 }
+  let redeemer = ThirdPartyAct {
+    params_idx: 0,
+    registry_node_idx: 1,
+    outputs_start_idx: 0,
+  }
 
   programmable_logic_global.programmable_logic_global.withdraw(
     fixture.policy_protocol_params,
@@ -676,7 +688,11 @@ test third_party_act_delta_insufficient_remaining_fails() fail {
     ],
   }
 
-  let redeemer = ThirdPartyAct { registry_node_idx: 1, outputs_start_idx: 0 }
+  let redeemer = ThirdPartyAct {
+    params_idx: 0,
+    registry_node_idx: 1,
+    outputs_start_idx: 0,
+  }
 
   programmable_logic_global.programmable_logic_global.withdraw(
     fixture.policy_protocol_params,
@@ -730,7 +746,10 @@ test transfer_act_partial_burn_with_mint_proofs_succeeds() {
     ],
   }
 
-  let redeemer = TransferAct { proofs: [TokenExists { node_idx: 1 }] }
+  let redeemer = TransferAct {
+    params_idx: 0,
+    proofs: [TokenExists { node_idx: 1 }],
+  }
 
   programmable_logic_global.programmable_logic_global.withdraw(
     fixture.policy_protocol_params,
@@ -774,7 +793,10 @@ test transfer_act_with_minting_succeeds() {
     ],
   }
 
-  let redeemer = TransferAct { proofs: [TokenExists { node_idx: 1 }] }
+  let redeemer = TransferAct {
+    params_idx: 0,
+    proofs: [TokenExists { node_idx: 1 }],
+  }
 
   programmable_logic_global.programmable_logic_global.withdraw(
     fixture.policy_protocol_params,
@@ -830,7 +852,10 @@ test transfer_act_transfer_plus_independent_pure_mint_succeeds() {
   }
 
   // No proof for idx 2, necessary for the mint but tx.mint is non-empty — must be rejected
-  let redeemer = TransferAct { proofs: [TokenExists { node_idx: 1 }] }
+  let redeemer = TransferAct {
+    params_idx: 0,
+    proofs: [TokenExists { node_idx: 1 }],
+  }
 
   programmable_logic_global.programmable_logic_global.withdraw(
     fixture.policy_protocol_params,
@@ -872,7 +897,7 @@ test transfer_act_with_only_minting_succeeds() {
   }
 
   // Finding 02 fix: pure mint requires NO TransferAct proof.
-  let redeemer = TransferAct { proofs: [] }
+  let redeemer = TransferAct { params_idx: 0, proofs: [] }
 
   programmable_logic_global.programmable_logic_global.withdraw(
     fixture.policy_protocol_params,
@@ -917,7 +942,10 @@ test transfer_act_pure_mint_with_unnecessary_proof_must_fail() fail {
   }
 
   // ONE delta vs the success case above — surplus proof for the pure-mint policy.
-  let redeemer = TransferAct { proofs: [TokenExists { node_idx: 1 }] }
+  let redeemer = TransferAct {
+    params_idx: 0,
+    proofs: [TokenExists { node_idx: 1 }],
+  }
 
   programmable_logic_global.programmable_logic_global.withdraw(
     fixture.policy_protocol_params,
@@ -951,7 +979,7 @@ test transfer_act_pure_mint_without_transfer_logic_succeeds() {
     withdrawals: [Pair(fixture.credential_validator_logic_global, 0)],
   }
 
-  let redeemer = TransferAct { proofs: [] }
+  let redeemer = TransferAct { params_idx: 0, proofs: [] }
 
   programmable_logic_global.programmable_logic_global.withdraw(
     fixture.policy_protocol_params,
@@ -989,7 +1017,10 @@ test transfer_act_burning_compensate_spending() {
     ],
   }
 
-  let redeemer = TransferAct { proofs: [TokenExists { node_idx: 1 }] }
+  let redeemer = TransferAct {
+    params_idx: 0,
+    proofs: [TokenExists { node_idx: 1 }],
+  }
 
   programmable_logic_global.programmable_logic_global.withdraw(
     fixture.policy_protocol_params,
@@ -1031,7 +1062,10 @@ test transfer_act_entirely_burning_one_token() {
     ],
   }
 
-  let redeemer = TransferAct { proofs: [TokenExists { node_idx: 1 }] }
+  let redeemer = TransferAct {
+    params_idx: 0,
+    proofs: [TokenExists { node_idx: 1 }],
+  }
 
   programmable_logic_global.programmable_logic_global.withdraw(
     fixture.policy_protocol_params,
@@ -1069,7 +1103,10 @@ test transfer_act_entirely_burning_one_token_fail_if_other_missing() fail {
     ],
   }
 
-  let redeemer = TransferAct { proofs: [TokenExists { node_idx: 1 }] }
+  let redeemer = TransferAct {
+    params_idx: 0,
+    proofs: [TokenExists { node_idx: 1 }],
+  }
 
   programmable_logic_global.programmable_logic_global.withdraw(
     fixture.policy_protocol_params,
@@ -1106,7 +1143,10 @@ test transfer_act_unauthorized_burning_compensate_spending_fails() fail {
     withdrawals: [Pair(fixture.credential_validator_logic_global, 0)],
   }
 
-  let redeemer = TransferAct { proofs: [TokenExists { node_idx: 1 }] }
+  let redeemer = TransferAct {
+    params_idx: 0,
+    proofs: [TokenExists { node_idx: 1 }],
+  }
 
   programmable_logic_global.programmable_logic_global.withdraw(
     fixture.policy_protocol_params,
@@ -1141,7 +1181,7 @@ test transfer_act_burning_compensate_spending_unproven_token_fails() fail {
     ],
   }
 
-  let redeemer = TransferAct { proofs: [] }
+  let redeemer = TransferAct { params_idx: 0, proofs: [] }
 
   programmable_logic_global.programmable_logic_global.withdraw(
     fixture.policy_protocol_params,
@@ -1192,7 +1232,11 @@ test third_party_act_wipe_full_burn_succeeds() {
     ],
   }
 
-  let redeemer = ThirdPartyAct { registry_node_idx: 1, outputs_start_idx: 0 }
+  let redeemer = ThirdPartyAct {
+    params_idx: 0,
+    registry_node_idx: 1,
+    outputs_start_idx: 0,
+  }
 
   programmable_logic_global.programmable_logic_global.withdraw(
     fixture.policy_protocol_params,
@@ -1238,7 +1282,11 @@ test third_party_act_wipe_partial_burn_succeeds() {
     ],
   }
 
-  let redeemer = ThirdPartyAct { registry_node_idx: 1, outputs_start_idx: 0 }
+  let redeemer = ThirdPartyAct {
+    params_idx: 0,
+    registry_node_idx: 1,
+    outputs_start_idx: 0,
+  }
 
   programmable_logic_global.programmable_logic_global.withdraw(
     fixture.policy_protocol_params,
@@ -1287,7 +1335,11 @@ test third_party_act_wipe_seize_and_partial_burn() {
     ],
   }
 
-  let redeemer = ThirdPartyAct { registry_node_idx: 1, outputs_start_idx: 0 }
+  let redeemer = ThirdPartyAct {
+    params_idx: 0,
+    registry_node_idx: 1,
+    outputs_start_idx: 0,
+  }
 
   programmable_logic_global.programmable_logic_global.withdraw(
     fixture.policy_protocol_params,
@@ -1333,7 +1385,11 @@ test third_party_act_wipe_insufficient_after_burn_fails() fail {
     ],
   }
 
-  let redeemer = ThirdPartyAct { registry_node_idx: 1, outputs_start_idx: 0 }
+  let redeemer = ThirdPartyAct {
+    params_idx: 0,
+    registry_node_idx: 1,
+    outputs_start_idx: 0,
+  }
 
   programmable_logic_global.programmable_logic_global.withdraw(
     fixture.policy_protocol_params,
@@ -1372,7 +1428,11 @@ test third_party_act_unauthorized_burn_compensate_spend() fail {
     withdrawals: [Pair(fixture.credential_validator_logic_global, 0)],
   }
 
-  let redeemer = ThirdPartyAct { registry_node_idx: 1, outputs_start_idx: 0 }
+  let redeemer = ThirdPartyAct {
+    params_idx: 0,
+    registry_node_idx: 1,
+    outputs_start_idx: 0,
+  }
 
   programmable_logic_global.programmable_logic_global.withdraw(
     fixture.policy_protocol_params,
@@ -1414,7 +1474,11 @@ test third_party_act_unproven_burn_compensate_spend() fail {
     ],
   }
 
-  let redeemer = ThirdPartyAct { registry_node_idx: 1, outputs_start_idx: 0 }
+  let redeemer = ThirdPartyAct {
+    params_idx: 0,
+    registry_node_idx: 1,
+    outputs_start_idx: 0,
+  }
 
   programmable_logic_global.programmable_logic_global.withdraw(
     fixture.policy_protocol_params,
@@ -1483,7 +1547,11 @@ test third_party_act_same_policy_mint_during_seizure_succeeds() {
     ],
   }
 
-  let redeemer = ThirdPartyAct { registry_node_idx: 1, outputs_start_idx: 0 }
+  let redeemer = ThirdPartyAct {
+    params_idx: 0,
+    registry_node_idx: 1,
+    outputs_start_idx: 0,
+  }
 
   programmable_logic_global.programmable_logic_global.withdraw(
     fixture.policy_protocol_params,
@@ -1529,7 +1597,11 @@ test third_party_act_same_policy_mint_insufficient_output_fails() fail {
     ],
   }
 
-  let redeemer = ThirdPartyAct { registry_node_idx: 1, outputs_start_idx: 0 }
+  let redeemer = ThirdPartyAct {
+    params_idx: 0,
+    registry_node_idx: 1,
+    outputs_start_idx: 0,
+  }
 
   programmable_logic_global.programmable_logic_global.withdraw(
     fixture.policy_protocol_params,
@@ -1579,7 +1651,11 @@ test third_party_act_unrelated_policy_mint_succeeds() {
     ],
   }
 
-  let redeemer = ThirdPartyAct { registry_node_idx: 1, outputs_start_idx: 0 }
+  let redeemer = ThirdPartyAct {
+    params_idx: 0,
+    registry_node_idx: 1,
+    outputs_start_idx: 0,
+  }
 
   programmable_logic_global.programmable_logic_global.withdraw(
     fixture.policy_protocol_params,
@@ -1628,7 +1704,11 @@ test third_party_act_wipe_burn_plus_unrelated_mint_succeeds() {
     ],
   }
 
-  let redeemer = ThirdPartyAct { registry_node_idx: 1, outputs_start_idx: 0 }
+  let redeemer = ThirdPartyAct {
+    params_idx: 0,
+    registry_node_idx: 1,
+    outputs_start_idx: 0,
+  }
 
   programmable_logic_global.programmable_logic_global.withdraw(
     fixture.policy_protocol_params,
@@ -1673,7 +1753,10 @@ test transfer_act_mint_insufficient_output_fails() fail {
     ],
   }
 
-  let redeemer = TransferAct { proofs: [TokenExists { node_idx: 1 }] }
+  let redeemer = TransferAct {
+    params_idx: 0,
+    proofs: [TokenExists { node_idx: 1 }],
+  }
 
   programmable_logic_global.programmable_logic_global.withdraw(
     fixture.policy_protocol_params,
@@ -1756,7 +1839,11 @@ fn validate_third_party_with_inputs_and_outputs(
       Pair(test_third_party_cred, 0),
     ],
   }
-  let redeemer = ThirdPartyAct { registry_node_idx: 1, outputs_start_idx }
+  let redeemer = ThirdPartyAct {
+    params_idx: 0,
+    registry_node_idx: 1,
+    outputs_start_idx,
+  }
   programmable_logic_global.programmable_logic_global.withdraw(
     fixture.policy_protocol_params,
     redeemer,
@@ -2026,7 +2113,7 @@ fn cov_absence(node_key: ByteArray, node_next: ByteArray) -> Bool {
   }
   programmable_logic_global.programmable_logic_global.withdraw(
     fixture.policy_protocol_params,
-    TransferAct { proofs: [TokenDoesNotExist { node_idx: 1 }] },
+    TransferAct { params_idx: 0, proofs: [TokenDoesNotExist { node_idx: 1 }] },
     fixture.credential_validator_logic_global,
     tx,
   )

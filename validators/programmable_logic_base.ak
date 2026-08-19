@@ -20,19 +20,21 @@ use programmable_logic/params
 validator programmable_logic_base(params_policy: PolicyId) {
   spend(
     _datum: Option<Data>,
-    _redeemer: Data,
+    params_idx: Int,
     _own_ref: Data,
     self: Transaction,
   ) {
     trace @"Starting programmable_logic_base validation"
 
-    // Locate the protocol-params NFT among the reference inputs and pull
-    // the live PLG credential out of its datum. The params UTxO is already
-    // a mandatory reference input on every programmable-token transaction
-    // (PLG reads it), so this adds no availability requirement.
+    // Locate the protocol-params NFT among the reference inputs (addressed by
+    // the redeemer's `params_idx`) and pull the live PLG credential out of its
+    // datum. The params UTxO is already a mandatory reference input on every
+    // programmable-token transaction (PLG reads it), so this adds no
+    // availability requirement.
     let fields <- params.with_protocol_params_fields(
       self.reference_inputs,
       params_policy,
+      params_idx,
     )
     let plg_cred = params.prog_logic_global_cred_field(fields)
 

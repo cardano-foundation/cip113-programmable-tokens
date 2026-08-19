@@ -205,7 +205,10 @@ fn sample_delegate_transferact(
     withdrawals: [Pair(test_ml_cred, 0), Pair(test_plg_cred, 0)],
     redeemers: [
       Pair(Mint(test_own_policy), as_data(rdmr)),
-      Pair(Withdraw(test_plg_cred), as_data(TransferAct { proofs })),
+      Pair(
+        Withdraw(test_plg_cred),
+        as_data(TransferAct { params_idx: 0, proofs }),
+      ),
     ],
   }
   fuzz.constant((tx, rdmr))

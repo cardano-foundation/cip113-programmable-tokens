@@ -1,8 +1,9 @@
 use aiken/builtin.{head_list, tail_list, unconstr_fields}
 use aiken/collection/dict
+use aiken/collection/list
 use cardano/address.{Credential}
 use cardano/assets.{PolicyId} as value
-use cardano/transaction.{InlineDatum, Input, Output}
+use cardano/transaction.{InlineDatum, Input}
 
 /// Protocol parameters NFT token name
 pub const protocol_params_token = "ProtocolParams"
@@ -36,11 +37,19 @@ pub type ProgrammableLogicGlobalParams {
   upgrade_logic_cred: Credential,
 }
 
-/// Locate the protocol-params NFT reference input and hand back the raw
-/// datum fields. Callers extract only the fields their branch needs via
-/// the `*_field` accessors below — cheaper than a full
-/// `expect _: ProgrammableLogicGlobalParams` deserialisation, which
-/// validates every field on every run.
+/// Authenticate the protocol-params NFT reference input by its
+/// caller-supplied index and hand back the raw datum fields. Callers
+/// extract only the fields their branch needs via the `*_field` accessors
+/// below — cheaper than a full `expect _: ProgrammableLogicGlobalParams`
+/// deserialisation, which validates every field on every run.
+///
+/// The redeemer carries `params_idx`, the index of the params UTxO in
+/// `reference_inputs`. Instead of scanning every reference input to find the
+/// params policy, we jump straight to `list.at(reference_inputs, params_idx)`
+/// and authenticate it by the one-shot params NFT: a wrong index simply fails
+/// the NFT check. This also makes Finding 082 structurally impossible — a
+/// token-less reference-script UTxO is never inspected unless it is the exact
+/// input the caller addressed.
 ///
 /// Skipping whole-datum validation here is safe for the same reason
 /// registry_node.ak skips it for RegistryNode: we only consume this
@@ -50,12 +59,18 @@ pub type ProgrammableLogicGlobalParams {
 pub fn with_protocol_params_fields(
   reference_inputs: List<Input>,
   protocol_params_cs: PolicyId,
+  params_idx: Int,
   return: fn(List<Data>) -> result,
 ) -> result {
-  let protocol_params_ref = get_protocol_params_ref(
-    protocol_params_cs,
-    reference_inputs,
-  )
+  expect Some(protocol_params_ref) = list.at(reference_inputs, params_idx)
+
+  // Authenticate: the addressed reference input must carry the params policy
+  // (the one-shot protocol-params NFT). A wrong index fails here rather than
+  // silently reading some other UTxO's datum.
+  expect
+    !dict.is_empty(
+      value.tokens(protocol_params_ref.output.value, protocol_params_cs),
+    )
 
   expect InlineDatum(inline_datum) = protocol_params_ref.output.datum
   return(unconstr_fields(inline_datum))
@@ -96,20 +111,4 @@ pub fn upgrade_logic_cred_field(fields: List<Data>) -> Credential {
     tail_list(tail_list(tail_list(tail_list(fields)))),
   )
   upgrade_logic_cred
-}
-
-fn get_protocol_params_ref(
-  protocol_params_cs: PolicyId,
-  ref_inputs: List<Input>,
-) -> Input {
-  let head = head_list(ref_inputs)
-  // Direct policy lookup (dict.get, early-exit on the sorted value): total and
-  // order-independent. Skips reference inputs that do not carry the params
-  // policy — including token-less reference-script UTxOs, on which the old
-  // `peek_first` (head of the ada-less token list) aborted rather than skipped.
-  if !dict.is_empty(value.tokens(head.output.value, protocol_params_cs)) {
-    head
-  } else {
-    get_protocol_params_ref(protocol_params_cs, tail_list(ref_inputs))
-  }
 }

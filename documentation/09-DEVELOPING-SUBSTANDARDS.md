@@ -821,7 +821,9 @@ const registryIndex = sortedRefInputs.findIndex(
 );
 
 const registryProof = conStr0([integer(registryIndex)]);       // TokenExists { node_idx }
-const plgRedeemer = conStr0([list([registryProof])]);          // TransferAct { proofs }
+// TransferAct { params_idx, proofs } — params_idx is the protocol-params NFT
+// UTxO's position in the sorted reference inputs (see below).
+const plgRedeemer = conStr0([integer(paramsIndex), list([registryProof])]);
 const transferRedeemer = integer(200);                          // Your substandard's redeemer
 
 const txBuilder = new MeshTxBuilder({ fetcher: provider, submitter: provider, evaluator: provider });

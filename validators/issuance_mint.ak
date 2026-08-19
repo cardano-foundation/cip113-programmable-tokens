@@ -280,7 +280,7 @@ fn plgl_scope_covers(
   own_registry_node_idx: Int,
 ) -> Bool {
   when plg_redeemer is {
-    TransferAct { proofs } -> {
+    TransferAct { proofs, .. } -> {
       let expected_proof = TokenExists(own_registry_node_idx)
       list.any(proofs, fn(proof: RegistryProof) { expected_proof == proof })
     }
@@ -290,6 +290,6 @@ fn plgl_scope_covers(
     // restructuring with NO mint — it never validates an issuance's custody, so
     // it cannot cover one. Deny delegation (Finding 04 precise delegation):
     // issuance_mint must validate the mint outputs itself, not trust unfracking.
-    UnfrackingAct -> False
+    UnfrackingAct { .. } -> False
   }
 }

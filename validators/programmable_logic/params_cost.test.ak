@@ -254,6 +254,7 @@ test cost_v5_split_first_two() {
   let fields <- with_protocol_params_fields(
     v5_ref_inputs(),
     fixture.policy_protocol_params,
+    0,
   )
   and {
     registry_node_cs_field(fields) == fixture.policy_tokens_registry,
@@ -266,6 +267,7 @@ test cost_v5_split_third_only() {
   let fields <- with_protocol_params_fields(
     v5_ref_inputs(),
     fixture.policy_protocol_params,
+    0,
   )
   unfracking_cred_field(fields) == fixture.credential_validator_unfracking
 }
@@ -276,6 +278,7 @@ test cost_v5_split_fourth_only() {
   let fields <- with_protocol_params_fields(
     v5_ref_inputs(),
     fixture.policy_protocol_params,
+    0,
   )
   prog_logic_global_cred_field(fields) == fixture.credential_validator_logic_global
 }
@@ -285,6 +288,7 @@ test cost_v5_split_all_four() {
   let fields <- with_protocol_params_fields(
     v5_ref_inputs(),
     fixture.policy_protocol_params,
+    0,
   )
   and {
     registry_node_cs_field(fields) == fixture.policy_tokens_registry,

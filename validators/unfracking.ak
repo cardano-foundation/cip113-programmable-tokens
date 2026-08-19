@@ -63,7 +63,8 @@ validator unfracking(params_policy: PolicyId) {
   ) {
     trace @"Starting unfracking validation"
 
-    let UnfrackingRedeemer { registry_node_idx, outputs_start_idx } = redeemer
+    let UnfrackingRedeemer { params_idx, registry_node_idx, outputs_start_idx }
+      = redeemer
 
     // Extract protocol parameters from reference inputs: the registry
     // NFT policy (field 0) to authenticate the acted-on policy's node,
@@ -72,6 +73,7 @@ validator unfracking(params_policy: PolicyId) {
     let fields <- with_protocol_params_fields(
       self.reference_inputs,
       params_policy,
+      params_idx,
     )
 
     let registry_node = locate_registry_node(
