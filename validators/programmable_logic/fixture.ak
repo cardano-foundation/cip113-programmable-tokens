@@ -83,9 +83,11 @@ pub const withdrawals_transfer: Pairs<Credential, Int> =
 /// invoke global logic.
 pub const withdrawals_3rd_party: Pairs<Credential, Int> =
   [
-    // The artificial withdraw-0 to execute the global logic
-    Pair(credential_validator_logic_global, 0),
-    // The artificial withdraw-0 to execute the 3rd party logic
+    // The framework third_party validator's withdraw-0 (required by the
+    // SpendViaThirdParty base spend) — a third-party tx no longer invokes PLG
+    Pair(credential_validator_third_party, 0),
+    // The issuer's 3rd-party transfer logic withdraw-0 (required by the
+    // third_party validator)
     Pair(credential_3rd_party_logic, 0),
   ]
 

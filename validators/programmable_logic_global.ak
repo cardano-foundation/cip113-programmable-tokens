@@ -11,7 +11,6 @@ use programmable_logic/params.{
   prog_logic_cred_field, registry_node_cs_field, unfracking_cred_field,
   with_protocol_params_fields,
 }
-use programmable_logic/third_party.{validate_3rd_party}
 use programmable_logic/transfer.{validate_transfer}
 use registry_node.{new_registry_node_getter}
 use types.{
@@ -36,35 +35,33 @@ validator programmable_logic_global(params_policy: PolicyId) {
       params_idx_of(redeemer),
     )
 
-    // Pre-construct a getter for registry nodes in reference inputs, to avoid
-    // repeatedly doing it in loops. Built BEFORE the redeemer match: the
-    // construction is shared by Transfer/ThirdParty, and hoisting it keeps
-    // the script ~30 bytes smaller than duplicating the call per branch —
-    // the Unfracking branch pays a few unused closure allocations instead,
-    // which is the cheaper trade for the hot path.
-    let get_registry_node = new_registry_node_getter(
-      registry_node_cs_field(fields),
-      0,
-      self.reference_inputs,
-      fn(_) { fail },
-    )
-
     when redeemer is {
-      TransferAct { proofs, .. } ->
+      TransferAct { proofs, .. } -> {
+        // Getter for registry nodes in reference inputs (proof walk). Built
+        // inside this branch because, now that third-party actions live in
+        // their own validator, only TransferAct needs it — so UnfrackingAct
+        // no longer pays for an unused getter on the hot path.
+        let get_registry_node = new_registry_node_getter(
+          registry_node_cs_field(fields),
+          0,
+          self.reference_inputs,
+          fn(_) { fail },
+        )
         validate_transfer(
           self,
           prog_logic_cred_field(fields),
           get_registry_node,
           proofs,
         )
+      }
 
-      ThirdPartyAct { registry_node_idx, outputs_start_idx, .. } ->
-        validate_3rd_party(
-          self,
-          prog_logic_cred_field(fields),
-          get_registry_node(registry_node_idx),
-          outputs_start_idx,
-        )
+      // Third-party (seize / clawback / freeze) actions moved to the
+      // standalone `third_party` withdraw-0 validator, dispatched by
+      // programmable_logic_base (SpendViaThirdParty). PLG coordinates
+      // transfers and unfracking only; a ThirdPartyAct routed to PLG is
+      // malformed — reject it (the base spend never sends one here).
+      ThirdPartyAct { .. } ->
+        fail @"third-party actions use the standalone third_party validator"
 
       // Finding 17: holder-driven UTxO redistribution. No registry node,
       // no proofs, no substandard logic — purely a value-preserving

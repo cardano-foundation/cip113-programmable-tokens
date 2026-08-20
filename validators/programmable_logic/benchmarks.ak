@@ -10,9 +10,11 @@ use cardano/transaction.{Input, Output, OutputReference, Transaction}
 use programmable_logic/fixture
 use programmable_logic_base
 use programmable_logic_global
+use third_party
 use types.{
-  ProgrammableLogicGlobalRedeemer, SpendViaGlobal, ThirdPartyAct,
-  TokenDoesNotExist, TokenExists, TransferAct, UnfrackingRedeemer,
+  ProgrammableLogicGlobalRedeemer, SpendViaGlobal, SpendViaThirdParty,
+  ThirdPartyRedeemer, TokenDoesNotExist, TokenExists, TransferAct,
+  UnfrackingRedeemer,
 }
 use unfracking
 
@@ -33,6 +35,27 @@ fn programmable_logic(
       fixture.policy_protocol_params,
       redeemer,
       fixture.credential_validator_logic_global,
+      self,
+    ),
+  }
+}
+
+/// Third-party (seize) composition: the base spend dispatches via
+/// SpendViaThirdParty to the standalone third_party validator — PLG is not
+/// invoked at all on a third-party transaction.
+fn third_party_logic(self: Transaction, redeemer: ThirdPartyRedeemer) -> Bool {
+  and {
+    programmable_logic_base.programmable_logic_base.spend(
+      fixture.policy_protocol_params,
+      None,
+      SpendViaThirdParty { params_idx: 0, wdrl_idx: 0 },
+      Void,
+      self,
+    ),
+    third_party.third_party.withdraw(
+      fixture.policy_protocol_params,
+      redeemer,
+      fixture.credential_validator_third_party,
       self,
     ),
   }
@@ -122,11 +145,15 @@ const fixture_baseline_3rd_party_1: Transaction = {
     }
   }
 
-const fixture_redeemer_baseline_3rd_party_1: ProgrammableLogicGlobalRedeemer =
-  ThirdPartyAct { params_idx: 0, registry_node_idx: 1, outputs_start_idx: 2 }
+const fixture_redeemer_baseline_3rd_party_1: ThirdPartyRedeemer =
+  ThirdPartyRedeemer {
+    params_idx: 0,
+    registry_node_idx: 1,
+    outputs_start_idx: 2,
+  }
 
 test baseline_3rd_party_1() {
-  programmable_logic(
+  third_party_logic(
     fixture_baseline_3rd_party_1,
     fixture_redeemer_baseline_3rd_party_1,
   )
@@ -267,11 +294,15 @@ const fixture_baseline_3rd_party_2: Transaction = {
     }
   }
 
-const fixture_redeemer_baseline_3rd_party_2: ProgrammableLogicGlobalRedeemer =
-  ThirdPartyAct { params_idx: 0, registry_node_idx: 1, outputs_start_idx: 2 }
+const fixture_redeemer_baseline_3rd_party_2: ThirdPartyRedeemer =
+  ThirdPartyRedeemer {
+    params_idx: 0,
+    registry_node_idx: 1,
+    outputs_start_idx: 2,
+  }
 
 test baseline_3rd_party_2() {
-  programmable_logic(
+  third_party_logic(
     fixture_baseline_3rd_party_2,
     fixture_redeemer_baseline_3rd_party_2,
   )
@@ -343,11 +374,15 @@ const fixture_baseline_3rd_party_3: Transaction = {
     }
   }
 
-const fixture_redeemer_baseline_3rd_party_3: ProgrammableLogicGlobalRedeemer =
-  ThirdPartyAct { params_idx: 0, registry_node_idx: 1, outputs_start_idx: 0 }
+const fixture_redeemer_baseline_3rd_party_3: ThirdPartyRedeemer =
+  ThirdPartyRedeemer {
+    params_idx: 0,
+    registry_node_idx: 1,
+    outputs_start_idx: 0,
+  }
 
 test baseline_3rd_party_3() {
-  programmable_logic(
+  third_party_logic(
     fixture_baseline_3rd_party_3,
     fixture_redeemer_baseline_3rd_party_3,
   )
