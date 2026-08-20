@@ -62,11 +62,15 @@ pub fn with_protocol_params_fields(
   params_idx: Int,
   return: fn(List<Data>) -> result,
 ) -> result {
-  expect Some(protocol_params_ref) = list.at(reference_inputs, params_idx)
+  let protocol_params_ref = list.expect_at(reference_inputs, params_idx)
 
-  // Authenticate: the addressed reference input must carry the params policy
-  // (the one-shot protocol-params NFT). A wrong index fails here rather than
-  // silently reading some other UTxO's datum.
+  // Authenticate: the addressed reference input must carry the params
+  // policy. Presence of the policy is sufficient — it is a one-shot NFT
+  // (protocol_params_mint mints exactly one `ProtocolParams` token), so any
+  // UTxO bearing it is the genuine params UTxO. A wrong index fails here
+  // rather than silently reading some other UTxO's datum. Kept as a bare
+  // policy-presence test (not the stricter name+quantity check) because this
+  // runs on the hot path — per PLG withdrawal and per PLB input.
   expect
     !dict.is_empty(
       value.tokens(protocol_params_ref.output.value, protocol_params_cs),
