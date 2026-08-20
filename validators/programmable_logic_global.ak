@@ -59,7 +59,7 @@ validator programmable_logic_global(params_policy: PolicyId) {
       // reshape of the holder's own PLB UTxOs. The invariants are
       // enforced by the standalone unfracking withdraw-0
       // validator, whose credential lives in the protocol-params datum
-      // (field 2 — read only by this branch); PLG only gates on its
+      // (field 4 — read only by this branch); PLG only gates on its
       // presence so the hot-path reference script stays small.
       UnfrackingAct { .. } ->
         pairs.has_key_or_fail(self.withdrawals, unfracking_cred_field(fields))

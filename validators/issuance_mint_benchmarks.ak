@@ -10,7 +10,7 @@
 //// our match (`TokenExists { node_idx: 0 }`) at the END — worst case for
 //// `list.any` short-circuit. Slope tells us cost per non-matching proof
 //// entry. Y-intercept tells us the constant cost of the precise check
-//// (coordination locate + datum field-3 read + redeemer lookup + decode +
+//// (coordination locate + datum field-2 read + redeemer lookup + decode +
 //// index compare).
 ////
 //// The no-delegate sampler carries NO coordination ref input, so it also
@@ -98,7 +98,7 @@ fn registry_node_ref_input() -> Input {
 }
 
 /// The coordination UTxO as a reference input (mirror of the test file's
-/// helper): protocol-params NFT + datum whose field 3 is the live PLG
+/// helper): protocol-params NFT + datum whose field 2 is the live PLG
 /// credential. Fields issuance_mint never reads carry placeholders.
 fn coordination_ref_input(plg_cred: Credential) -> Input {
   Input {
@@ -116,8 +116,8 @@ fn coordination_ref_input(plg_cred: Credential) -> Input {
           registry_node_cs: test_registry_cs,
           prog_logic_cred: test_plb_cred,
           unfracking_cred: test_ml_cred,
-          prog_logic_global_cred: plg_cred,
-          upgrade_logic_cred: test_ml_cred,
+          transfer_cred: plg_cred,
+          upgrade_cred: test_ml_cred,
           third_party_cred: test_ml_cred,
         },
       ),

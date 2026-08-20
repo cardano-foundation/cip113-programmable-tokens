@@ -29,8 +29,8 @@ test programmable_logic_global_params_structure() {
     prog_logic_cred: test_prog_logic_cred,
     registry_node_cs: test_registry_node_cs,
     unfracking_cred: fixture.credential_validator_unfracking,
-    prog_logic_global_cred: fixture.credential_validator_logic_global,
-    upgrade_logic_cred: fixture.credential_upgrade_authority,
+    transfer_cred: fixture.credential_validator_logic_global,
+    upgrade_cred: fixture.credential_upgrade_authority,
     third_party_cred: fixture.credential_validator_third_party,
   }
 
@@ -216,8 +216,8 @@ test protocol_params_from_reference_inputs() {
     prog_logic_cred: test_prog_logic_cred,
     registry_node_cs: test_registry_node_cs,
     unfracking_cred: fixture.credential_validator_unfracking,
-    prog_logic_global_cred: fixture.credential_validator_logic_global,
-    upgrade_logic_cred: fixture.credential_upgrade_authority,
+    transfer_cred: fixture.credential_validator_logic_global,
+    upgrade_cred: fixture.credential_upgrade_authority,
     third_party_cred: fixture.credential_validator_third_party,
   }
 

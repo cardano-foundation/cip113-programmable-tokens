@@ -728,7 +728,7 @@ test plg_unfracking_gate_delegates_invariants_to_unfracking_script() {
 }
 
 // The gate's target credential is READ FROM the protocol-params datum
-// (`unfracking_cred`, field 2) — not baked into the validator. ONE
+// (`unfracking_cred`, field 4) — not baked into the validator. ONE
 // delta: the params datum names Eve's credential as the unfracking
 // script; the genuine withdraw-0 no longer matches and the gate rejects.
 test plg_unfracking_gate_sources_cred_from_protocol_params() fail {

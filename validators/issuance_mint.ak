@@ -27,7 +27,7 @@ validator issuance_mint(
   // the same parameter PLB and PLGlobal take. Read ONLY inside the
   // `RefInput` delegation branch, where it locates the coordination UTxO
   // among `reference_inputs` and reads the LIVE PLGlobal credential from
-  // its datum (field 3, `prog_logic_global_cred`). Delegation then keys on
+  // its datum (field 2, `transfer_cred`). Delegation then keys on
   // THAT credential, so an in-place PLG upgrade automatically retires the
   // old credential as a mint-custody delegate. Coordination UTxO absent ⇒
   // no delegation ⇒ local `no_escape` custody (fail-safe). The OutputIndex
@@ -192,7 +192,7 @@ fn verify_registry_node(
 /// at runtime and issuance_mint can safely delegate.
 ///
 /// PLGlobal's credential is NOT a parameter: it is the LIVE one read from
-/// the coordination UTxO's datum (field 3, `prog_logic_global_cred`), so
+/// the coordination UTxO's datum (field 2, `transfer_cred`), so
 /// delegation trust tracks in-place PLG upgrades — a retired credential
 /// can no longer act as a mint-custody delegate.
 ///
@@ -231,10 +231,7 @@ fn plgl_delegates_for_own_registry_node(
       or {
         // (a) PLGlobal (transfer) validates our node's custody in the same tx.
         when
-          find_plgl_redeemer(
-            redeemers,
-            params.prog_logic_global_cred_field(fields),
-          )
+          find_plgl_redeemer(redeemers, params.transfer_cred_field(fields))
         is {
           None -> False
           Some(plg_redeemer) ->

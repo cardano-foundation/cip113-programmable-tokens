@@ -1,7 +1,7 @@
 //// Tests for the programmable_logic_base validator.
 //// PLB is parameterized by the protocol-params NFT policy: on every
 //// spend it locates the params reference input, reads the CURRENT PLG
-//// credential from datum field 3, and requires that credential's
+//// credential from datum field 2, and requires that credential's
 //// withdraw-0. These tests verify both the trampoline check and the
 //// datum-driven indirection that makes PLG swappable in place.
 
@@ -17,7 +17,7 @@ use types.{SpendViaGlobal, SpendViaThirdParty}
 // Test constants
 // ---------------------------------------------------------------------------
 
-/// The PLG credential carried by `fixture.protocol_params` (field 3).
+/// The PLG credential carried by `fixture.protocol_params` (field 2).
 const plg_cred: Credential = fixture.credential_validator_logic_global
 
 const other_cred: Credential =
@@ -29,7 +29,7 @@ const upgraded_plg_cred: Credential =
   Script(#"aabbccddaabbccddaabbccddaabbccddaabbccddaabbccddaabbccdd")
 
 /// The protocol-params datum shape BEFORE this refactor appended
-/// `prog_logic_global_cred` — used to prove PLB rejects a datum that
+/// `transfer_cred` — used to prove PLB rejects a datum that
 /// lacks its field.
 type LegacyThreeFieldParams {
   registry_node_cs: PolicyId,
@@ -49,12 +49,12 @@ fn params_ref_input() -> Input {
 }
 
 /// Params reference input whose datum carries `upgraded_plg_cred` in
-/// field 3 — the coordination UTxO after an in-place PLG upgrade.
+/// field 2 — the coordination UTxO after an in-place PLG upgrade.
 fn upgraded_params_ref_input() -> Input {
   fixture.some_reference_input_protocol_params(
     ProgrammableLogicGlobalParams {
       ..fixture.protocol_params,
-      prog_logic_global_cred: upgraded_plg_cred,
+      transfer_cred: upgraded_plg_cred,
     },
     "protocol params",
   )
@@ -87,7 +87,7 @@ fn call_global_at(tx: Transaction, params_idx: Int, wdrl_idx: Int) -> Bool {
 }
 
 /// SpendViaThirdParty with explicit indices — dispatch via the standalone
-/// third_party validator's credential (params datum field 5).
+/// third_party validator's credential (params datum field 3).
 fn call_third_party_at(tx: Transaction, params_idx: Int, wdrl_idx: Int) -> Bool {
   programmable_logic_base.programmable_logic_base.spend(
     fixture.policy_protocol_params,
@@ -194,7 +194,7 @@ test plb_fails_without_params_reference_input() fail {
   call_validator(tx)
 }
 
-// Fails when the params datum predates the prog_logic_global_cred field
+// Fails when the params datum predates the transfer_cred field
 // (3-field layout): PLB must reject rather than authorise via garbage
 test plb_fails_on_legacy_three_field_params_datum() fail {
   let modern = params_ref_input()
@@ -221,7 +221,7 @@ test plb_fails_on_legacy_three_field_params_datum() fail {
 // In-place upgradability: the datum drives the authorising credential
 // ---------------------------------------------------------------------------
 
-// After an upgrade rewrites field 3, PLB authorises via the NEW credential
+// After an upgrade rewrites field 2, PLB authorises via the NEW credential
 test plb_authorises_via_upgraded_plg_cred() {
   let tx = Transaction {
     ..valid_plb_tx(),
@@ -249,11 +249,11 @@ test plb_rejects_stale_plg_cred_after_upgrade() fail {
 // ---------------------------------------------------------------------------
 
 /// The third_party validator credential carried by `fixture.protocol_params`
-/// (field 5).
+/// (field 3).
 const third_party_cred: Credential = fixture.credential_validator_third_party
 
 // A SpendViaThirdParty spend authorises via the third_party credential (datum
-// field 5), NOT the PLG credential — so a third-party (seize) transaction need
+// field 3), NOT the PLG credential — so a third-party (seize) transaction need
 // never invoke PLG.
 test plb_passes_via_third_party_arm() {
   let tx = Transaction {

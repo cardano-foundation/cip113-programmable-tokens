@@ -116,8 +116,8 @@ Substandard validators (transfer logic, denylist management, etc.) live in the [
 
 The `programmable_logic_base` validator is intentionally minimal — a **dispatcher**. It is parameterized only by the protocol-params NFT policy — its one permanent anchor — and on every spend reads the CURRENT delegate credential out of the coordination datum (located via that NFT among the reference inputs) before verifying that delegate's withdraw-0 is present in the transaction's withdrawals. Its redeemer, `BaseSpendRedeemer`, selects which delegate authorises the spend and witnesses the exact index of that delegate in the (ledger-sorted) withdrawal map:
 
-- `SpendViaGlobal` → delegate to `programmable_logic_global` (transfers / unfracking); PLB requires the `prog_logic_global_cred` (params datum field 3).
-- `SpendViaThirdParty` → delegate to the standalone `third_party` validator (seize / clawback); PLB requires the `third_party_cred` (params datum field 5).
+- `SpendViaGlobal` → delegate to `programmable_logic_global` (transfers / unfracking); PLB requires the `transfer_cred` (params datum field 2).
+- `SpendViaThirdParty` → delegate to the standalone `third_party` validator (seize / clawback); PLB requires the `third_party_cred` (params datum field 3).
 
 ```aiken
 // programmable_logic_base.ak — the entire spend logic
@@ -133,7 +133,7 @@ validator programmable_logic_base(params_policy: PolicyId) {
     // index that must carry it.
     let (claimed, wdrl_idx) = when redeemer is {
       SpendViaGlobal { wdrl_idx, .. } ->
-        (params.prog_logic_global_cred_field(fields), wdrl_idx)
+        (params.transfer_cred_field(fields), wdrl_idx)
       SpendViaThirdParty { wdrl_idx, .. } ->
         (params.third_party_cred_field(fields), wdrl_idx)
     }
@@ -354,12 +354,12 @@ Stored on-chain in the coordination UTxO, marked by the protocol params NFT:
 
 ```aiken
 type ProgrammableLogicGlobalParams {
-  registry_node_cs: PolicyId,        // Currency symbol of registry NFTs
-  prog_logic_cred: Credential,       // Payment credential of programmable_logic_base
-  unfracking_cred: Credential,       // Credential of the unfracking withdraw-0 validator (Finding 17)
-  prog_logic_global_cred: Credential, // LIVE credential of programmable_logic_global — rewriting this field is an in-place PLG upgrade
-  upgrade_logic_cred: Credential,    // Upgrade-authority withdraw-0 credential (coordination_spend's trampoline)
-  third_party_cred: Credential,      // LIVE credential of the standalone third_party validator — read by programmable_logic_base on a SpendViaThirdParty dispatch
+  registry_node_cs: PolicyId,   // 0 — currency symbol of registry NFTs
+  prog_logic_cred: Credential,  // 1 — shared payment credential all programmable-token UTxOs live at
+  transfer_cred: Credential,    // 2 — LIVE credential of programmable_logic_global; read by PLB on SpendViaGlobal; rewriting it is an in-place PLG upgrade
+  third_party_cred: Credential, // 3 — LIVE credential of the standalone third_party validator; read by PLB on SpendViaThirdParty
+  unfracking_cred: Credential,  // 4 — credential of the unfracking withdraw-0 validator (Finding 17)
+  upgrade_cred: Credential,     // 5 — upgrade-authority withdraw-0 credential (coordination_spend's trampoline)
 }
 ```
 
@@ -397,10 +397,10 @@ delegate credential's index in `withdrawals`.
 ```aiken
 type BaseSpendRedeemer {
   // Delegate to programmable_logic_global (transfer / unfracking). PLB requires
-  // the prog_logic_global_cred (params datum field 3) at wdrl_idx.
+  // the transfer_cred (params datum field 2) at wdrl_idx.
   SpendViaGlobal { params_idx: Int, wdrl_idx: Int }
   // Delegate to the standalone third_party (seize / clawback) validator. PLB
-  // requires the third_party_cred (params datum field 5) at wdrl_idx.
+  // requires the third_party_cred (params datum field 3) at wdrl_idx.
   SpendViaThirdParty { params_idx: Int, wdrl_idx: Int }
 }
 ```

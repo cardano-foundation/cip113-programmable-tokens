@@ -2,7 +2,7 @@
 ////
 //// The happy path is a legitimate upgrade: spend the coordination UTxO,
 //// return the params NFT + ADA to the same address, rewrite a MUTABLE datum
-//// field (here `prog_logic_global_cred` — the PLG swap that is the whole point
+//// field (here `transfer_cred` — the PLG swap that is the whole point
 //// of the mechanism), and carry the upgrade authority's withdraw-0.
 ////
 //// Each failure test is one delta against `valid_upgrade_tx()`, exercising a
@@ -38,7 +38,7 @@ fn coordination_address() -> Address {
   }
 }
 
-/// The upgrade authority named by the CURRENT datum's `upgrade_logic_cred`.
+/// The upgrade authority named by the CURRENT datum's `upgrade_cred`.
 const authority_cred: Credential = fixture.credential_upgrade_authority
 
 /// A replacement PLG credential — the mutable field a legitimate upgrade edits.
@@ -62,12 +62,12 @@ fn coordination_value() -> Value {
     |> assets.add(fixture.policy_protocol_params, "ProtocolParams", 1)
 }
 
-/// Params after a legitimate PLG-swap upgrade: only `prog_logic_global_cred`
+/// Params after a legitimate PLG-swap upgrade: only `transfer_cred`
 /// changes; everything else (incl. the frozen anchors) is preserved.
 fn upgraded_params() -> ProgrammableLogicGlobalParams {
   ProgrammableLogicGlobalParams {
     ..fixture.protocol_params,
-    prog_logic_global_cred: new_plg_cred,
+    transfer_cred: new_plg_cred,
   }
 }
 
@@ -151,7 +151,7 @@ test coord_upgrade_can_change_unfracking_cred() {
   call(tx)
 }
 
-// Handover: rewriting upgrade_logic_cred itself is authorised by the CURRENT
+// Handover: rewriting upgrade_cred itself is authorised by the CURRENT
 // authority — the sitting authority signs off on its own replacement.
 test coord_authority_handover_succeeds() {
   let tx = Transaction {
@@ -160,7 +160,7 @@ test coord_authority_handover_succeeds() {
       continuing_output(
         ProgrammableLogicGlobalParams {
           ..fixture.protocol_params,
-          upgrade_logic_cred: new_plg_cred,
+          upgrade_cred: new_plg_cred,
         },
         coordination_value(),
         coordination_address(),
@@ -213,7 +213,7 @@ test coord_handover_needs_current_authority() fail {
       continuing_output(
         ProgrammableLogicGlobalParams {
           ..fixture.protocol_params,
-          upgrade_logic_cred: new_plg_cred,
+          upgrade_cred: new_plg_cred,
         },
         coordination_value(),
         coordination_address(),
@@ -440,9 +440,9 @@ test coord_fails_reference_script_attached() fail {
 // hash, so a credential carrying an empty or wrong-length hash can never appear
 // in `tx.withdrawals` — the same ledger impossibility the unfracking hook relies
 // on for its default-deny. Writing one here is a ONE-WAY BRICK: an unsatisfiable
-// `upgrade_logic_cred` makes this validator's own authority check permanently
+// `upgrade_cred` makes this validator's own authority check permanently
 // unsatisfiable, with no repair path, and an unsatisfiable
-// `prog_logic_global_cred` makes every programmable-token UTxO unspendable.
+// `transfer_cred` makes every programmable-token UTxO unspendable.
 // ---------------------------------------------------------------------------
 
 /// A credential whose hash can never key a reward account.
@@ -468,7 +468,7 @@ test coord_fails_unsatisfiable_upgrade_authority() fail {
     upgrade_tx_with(
       ProgrammableLogicGlobalParams {
         ..fixture.protocol_params,
-        upgrade_logic_cred: unsatisfiable_cred,
+        upgrade_cred: unsatisfiable_cred,
       },
     ),
   )
@@ -481,7 +481,7 @@ test coord_fails_unsatisfiable_plg_cred() fail {
     upgrade_tx_with(
       ProgrammableLogicGlobalParams {
         ..fixture.protocol_params,
-        prog_logic_global_cred: unsatisfiable_cred,
+        transfer_cred: unsatisfiable_cred,
       },
     ),
   )
@@ -505,7 +505,7 @@ test coord_fails_wrong_length_credential() fail {
     upgrade_tx_with(
       ProgrammableLogicGlobalParams {
         ..fixture.protocol_params,
-        prog_logic_global_cred: short_cred,
+        transfer_cred: short_cred,
       },
     ),
   )

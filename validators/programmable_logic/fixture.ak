@@ -112,7 +112,7 @@ pub const withdrawals_unfracking: Pairs<Credential, Int> =
 
 /// Arbitrary script credential representing the upgrade-authority
 /// withdraw-0 validator (trampoline 2). Carried by the protocol-params
-/// datum (`upgrade_logic_cred`); a coordination-UTxO spend must carry
+/// datum (`upgrade_cred`); a coordination-UTxO spend must carry
 /// this script's withdraw-0.
 pub const credential_upgrade_authority: Credential =
   Credential.Script(#"000000000000000000000000000000000000000000000000009c6ade")
@@ -123,8 +123,8 @@ pub const protocol_params: ProgrammableLogicGlobalParams =
     registry_node_cs: policy_tokens_registry,
     prog_logic_cred: credential_validator_logic_base,
     unfracking_cred: credential_validator_unfracking,
-    prog_logic_global_cred: credential_validator_logic_global,
-    upgrade_logic_cred: credential_upgrade_authority,
+    transfer_cred: credential_validator_logic_global,
+    upgrade_cred: credential_upgrade_authority,
     third_party_cred: credential_validator_third_party,
   }
 

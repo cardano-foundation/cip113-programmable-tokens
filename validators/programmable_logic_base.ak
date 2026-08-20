@@ -54,7 +54,7 @@ validator programmable_logic_base(params_policy: PolicyId) {
     // withdrawal index that must carry it.
     let (claimed, wdrl_idx) = when redeemer is {
       SpendViaGlobal { wdrl_idx, .. } ->
-        (params.prog_logic_global_cred_field(fields), wdrl_idx)
+        (params.transfer_cred_field(fields), wdrl_idx)
       SpendViaThirdParty { wdrl_idx, .. } ->
         (params.third_party_cred_field(fields), wdrl_idx)
     }

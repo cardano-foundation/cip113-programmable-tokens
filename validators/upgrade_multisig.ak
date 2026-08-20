@@ -1,7 +1,7 @@
 //// Reference upgrade-authority validator: M-of-N multisig (trampoline-2 target).
 ////
 //// This is ONE possible authority behind `coordination_spend`'s trampoline —
-//// the credential named by `upgrade_logic_cred` in the coordination datum. Its
+//// the credential named by `upgrade_cred` in the coordination datum. Its
 //// only job is the AUTHORISATION decision: are at least `threshold` of the
 //// `signers` present in the transaction? `coordination_spend` enforces every
 //// structural rail (NFT continuity, value conservation, frozen fields), so this
@@ -14,7 +14,7 @@
 //// for simplicity. A production authority that wants signer ROTATION without a
 //// redeploy would instead read the set from its own config UTxO (datum) — the
 //// same pattern substandards use for admin lists. Because the authority is
-//// itself swappable via `upgrade_logic_cred`, either shape can be adopted later
+//// itself swappable via `upgrade_cred`, either shape can be adopted later
 //// without touching `coordination_spend`.
 
 use aiken/collection/list

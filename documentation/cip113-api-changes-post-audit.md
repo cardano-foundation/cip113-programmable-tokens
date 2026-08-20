@@ -828,8 +828,8 @@ itself 3163 → 2313 B (**−27%**).
     SpendViaThirdParty { params_idx: Int, wdrl_idx: Int }  // -> third_party (seize)
   }
   ```
-  PLB reads the delegate credential from the params datum (`prog_logic_global_cred`
-  field 3, or `third_party_cred` field 5) and requires it at `withdrawals[wdrl_idx]`
+  PLB reads the delegate credential from the params datum (`transfer_cred`
+  field 2, or `third_party_cred` field 3) and requires it at `withdrawals[wdrl_idx]`
   — an O(1) `list.expect_at` instead of scanning the withdrawal map. Self-validating:
   a wrong index or arm resolves to a credential that fails the equality.
 - **`ProgrammableLogicGlobalRedeemer`** — the `ThirdPartyAct` constructor is
@@ -840,14 +840,36 @@ itself 3163 → 2313 B (**−27%**).
   ```
   (`UnfrackingAct`'s constructor index shifts 2 → 1.)
 
-### Protocol-params datum — new `third_party_cred` field
+### Protocol-params datum — reordered + renamed, `third_party_cred` added
 
-- `ProgrammableLogicGlobalParams` gains **field 5 `third_party_cred`** (the
-  `third_party` validator's credential), appended last to keep prior field
-  indices stable. Read by PLB on a `SpendViaThirdParty` dispatch; swappable in
-  place, so the seize validator can be upgraded via a coordination-datum rewrite.
-  `coordination_spend` guards it with the same `is_28_byte_credential` one-way-brick
-  check as the other mutable credentials.
+`ProgrammableLogicGlobalParams` is now a **6-field record, reordered by
+read-frequency** and with two fields renamed (`prog_logic_global_cred` →
+`transfer_cred`, `upgrade_logic_cred` → `upgrade_cred`) — dropping "logic" so
+the framework-validator creds don't collide with the registry node's
+`*_logic_script` per-policy hooks:
+
+```aiken
+type ProgrammableLogicGlobalParams {
+  registry_node_cs: PolicyId,   // 0
+  prog_logic_cred: Credential,  // 1 — base payment credential
+  transfer_cred: Credential,    // 2 — programmable_logic_global (SpendViaGlobal)
+  third_party_cred: Credential, // 3 — the third_party validator (SpendViaThirdParty)
+  unfracking_cred: Credential,  // 4 — the unfracking validator
+  upgrade_cred: Credential,     // 5 — upgrade authority (coordination_spend only)
+}
+```
+
+The two credentials PLB reads on its per-input dispatch (`transfer_cred`,
+`third_party_cred`) sit at the shallow indices 2-3; the rarer `unfracking_cred`
+and coldest `upgrade_cred` follow. `third_party_cred` is new (the standalone
+seize validator's credential). All four delegate credentials are swappable in
+place; `coordination_spend` guards each mutable one with the same
+`is_28_byte_credential` one-way-brick check.
+
+> **Breaking for any params-datum builder or parser**: the field ORDER and the
+> two field NAMES changed, so the on-chain CBOR field order changed. Deploy
+> tooling that writes the datum, and any code that reads it positionally, must
+> update.
 
 ### issuance_mint delegation
 

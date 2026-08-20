@@ -38,7 +38,7 @@ const test_plg_cred: Credential =
   Script(#"a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1")
 
 /// The standalone third_party (seize) validator credential carried by the
-/// coordination datum (field 5, `third_party_cred`) — the delegate a mint
+/// coordination datum (field 3, `third_party_cred`) — the delegate a mint
 /// co-occurring with a seize defers custody to.
 const test_tp_cred: Credential =
   Script(#"c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3")
@@ -178,8 +178,8 @@ fn some_input(output: Output) -> Input {
 
 /// The coordination UTxO as a reference input: carries the protocol-params
 /// NFT (under `test_params_policy`) and the protocol-params datum whose
-/// field 3 (`prog_logic_global_cred`) is the LIVE PLG credential the
-/// validator must resolve. `unfracking_cred` / `upgrade_logic_cred` are
+/// field 2 (`transfer_cred`) is the LIVE PLG credential the
+/// validator must resolve. `unfracking_cred` / `upgrade_cred` are
 /// never read by issuance_mint, so any placeholder credential is fine.
 fn coordination_ref_input(plg_cred: Credential) -> Input {
   some_ref_input(
@@ -198,8 +198,8 @@ fn coordination_ref_input(plg_cred: Credential) -> Input {
             registry_node_cs: test_registry_cs,
             prog_logic_cred: test_plb_cred,
             unfracking_cred: test_ml_cred,
-            prog_logic_global_cred: plg_cred,
-            upgrade_logic_cred: test_ml_cred,
+            transfer_cred: plg_cred,
+            upgrade_cred: test_ml_cred,
             third_party_cred: test_tp_cred,
           },
         ),
@@ -686,7 +686,7 @@ test multi_token_burn() {
 
 // Phase-4 (PLG split): a mint that co-occurs with a third-party SEIZE of the
 // same policy delegates custody to the standalone `third_party` validator, whose
-// redeemer (at `third_party_cred`, field 5) names our registry node. To isolate
+// redeemer (at `third_party_cred`, field 3) names our registry node. To isolate
 // the delegation DECISION, the minted subject tokens go to a NON-PLB output —
 // local `no_escape` alone would reject this, but delegation short-circuits it
 // (in a real tx `validate_3rd_party` enforces those tokens stay at PLB).
@@ -1079,7 +1079,7 @@ test case4_spend_and_mint_same_token_valid() {
 // AND the PLGlobal stake credential — so when consumed as-is, delegation
 // triggers and issuance_mint defers output custody to PLGlobal. The
 // coordination ref input (appended AFTER the registry node, so
-// `RefInput(0)` still resolves) carries the datum whose field 3 is the
+// `RefInput(0)` still resolves) carries the datum whose field 2 is the
 // LIVE PLGlobal credential the validator resolves delegation against.
 //
 // The companion negative test below overrides ONLY `withdrawals` (removing
@@ -1161,7 +1161,7 @@ test case4_plb_input_without_plg_cred_does_not_delegate_fails() fail {
 //
 // The validator's 4th parameter is now `params_policy` (the protocol-params
 // NFT policy), not a frozen PLG credential. Delegation resolves the LIVE
-// PLGlobal credential from the coordination UTxO's datum (field 3), so an
+// PLGlobal credential from the coordination UTxO's datum (field 2), so an
 // in-place PLG upgrade automatically retires the old credential as a
 // mint-custody delegate.
 // ========================================================================

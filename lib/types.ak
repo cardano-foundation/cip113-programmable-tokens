@@ -91,11 +91,11 @@ pub type ThirdPartyRedeemer {
 /// transaction, so authorising either is sound.
 pub type BaseSpendRedeemer {
   /// Delegate to programmable_logic_global (transfer / unfracking). PLB
-  /// requires the `prog_logic_global_cred` (params datum field 3) at
+  /// requires the `transfer_cred` (params datum field 2) at
   /// `wdrl_idx`.
   SpendViaGlobal { params_idx: Int, wdrl_idx: Int }
   /// Delegate to the standalone `third_party` (seize / clawback) validator.
-  /// PLB requires the `third_party_cred` (params datum field 5) at `wdrl_idx`.
+  /// PLB requires the `third_party_cred` (params datum field 3) at `wdrl_idx`.
   SpendViaThirdParty { params_idx: Int, wdrl_idx: Int }
 }
 
