@@ -15,7 +15,7 @@ use programmable_logic/params.{ProgrammableLogicGlobalParams}
 use programmable_logic_global
 use registry_node.{RegistryNode, empty_vkey}
 use types.{ThirdPartyAct, TokenDoesNotExist, TokenExists, TransferAct}
-use utils.{bytearray_lt}
+use utils.{bytearray_lt, empty_extension}
 
 const test_registry_node_cs: PolicyId =
   #"1112131415161718191a1b1c0d0e0f0102030405060708090a0b0c0d"
@@ -37,6 +37,7 @@ test programmable_logic_global_params_structure() {
     unfracking_cred: fixture.credential_validator_unfracking,
     prog_logic_global_cred: fixture.credential_validator_logic_global,
     upgrade_logic_cred: fixture.credential_upgrade_authority,
+    extension: empty_extension,
   }
 
   params.prog_logic_cred == test_prog_logic_cred && params.registry_node_cs == test_registry_node_cs
@@ -75,6 +76,7 @@ test registry_node_validation_for_transfer() {
     minting_logic_script: empty_vkey,
     unfracking_logic_script: empty_vkey,
     global_state_cs: #"",
+    extension: empty_extension,
   }
 
   // Node key should match the token CS
@@ -96,6 +98,7 @@ test covering_node_logic_for_non_existent_token() {
     minting_logic_script: empty_vkey,
     unfracking_logic_script: empty_vkey,
     global_state_cs: #"",
+    extension: empty_extension,
   }
 
   // Covering node should satisfy: covering_key < token_cs < next_key
@@ -223,6 +226,7 @@ test protocol_params_from_reference_inputs() {
     unfracking_cred: fixture.credential_validator_unfracking,
     prog_logic_global_cred: fixture.credential_validator_logic_global,
     upgrade_logic_cred: fixture.credential_upgrade_authority,
+    extension: empty_extension,
   }
 
   // Protocol params should be loaded from reference input
@@ -303,6 +307,7 @@ fn third_party_registry_node_ref_input(
             minting_logic_script: empty_vkey,
             unfracking_logic_script: empty_vkey,
             global_state_cs: "",
+            extension: empty_extension,
           },
         ),
       ),

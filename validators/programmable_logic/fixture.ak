@@ -15,6 +15,7 @@ use types.{
   ProgrammableLogicGlobalRedeemer, TokenExists, TransferAct, UnfrackingAct,
   UnfrackingRedeemer,
 }
+use utils.{empty_extension}
 
 /// Some script credential for the transfer logic. Could also be a verification
 /// key hash, but the primary use-case is for script.
@@ -115,6 +116,7 @@ pub const protocol_params: ProgrammableLogicGlobalParams =
     unfracking_cred: credential_validator_unfracking,
     prog_logic_global_cred: credential_validator_logic_global,
     upgrade_logic_cred: credential_upgrade_authority,
+    extension: empty_extension,
   }
 
 /// Some input to pay for fuel, deterministically determined by the label.
@@ -287,6 +289,7 @@ pub fn some_reference_input_tokens_registry_node_with(
             minting_logic_script: empty_vkey,
             unfracking_logic_script: empty_vkey,
             global_state_cs: "",
+            extension: empty_extension,
           },
         ),
       ),
@@ -398,6 +401,7 @@ pub fn some_reference_input_unfracking_registry_node(
             minting_logic_script: empty_vkey,
             unfracking_logic_script: credential_unfracking_hook,
             global_state_cs: "",
+            extension: empty_extension,
           },
         ),
       ),

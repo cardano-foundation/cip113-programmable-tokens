@@ -11,7 +11,7 @@ use registry_node.{
   with_key_and_next_key, with_key_and_transfer_logic,
   with_key_and_unfracking_logic,
 }
-use utils.{bytearray_lt}
+use utils.{bytearray_lt, empty_extension}
 
 // ---------------------------------------------------- new_registry_node_getter
 
@@ -115,6 +115,7 @@ fn any_registry_node() -> Fuzzer<RegistryNode> {
       third_party_transfer_logic_script,
       unfracking_logic_script,
       global_state_cs,
+      extension: empty_extension,
     },
   )
 }
@@ -173,6 +174,7 @@ test with_key_and_unfracking_logic_extracts_exact_fields() {
     third_party_transfer_logic_script: Script(#"a4"),
     unfracking_logic_script: Script(#"a6"),
     global_state_cs: #"a5",
+    extension: empty_extension,
   }
   let key, unfracking_logic_script <- with_key_and_unfracking_logic(node)
   and {

@@ -14,6 +14,7 @@ use cardano/transaction.{
 use programmable_logic/params.{ProgrammableLogicGlobalParams}
 use registry_node.{RegistryNode, empty_vkey, origin_node}
 use registry_spend
+use utils.{empty_extension}
 
 // ---------------------------------------------------------------------------
 // Test constants
@@ -50,6 +51,7 @@ fn valid_params_datum() -> Data {
       upgrade_logic_cred: Script(
         #"000000000000000000000000000000000000000000000000009c6ade",
       ),
+      extension: empty_extension,
     },
   )
 }
@@ -393,6 +395,7 @@ fn old_registry_node() -> RegistryNode {
     third_party_transfer_logic_script: Script(test_third_party_old),
     unfracking_logic_script: empty_vkey,
     global_state_cs: #"",
+    extension: empty_extension,
   }
 }
 

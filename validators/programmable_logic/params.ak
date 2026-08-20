@@ -35,6 +35,14 @@ pub type ProgrammableLogicGlobalParams {
   /// retiring one authority model for another leaves no trace in this datum.
   /// Appended last to keep prior field indices stable.
   upgrade_logic_cred: Credential,
+  /// Reserved forward-compatibility field (issue #108). Opaque `Data`,
+  /// `utils.empty_extension` at bootstrap. Deliberately UNCONSTRAINED and
+  /// never interpreted by any frozen validator — a future PLG (swappable via
+  /// `upgrade_logic_cred`) may read additive config out of it without any
+  /// script hash changing. Rewritable through the coordination_spend upgrade
+  /// path like every non-frozen field. Trailing on purpose: the positional
+  /// `*_field` accessors above it keep their indices.
+  extension: Data,
 }
 
 /// Authenticate the protocol-params NFT reference input by its

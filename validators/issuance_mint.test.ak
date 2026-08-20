@@ -19,6 +19,7 @@ use registry_node.{RegistryNode, empty_vkey}
 use types.{
   MintingRegistryProof, OutputIndex, RefInput, TokenExists, TransferAct,
 }
+use utils.{empty_extension}
 
 // ---------------------------------------------------------------------------
 // Test constants
@@ -84,6 +85,7 @@ fn registry_node_output(key: ByteArray) -> Output {
           minting_logic_script: test_ml_cred,
           unfracking_logic_script: empty_vkey,
           global_state_cs: #"",
+          extension: empty_extension,
         },
       ),
     ),
@@ -193,6 +195,7 @@ fn coordination_ref_input(plg_cred: Credential) -> Input {
             unfracking_cred: test_ml_cred,
             prog_logic_global_cred: plg_cred,
             upgrade_logic_cred: test_ml_cred,
+            extension: empty_extension,
           },
         ),
       ),
@@ -337,6 +340,7 @@ test registry_nft_missing_fails() fail {
           minting_logic_script: test_ml_cred,
           unfracking_logic_script: empty_vkey,
           global_state_cs: #"",
+          extension: empty_extension,
         },
       ),
     ),
@@ -380,6 +384,7 @@ test wrong_registry_cs_nft_fails() fail {
           minting_logic_script: test_ml_cred,
           unfracking_logic_script: empty_vkey,
           global_state_cs: #"",
+          extension: empty_extension,
         },
       ),
     ),
@@ -814,6 +819,7 @@ test case1_first_mint_with_shared_transfer_logic() {
           minting_logic_script: test_ml_cred,
           unfracking_logic_script: empty_vkey,
           global_state_cs: #"",
+          extension: empty_extension,
         },
       ),
     ),

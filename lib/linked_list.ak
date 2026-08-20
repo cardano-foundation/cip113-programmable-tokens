@@ -108,6 +108,10 @@ pub fn is_origin_directory_node(node: RegistryNode) -> Bool {
 ///     Applies to `transfer_logic_script`, `third_party_transfer_logic_script`
 ///     and `minting_logic_script`.
 ///   * `global_state_cs` is 0 or 28 bytes (CIP-113 normative MAY).
+///
+/// The reserved `extension` field (issue #108) is deliberately NOT
+/// constrained here: it is issuer-chosen opaque config, and this validator
+/// is frozen — pinning a shape now would defeat the field's purpose.
 pub fn is_inserted_directory_node(
   node: RegistryNode,
   insert_key: ByteArray,
@@ -178,8 +182,9 @@ pub fn validate_mint(mint: Value, policy_id: PolicyId) -> AssetName {
   asset_name
 }
 
-// True iff `new` equals `old` except possibly the mutable fields: 
-// transfer_logic_script, third_party_transfer_logic_script, and global_state_cs.
+// True iff `new` equals `old` except possibly the mutable fields:
+// transfer_logic_script, third_party_transfer_logic_script, global_state_cs,
+// unfracking_logic_script, and extension.
 // All other fields must still be well-formed. The record freezes key, next, and minting_logic_script
 pub fn is_field_updated_registry_node(
   new: RegistryNode,
@@ -194,6 +199,9 @@ pub fn is_field_updated_registry_node(
       third_party_transfer_logic_script: new.third_party_transfer_logic_script,
       unfracking_logic_script: new.unfracking_logic_script,
       global_state_cs: new.global_state_cs,
+      // Reserved extension (issue #108): issuer-mutable like the other
+      // logic fields, opaque to this frozen validator — no shape check.
+      extension: new.extension,
     },
     is_28_byte_credential(new.transfer_logic_script)?,
     is_28_byte_credential(new.third_party_transfer_logic_script)?,

@@ -31,6 +31,7 @@ use programmable_logic_global
 use registry_node.{RegistryNode, empty_vkey, sentinel_next_key}
 use types.{UnfrackingAct, UnfrackingRedeemer}
 use unfracking
+use utils.{empty_extension}
 
 // --------------------------------------------------------------------- consts
 
@@ -124,6 +125,7 @@ fn node_ref_with_hook(hook: Credential) -> Input {
             minting_logic_script: empty_vkey,
             unfracking_logic_script: hook,
             global_state_cs: "",
+            extension: empty_extension,
           },
         ),
       ),

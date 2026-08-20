@@ -31,6 +31,7 @@ use issuance_mint
 use programmable_logic/params.{ProgrammableLogicGlobalParams}
 use registry_node.{RegistryNode, empty_vkey}
 use types.{MintingRegistryProof, RefInput, TokenExists, TransferAct}
+use utils.{empty_extension}
 
 // ---------------------------------------------------------------------------
 // Test constants (mirrored from issuance_mint.test.ak)
@@ -90,6 +91,7 @@ fn registry_node_ref_input() -> Input {
           minting_logic_script: test_ml_cred,
           unfracking_logic_script: empty_vkey,
           global_state_cs: #"",
+          extension: empty_extension,
         },
       ),
       reference_script: None,
@@ -118,6 +120,7 @@ fn coordination_ref_input(plg_cred: Credential) -> Input {
           unfracking_cred: test_ml_cred,
           prog_logic_global_cred: plg_cred,
           upgrade_logic_cred: test_ml_cred,
+          extension: empty_extension,
         },
       ),
       reference_script: None,

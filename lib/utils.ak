@@ -7,6 +7,13 @@ use cardano/address.{Credential, Script}
 use cardano/assets.{PolicyId, Value}
 use cardano/transaction.{InlineDatum, Output}
 
+/// Bootstrap value for the reserved `extension` datum fields (issue #108).
+/// `Void` encodes as `Constr 0 []` — the smallest constructor payload — so an
+/// empty extension costs one constant-size CBOR term per datum. The constant
+/// exists so "empty" is spelled one way everywhere; on-chain code never
+/// interprets the field's content.
+pub const empty_extension: Data = Void
+
 /// Get the datum from an output, expecting an inline datum
 pub fn expect_inline_datum(output: Output) -> Data {
   expect InlineDatum(d) = output.datum

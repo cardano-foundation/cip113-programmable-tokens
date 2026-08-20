@@ -4,6 +4,7 @@ use cardano/address.{Credential, VerificationKey}
 use cardano/assets.{PolicyId} as value
 use cardano/transaction.{InlineDatum, Input}
 use list
+use utils.{empty_extension}
 
 /// Constants for token names
 pub const origin_node_tn = #""
@@ -37,6 +38,7 @@ pub const origin_node: RegistryNode =
     third_party_transfer_logic_script: empty_vkey,
     unfracking_logic_script: empty_vkey,
     global_state_cs: #"",
+    extension: empty_extension,
   }
 
 /// Registry node in the linked list of registered programmable token policies
@@ -77,6 +79,14 @@ pub type RegistryNode {
   unfracking_logic_script: Credential,
   /// Optional global state NFT currency symbol for this policy
   global_state_cs: ByteArray,
+  /// Reserved forward-compatibility field (issue #108). Opaque `Data`,
+  /// `utils.empty_extension` on the origin node. Issuer-chosen at insert and
+  /// freely mutable through the registry-node update path, but never
+  /// interpreted (and never constrained beyond presence) by the frozen
+  /// registry validators — a future substandard or PLG may read additive
+  /// per-policy config out of it without any script hash changing. Trailing
+  /// on purpose: the positional `with_*` accessors above keep their indices.
+  extension: Data,
 }
 
 pub fn new_registry_node_getter(

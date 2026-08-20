@@ -2,10 +2,10 @@
 use cardano/address.{Script}
 use linked_list.{
   is_field_updated_registry_node, is_inserted_directory_node,
-  is_updated_directory_node,
+  is_origin_directory_node, is_updated_directory_node,
 }
-use registry_node.{RegistryNode, empty_vkey}
-use utils.{bytearray_lt}
+use registry_node.{RegistryNode, empty_vkey, origin_node}
+use utils.{bytearray_lt, empty_extension}
 
 // Helper to create a test address
 // fn test_address() -> Address {
@@ -29,6 +29,7 @@ test is_updated_directory_node_works() {
     minting_logic_script: Script(#"33"),
     unfracking_logic_script: empty_vkey,
     global_state_cs: #"",
+    extension: empty_extension,
   }
 
   let updated_node = RegistryNode {
@@ -39,6 +40,7 @@ test is_updated_directory_node_works() {
     minting_logic_script: Script(#"33"),
     unfracking_logic_script: empty_vkey,
     global_state_cs: #"",
+    extension: empty_extension,
   }
 
   is_updated_directory_node(updated_node, original, insert_key)
@@ -58,6 +60,7 @@ test is_updated_directory_node_negative() {
     minting_logic_script: Script(#"33"),
     unfracking_logic_script: empty_vkey,
     global_state_cs: #"",
+    extension: empty_extension,
   }
 
   let node = RegistryNode {
@@ -68,6 +71,7 @@ test is_updated_directory_node_negative() {
     minting_logic_script: Script(#"33"),
     unfracking_logic_script: empty_vkey,
     global_state_cs: #"",
+    extension: empty_extension,
   }
 
   !is_updated_directory_node(node, original, insert_key)
@@ -98,6 +102,7 @@ test is_inserted_directory_node_works() {
     minting_logic_script: minting_logic,
     unfracking_logic_script: empty_vkey,
     global_state_cs: global_state,
+    extension: empty_extension,
   }
 
   is_inserted_directory_node(node, insert_key, next_key, minting_logic)
@@ -126,6 +131,7 @@ test origin_node_empty_keys() {
     minting_logic_script: Script(#"33"),
     unfracking_logic_script: empty_vkey,
     global_state_cs: #"",
+    extension: empty_extension,
   }
 
   origin_node.key == #"" && origin_node.next == #""
@@ -151,6 +157,7 @@ test is_updated_directory_node_rejects_transfer_logic_swap() fail {
     minting_logic_script: Script(#"33"),
     unfracking_logic_script: empty_vkey,
     global_state_cs: #"",
+    extension: empty_extension,
   }
 
   let tampered_node = RegistryNode {
@@ -162,6 +169,7 @@ test is_updated_directory_node_rejects_transfer_logic_swap() fail {
     minting_logic_script: Script(#"33"),
     unfracking_logic_script: empty_vkey,
     global_state_cs: #"",
+    extension: empty_extension,
   }
 
   is_updated_directory_node(tampered_node, original, #"bb")
@@ -178,6 +186,7 @@ test is_updated_directory_node_rejects_third_party_logic_swap() fail {
     minting_logic_script: Script(#"33"),
     unfracking_logic_script: empty_vkey,
     global_state_cs: #"",
+    extension: empty_extension,
   }
 
   let tampered_node = RegistryNode {
@@ -189,6 +198,7 @@ test is_updated_directory_node_rejects_third_party_logic_swap() fail {
     minting_logic_script: Script(#"33"),
     unfracking_logic_script: empty_vkey,
     global_state_cs: #"",
+    extension: empty_extension,
   }
 
   is_updated_directory_node(tampered_node, original, #"bb")
@@ -205,6 +215,7 @@ test is_updated_directory_node_rejects_global_state_swap() fail {
     minting_logic_script: Script(#"33"),
     unfracking_logic_script: empty_vkey,
     global_state_cs: #"",
+    extension: empty_extension,
   }
 
   let tampered_node = RegistryNode {
@@ -215,6 +226,7 @@ test is_updated_directory_node_rejects_global_state_swap() fail {
     minting_logic_script: Script(#"33"),
     unfracking_logic_script: empty_vkey,
     global_state_cs: #"deaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddead",
+    extension: empty_extension,
   }
 
   // ^^^ TAMPERED — original was #""
@@ -236,6 +248,7 @@ test is_field_updated_registry_node_rejects_registry_nodes_differ() fail {
     ),
     unfracking_logic_script: empty_vkey,
     global_state_cs: #"",
+    extension: empty_extension,
   }
   let new = RegistryNode {
     key: #"ab",
@@ -252,6 +265,7 @@ test is_field_updated_registry_node_rejects_registry_nodes_differ() fail {
     ),
     unfracking_logic_script: empty_vkey,
     global_state_cs: #"",
+    extension: empty_extension,
   }
 
   is_field_updated_registry_node(new, original)
@@ -270,6 +284,7 @@ test is_field_updated_registry_node_update_true() {
     minting_logic_script: Script(#"33"),
     unfracking_logic_script: empty_vkey,
     global_state_cs: #"",
+    extension: empty_extension,
   }
   let new = RegistryNode {
     key: #"aa",
@@ -283,6 +298,7 @@ test is_field_updated_registry_node_update_true() {
     minting_logic_script: Script(#"33"),
     unfracking_logic_script: empty_vkey,
     global_state_cs: #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    extension: empty_extension,
   }
 
   is_field_updated_registry_node(new, original)
@@ -312,6 +328,7 @@ fn valid_inserted_node() -> RegistryNode {
     ),
     unfracking_logic_script: empty_vkey,
     global_state_cs: #"33333333333333333333333333333333333333333333333333333333",
+    extension: empty_extension,
   }
 }
 
@@ -361,6 +378,7 @@ fn updatable_node() -> RegistryNode {
     minting_logic_script: Script(#"33"),
     unfracking_logic_script: empty_vkey,
     global_state_cs: #"",
+    extension: empty_extension,
   }
 }
 
@@ -398,4 +416,48 @@ test is_field_updated_registry_node_rejects_malformed_unfracking_hook() fail {
     unfracking_logic_script: Script(#"6666"),
   }
   is_field_updated_registry_node(new, original)
+}
+
+/// Reserved extension (issue #108): issuer-chosen at insert. The frozen
+/// mint validator accepts any content — a shape pinned here would defeat
+/// the field's purpose.
+test is_inserted_directory_node_accepts_nonempty_extension() {
+  let node = RegistryNode {
+    ..valid_inserted_node(),
+    extension: as_data(#"beef"),
+  }
+  is_inserted_directory_node(
+    node,
+    node.key,
+    node.next,
+    node.minting_logic_script,
+  )
+}
+
+/// The covering node may not rewrite its extension during an insert —
+/// the spread equality freezes it like every other field.
+test is_updated_directory_node_rejects_extension_change() fail {
+  let original = valid_inserted_node()
+  let tampered_node = RegistryNode {
+    ..original,
+    next: #"bb",
+    extension: as_data(#"beef"),
+  }
+  is_updated_directory_node(tampered_node, original, #"bb")
+}
+
+/// Reserved extension (issue #108): mutable through the registry-node
+/// update path, like the other logic fields.
+test is_field_updated_registry_node_allows_extension_rewrite() {
+  let original = updatable_node()
+  let new = RegistryNode { ..original, extension: as_data(#"beef") }
+  is_field_updated_registry_node(new, original)
+}
+
+/// A non-empty extension is not the origin shape — the single-equality
+/// origin check pins the extension to `empty_extension` automatically.
+test is_origin_directory_node_rejects_nonempty_extension() fail {
+  is_origin_directory_node(
+    RegistryNode { ..origin_node, extension: as_data(#"beef") },
+  )
 }

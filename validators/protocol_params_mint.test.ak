@@ -7,6 +7,8 @@
 //// - Coordination address enforcement
 //// - InlineDatum and ProgrammableLogicGlobalParams datum validation
 
+use aiken/builtin.{constr_data, unconstr_fields}
+use aiken/collection/list
 use cardano/address.{Address, Script, VerificationKey}
 use cardano/assets.{PolicyId, ada_asset_name, ada_policy_id, from_asset}
 use cardano/transaction.{
@@ -16,6 +18,7 @@ use programmable_logic/params.{
   ProgrammableLogicGlobalParams, protocol_params_token,
 }
 use protocol_params_mint
+use utils.{empty_extension}
 
 // ---------------------------------------------------------------------------
 // Test constants
@@ -68,6 +71,7 @@ fn valid_params_datum() -> Data {
       upgrade_logic_cred: Script(
         #"000000000000000000000000000000000000000000000000009c6ade",
       ),
+      extension: empty_extension,
     },
   )
 }
@@ -299,6 +303,23 @@ test fails_with_invalid_datum_type() fail {
     inputs: [valid_input()],
     mint: from_asset(test_policy_id, protocol_params_token, 1),
     outputs: [Output { ..valid_nft_output(), datum: InlineDatum(as_data(42)) }],
+  }
+  call_validator(test_utxo_ref, test_coordination_hash, tx)
+}
+
+// Decide-before-mint (issue #108): with the reserved extension field in
+// place, the one-shot mint requires the 6-field shape. A bootstrap datum
+// in the previous 5-field shape is rejected — this is the door closing.
+test fails_with_old_five_field_datum_shape() fail {
+  let old_shape = constr_data(
+    0,
+    list.take(unconstr_fields(valid_params_datum()), 5),
+  )
+  let tx = Transaction {
+    ..transaction.placeholder,
+    inputs: [valid_input()],
+    mint: from_asset(test_policy_id, protocol_params_token, 1),
+    outputs: [Output { ..valid_nft_output(), datum: InlineDatum(old_shape) }],
   }
   call_validator(test_utxo_ref, test_coordination_hash, tx)
 }

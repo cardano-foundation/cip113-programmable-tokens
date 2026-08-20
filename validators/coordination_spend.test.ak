@@ -133,6 +133,26 @@ test coord_upgrade_succeeds() {
   call(valid_upgrade_tx())
 }
 
+// Reserved extension field (issue #108): the upgrade path may rewrite it.
+// This is the property that makes the field fillable after mint without
+// any script hash changing.
+test coord_upgrade_can_fill_extension() {
+  let tx = Transaction {
+    ..valid_upgrade_tx(),
+    outputs: [
+      continuing_output(
+        ProgrammableLogicGlobalParams {
+          ..fixture.protocol_params,
+          extension: as_data(#"beef"),
+        },
+        coordination_value(),
+        coordination_address(),
+      ),
+    ],
+  }
+  call(tx)
+}
+
 // Mutating unfracking_cred (also mutable) is fine.
 test coord_upgrade_can_change_unfracking_cred() {
   let tx = Transaction {
