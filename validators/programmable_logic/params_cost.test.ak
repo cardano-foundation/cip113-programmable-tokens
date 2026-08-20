@@ -13,31 +13,38 @@
 ////       redeemer branch needs via the `*_field` accessors.
 ////
 //// Datum generations: 2-field (pre-Finding-17), 3-field (Finding 17
-//// added `unfracking_cred`), 5-field (upgradability appended
-//// `prog_logic_global_cred`, read by PLB on every spend, then
-//// `upgrade_logic_cred`, read only by `coordination_spend` on an
-//// upgrade transaction — not the transfer hot path — so it gets no
-//// per-field cost row of its own below). The 2- and 3-field shapes
-//// are kept as local types so their measurements stay reproducible
+//// added `unfracking_cred`), then upgradability appended
+//// `prog_logic_global_cred` (field 3, read by PLB on every spend),
+//// `upgrade_logic_cred` (field 4, read only by `coordination_spend` on an
+//// upgrade transaction), and the PLG split appended `third_party_cred`
+//// (field 5, read by PLB only on a SpendViaThirdParty dispatch) — for a
+//// 6-field production datum. Fields 4-5 are off the transfer hot path, so
+//// they get no per-field cost row of their own below. The 2- and 3-field
+//// shapes are kept as local types so their measurements stay reproducible
 //// after the production type moved on.
 ////
-//// Representative run (aiken v1.1.22; deltas above each family's
-//// locate+unwrap baseline):
+//// Representative run (aiken v1.1.22; ABSOLUTE mem/cpu per test — compare
+//// rows, they share one reference-input layout. Since the #103 index change
+//// the split path locates the params UTxO by index while the baseline scans,
+//// so subtracting the baseline no longer isolates pure extraction cost; read
+//// the rows against each other instead):
 ////
-////   (a) 2-field builtins, both fields ........ +13.5k mem / +3.6M cpu
-////   (b) 2-field full expect .................. +21.0k mem / +6.2M cpu
-////   (b) 3-field full expect .................. +35.5k mem / +11.3M cpu
-////   (b) 5-field full expect .................. +48.7k mem / +16.3M cpu
-////   (c) 5-field split, fields 0-1 (PLG) ...... +13.2k mem / +2.9M cpu
-////   (c) 5-field split, field 2 (unfracking) .. +10.1k mem / +2.2M cpu
-////   (c) 5-field split, field 3 (PLB) ......... +10.3k mem / +2.3M cpu
+////   locate + unwrap baseline (6-field) ...... 459.8k mem / 147.2M cpu
+////   (b) 6-field full expect ................. 530.0k mem / 169.3M cpu
+////   (c) 6-field split, fields 0-1 (PLG) ..... 486.3k mem / 153.1M cpu
+////   (c) 6-field split, field 2 (unfracking) . 483.2k mem / 152.4M cpu
+////   (c) 6-field split, field 3 (PLB) ........ 483.4k mem / 152.5M cpu
+////   (c) 6-field split, all four fields ...... 509.9k mem / 162.4M cpu
 ////
-//// i.e. full deserialisation costs ~4.7x the split approach in mem and
-//// ~7x in cpu on any single-consumer path; the split keeps each
-//// consumer at the cost of only the fields it reads (the PLG hot path
-//// is unchanged from its pre-refactor numbers). Skipping whole-record
-//// validation is safe because protocol_params_mint fully deserialises
-//// the datum at mint time (see `with_protocol_params_fields` docs).
+//// (Legacy 2-/3-field full-expect rows, kept for reproducibility: 488.5k/
+//// 154.9M and 503.0k/160.4M — validating more fields costs strictly more.)
+////
+//// i.e. the PLG hot path (fields 0-1) pays ~+5.9M cpu / +26.6k mem over the
+//// bare locate+unwrap, versus ~+22.0M cpu / +70.2k mem to `expect` the whole
+//// 6-field record — the split saves the hot path from validating four fields
+//// it never reads. Skipping whole-record validation is safe because
+//// protocol_params_mint fully deserialises the datum at mint time (see
+//// `with_protocol_params_fields` docs).
 ////
 //// Every test shares the same reference-input layout (params NFT input
 //// first, one registry node behind it — same order as the tx fixtures)

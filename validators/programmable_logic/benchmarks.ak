@@ -1,4 +1,36 @@
 //// End-to-end tests / benchmarks for programmable logic base+global validators
+////
+//// PLG split — before/after record (the third-party / seize logic pulled out
+//// of programmable_logic_global into the standalone `third_party` validator,
+//// dispatched by programmable_logic_base). Compiled reference-script sizes,
+//// measured with `aiken build` on this branch vs the pre-split base:
+////
+////   validator          before   after    delta
+////   PLG (global)         3163    2313     -850   (-26.9%)
+////   PLB (base)            496     759     +263
+////   third_party (NEW)       0    1806    +1806
+////   issuance_mint        1925    2063     +138
+////   unfracking           1832    1832       +0
+////
+//// Reference scripts are attached once and paid for (as a size-proportional
+//// fee) by EVERY transaction that references them, so what matters is the
+//// per-transaction reference-script footprint:
+////
+////   * transfer tx  (PLB + PLG) ....... 3659 -> 3072 B  = -587 B  every transfer
+////   * seize    tx  (PLB + third_party)  3659 -> 2565 B  = -1094 B every seize
+////
+//// The transfer hot path shrinks because PLG no longer carries the seize
+//// invariants; the seize path shrinks MORE because it no longer loads the full
+//// transfer-carrying PLG at all — it loads only PLB + the seize-only script.
+////
+//// Execution (CPU/mem) on the composed happy paths below is roughly neutral:
+//// the PLB spend gains a 2-arm dispatch (~+2M cpu on the transfer path at
+//// withdrawal-index 0, where the old `has_key_or_fail` scan also stopped at the
+//// first entry), and reclaims it via the O(1) `list.expect_at` withdrawal lookup
+//// whenever the delegate's withdrawal is NOT the first entry — the seize case,
+//// where the issuer-logic withdrawal (an issuer-chosen hash) may sort ahead of
+//// the framework credential and the old scan would have to walk past it. The
+//// headline win is the reference-script SIZE reduction, paid on every tx.
 
 use aiken/collection/list
 use aiken/fuzz
