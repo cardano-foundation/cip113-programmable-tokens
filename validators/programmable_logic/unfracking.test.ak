@@ -23,7 +23,7 @@ use cardano/address.{Credential, VerificationKey}
 use cardano/assets.{
   AssetName, PolicyId, ada_asset_name, ada_policy_id, from_asset, merge,
 }
-use cardano/transaction.{InlineDatum, Input, Output, Transaction}
+use cardano/transaction.{DatumHash, InlineDatum, Input, Output, Transaction}
 use programmable_logic/fixture
 use programmable_logic/params.{ProgrammableLogicGlobalParams}
 use programmable_logic_base
@@ -818,4 +818,47 @@ test unfracking_full_composition_succeeds() {
     run_plg_unfracking_gate(tx),
     run_unfracking(tx),
   }
+}
+
+// Destination outputs are CREATED by the unfracking transaction (unlike the
+// paired continuing outputs, which reproduce their input byte-for-byte), so
+// the PLB shape rule (issue #106) binds here. ONE delta: the extra output's
+// datum becomes a hash.
+test unfracking_fails_destination_datum_hash() fail {
+  let tx = valid_unfracking_tx()
+  expect [pair_out, extra] = tx.outputs
+  run_unfracking(
+    Transaction {
+      ..tx,
+      outputs: [
+        pair_out,
+        Output {
+          ..extra,
+          datum: DatumHash(
+            #"c0ffeec0ffeec0ffeec0ffeec0ffeec0ffeec0ffeec0ffeec0ffeec0ffee0000",
+          ),
+        },
+      ],
+    },
+  )
+}
+
+// Same site, ONE delta: the extra output carries a reference script.
+test unfracking_fails_destination_reference_script() fail {
+  let tx = valid_unfracking_tx()
+  expect [pair_out, extra] = tx.outputs
+  run_unfracking(
+    Transaction {
+      ..tx,
+      outputs: [
+        pair_out,
+        Output {
+          ..extra,
+          reference_script: Some(
+            #"00000000000000000000000000000000000000000000000000000abe",
+          ),
+        },
+      ],
+    },
+  )
 }

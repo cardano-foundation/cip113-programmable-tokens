@@ -140,7 +140,9 @@ validator issuance_mint(
 /// output total to the mint delta and could be satisfied by preserved supply).
 ///
 /// Every PLB output must additionally carry an inline stake credential (so
-/// ownership is well-defined). Inputs need no scan: any `own_policy` spent
+/// ownership is well-defined) and a seizable shape — datum absent or inline,
+/// never a hash, and no reference script (issue #106; see
+/// `utils.is_seizable_shape`). Inputs need no scan: any `own_policy` spent
 /// must reappear at a PLB output or be burned, both of which this output-only
 /// rule already forces through value-conservation.
 ///
@@ -156,7 +158,11 @@ fn no_escape(
     fn(output) {
       if output.address.payment_credential == programmable_logic_base {
         expect Some(Inline(_stake_cred)) = output.address.stake_credential
-        True
+        // Issue #106: a freshly minted PLB output must also be seizable by
+        // shape — datum absent or inline (never a hash), no reference
+        // script — or `ThirdPartyAct`'s byte-for-byte reproduction becomes
+        // unsatisfiable for the issuer from the moment of issuance.
+        utils.is_seizable_shape(output)?
       } else {
         dict.is_empty(assets.tokens(output.value, own_policy))
       }

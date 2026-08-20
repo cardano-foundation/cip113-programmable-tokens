@@ -6,6 +6,7 @@ use cardano/transaction.{Output}
 use env
 use list
 use tokens.{Tokens}
+use utils
 
 pub type Assets =
   Pairs<PolicyId, Tokens>
@@ -184,6 +185,13 @@ pub fn has_policy_nft_strictly(
   actual_asset_name == asset_name
 }
 
+/// Collect the assets of every output at the programmable-logic base
+/// credential. Every selected output must carry an inline stake credential
+/// (so ownership is well-defined) and a seizable shape (issue #106): datum
+/// absent or inline — never a hash — and no reference script. Constraining
+/// the shape HERE, at the creation site, is what keeps `ThirdPartyAct`'s
+/// byte-for-byte reproduction satisfiable for the issuer; see
+/// `utils.is_seizable_shape`.
 pub fn collect_output_assets(
   outputs: List<Output>,
   prog_logic_cred: Credential,
@@ -194,6 +202,7 @@ pub fn collect_output_assets(
     fn(output, select, discard) {
       if output.address.payment_credential == prog_logic_cred {
         expect Some(Inline(..)) = output.address.stake_credential
+        expect utils.is_seizable_shape(output)?
         select(output)
       } else {
         discard()

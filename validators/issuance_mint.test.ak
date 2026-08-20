@@ -10,8 +10,8 @@
 use cardano/address.{Address, Credential, Inline, Script}
 use cardano/assets.{PolicyId, ada_asset_name, ada_policy_id, from_asset}
 use cardano/transaction.{
-  InlineDatum, Input, Mint, NoDatum, Output, OutputReference, Transaction,
-  Withdraw,
+  DatumHash, InlineDatum, Input, Mint, NoDatum, Output, OutputReference,
+  Transaction, Withdraw,
 }
 use issuance_mint
 use programmable_logic/params.{ProgrammableLogicGlobalParams}
@@ -1508,4 +1508,34 @@ test outputindex_covering_node_mint_escape_fails() fail {
     redeemers: [Pair(Mint(test_own_policy), as_data(rdmr))],
   }
   call_validator(rdmr, tx)
+}
+
+// ========================================================================
+// Issue #106 — PLB output shape at the mint creation site (`no_escape`)
+// ========================================================================
+
+// Minted tokens sent to a PLB output carrying a datum HASH — must fail:
+// only the preimage holder could ever spend (so seize) that output.
+test mint_output_datum_hash_fails() fail {
+  let bad_output = Output {
+    ..mint_output(100),
+    datum: DatumHash(
+      #"c0ffeec0ffeec0ffeec0ffeec0ffeec0ffeec0ffeec0ffeec0ffeec0ffee0000",
+    ),
+  }
+  let tx = Transaction { ..valid_mint_tx(), outputs: [bad_output] }
+  call_validator(valid_redeemer(), tx)
+}
+
+// Minted tokens sent to a PLB output carrying a reference script — must
+// fail: seizure would have to reproduce the script bytes forever after.
+test mint_output_reference_script_fails() fail {
+  let bad_output = Output {
+    ..mint_output(100),
+    reference_script: Some(
+      #"00000000000000000000000000000000000000000000000000000abe",
+    ),
+  }
+  let tx = Transaction { ..valid_mint_tx(), outputs: [bad_output] }
+  call_validator(valid_redeemer(), tx)
 }

@@ -8,7 +8,7 @@ use cardano/assets.{
   zero,
 }
 use cardano/transaction.{
-  InlineDatum, Input, NoDatum, Output, OutputReference, Transaction,
+  DatumHash, InlineDatum, Input, NoDatum, Output, OutputReference, Transaction,
 }
 use programmable_logic/fixture
 use programmable_logic/params.{ProgrammableLogicGlobalParams}
@@ -2143,5 +2143,65 @@ test fails_absence_proof_when_node_ends_below_policy() fail {
   cov_absence(
     #"11111111111111111111111111111111111111111111111111111111",
     #"22222222222222222222222222222222222222222222222222222222",
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Issue #106 — PLB output shape at the TransferAct creation site
+//
+// A holder must not be able to route programmable tokens into a PLB output
+// whose shape defeats seizure while leaving their own spending intact:
+//
+//   * `DatumHash` datum — the ledger (phase 1) demands the datum preimage in
+//     the witness set of any SPENDING transaction. The holder keeps the
+//     secret, so the issuer cannot even form the seizure transaction.
+//   * reference script — `ThirdPartyAct` must reproduce the full script
+//     bytes on the paired continuing output, so a large script pushes every
+//     seizure over `maxTxSize`; `TransferAct` spends unaffected.
+//
+// One delta per failure test: the happy-path fixture output with exactly one
+// field overridden.
+// ---------------------------------------------------------------------------
+
+/// Run a canonical single-policy TransferAct whose sole PLB output is the
+/// given one. The fixture's own output (same tokens, `NoDatum`, no
+/// reference script) is the green control.
+fn run_transfer_with_output(output: Output) -> Bool {
+  let (tx, redeemer) = fixture.some_transfer([(test_token_cs, "FOO", 100)])
+  let tx = Transaction { ..tx, outputs: [output] }
+  programmable_logic_global.programmable_logic_global.withdraw(
+    fixture.policy_protocol_params,
+    redeemer,
+    fixture.credential_validator_logic_global,
+    tx,
+  )
+}
+
+test transfer_act_shape_control_succeeds() {
+  run_transfer_with_output(
+    fixture.some_output_with_programmable_tokens([(test_token_cs, "FOO", 100)]),
+  )
+}
+
+test transfer_act_fails_datum_hash_output() fail {
+  let base = fixture.some_output_with_programmable_tokens(
+    [(test_token_cs, "FOO", 100)],
+  )
+  run_transfer_with_output(
+    Output { ..base, datum: DatumHash(blake2b_256("holder secret")) },
+  )
+}
+
+test transfer_act_fails_reference_script_output() fail {
+  let base = fixture.some_output_with_programmable_tokens(
+    [(test_token_cs, "FOO", 100)],
+  )
+  run_transfer_with_output(
+    Output {
+      ..base,
+      reference_script: Some(
+        #"00000000000000000000000000000000000000000000000000000abe",
+      ),
+    },
   )
 }

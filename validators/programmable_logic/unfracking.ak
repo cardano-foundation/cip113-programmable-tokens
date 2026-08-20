@@ -88,6 +88,7 @@ use pairs
 use programmable_logic/owner.{authorised_stake_cred}
 use registry_node.{with_key_and_unfracking_logic}
 use tokens.{Tokens}
+use utils
 
 /// Validate an Unfracking action. See module docstring for the full
 /// invariant list. `registry_node` is the acted-on policy's registry
@@ -241,6 +242,11 @@ fn validate_pairs_and_conservation(
         output_tokens,
         fn(output, acc) {
           if output.address == owner_address {
+            // Issue #106: destination outputs are CREATED here (unlike the
+            // paired continuing outputs, which reproduce their input
+            // byte-for-byte), so the PLB shape rule binds at this site too:
+            // datum absent or inline (never a hash), no reference script.
+            expect utils.is_seizable_shape(output)?
             tokens.union(output.value |> value.tokens(policy_id), acc)
           } else {
             acc

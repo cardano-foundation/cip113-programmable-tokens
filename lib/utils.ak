@@ -5,7 +5,35 @@ use aiken/builtin.{tail_list}
 use aiken/collection/dict
 use cardano/address.{Credential, Script}
 use cardano/assets.{PolicyId, Value}
-use cardano/transaction.{InlineDatum, Output}
+use cardano/transaction.{DatumHash, InlineDatum, NoDatum, Output}
+
+/// A programmable-token (PLB) output has a *seizable shape* iff its datum
+/// is absent or inline — never a hash — and it carries no reference script.
+///
+/// Both constraints exist for the same reason (issue #106): seizure
+/// (`ThirdPartyAct`) and unfracking must reproduce `address`, `datum` and
+/// `reference_script` byte-for-byte on the paired continuing output, so any
+/// shape only the holder can reproduce (or afford) defeats them while
+/// `TransferAct` keeps working:
+///
+///   * `DatumHash`: the ledger (phase 1) demands the datum preimage in the
+///     witness set of any transaction SPENDING the output. The holder keeps
+///     the secret, so the issuer cannot even form the seizure transaction.
+///   * reference script: the continuing output must embed the full script
+///     bytes, so a large script pushes every seizure over `maxTxSize`.
+///
+/// Enforced at every PLB-output creation site (`assets.collect_output_assets`,
+/// `issuance_mint`'s `no_escape`, the unfracking destination); the
+/// reproduction sites then preserve it by induction, so no live PLB UTxO can
+/// ever take an unseizable shape.
+pub fn is_seizable_shape(output: Output) -> Bool {
+  let datum_admissible = when output.datum is {
+    NoDatum -> True
+    DatumHash(_) -> False
+    InlineDatum(_) -> True
+  }
+  datum_admissible && output.reference_script == None
+}
 
 /// Get the datum from an output, expecting an inline datum
 pub fn expect_inline_datum(output: Output) -> Data {

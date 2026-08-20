@@ -2,11 +2,60 @@
 
 use aiken/collection/dict
 use aiken/collection/list
+use cardano/address.{Address, Script}
 use cardano/assets.{
   PolicyId, Value, ada_asset_name, ada_policy_id, add, from_asset, zero,
 }
+use cardano/transaction.{DatumHash, InlineDatum, NoDatum, Output}
 use utils.{
-  bytearray_lt, count_unique_tokens, has_currency_symbol, mint_has_policy,
+  bytearray_lt, count_unique_tokens, has_currency_symbol, is_seizable_shape,
+  mint_has_policy,
+}
+
+/// A well-shaped PLB-like output: no datum, no reference script.
+const some_plb_shaped_output: Output =
+  Output {
+    address: Address {
+      payment_credential: Script(
+        #"0000000000000000000000000000000000000000000000000000ba5e",
+      ),
+      stake_credential: None,
+    },
+    value: from_asset(ada_policy_id, ada_asset_name, 1_000_000),
+    datum: NoDatum,
+    reference_script: None,
+  }
+
+test is_seizable_shape_accepts_no_datum() {
+  is_seizable_shape(some_plb_shaped_output)
+}
+
+test is_seizable_shape_accepts_inline_datum() {
+  is_seizable_shape(
+    Output { ..some_plb_shaped_output, datum: InlineDatum(as_data(0)) },
+  )
+}
+
+test is_seizable_shape_rejects_datum_hash() {
+  !is_seizable_shape(
+    Output {
+      ..some_plb_shaped_output,
+      datum: DatumHash(
+        #"c0ffeec0ffeec0ffeec0ffeec0ffeec0ffeec0ffeec0ffeec0ffeec0ffee0000",
+      ),
+    },
+  )
+}
+
+test is_seizable_shape_rejects_reference_script() {
+  !is_seizable_shape(
+    Output {
+      ..some_plb_shaped_output,
+      reference_script: Some(
+        #"00000000000000000000000000000000000000000000000000000abe",
+      ),
+    },
+  )
 }
 
 // Test bytearray_lt with different bytearrays
