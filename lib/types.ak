@@ -14,14 +14,22 @@ pub type RegistryProof {
   TokenDoesNotExist { node_idx: Int }
 }
 
-/// Redeemer for the global programmable logic stake validator
+/// Redeemer for the global programmable logic stake validator.
+///
+/// Every variant carries `params_idx`: the index of the protocol-params NFT
+/// UTxO in `reference_inputs`. The validator jumps straight to that reference
+/// input (`list.at`) and authenticates it by the one-shot params NFT, instead
+/// of scanning every reference input to find it — a wrong index simply fails
+/// the NFT check. See `params.with_protocol_params_fields`.
 pub type ProgrammableLogicGlobalRedeemer {
   /// Transfer action with proofs for each token type
-  TransferAct { proofs: List<RegistryProof> }
+  TransferAct { params_idx: Int, proofs: List<RegistryProof> }
   /// Third party action for administrative / compliance operations —
   /// forced transfer, seizure, freeze enforcement, or burn. Supports multiple
   /// UTxOs of the subject policy in a single transaction.
   ThirdPartyAct {
+    /// Index of the protocol-params NFT UTxO in reference inputs
+    params_idx: Int,
     /// Index of the registry node in reference inputs
     registry_node_idx: Int,
     /// Starting index in outputs where processed outputs begin
@@ -32,14 +40,23 @@ pub type ProgrammableLogicGlobalRedeemer {
   /// multi-policy "fracked" UTxO apart so a freeze on one policy stops
   /// collateral-damaging unrelated policies in the same UTxO.
   ///
-  /// No payload here: under this redeemer PLG only requires that the
+  /// Only `params_idx` here: under this redeemer PLG requires that the
   /// standalone `unfracking` withdraw-0 validator (whose credential is
   /// the `unfracking_cred` field of the protocol-params datum) is
   /// invoked in the same transaction. The acted-on policy, the pairing
   /// hints, and every invariant live with that validator (see
   /// `UnfrackingRedeemer`), keeping the hot-path PLG reference script
   /// small; only unfracking transactions pay for the unfracking logic.
-  UnfrackingAct
+  UnfrackingAct { params_idx: Int }
+}
+
+/// The protocol-params reference-input index, common to every variant.
+pub fn params_idx_of(redeemer: ProgrammableLogicGlobalRedeemer) -> Int {
+  when redeemer is {
+    TransferAct { params_idx, .. } -> params_idx
+    ThirdPartyAct { params_idx, .. } -> params_idx
+    UnfrackingAct { params_idx } -> params_idx
+  }
 }
 
 /// Redeemer of the standalone `unfracking` withdraw-0 validator (v2).
@@ -47,6 +64,8 @@ pub type ProgrammableLogicGlobalRedeemer {
 /// is single-policy, names its registry node, and pairs every PLB input
 /// positionally with a continuing output starting at `outputs_start_idx`.
 pub type UnfrackingRedeemer {
+  /// Index of the protocol-params NFT UTxO in reference inputs
+  params_idx: Int,
   /// Index of the acted-on policy's registry node in reference inputs
   registry_node_idx: Int,
   /// Starting index in outputs where the paired continuing outputs begin

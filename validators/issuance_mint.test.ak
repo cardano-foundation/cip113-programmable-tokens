@@ -280,7 +280,9 @@ test valid_burn() {
       Pair(Mint(test_own_policy), as_data(rdmr)),
       Pair(
         Withdraw(test_plg_cred),
-        as_data(TransferAct { proofs: [TokenExists { node_idx: 0 }] }),
+        as_data(
+          TransferAct { params_idx: 0, proofs: [TokenExists { node_idx: 0 }] },
+        ),
       ),
     ],
   }
@@ -665,7 +667,9 @@ test multi_token_burn() {
       Pair(Mint(test_own_policy), as_data(rdmr)),
       Pair(
         Withdraw(test_plg_cred),
-        as_data(TransferAct { proofs: [TokenExists { node_idx: 0 }] }),
+        as_data(
+          TransferAct { params_idx: 0, proofs: [TokenExists { node_idx: 0 }] },
+        ),
       ),
     ],
   }
@@ -698,7 +702,9 @@ test multi_token_spend_and_mint_defers() {
       Pair(Mint(test_own_policy), as_data(rdmr)),
       Pair(
         Withdraw(test_plg_cred),
-        as_data(TransferAct { proofs: [TokenExists { node_idx: 0 }] }),
+        as_data(
+          TransferAct { params_idx: 0, proofs: [TokenExists { node_idx: 0 }] },
+        ),
       ),
     ],
   }
@@ -962,7 +968,9 @@ test case4_spend_and_mint_same_token_valid() {
       Pair(Mint(test_own_policy), as_data(rdmr)),
       Pair(
         Withdraw(test_plg_cred),
-        as_data(TransferAct { proofs: [TokenExists { node_idx: 0 }] }),
+        as_data(
+          TransferAct { params_idx: 0, proofs: [TokenExists { node_idx: 0 }] },
+        ),
       ),
     ],
   }
@@ -1026,7 +1034,9 @@ test case4_spend_and_mint_defers_to_plglobal() {
       Pair(Mint(test_own_policy), as_data(valid_redeemer())),
       Pair(
         Withdraw(test_plg_cred),
-        as_data(TransferAct { proofs: [TokenExists { node_idx: 0 }] }),
+        as_data(
+          TransferAct { params_idx: 0, proofs: [TokenExists { node_idx: 0 }] },
+        ),
       ),
     ],
   }
@@ -1089,7 +1099,9 @@ test delegation_uses_live_plg_cred_from_coordination_datum() {
       Pair(Mint(test_own_policy), as_data(valid_redeemer())),
       Pair(
         Withdraw(test_plg_cred),
-        as_data(TransferAct { proofs: [TokenExists { node_idx: 0 }] }),
+        as_data(
+          TransferAct { params_idx: 0, proofs: [TokenExists { node_idx: 0 }] },
+        ),
       ),
     ],
   }
@@ -1108,7 +1120,9 @@ test delegation_survives_in_place_plg_upgrade() {
       Pair(Mint(test_own_policy), as_data(valid_redeemer())),
       Pair(
         Withdraw(test_plg_cred_v2),
-        as_data(TransferAct { proofs: [TokenExists { node_idx: 0 }] }),
+        as_data(
+          TransferAct { params_idx: 0, proofs: [TokenExists { node_idx: 0 }] },
+        ),
       ),
     ],
   }
@@ -1142,7 +1156,9 @@ test launch_era_plg_cred_cannot_delegate_after_upgrade_fails() fail {
       Pair(Mint(test_own_policy), as_data(valid_redeemer())),
       Pair(
         Withdraw(test_plg_cred),
-        as_data(TransferAct { proofs: [TokenExists { node_idx: 0 }] }),
+        as_data(
+          TransferAct { params_idx: 0, proofs: [TokenExists { node_idx: 0 }] },
+        ),
       ),
     ],
   }
@@ -1163,7 +1179,9 @@ test stale_plg_cred_delegation_denied_falls_back_to_custody() {
       Pair(Mint(test_own_policy), as_data(valid_redeemer())),
       Pair(
         Withdraw(test_plg_cred),
-        as_data(TransferAct { proofs: [TokenExists { node_idx: 0 }] }),
+        as_data(
+          TransferAct { params_idx: 0, proofs: [TokenExists { node_idx: 0 }] },
+        ),
       ),
     ],
   }
@@ -1200,7 +1218,9 @@ test plg_delegation_impossible_without_coordination_ref_input_fails() fail {
       Pair(Mint(test_own_policy), as_data(valid_redeemer())),
       Pair(
         Withdraw(test_plg_cred),
-        as_data(TransferAct { proofs: [TokenExists { node_idx: 0 }] }),
+        as_data(
+          TransferAct { params_idx: 0, proofs: [TokenExists { node_idx: 0 }] },
+        ),
       ),
     ],
   }
@@ -1240,7 +1260,9 @@ test coordination_datum_without_params_nft_cannot_delegate_fails() fail {
       Pair(Mint(test_own_policy), as_data(rdmr)),
       Pair(
         Withdraw(test_plg_cred),
-        as_data(TransferAct { proofs: [TokenExists { node_idx: 1 }] }),
+        as_data(
+          TransferAct { params_idx: 0, proofs: [TokenExists { node_idx: 1 }] },
+        ),
       ),
     ],
   }
@@ -1276,7 +1298,9 @@ test delegation_locates_coordination_ahead_of_registry_node() {
       Pair(Mint(test_own_policy), as_data(rdmr)),
       Pair(
         Withdraw(test_plg_cred),
-        as_data(TransferAct { proofs: [TokenExists { node_idx: 1 }] }),
+        as_data(
+          TransferAct { params_idx: 0, proofs: [TokenExists { node_idx: 1 }] },
+        ),
       ),
     ],
   }

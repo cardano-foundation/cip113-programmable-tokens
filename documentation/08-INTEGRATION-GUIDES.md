@@ -118,6 +118,8 @@ The transaction must include reference inputs (not consumed, just read):
 - **Protocol parameters UTxO** — contains the `ProgrammableLogicGlobalParams` datum with the registry node currency symbol and programmable logic credential.
 - **Registry node UTxO** — the registry entry for the token being transferred, containing the transfer logic script credential.
 
+> **Reference-input indices are supplied in the redeemer.** Every validator that reads the protocol-params UTxO (`programmable_logic_base`, `programmable_logic_global`, `unfracking`) jumps straight to it by index — `params_idx` — instead of scanning the reference-input set, and authenticates it by the one-shot params NFT. A transaction references several scripts (each as a reference input), so the builder must compute the params UTxO's position **in the canonical reference-input ordering** (the ledger sorts `reference_inputs` by `OutputReference` = `(transaction_id, output_index)`; the on-chain index is a position into that sorted list, not into the order you added them). Set `params_idx` to that position in each redeemer; a wrong index fails the NFT check. The same discipline applies to `registry_node_idx` for the registry node.
+
 #### 4. Registry Proofs
 
 The global validator needs a proof for each non-ADA policy in the transaction inputs. For programmable tokens, this is a `TokenExists` proof pointing to the registry node index. For any non-programmable tokens in the same UTxO (including ADA), a `TokenDoesNotExist` covering-node proof is needed.
@@ -152,8 +154,14 @@ Withdrawals:
   - (programmable_logic_global, 0)
   - (transfer_logic_script, 0)
 
+Redeemer (for programmable_logic_base, per spent input):
+  <protocol-params ref input index>            // an Int
+
 Redeemer (for programmable_logic_global):
-  TransferAct { proofs: [TokenExists { node_idx: <registry ref input index> }] }
+  TransferAct {
+    params_idx: <protocol-params ref input index>,
+    proofs: [TokenExists { node_idx: <registry ref input index> }],
+  }
 
 Required Signatories:
   - sender's key (whichever key matches their credential in the stake slot)

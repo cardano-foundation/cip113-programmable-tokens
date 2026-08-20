@@ -68,10 +68,16 @@ fn valid_plb_tx() -> Transaction {
 }
 
 fn call_validator(tx: Transaction) -> Bool {
+  call_validator_at(tx, 0)
+}
+
+/// `call_validator` with an explicit `params_idx` — for tests where the
+/// params UTxO is NOT the first reference input.
+fn call_validator_at(tx: Transaction, params_idx: Int) -> Bool {
   programmable_logic_base.programmable_logic_base.spend(
     fixture.policy_protocol_params,
     None,
-    Void,
+    params_idx,
     Void,
     tx,
   )
@@ -140,7 +146,8 @@ test plb_passes_when_params_ref_not_first() {
       params_ref_input(),
     ],
   }
-  call_validator(tx)
+  // params UTxO is the SECOND reference input here → params_idx = 1
+  call_validator_at(tx, 1)
 }
 
 // Fails when no reference input carries the params NFT policy

@@ -368,7 +368,7 @@ pub fn some_transfer(
           [],
           fn(_, node_idx, proofs) { [TokenExists { node_idx }, ..proofs] },
         )
-      |> TransferAct,
+      |> fn(proofs) { TransferAct { params_idx: 0, proofs } },
   )
 }
 
@@ -445,8 +445,12 @@ pub fn some_unfracking(
       ],
       withdrawals: withdrawals_unfracking,
     },
-    UnfrackingAct,
-    UnfrackingRedeemer { registry_node_idx: 1, outputs_start_idx: 0 },
+    UnfrackingAct { params_idx: 0 },
+    UnfrackingRedeemer {
+      params_idx: 0,
+      registry_node_idx: 1,
+      outputs_start_idx: 0,
+    },
   )
 }
 
