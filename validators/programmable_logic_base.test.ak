@@ -11,6 +11,7 @@ use cardano/transaction.{InlineDatum, Input, Output, Transaction}
 use programmable_logic/fixture
 use programmable_logic/params.{ProgrammableLogicGlobalParams}
 use programmable_logic_base
+use types.{SpendViaGlobal, SpendViaThirdParty}
 
 // ---------------------------------------------------------------------------
 // Test constants
@@ -67,17 +68,31 @@ fn valid_plb_tx() -> Transaction {
   }
 }
 
+/// Happy-path harness: dispatch via the global (PLG) arm with the params UTxO
+/// and the PLG withdrawal both at index 0.
 fn call_validator(tx: Transaction) -> Bool {
-  call_validator_at(tx, 0)
+  call_global_at(tx, 0, 0)
 }
 
-/// `call_validator` with an explicit `params_idx` — for tests where the
-/// params UTxO is NOT the first reference input.
-fn call_validator_at(tx: Transaction, params_idx: Int) -> Bool {
+/// SpendViaGlobal with explicit indices — for tests where the params UTxO is
+/// not the first reference input, or the PLG withdrawal is not the first entry.
+fn call_global_at(tx: Transaction, params_idx: Int, wdrl_idx: Int) -> Bool {
   programmable_logic_base.programmable_logic_base.spend(
     fixture.policy_protocol_params,
     None,
-    params_idx,
+    SpendViaGlobal { params_idx, wdrl_idx },
+    Void,
+    tx,
+  )
+}
+
+/// SpendViaThirdParty with explicit indices — dispatch via the standalone
+/// third_party validator's credential (params datum field 5).
+fn call_third_party_at(tx: Transaction, params_idx: Int, wdrl_idx: Int) -> Bool {
+  programmable_logic_base.programmable_logic_base.spend(
+    fixture.policy_protocol_params,
+    None,
+    SpendViaThirdParty { params_idx, wdrl_idx },
     Void,
     tx,
   )
@@ -104,7 +119,8 @@ test plb_fails_with_empty_withdrawals() fail {
   call_validator(tx)
 }
 
-// Passes when the PLG credential is among multiple withdrawal entries
+// Passes when the PLG credential is among multiple withdrawal entries — the
+// redeemer witnesses its index (1), so no scan is needed.
 test plb_passes_with_multiple_withdrawals() {
   let tx = Transaction {
     ..valid_plb_tx(),
@@ -117,7 +133,20 @@ test plb_passes_with_multiple_withdrawals() {
       ),
     ],
   }
-  call_validator(tx)
+  // PLG withdrawal is the SECOND entry here → wdrl_idx = 1
+  call_global_at(tx, 0, 1)
+}
+
+// The witnessed index is load-bearing: pointing it at a DIFFERENT (valid)
+// withdrawal entry than the PLG credential fails. Here PLG sits at index 1 but
+// the redeemer witnesses index 0 (other_cred), so the equality fails — a
+// dishonest index can only invalidate the spend, never authorise a wrong one.
+test plb_fails_when_wdrl_idx_points_at_wrong_entry() fail {
+  let tx = Transaction {
+    ..valid_plb_tx(),
+    withdrawals: [Pair(other_cred, 0), Pair(plg_cred, 0)],
+  }
+  call_global_at(tx, 0, 0)
 }
 
 // Fails when credential type differs (VerificationKey vs Script)
@@ -147,7 +176,7 @@ test plb_passes_when_params_ref_not_first() {
     ],
   }
   // params UTxO is the SECOND reference input here → params_idx = 1
-  call_validator_at(tx, 1)
+  call_global_at(tx, 1, 0)
 }
 
 // Fails when no reference input carries the params NFT policy
@@ -213,4 +242,40 @@ test plb_rejects_stale_plg_cred_after_upgrade() fail {
     withdrawals: [Pair(plg_cred, 0)],
   }
   call_validator(tx)
+}
+
+// ---------------------------------------------------------------------------
+// Dispatch: SpendViaThirdParty arm
+// ---------------------------------------------------------------------------
+
+/// The third_party validator credential carried by `fixture.protocol_params`
+/// (field 5).
+const third_party_cred: Credential = fixture.credential_validator_third_party
+
+// A SpendViaThirdParty spend authorises via the third_party credential (datum
+// field 5), NOT the PLG credential — so a third-party (seize) transaction need
+// never invoke PLG.
+test plb_passes_via_third_party_arm() {
+  let tx = Transaction {
+    ..valid_plb_tx(),
+    withdrawals: [Pair(third_party_cred, 0)],
+  }
+  call_third_party_at(tx, 0, 0)
+}
+
+// Wrong arm: a SpendViaThirdParty redeemer whose witnessed withdrawal is the
+// PLG credential (not third_party) fails — the arm names the wrong delegate.
+test plb_fails_third_party_arm_witnessing_plg_cred() fail {
+  let tx = Transaction { ..valid_plb_tx(), withdrawals: [Pair(plg_cred, 0)] }
+  call_third_party_at(tx, 0, 0)
+}
+
+// Wrong arm the other way: a SpendViaGlobal redeemer whose witnessed
+// withdrawal is the third_party credential fails.
+test plb_fails_global_arm_witnessing_third_party_cred() fail {
+  let tx = Transaction {
+    ..valid_plb_tx(),
+    withdrawals: [Pair(third_party_cred, 0)],
+  }
+  call_global_at(tx, 0, 0)
 }

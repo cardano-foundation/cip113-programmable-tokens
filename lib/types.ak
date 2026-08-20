@@ -88,6 +88,37 @@ pub type ThirdPartyRedeemer {
   outputs_start_idx: Int,
 }
 
+/// Redeemer of the `programmable_logic_base` spend validator.
+///
+/// PLB runs once per programmable-token input, so its cost is multiplied by
+/// every such input in the transaction. It dispatches each spend to ONE of two
+/// withdraw-0 validators and witnesses WHERE that validator's credential sits
+/// in the (credential-sorted) withdrawal map, so the check is a single equality
+/// at a known index instead of a scan.
+///
+/// Self-validating: a wrong `wdrl_idx` resolves to some other credential and a
+/// wrong arm names the other validator — either way the equality fails, so a
+/// dishonest witness can only invalidate its own transaction. Whichever
+/// validator it delegates to then enforces its full invariants over the whole
+/// transaction, so authorising either is sound.
+pub type BaseSpendRedeemer {
+  /// Delegate to programmable_logic_global (transfer / unfracking). PLB
+  /// requires the `prog_logic_global_cred` (params datum field 3) at
+  /// `wdrl_idx`.
+  SpendViaGlobal { params_idx: Int, wdrl_idx: Int }
+  /// Delegate to the standalone `third_party` (seize / clawback) validator.
+  /// PLB requires the `third_party_cred` (params datum field 5) at `wdrl_idx`.
+  SpendViaThirdParty { params_idx: Int, wdrl_idx: Int }
+}
+
+/// The protocol-params reference-input index, common to both arms.
+pub fn base_params_idx(redeemer: BaseSpendRedeemer) -> Int {
+  when redeemer is {
+    SpendViaGlobal { params_idx, .. } -> params_idx
+    SpendViaThirdParty { params_idx, .. } -> params_idx
+  }
+}
+
 /// Redeemer for the issuance minting policy.
 ///
 /// The redeemer is the registry proof itself — a `RefInput` index for a

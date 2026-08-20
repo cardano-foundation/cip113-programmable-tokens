@@ -1,47 +1,68 @@
 //// Programmable Logic Base Validator
 //// This validator locks all programmable token UTxOs
-//// It forwards validation to the global programmable logic stake validator
+//// It forwards validation to one of two withdraw-0 stake validators
 //// Migrated from SmartTokens.Contracts.ProgrammableLogicBase
 ////
 //// Upgradability in place: PLB is parameterized by the protocol-params
 //// NFT policy — the protocol's only permanent anchor — instead of a
-//// compile-time PLG credential. On every spend it reads the CURRENT
-//// PLG credential from the protocol-params reference input's datum
-//// (field 3, extracted with builtins — no whole-datum deserialisation)
-//// and requires that credential's withdraw-0. Swapping PLG is therefore
-//// a datum rewrite on the coordination UTxO; PLB's hash — and with it
-//// every programmable token address — never changes.
+//// compile-time credential. On every spend it reads the CURRENT
+//// delegate credential from the protocol-params reference input's datum
+//// (extracted with builtins — no whole-datum deserialisation) and requires
+//// that credential's withdraw-0. Swapping either delegate is therefore a
+//// datum rewrite on the coordination UTxO; PLB's hash — and with it every
+//// programmable token address — never changes.
+////
+//// Dispatch: the redeemer picks which delegate authorises this spend —
+//// programmable_logic_global (transfer / unfracking) or the standalone
+//// third_party (seize / clawback) validator — and witnesses the exact
+//// index of that delegate's entry in the credential-sorted withdrawal map.
+//// Because PLB runs once per programmable input, resolving the withdrawal
+//// by index (one comparison at a known position) instead of scanning the
+//// map saves cost on every input. The witness is self-validating: a wrong
+//// index or arm resolves to a credential that fails the equality, so a
+//// dishonest witness only invalidates its own transaction.
 
+use aiken/collection/list
 use cardano/assets.{PolicyId}
 use cardano/transaction.{Transaction}
-use pairs
 use programmable_logic/params
+use types.{
+  BaseSpendRedeemer, SpendViaGlobal, SpendViaThirdParty, base_params_idx,
+}
 
 validator programmable_logic_base(params_policy: PolicyId) {
   spend(
     _datum: Option<Data>,
-    params_idx: Int,
+    redeemer: BaseSpendRedeemer,
     _own_ref: Data,
     self: Transaction,
   ) {
     trace @"Starting programmable_logic_base validation"
 
     // Locate the protocol-params NFT among the reference inputs (addressed by
-    // the redeemer's `params_idx`) and pull the live PLG credential out of its
-    // datum. The params UTxO is already a mandatory reference input on every
-    // programmable-token transaction (PLG reads it), so this adds no
-    // availability requirement.
+    // the redeemer's `params_idx`) and pull the live delegate credentials out
+    // of its datum. The params UTxO is already a mandatory reference input on
+    // every programmable-token transaction, so this adds no availability
+    // requirement.
     let fields <- params.with_protocol_params_fields(
       self.reference_inputs,
       params_policy,
-      params_idx,
+      base_params_idx(redeemer),
     )
-    let plg_cred = params.prog_logic_global_cred_field(fields)
 
-    // The programmable logic base validator simply checks that the global
-    // programmable logic stake script is invoked in the transaction via the
-    // withdraw-zero pattern Check that the stake credential is invoked
-    self.withdrawals |> pairs.has_key_or_fail(plg_cred)
+    // Select the delegate credential this spend claims to forward to, and the
+    // withdrawal index that must carry it.
+    let (claimed, wdrl_idx) = when redeemer is {
+      SpendViaGlobal { wdrl_idx, .. } ->
+        (params.prog_logic_global_cred_field(fields), wdrl_idx)
+      SpendViaThirdParty { wdrl_idx, .. } ->
+        (params.third_party_cred_field(fields), wdrl_idx)
+    }
+
+    // Jump straight to the witnessed withdrawal entry (O(1)) and require it to
+    // carry the claimed delegate credential — the withdraw-zero trampoline.
+    let Pair(witnessed_cred, _) = list.expect_at(self.withdrawals, wdrl_idx)
+    (witnessed_cred == claimed)?
   }
 
   else(_) {

@@ -29,7 +29,7 @@ use programmable_logic/params.{ProgrammableLogicGlobalParams}
 use programmable_logic_base
 use programmable_logic_global
 use registry_node.{RegistryNode, empty_vkey, sentinel_next_key}
-use types.{UnfrackingAct, UnfrackingRedeemer}
+use types.{SpendViaGlobal, UnfrackingAct, UnfrackingRedeemer}
 use unfracking
 
 // --------------------------------------------------------------------- consts
@@ -811,7 +811,7 @@ test unfracking_full_composition_succeeds() {
     programmable_logic_base.programmable_logic_base.spend(
       fixture.policy_protocol_params,
       None,
-      0,
+      SpendViaGlobal { params_idx: 0, wdrl_idx: 0 },
       Void,
       tx,
     ),

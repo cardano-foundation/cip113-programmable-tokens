@@ -11,8 +11,8 @@ use programmable_logic/fixture
 use programmable_logic_base
 use programmable_logic_global
 use types.{
-  ProgrammableLogicGlobalRedeemer, ThirdPartyAct, TokenDoesNotExist, TokenExists,
-  TransferAct, UnfrackingRedeemer,
+  ProgrammableLogicGlobalRedeemer, SpendViaGlobal, ThirdPartyAct,
+  TokenDoesNotExist, TokenExists, TransferAct, UnfrackingRedeemer,
 }
 use unfracking
 
@@ -25,7 +25,7 @@ fn programmable_logic(
     programmable_logic_base.programmable_logic_base.spend(
       fixture.policy_protocol_params,
       None,
-      0,
+      SpendViaGlobal { params_idx: 0, wdrl_idx: 0 },
       Void,
       self,
     ),
