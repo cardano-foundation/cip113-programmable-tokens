@@ -136,13 +136,13 @@ Your transfer logic validator decides **what conditions must be met for a transf
 > same policy. Transferring them is allowed — your CIP-68/102-aware transfer and
 > minting logic must ensure it happens the proper way (moving them, updating a
 > reference NFT's datum, handling royalties). List their CIP-67 labels (100 /
-> 500) in the registry node's `protected_prefixes` so `ThirdPartyAct` cannot
+> 500) in the registry node's `protected_prefixes` so the third-party path cannot
 > seize or burn them. See
 > [`03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md`](./03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md) §1.
 
 ### 3. Third-Party Transfer Logic (withdraw)
 
-Invoked when a **third party** (not the token owner) moves tokens. The PLG looks up `third_party_transfer_logic_script` from the registry. This is used for administrative actions like:
+Invoked when a **third party** (not the token owner) moves tokens. The standalone `third_party` validator looks up `third_party_transfer_logic_script` from the subject policy's registry node and requires its withdraw-0. This is used for administrative actions like:
 - Seizing tokens from a sanctioned address
 - Forced transfers by court order
 - Emergency recovery operations
@@ -191,7 +191,7 @@ type RegistryNode {
   transfer_logic_script: Credential,             // YOUR transfer logic
   third_party_transfer_logic_script: Credential, // YOUR 3rd party logic
   global_state_cs: ByteArray,                    // YOUR global state NFT (optional)
-  protected_prefixes: List<ByteArray>,           // CIP-67 labels ThirdPartyAct may not seize/burn (append-only)
+  protected_prefixes: List<ByteArray>,           // CIP-67 labels the third-party path may not seize/burn (append-only)
 }
 ```
 
@@ -383,7 +383,7 @@ Tokens are minted to the PLB address with the recipient's stake credential. The 
 ### 3. Transfer (Owner-Initiated)
 
 ```
-PLB delegates to PLG → PLG looks up registry → PLG checks your transfer logic in withdrawals → your transfer logic runs
+PLB dispatches (SpendViaGlobal) to PLG → PLG looks up registry → PLG checks your transfer logic in withdrawals → your transfer logic runs
 ```
 
 Your **transfer logic withdraw** validator is invoked. It receives the full transaction context and must verify that the transfer meets your rules (e.g., not blacklisted, on whitelist, within limits).
@@ -398,10 +398,10 @@ Your validator only needs to enforce your **custom rules**.
 ### 4. Third-Party Transfer (Admin/Compliance)
 
 ```
-PLB delegates to PLG → PLG looks up registry → PLG checks your 3rd party logic in withdrawals → your 3rd party logic runs
+PLB dispatches (SpendViaThirdParty) to third_party → third_party looks up registry node → third_party checks your 3rd party logic in withdrawals → your 3rd party logic runs
 ```
 
-Your **third-party transfer logic withdraw** validator is invoked. This path does NOT require the token owner's signature — it's for administrative actions like seizure or forced transfers.
+The spend selects the administrative path with a `SpendViaThirdParty` base redeemer, so `programmable_logic_base` requires the standalone `third_party` validator's withdraw-0 (carrying a `ThirdPartyRedeemer`) instead of PLG's. Your **third-party transfer logic withdraw** validator is then invoked. This path does NOT require the token owner's signature — it's for administrative actions like seizure or forced transfers.
 
 ### 5. Burning
 
@@ -547,7 +547,7 @@ or perform a wholesale substandard swap. For those, migrate:
 1. **Pause the old token** — if your substandard supports pausing (e.g., via a global state flag), pause transfers first
 2. **Deploy + register the new substandard** — compile new validator scripts and create a new `RegistryNode`
 3. **Migrate balances** — use either:
-   - **ThirdPartyAct** on the old token to move balances from holders to a migration address, then mint equivalent new tokens
+   - **A third-party action** (`SpendViaThirdParty` + a `ThirdPartyRedeemer`) on the old token to move balances from holders to a migration address, then mint equivalent new tokens
    - **Burn old + mint new** in coordinated transactions
 4. **Decommission the old token** — the old registry entry remains but the token is effectively deprecated (there is no de-registration; see [`03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md`](./03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md) §3.3)
 
@@ -826,6 +826,16 @@ const registryProof = conStr0([integer(registryIndex)]);       // TokenExists { 
 const plgRedeemer = conStr0([integer(paramsIndex), list([registryProof])]);
 const transferRedeemer = integer(200);                          // Your substandard's redeemer
 
+// Base-spend dispatch: for a transfer, every PLB input delegates to PLG.
+// wdrl_idx is PLG's position in the LEDGER-SORTED withdrawals map (sorted by
+// reward address, not insertion order — see below).
+const sortedWithdrawals = [yourTransferLogic.rewardAddress, logicGlobal.rewardAddress].sort();
+const plgWdrlIdx = sortedWithdrawals.indexOf(logicGlobal.rewardAddress);
+// SpendViaGlobal { params_idx, wdrl_idx } — constructor 0 of BaseSpendRedeemer.
+// (An administrative seize would use SpendViaThirdParty, constructor 1, and set
+//  wdrl_idx to the third_party validator's position instead.)
+const baseSpendRedeemer = conStr0([integer(paramsIndex), integer(plgWdrlIdx)]);
+
 const txBuilder = new MeshTxBuilder({ fetcher: provider, submitter: provider, evaluator: provider });
 
 // 1. Spend token UTxOs from PLB address
@@ -834,7 +844,7 @@ for (const utxo of selectedUtxos) {
     .spendingPlutusScriptV3()
     .txIn(utxo.input.txHash, utxo.input.outputIndex)
     .txInScript(logicBase.cbor)
-    .txInRedeemerValue(conStr0([]), "JSON")
+    .txInRedeemerValue(baseSpendRedeemer, "JSON")
     .txInInlineDatumPresent();
 }
 

@@ -145,12 +145,19 @@ minting logic can never update — updates are script-gated by construction.
    transaction-build time; never cache transfer/third-party/global-state creds
    as immutable.**
 
-### 1.4 The admin path (`ThirdPartyAct`) has a defined, bounded custody scope
+### 1.4 The admin path has a defined, bounded custody scope
 
-Pre-audit, the third-party/seizure path was under-specified. Post-audit it is a
-first-class redeemer (`ProgrammableLogicGlobalRedeemer.ThirdPartyAct`) with
-structural guarantees the base layer enforces regardless of your substandard
-(`validators/programmable_logic/third_party.ak`):
+> **Superseded on `feat/upgradability-in-place`** by the PLG split — see
+> `cip113-api-changes-post-audit.md` §17. The third-party path is no longer a
+> `programmable_logic_global` redeemer arm; it is the **standalone `third_party`
+> validator** (redeemer `ThirdPartyRedeemer { params_idx, registry_node_idx,
+> outputs_start_idx }`), dispatched by `programmable_logic_base` via
+> `SpendViaThirdParty`. The custody guarantees below are unchanged — only the
+> validator that hosts them and the redeemer that carries the action moved.
+
+Pre-audit, the third-party/seizure path was under-specified. It is now a
+first-class action with structural guarantees the base layer enforces regardless
+of your substandard (`validators/programmable_logic/third_party.ak`):
 
 - Your `third_party_transfer_logic_script` MUST be invoked (withdraw-0) — the
   admin cannot act without your logic authorising it.

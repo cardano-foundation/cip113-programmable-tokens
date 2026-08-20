@@ -61,6 +61,7 @@ graph TB
 
     subgraph "Coordination Layer"
         PLG[programmable_logic_global<br/><i>Stake Validator</i>]
+        TP[third_party<br/><i>Stake Validator</i>]
     end
 
     subgraph "Registry"
@@ -81,9 +82,11 @@ graph TB
         TL[transfer_logic<br/><i>Stake Validator</i>]
     end
 
-    PLB -->|"delegates to"| PLG
+    PLB -->|"SpendViaGlobal"| PLG
+    PLB -->|"SpendViaThirdParty"| TP
     PLG -->|"looks up"| RS
-    PLG -->|"invokes"| TL
+    PLG -->|"invokes transfer logic"| TL
+    TP -->|"invokes third-party logic"| TL
     RM -->|"validates structure"| RS
     IM -->|"references"| ICH
 ```
@@ -96,8 +99,9 @@ The diagram above shows the **core CIP-113 standard** (Token Custody, Coordinati
 
 | Validator | Type | Parameters | Purpose |
 |-----------|------|------------|---------|
-| `programmable_logic_base` | Spend | `params_policy` | Custody of all programmable token UTxOs. Delegates to global validator. |
-| `programmable_logic_global` | Stake (withdraw) | `params_policy` | Core coordinator. Validates transfers, checks registry, invokes transfer logic. |
+| `programmable_logic_base` | Spend | `params_policy` | Custody of all programmable token UTxOs, and dispatcher. Each spend delegates to either the global validator (transfers / unfracking) or the third-party validator (seize / clawback), selected by the redeemer. |
+| `programmable_logic_global` | Stake (withdraw) | `params_policy` | Core coordinator. Validates transfers, checks registry, invokes transfer logic; also gates unfracking. |
+| `third_party` | Stake (withdraw) | `params_policy` | Standalone third-party-transfer (seize / clawback / freeze-enforcement) validator. Enforces the custody/conservation invariants and invokes the subject policy's third-party transfer logic. |
 | `protocol_params_mint` | Mint | `utxo_ref`, `coordination_addr_hash` | One-shot mint of the protocol parameters NFT. |
 | `coordination_spend` | Spend | `_nonce` | Guards the coordination UTxO (protocol-params NFT); enforces structural upgrade rails, authorised by the datum's upgrade authority. |
 | `upgrade_multisig` | Stake (withdraw) | `signers`, `threshold` | Reference upgrade authority: M-of-N multisig approval for `coordination_spend`'s trampoline. |
@@ -110,21 +114,39 @@ Substandard validators (transfer logic, denylist management, etc.) live in the [
 
 ### Dual Validator Delegation
 
-The `programmable_logic_base` validator is intentionally minimal. It is parameterized only by the protocol-params NFT policy — its one permanent anchor — and on every spend reads the CURRENT `programmable_logic_global` credential out of the coordination datum (located via that NFT among the reference inputs) before verifying that stake validator is present in the transaction's withdrawals:
+The `programmable_logic_base` validator is intentionally minimal — a **dispatcher**. It is parameterized only by the protocol-params NFT policy — its one permanent anchor — and on every spend reads the CURRENT delegate credential out of the coordination datum (located via that NFT among the reference inputs) before verifying that delegate's withdraw-0 is present in the transaction's withdrawals. Its redeemer, `BaseSpendRedeemer`, selects which delegate authorises the spend and witnesses the exact index of that delegate in the (ledger-sorted) withdrawal map:
+
+- `SpendViaGlobal` → delegate to `programmable_logic_global` (transfers / unfracking); PLB requires the `prog_logic_global_cred` (params datum field 3).
+- `SpendViaThirdParty` → delegate to the standalone `third_party` validator (seize / clawback); PLB requires the `third_party_cred` (params datum field 5).
 
 ```aiken
 // programmable_logic_base.ak — the entire spend logic
 validator programmable_logic_base(params_policy: PolicyId) {
-  spend(_datum, _redeemer, _own_ref, self: Transaction) {
-    let fields <- params.with_protocol_params_fields(self.reference_inputs, params_policy)
-    let plg_cred = params.prog_logic_global_cred_field(fields)
+  spend(_datum, redeemer: BaseSpendRedeemer, _own_ref, self: Transaction) {
+    let fields <- params.with_protocol_params_fields(
+      self.reference_inputs,
+      params_policy,
+      base_params_idx(redeemer),
+    )
 
-    self.withdrawals |> pairs.has_key_or_fail(plg_cred)
+    // Pick the delegate credential this spend claims, and the withdrawal
+    // index that must carry it.
+    let (claimed, wdrl_idx) = when redeemer is {
+      SpendViaGlobal { wdrl_idx, .. } ->
+        (params.prog_logic_global_cred_field(fields), wdrl_idx)
+      SpendViaThirdParty { wdrl_idx, .. } ->
+        (params.third_party_cred_field(fields), wdrl_idx)
+    }
+
+    // Jump straight to the witnessed withdrawal entry (O(1)) and require it
+    // to carry the claimed delegate credential.
+    let Pair(witnessed_cred, _) = list.expect_at(self.withdrawals, wdrl_idx)
+    (witnessed_cred == claimed)?
   }
 }
 ```
 
-This pattern is critical for performance: spending validators run once *per input*, but stake validators (via withdrawals) run only once *per transaction*. Since the global validator contains the expensive registry lookups and transfer logic invocations, running it once instead of N times (for N inputs) saves significant execution units.
+This pattern is critical for performance: spending validators run once *per input*, but stake validators (via withdrawals) run only once *per transaction*. Since the delegate contains the expensive registry lookups and transfer logic invocations, running it once instead of N times (for N inputs) saves significant execution units. Resolving the delegate by the redeemer-witnessed `wdrl_idx` (an O(1) lookup at a known position) rather than scanning the withdrawal map saves further cost on every input; a wrong index or arm resolves to a credential that fails the equality, so a dishonest witness only invalidates its own transaction.
 
 ---
 
@@ -308,7 +330,7 @@ type RegistryNode {
   transfer_logic_script: Credential,           // Stake validator for transfer rules
   third_party_transfer_logic_script: Credential, // Stake validator for seizure/freeze
   global_state_cs: ByteArray,                  // Optional NFT for global state (e.g., denylist)
-  protected_prefixes: List<ByteArray>,         // Append-only CIP-67 label prefixes ThirdPartyAct may not seize/burn
+  protected_prefixes: List<ByteArray>,         // Append-only CIP-67 label prefixes the third-party path may not seize/burn
 }
 ```
 
@@ -337,6 +359,7 @@ type ProgrammableLogicGlobalParams {
   unfracking_cred: Credential,       // Credential of the unfracking withdraw-0 validator (Finding 17)
   prog_logic_global_cred: Credential, // LIVE credential of programmable_logic_global — rewriting this field is an in-place PLG upgrade
   upgrade_logic_cred: Credential,    // Upgrade-authority withdraw-0 credential (coordination_spend's trampoline)
+  third_party_cred: Credential,      // LIVE credential of the standalone third_party validator — read by programmable_logic_base on a SpendViaThirdParty dispatch
 }
 ```
 
@@ -355,15 +378,6 @@ indices](./09-DEVELOPING-SUBSTANDARDS.md#reference-inputs-and-redeemer-indices))
 type ProgrammableLogicGlobalRedeemer {
   // Normal transfer: one proof per non-ADA policy in the inputs
   TransferAct { params_idx: Int, proofs: List<RegistryProof> }
-  // Administrative action — forced transfer / seizure / freeze enforcement /
-  // burn (see 03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md). Exactly one policy per
-  // transaction; acts on every PLB input holding the subject policy; paired
-  // continuing outputs begin at outputs_start_idx.
-  ThirdPartyAct {
-    params_idx: Int,        // The protocol-params NFT UTxO in reference inputs
-    registry_node_idx: Int, // The subject policy's registry node (one policy per tx)
-    outputs_start_idx: Int,
-  }
   // Finding 17: Unfracking — a holder redistributes the programmable tokens they
   // already hold across their own PLB UTxOs, WITHOUT invoking any substandard
   // transfer logic. Value-preserving, same-owner. The standalone `unfracking`
@@ -373,8 +387,38 @@ type ProgrammableLogicGlobalRedeemer {
 }
 ```
 
-The `programmable_logic_base` spend redeemer is the same `params_idx` as an
-`Int` (it too reads the params UTxO, once per spent input).
+**Base spend validator** (`BaseSpendRedeemer`):
+
+Each programmable-token spend selects one of two delegates and witnesses where
+that delegate's credential sits in the (ledger-sorted) withdrawal map. `params_idx`
+is the protocol-params NFT's index in `reference_inputs`; `wdrl_idx` is the
+delegate credential's index in `withdrawals`.
+
+```aiken
+type BaseSpendRedeemer {
+  // Delegate to programmable_logic_global (transfer / unfracking). PLB requires
+  // the prog_logic_global_cred (params datum field 3) at wdrl_idx.
+  SpendViaGlobal { params_idx: Int, wdrl_idx: Int }
+  // Delegate to the standalone third_party (seize / clawback) validator. PLB
+  // requires the third_party_cred (params datum field 5) at wdrl_idx.
+  SpendViaThirdParty { params_idx: Int, wdrl_idx: Int }
+}
+```
+
+**Third-party validator** (`ThirdPartyRedeemer`):
+
+The administrative / compliance action — forced transfer, seizure, freeze
+enforcement, burn (see [`03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md`](./03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md)).
+Exactly one policy per transaction; acts on every PLB input holding the subject
+policy; paired continuing outputs begin at `outputs_start_idx`.
+
+```aiken
+type ThirdPartyRedeemer {
+  params_idx: Int,        // The protocol-params NFT UTxO in reference inputs
+  registry_node_idx: Int, // The subject policy's registry node (one policy per tx)
+  outputs_start_idx: Int,
+}
+```
 
 **Registry proofs** (`RegistryProof`):
 
@@ -453,15 +497,17 @@ Key invariant: the total programmable token value in outputs at the `prog_logic_
 
 ### Third-Party (Administrative) Flow
 
-The `ThirdPartyAct` redeemer handles administrative / compliance operations — forced transfer, seizure, freeze enforcement, or burn. It differs from transfers:
+Administrative / compliance operations — forced transfer, seizure, freeze enforcement, or burn — run through the standalone `third_party` validator. A programmable-token spend selects this path with a `SpendViaThirdParty` base redeemer (so PLB requires the `third_party` validator's withdraw-0 instead of PLG's), and the `third_party` validator's withdraw-0 carries a `ThirdPartyRedeemer`. It differs from transfers:
 
 1. **No ownership check** — the `third_party_transfer_logic_script` authorizes the action instead of the stake credential owner
-2. **Amount redistribution** — `ThirdPartyAct` is a forced transfer: the subject policy's non-protected tokens on each paired output may be decreased, fully removed, increased, or left unchanged. Aggregate conservation (below) keeps the *total* non-protected subject amount across all PLB outputs accounting for every seized input plus any mint/burn — tokens are redistributed within the PLB, never created from nothing or made to escape
+2. **Amount redistribution** — a third-party action is a forced transfer: the subject policy's non-protected tokens on each paired output may be decreased, fully removed, increased, or left unchanged. Aggregate conservation (below) keeps the *total* non-protected subject amount across all PLB outputs accounting for every seized input plus any mint/burn — tokens are redistributed within the PLB, never created from nothing or made to escape
 3. **Per-pair mapping** — each spent PLB input is paired positionally with a continuing output (the first pair starts at `outputs_start_idx`); the action covers every PLB input that holds the subject policy
 4. **Preservation** — the paired output must preserve the holder's address, datum, **and reference script**, changing only the subject policy's non-protected tokens; all non-subject tokens are conserved byte-for-byte
 5. **Anti-injection / anti-DoS** — the paired input must already hold the subject policy, so the admin can neither inject the policy onto a UTxO that never held it nor drag an unrelated UTxO into the action
 6. **Protected prefixes** — tokens whose CIP-67 label prefix is on the node's `protected_prefixes` list cannot be extracted or burned ("preserve, not fail")
-7. **One policy per transaction** — `ThirdPartyAct` targets exactly one registry node (see scope note below)
+7. **One policy per transaction** — a `ThirdPartyRedeemer` targets exactly one registry node (see scope note below)
+
+Splitting the seize logic into its own script keeps it off the transfer reference-script hot path: a seize transaction loads `third_party` instead of PLG. Measured reference-script footprint drops accordingly — a transfer tx from 3659 B to 3072 B, a seize tx from 3659 B to 2565 B.
 
 > **Scope & limits.** The full extraction scope — protected prefixes, the
 > freeze-vs-extract asymmetry, who is seizable (holder scope), and the

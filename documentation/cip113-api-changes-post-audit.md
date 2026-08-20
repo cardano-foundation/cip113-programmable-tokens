@@ -788,6 +788,93 @@ index simply fails — no security is delegated to the index.
 
 ---
 
+## 17. PLG split — third-party path becomes its own validator, PLB dispatches (upgradability branch)
+
+> On `feat/upgradability-in-place`. **Breaking redeemer-surface + validator-set change.** Supersedes the `ThirdPartyAct` parts of §9.
+
+The third-party (seize / clawback / freeze) invariants move out of
+`programmable_logic_global` (PLG) into a **new standalone withdraw-0 validator
+`third_party`**, and `programmable_logic_base` (PLB) becomes a **dispatcher**:
+each spend forwards to *either* PLG (transfer / unfracking) *or* the `third_party`
+validator, witnessing which one and where its withdrawal sits.
+
+**Motivation.** PLG is a reference script paid for by every transfer, forever;
+the seize logic is heavy but rare. Hosting it separately keeps those bytes off
+the transfer hot path and — because a seize transaction no longer loads PLG at
+all — off the seize path too. Measured reference-script footprint per tx:
+`transfer` 3659 → 3072 B (**−587 B**), `seize` 3659 → 2565 B (**−1094 B**); PLG
+itself 3163 → 2313 B (**−27%**).
+
+### New validator
+
+- **`validators/third_party.ak`** — withdraw-0 validator, parameterized by
+  `params_policy` (the params-NFT policy), carrying the third-party invariants
+  (`validate_3rd_party`). Its own redeemer:
+  ```aiken
+  ThirdPartyRedeemer { params_idx: Int, registry_node_idx: Int, outputs_start_idx: Int }
+  ```
+  (the exact fields the old inline `ThirdPartyAct` carried). Per-policy it still
+  requires the issuer's `third_party_transfer_logic_script` (registry-node field
+  4) withdrawal.
+
+### Redeemer changes
+
+- **`programmable_logic_base.spend`** — the redeemer changes from `Int`
+  (§16's params index) to a **sum type** that also picks the delegate and
+  witnesses its withdrawal position:
+  ```aiken
+  BaseSpendRedeemer {
+    SpendViaGlobal { params_idx: Int, wdrl_idx: Int }      // -> PLG (transfer / unfracking)
+    SpendViaThirdParty { params_idx: Int, wdrl_idx: Int }  // -> third_party (seize)
+  }
+  ```
+  PLB reads the delegate credential from the params datum (`prog_logic_global_cred`
+  field 3, or `third_party_cred` field 5) and requires it at `withdrawals[wdrl_idx]`
+  — an O(1) `list.expect_at` instead of scanning the withdrawal map. Self-validating:
+  a wrong index or arm resolves to a credential that fails the equality.
+- **`ProgrammableLogicGlobalRedeemer`** — the `ThirdPartyAct` constructor is
+  **removed**; PLG now coordinates transfers and unfracking only:
+  ```aiken
+  TransferAct { params_idx: Int, proofs: List<RegistryProof> }
+  UnfrackingAct { params_idx: Int }
+  ```
+  (`UnfrackingAct`'s constructor index shifts 2 → 1.)
+
+### Protocol-params datum — new `third_party_cred` field
+
+- `ProgrammableLogicGlobalParams` gains **field 5 `third_party_cred`** (the
+  `third_party` validator's credential), appended last to keep prior field
+  indices stable. Read by PLB on a `SpendViaThirdParty` dispatch; swappable in
+  place, so the seize validator can be upgraded via a coordination-datum rewrite.
+  `coordination_spend` guards it with the same `is_28_byte_credential` one-way-brick
+  check as the other mutable credentials.
+
+### issuance_mint delegation
+
+- `issuance_mint`'s mint-custody delegation (Finding 04) now recognises coverage
+  from **either** PLG's `TransferAct` (as before) **or** the `third_party`
+  validator's `ThirdPartyRedeemer` — whichever names the same registry node the
+  mint's `RefInput { index }` did. `validate_3rd_party`'s conservation check
+  covers minted subject-policy tokens exactly as the old inline arm did, so the
+  trust is sound. No change to the `issuance_mint` parameter list.
+
+### Off-chain impact
+
+- Each `programmable_logic_base` spend now carries a `SpendViaGlobal` /
+  `SpendViaThirdParty` redeemer: pick the arm matching the transaction (a seize
+  tx uses `SpendViaThirdParty`), and set `wdrl_idx` to the delegate credential's
+  position in the **canonical** withdrawal ordering (the ledger sorts
+  `withdrawals` by reward address).
+- A seize transaction invokes the `third_party` validator's withdraw-0 (and
+  attaches its reference script) **instead of** PLG's; it carries a
+  `ThirdPartyRedeemer` at the `third_party_cred` reward address.
+- Deployment must write `third_party_cred` into the protocol-params datum and
+  publish the `third_party` reference script.
+- The SDK (`cip113-sdk-ts`) and the Java backend need corresponding updates —
+  tracked separately, out of scope for the on-chain change.
+
+---
+
 *This document tracks `main` at the time of writing. For the most current
 surface, always cross-check the validator declarations in `validators/` and
 type definitions in `lib/types.ak` / `lib/registry_node.ak`.*

@@ -118,7 +118,7 @@ The transaction must include reference inputs (not consumed, just read):
 - **Protocol parameters UTxO** — contains the `ProgrammableLogicGlobalParams` datum with the registry node currency symbol and programmable logic credential.
 - **Registry node UTxO** — the registry entry for the token being transferred, containing the transfer logic script credential.
 
-> **Reference-input indices are supplied in the redeemer.** Every validator that reads the protocol-params UTxO (`programmable_logic_base`, `programmable_logic_global`, `unfracking`) jumps straight to it by index — `params_idx` — instead of scanning the reference-input set, and authenticates it by the one-shot params NFT. A transaction references several scripts (each as a reference input), so the builder must compute the params UTxO's position **in the canonical reference-input ordering** (the ledger sorts `reference_inputs` by `OutputReference` = `(transaction_id, output_index)`; the on-chain index is a position into that sorted list, not into the order you added them). Set `params_idx` to that position in each redeemer; a wrong index fails the NFT check. The same discipline applies to `registry_node_idx` for the registry node.
+> **Reference-input indices are supplied in the redeemer.** Every validator that reads the protocol-params UTxO (`programmable_logic_base`, `programmable_logic_global`, `third_party`, `unfracking`) jumps straight to it by index — `params_idx` — instead of scanning the reference-input set, and authenticates it by the one-shot params NFT. A transaction references several scripts (each as a reference input), so the builder must compute the params UTxO's position **in the canonical reference-input ordering** (the ledger sorts `reference_inputs` by `OutputReference` = `(transaction_id, output_index)`; the on-chain index is a position into that sorted list, not into the order you added them). Set `params_idx` to that position in each redeemer; a wrong index fails the NFT check. The same discipline applies to `registry_node_idx` for the registry node.
 
 #### 4. Registry Proofs
 
@@ -136,6 +136,15 @@ Output:
 ```
 
 The payment credential stays the same (`programmable_logic_base`). Only the stake credential changes to the recipient's.
+
+#### 6. Base Spend Redeemer (Dispatch)
+
+`programmable_logic_base` is a dispatcher: each spent programmable-token input carries a `BaseSpendRedeemer` selecting which delegate authorises it and witnessing where that delegate sits in the withdrawal map.
+
+- **`SpendViaGlobal { params_idx, wdrl_idx }`** — for transfers (and unfracking). The base validator requires `programmable_logic_global`'s withdraw-0; set `wdrl_idx` to that credential's index in the withdrawals.
+- **`SpendViaThirdParty { params_idx, wdrl_idx }`** — for an administrative seize / clawback. The base validator requires the standalone `third_party` validator's withdraw-0; set `wdrl_idx` to that credential's index.
+
+`params_idx` is the protocol-params NFT's position in the (sorted) `reference_inputs`; `wdrl_idx` is the delegate credential's position in the **ledger-sorted** `withdrawals` map (sorted by reward-address / credential, not by insertion order). A wrong arm or index resolves to a credential that fails the base validator's equality check, so it only invalidates the transaction. Ordinary transfers use `SpendViaGlobal` for every input.
 
 #### Transaction Skeleton
 
@@ -155,7 +164,10 @@ Withdrawals:
   - (transfer_logic_script, 0)
 
 Redeemer (for programmable_logic_base, per spent input):
-  <protocol-params ref input index>            // an Int
+  SpendViaGlobal {
+    params_idx: <protocol-params ref input index>,
+    wdrl_idx:   <index of programmable_logic_global in the sorted withdrawals>,
+  }
 
 Redeemer (for programmable_logic_global):
   TransferAct {
@@ -350,16 +362,16 @@ This means indexers serving enterprise clients need to:
 - Not assume that a payment key hash will only appear as a payment credential.
 - Potentially offer a "query by owner credential" API that checks the stake slot of programmable addresses regardless of the credential's original role.
 
-#### Identifying Transfer vs. Administrative (ThirdPartyAct) Transactions
+#### Identifying Transfer vs. Administrative (Third-Party) Transactions
 
-Programmable token transactions come in two flavors, distinguishable by the redeemer used:
+Programmable token transactions come in two flavors, distinguishable by the base-spend dispatch and the delegate validator invoked:
 
-| Transaction Type | Redeemer | Characteristics |
+| Transaction Type | Base redeemer / delegate | Characteristics |
 |-----------------|----------|-----------------|
-| **Transfer** (`TransferAct`) | `TransferAct { proofs }` | Owner-authorized. Stake credential owner signed or invoked. Input and output may have different stake credentials. |
-| **Administrative** (`ThirdPartyAct`) | `ThirdPartyAct { ... }` | Admin-authorized (forced transfer / seizure / burn). No owner signature required. The continuing output preserves the holder's address and datum; only the subject policy's non-protected tokens change. |
+| **Transfer** | `SpendViaGlobal` → `programmable_logic_global` (`TransferAct { proofs }`) | Owner-authorized. Stake credential owner signed or invoked. Input and output may have different stake credentials. |
+| **Administrative** | `SpendViaThirdParty` → `third_party` (`ThirdPartyRedeemer { ... }`) | Admin-authorized (forced transfer / seizure / burn). No owner signature required. The continuing output preserves the holder's address and datum; only the subject policy's non-protected tokens change. |
 
-Explorers should display these differently — a third-party action is not a voluntary transfer and should be flagged as an administrative/compliance action.
+Explorers should display these differently — a third-party action is not a voluntary transfer and should be flagged as an administrative/compliance action. A seize transaction is recognisable by the `third_party` validator's withdraw-0 (and its reference script) in place of PLG's.
 
 ### Registry State
 
@@ -376,7 +388,7 @@ For tokens using the freeze-and-seize substandard, indexers should additionally 
 
 - **Denylist changes**: Insertions (`BlacklistInsert`) and removals (`BlacklistRemove`) on the blacklist linked list.
 - **Frozen addresses**: Current denylist membership indicates frozen/sanctioned credentials.
-- **Third-party actions**: `ThirdPartyAct` transactions where the admin forcibly changes a holder's subject-token balance (seizure, forced transfer, or burn).
+- **Third-party actions**: `third_party` transactions (`SpendViaThirdParty` + a `ThirdPartyRedeemer`) where the admin forcibly changes a holder's subject-token balance (seizure, forced transfer, or burn).
 
 ### Common Pitfalls
 
@@ -385,7 +397,7 @@ For tokens using the freeze-and-seize substandard, indexers should additionally 
 | Attributing all tokens to the script address | Without stake-credential-level grouping, all programmable tokens appear to belong to one giant script address. Always decompose by stake credential. |
 | Missing script owners | If only `VerificationKey` credentials are indexed, script-held tokens (dApps, DAOs) will be invisible. |
 | Confusing payment keys in stake slots | A credential hash in the stake slot may be a payment key hash. Don't assume it corresponds to a stake address registered on-chain. |
-| Treating third-party actions as transfers | `ThirdPartyAct` transactions are admin actions, not user-initiated transfers. They should be displayed differently and flagged for compliance. |
+| Treating third-party actions as transfers | `third_party` transactions (`SpendViaThirdParty`) are admin actions, not user-initiated transfers. They should be displayed differently and flagged for compliance. |
 | Ignoring registry changes | New token registrations change which policies are programmable. An indexer that snapshots the registry once will miss newly registered tokens. |
 
 ---
@@ -512,7 +524,7 @@ A dApp UTxO at `addr(programmable_logic_base, dapp_script_hash)` can hold both p
 | Forgetting stake address registration | The script's stake address must be registered on-chain before any withdraw-zero invocation. Without registration, transactions fail at the ledger level — no validator error message, just a cryptic ledger rejection. |
 | Conflating zero-ADA and real withdrawals | If your script's `withdraw` handler is invoked for both programmable-token authorization (0 ADA) and actual reward withdrawal, it must handle both cases correctly. Check the withdrawal amount. |
 | Not budgeting execution units | Multiple validator invocations in one transaction can exceed default budgets. Profile your transactions on testnet/preview. |
-| Assuming direct UTxO spending | You don't spend programmable token UTxOs with your spending validator. You authorize via withdraw-zero. The `programmable_logic_base` is the spending validator — it just delegates to the global coordinator. |
+| Assuming direct UTxO spending | You don't spend programmable token UTxOs with your spending validator. You authorize via withdraw-zero. The `programmable_logic_base` is the spending validator — it just dispatches each spend to the global coordinator (transfers) or the `third_party` validator (administrative actions). |
 | Minting the token in a registry lifecycle tx | A registry-node lifecycle transaction — registering a token, or updating a node in place — must **not** mint or burn that node's own programmable token; `registry_spend` rejects it. Lifecycle and issuance are always **separate** transactions. (Registering a *new* token still mints the new key — the rule applies to the node being *spent*, e.g. the covering predecessor.) See [Registry Lifecycle & Upgradeability](./09-DEVELOPING-SUBSTANDARDS.md#registry-lifecycle--upgradeability) and [`03` §3.2](./03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md). |
 
 ---
