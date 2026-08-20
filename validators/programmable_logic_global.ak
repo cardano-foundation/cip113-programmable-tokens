@@ -14,8 +14,7 @@ use programmable_logic/params.{
 use programmable_logic/transfer.{validate_transfer}
 use registry_node.{new_registry_node_getter}
 use types.{
-  ProgrammableLogicGlobalRedeemer, ThirdPartyAct, TransferAct, UnfrackingAct,
-  params_idx_of,
+  ProgrammableLogicGlobalRedeemer, TransferAct, UnfrackingAct, params_idx_of,
 }
 
 validator programmable_logic_global(params_policy: PolicyId) {
@@ -54,14 +53,6 @@ validator programmable_logic_global(params_policy: PolicyId) {
           proofs,
         )
       }
-
-      // Third-party (seize / clawback / freeze) actions moved to the
-      // standalone `third_party` withdraw-0 validator, dispatched by
-      // programmable_logic_base (SpendViaThirdParty). PLG coordinates
-      // transfers and unfracking only; a ThirdPartyAct routed to PLG is
-      // malformed — reject it (the base spend never sends one here).
-      ThirdPartyAct { .. } ->
-        fail @"third-party actions use the standalone third_party validator"
 
       // Finding 17: holder-driven UTxO redistribution. No registry node,
       // no proofs, no substandard logic — purely a value-preserving

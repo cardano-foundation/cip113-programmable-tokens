@@ -8,7 +8,7 @@ use programmable_logic/fixture
 use programmable_logic/params.{ProgrammableLogicGlobalParams}
 use programmable_logic_global
 use registry_node.{RegistryNode, empty_vkey}
-use types.{ThirdPartyAct, TokenDoesNotExist, TokenExists, TransferAct}
+use types.{TokenDoesNotExist, TokenExists, TransferAct}
 use utils.{bytearray_lt}
 
 const test_registry_node_cs: PolicyId =
@@ -906,25 +906,8 @@ test fails_absence_proof_when_node_ends_below_policy() fail {
     #"22222222222222222222222222222222222222222222222222222222",
   )
 }
-
-// PLG no longer coordinates third-party (seize / clawback) actions — those
-// moved to the standalone `third_party` withdraw-0 validator, dispatched by
-// programmable_logic_base via SpendViaThirdParty. A ThirdPartyAct redeemer
-// routed to PLG must hard-error (the base spend never sends one here).
-test plg_rejects_third_party_act() fail {
-  let tx = Transaction {
-    ..transaction.placeholder,
-    reference_inputs: [
-      fixture.some_reference_input_protocol_params(
-        fixture.protocol_params,
-        "protocol params",
-      ),
-    ],
-  }
-  programmable_logic_global.programmable_logic_global.withdraw(
-    fixture.policy_protocol_params,
-    ThirdPartyAct { params_idx: 0, registry_node_idx: 1, outputs_start_idx: 0 },
-    fixture.credential_validator_logic_global,
-    tx,
-  )
-}
+// NOTE: PLG no longer coordinates third-party (seize / clawback) actions —
+// those moved to the standalone `third_party` withdraw-0 validator, and the
+// `ThirdPartyAct` constructor was removed from ProgrammableLogicGlobalRedeemer
+// entirely, so routing one to PLG is now unrepresentable at the type level (no
+// runtime test needed). See third_party.test.ak for the third-party coverage.

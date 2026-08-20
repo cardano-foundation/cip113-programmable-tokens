@@ -17,7 +17,8 @@ use issuance_mint
 use programmable_logic/params.{ProgrammableLogicGlobalParams}
 use registry_node.{RegistryNode, empty_vkey}
 use types.{
-  MintingRegistryProof, OutputIndex, RefInput, TokenExists, TransferAct,
+  MintingRegistryProof, OutputIndex, RefInput, ThirdPartyRedeemer, TokenExists,
+  TransferAct,
 }
 
 // ---------------------------------------------------------------------------
@@ -35,6 +36,12 @@ const test_ml_cred: Credential =
 
 const test_plg_cred: Credential =
   Script(#"a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1")
+
+/// The standalone third_party (seize) validator credential carried by the
+/// coordination datum (field 5, `third_party_cred`) — the delegate a mint
+/// co-occurring with a seize defers custody to.
+const test_tp_cred: Credential =
+  Script(#"c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3")
 
 /// The live PLG credential AFTER a simulated in-place upgrade — what the
 /// coordination datum carries once `test_plg_cred` has been retired.
@@ -193,7 +200,7 @@ fn coordination_ref_input(plg_cred: Credential) -> Input {
             unfracking_cred: test_ml_cred,
             prog_logic_global_cred: plg_cred,
             upgrade_logic_cred: test_ml_cred,
-            third_party_cred: test_ml_cred,
+            third_party_cred: test_tp_cred,
           },
         ),
       ),
@@ -670,6 +677,94 @@ test multi_token_burn() {
         Withdraw(test_plg_cred),
         as_data(
           TransferAct { params_idx: 0, proofs: [TokenExists { node_idx: 0 }] },
+        ),
+      ),
+    ],
+  }
+  call_validator(rdmr, tx)
+}
+
+// Phase-4 (PLG split): a mint that co-occurs with a third-party SEIZE of the
+// same policy delegates custody to the standalone `third_party` validator, whose
+// redeemer (at `third_party_cred`, field 5) names our registry node. To isolate
+// the delegation DECISION, the minted subject tokens go to a NON-PLB output —
+// local `no_escape` alone would reject this, but delegation short-circuits it
+// (in a real tx `validate_3rd_party` enforces those tokens stay at PLB).
+test refinput_mint_delegates_to_third_party_seize() {
+  let rdmr = valid_redeemer()
+  let escaping_output = Output {
+    address: Address {
+      payment_credential: Script(
+        #"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      ),
+      stake_credential: None,
+    },
+    value: min_ada |> assets.add(test_own_policy, test_token_name, 100),
+    datum: NoDatum,
+    reference_script: None,
+  }
+  let tx = Transaction {
+    ..transaction.placeholder,
+    reference_inputs: [
+      // index 0 — our registry node (RefInput(0))
+      some_ref_input(registry_node_output(test_own_policy)),
+      coordination_ref_input(test_plg_cred),
+    ],
+    outputs: [escaping_output],
+    mint: from_asset(test_own_policy, test_token_name, 100),
+    withdrawals: [Pair(test_ml_cred, 0), Pair(test_tp_cred, 0)],
+    redeemers: [
+      Pair(Mint(test_own_policy), as_data(rdmr)),
+      Pair(
+        Withdraw(test_tp_cred),
+        as_data(
+          ThirdPartyRedeemer {
+            params_idx: 0,
+            registry_node_idx: 0,
+            outputs_start_idx: 0,
+          },
+        ),
+      ),
+    ],
+  }
+  call_validator(rdmr, tx)
+}
+
+// Negative: same escaping mint, but the third_party redeemer names a DIFFERENT
+// registry node (index 1, not our 0). Delegation is denied — precise
+// delegation (Finding 04) — so local custody runs and catches the escape.
+test refinput_mint_third_party_wrong_node_no_delegation_fails() fail {
+  let rdmr = valid_redeemer()
+  let escaping_output = Output {
+    address: Address {
+      payment_credential: Script(
+        #"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      ),
+      stake_credential: None,
+    },
+    value: min_ada |> assets.add(test_own_policy, test_token_name, 100),
+    datum: NoDatum,
+    reference_script: None,
+  }
+  let tx = Transaction {
+    ..transaction.placeholder,
+    reference_inputs: [
+      some_ref_input(registry_node_output(test_own_policy)),
+      coordination_ref_input(test_plg_cred),
+    ],
+    outputs: [escaping_output],
+    mint: from_asset(test_own_policy, test_token_name, 100),
+    withdrawals: [Pair(test_ml_cred, 0), Pair(test_tp_cred, 0)],
+    redeemers: [
+      Pair(Mint(test_own_policy), as_data(rdmr)),
+      Pair(
+        Withdraw(test_tp_cred),
+        as_data(
+          ThirdPartyRedeemer {
+            params_idx: 0,
+            registry_node_idx: 1,
+            outputs_start_idx: 0,
+          },
         ),
       ),
     ],

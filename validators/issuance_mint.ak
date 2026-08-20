@@ -12,7 +12,7 @@ use programmable_logic/params
 use registry_node.{RegistryNode}
 use types.{
   MintingRegistryProof, OutputIndex, ProgrammableLogicGlobalRedeemer, RefInput,
-  RegistryProof, ThirdPartyAct, TokenExists, TransferAct, UnfrackingAct,
+  RegistryProof, ThirdPartyRedeemer, TokenExists, TransferAct, UnfrackingAct,
 }
 use utils.{expect_inline_datum}
 
@@ -227,15 +227,71 @@ fn plgl_delegates_for_own_registry_node(
   is {
     None -> False
     Some(coordination_ref) -> {
-      let plg_cred = params.prog_logic_global_cred_field(
-        unconstr_fields(expect_inline_datum(coordination_ref.output)),
-      )
-      when find_plgl_redeemer(redeemers, plg_cred) is {
-        None -> False
-        Some(plg_redeemer) ->
-          plgl_scope_covers(plg_redeemer, own_registry_node_idx)
+      let fields = unconstr_fields(expect_inline_datum(coordination_ref.output))
+      or {
+        // (a) PLGlobal (transfer) validates our node's custody in the same tx.
+        when
+          find_plgl_redeemer(
+            redeemers,
+            params.prog_logic_global_cred_field(fields),
+          )
+        is {
+          None -> False
+          Some(plg_redeemer) ->
+            plgl_scope_covers(plg_redeemer, own_registry_node_idx)
+        },
+        // (b) the standalone third_party (seize) validator does. Its
+        // conservation check (validate_3rd_party) covers minted subject-policy
+        // tokens exactly as the old inline ThirdPartyAct arm did, so trusting
+        // it for custody is sound (Finding 04 precise delegation preserved).
+        third_party_covers_own_registry_node(
+          redeemers,
+          params.third_party_cred_field(fields),
+          own_registry_node_idx,
+        ),
       }
     }
+  }
+}
+
+/// Does the standalone `third_party` (seize) validator's redeemer name the
+/// SAME registry node our `RefInput { index }` did? Its `registry_node_idx`
+/// IS the subject policy's node (single-policy), so "same index" ⇒ "same
+/// policy" — identical reasoning to the old inline ThirdPartyAct scope check.
+/// None (third_party not invoked, or its redeemer names a different node) ⇒
+/// no delegation, so custody falls back to local `no_escape`.
+fn third_party_covers_own_registry_node(
+  redeemers: Pairs<ScriptPurpose, Data>,
+  third_party_cred: Credential,
+  own_registry_node_idx: Int,
+) -> Bool {
+  when find_tp_redeemer(redeemers, third_party_cred) is {
+    None -> False
+    Some(ThirdPartyRedeemer { registry_node_idx, .. }) ->
+      registry_node_idx == own_registry_node_idx
+  }
+}
+
+/// Find the `third_party` validator's Withdraw redeemer in `tx.redeemers` and
+/// decode it. Mirrors `find_plgl_redeemer`; returns None when the third_party
+/// validator isn't invoked.
+fn find_tp_redeemer(
+  redeemers: Pairs<ScriptPurpose, Data>,
+  cred: Credential,
+) -> Option<ThirdPartyRedeemer> {
+  when redeemers is {
+    [] -> None
+    [Pair(purpose, data), ..tail] ->
+      when purpose is {
+        Withdraw(c) ->
+          if c == cred {
+            expect tp: ThirdPartyRedeemer = data
+            Some(tp)
+          } else {
+            find_tp_redeemer(tail, cred)
+          }
+        _ -> find_tp_redeemer(tail, cred)
+      }
   }
 }
 
@@ -271,10 +327,10 @@ fn find_plgl_redeemer(
 ///                    with this proof, PLGlobal will resolve our index and
 ///                    validate against it. If positions don't line up,
 ///                    PLGlobal aborts and the tx fails — no escape path.
-///   * ThirdPartyAct → `registry_node_idx == own_registry_node_idx`.
-///                    Current ThirdPartyAct is single-policy; the index in
-///                    the redeemer IS the seized policy's registry node.
-///                    Identical to ours ⇒ identical policy.
+///
+/// Third-party (seize) actions are NOT handled by PLGlobal any more — they run
+/// in the standalone `third_party` validator, whose coverage is checked
+/// separately in `third_party_covers_own_registry_node` below.
 fn plgl_scope_covers(
   plg_redeemer: ProgrammableLogicGlobalRedeemer,
   own_registry_node_idx: Int,
@@ -284,8 +340,6 @@ fn plgl_scope_covers(
       let expected_proof = TokenExists(own_registry_node_idx)
       list.any(proofs, fn(proof: RegistryProof) { expected_proof == proof })
     }
-    ThirdPartyAct { registry_node_idx, .. } ->
-      registry_node_idx == own_registry_node_idx
     // UnfrackingAct (Finding 17) is value-preserving, same-owner PLB
     // restructuring with NO mint — it never validates an issuance's custody, so
     // it cannot cover one. Deny delegation (Finding 04 precise delegation):

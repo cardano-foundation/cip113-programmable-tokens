@@ -24,17 +24,6 @@ pub type RegistryProof {
 pub type ProgrammableLogicGlobalRedeemer {
   /// Transfer action with proofs for each token type
   TransferAct { params_idx: Int, proofs: List<RegistryProof> }
-  /// Third party action for administrative / compliance operations —
-  /// forced transfer, seizure, freeze enforcement, or burn. Supports multiple
-  /// UTxOs of the subject policy in a single transaction.
-  ThirdPartyAct {
-    /// Index of the protocol-params NFT UTxO in reference inputs
-    params_idx: Int,
-    /// Index of the registry node in reference inputs
-    registry_node_idx: Int,
-    /// Starting index in outputs where processed outputs begin
-    outputs_start_idx: Int,
-  }
   /// Unfracking action (v2, registry-gated) — a holder restructures
   /// the PLB UTxOs they own for ONE registered policy, e.g. to break a
   /// multi-policy "fracked" UTxO apart so a freeze on one policy stops
@@ -54,7 +43,6 @@ pub type ProgrammableLogicGlobalRedeemer {
 pub fn params_idx_of(redeemer: ProgrammableLogicGlobalRedeemer) -> Int {
   when redeemer is {
     TransferAct { params_idx, .. } -> params_idx
-    ThirdPartyAct { params_idx, .. } -> params_idx
     UnfrackingAct { params_idx } -> params_idx
   }
 }
