@@ -72,6 +72,22 @@ pub type UnfrackingRedeemer {
   outputs_start_idx: Int,
 }
 
+/// Redeemer of the standalone `third_party` withdraw-0 validator.
+/// Same index-hint discipline as `UnfrackingRedeemer`: a third-party
+/// (seize / clawback / freeze-enforcement) action names its subject
+/// policy's registry node and pairs every acted-on PLB input positionally
+/// with a continuing output starting at `outputs_start_idx`. Carries the
+/// exact fields the old inline `ThirdPartyAct` arm did — the logic moved
+/// out of PLG into its own script, the redeemer surface is unchanged.
+pub type ThirdPartyRedeemer {
+  /// Index of the protocol-params NFT UTxO in reference inputs
+  params_idx: Int,
+  /// Index of the subject policy's registry node in reference inputs
+  registry_node_idx: Int,
+  /// Starting index in outputs where processed outputs begin
+  outputs_start_idx: Int,
+}
+
 /// Redeemer for the issuance minting policy.
 ///
 /// The redeemer is the registry proof itself — a `RefInput` index for a
