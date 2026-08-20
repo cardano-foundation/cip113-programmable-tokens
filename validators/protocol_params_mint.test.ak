@@ -68,6 +68,9 @@ fn valid_params_datum() -> Data {
       upgrade_logic_cred: Script(
         #"000000000000000000000000000000000000000000000000009c6ade",
       ),
+      third_party_cred: Script(
+        #"00000000000000000000000000000000000000000000000000731d3a",
+      ),
     },
   )
 }

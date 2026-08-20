@@ -37,6 +37,7 @@ test programmable_logic_global_params_structure() {
     unfracking_cred: fixture.credential_validator_unfracking,
     prog_logic_global_cred: fixture.credential_validator_logic_global,
     upgrade_logic_cred: fixture.credential_upgrade_authority,
+    third_party_cred: fixture.credential_validator_third_party,
   }
 
   params.prog_logic_cred == test_prog_logic_cred && params.registry_node_cs == test_registry_node_cs
@@ -223,6 +224,7 @@ test protocol_params_from_reference_inputs() {
     unfracking_cred: fixture.credential_validator_unfracking,
     prog_logic_global_cred: fixture.credential_validator_logic_global,
     upgrade_logic_cred: fixture.credential_upgrade_authority,
+    third_party_cred: fixture.credential_validator_third_party,
   }
 
   // Protocol params should be loaded from reference input

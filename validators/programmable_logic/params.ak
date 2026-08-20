@@ -35,6 +35,14 @@ pub type ProgrammableLogicGlobalParams {
   /// retiring one authority model for another leaves no trace in this datum.
   /// Appended last to keep prior field indices stable.
   upgrade_logic_cred: Credential,
+  /// Credential of the standalone third-party-transfer withdraw-0 validator.
+  /// Read by programmable_logic_base on a SpendViaThirdParty dispatch to
+  /// require that validator's withdraw-0. The third-party (seize/clawback)
+  /// path was pulled out of PLG into its own script to keep the transfer hot
+  /// path small — the same delegation pattern as `unfracking_cred`, and made
+  /// a datum field (not a PLB parameter) so it stays swappable in place.
+  /// Appended last to keep prior field indices stable.
+  third_party_cred: Credential,
 }
 
 /// Authenticate the protocol-params NFT reference input by its
@@ -115,4 +123,13 @@ pub fn upgrade_logic_cred_field(fields: List<Data>) -> Credential {
     tail_list(tail_list(tail_list(tail_list(fields)))),
   )
   upgrade_logic_cred
+}
+
+/// Field 5: the standalone third-party-transfer withdraw-0 credential.
+/// Read by programmable_logic_base on a SpendViaThirdParty dispatch.
+pub fn third_party_cred_field(fields: List<Data>) -> Credential {
+  expect third_party_cred: Credential = head_list(
+    tail_list(tail_list(tail_list(tail_list(tail_list(fields))))),
+  )
+  third_party_cred
 }

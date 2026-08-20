@@ -39,6 +39,14 @@ pub const credential_validator_logic_base: Credential =
 pub const credential_validator_logic_global: Credential =
   Credential.Script(#"0000000000000000000000000000000000000000000000000001091c")
 
+/// Arbitrary script credential representing the standalone third-party
+/// (seize/clawback) validator. Carried by the protocol-params datum
+/// (`third_party_cred`); a SpendViaThirdParty base spend requires this
+/// script's withdraw-0. Distinct from `credential_3rd_party_logic`, which is
+/// an ISSUER's per-policy third-party-transfer logic script (registry field).
+pub const credential_validator_third_party: Credential =
+  Credential.Script(#"00000000000000000000000000000000000000000000000000731d3a")
+
 /// Arbitrary script credential representing the unfracking
 /// validator (Finding 17). Carried by the protocol-params datum
 /// (`unfracking_cred`); an UnfrackingAct transaction must carry this
@@ -115,6 +123,7 @@ pub const protocol_params: ProgrammableLogicGlobalParams =
     unfracking_cred: credential_validator_unfracking,
     prog_logic_global_cred: credential_validator_logic_global,
     upgrade_logic_cred: credential_upgrade_authority,
+    third_party_cred: credential_validator_third_party,
   }
 
 /// Some input to pay for fuel, deterministically determined by the label.

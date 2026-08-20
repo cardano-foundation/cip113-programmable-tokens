@@ -104,6 +104,11 @@ validator coordination_spend(_nonce: ByteArray) {
       is_28_byte_credential(new_params.prog_logic_global_cred)?,
       is_28_byte_credential(new_params.unfracking_cred)?,
       is_28_byte_credential(new_params.upgrade_logic_cred)?,
+      // Same one-way-brick rule for the third-party validator credential: a
+      // wrong-length hash can never appear in tx.withdrawals, so writing one
+      // would make every SpendViaThirdParty base spend permanently
+      // unsatisfiable (freezing the third-party/seize path for all policies).
+      is_28_byte_credential(new_params.third_party_cred)?,
       // No reference script may be attached to the coordination UTxO.
       (cont.reference_script == None)?,
       // Authorisation (trampoline 2): the CURRENT datum's upgrade authority must

@@ -118,6 +118,7 @@ fn coordination_ref_input(plg_cred: Credential) -> Input {
           unfracking_cred: test_ml_cred,
           prog_logic_global_cred: plg_cred,
           upgrade_logic_cred: test_ml_cred,
+          third_party_cred: test_ml_cred,
         },
       ),
       reference_script: None,
