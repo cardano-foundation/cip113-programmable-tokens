@@ -96,25 +96,30 @@ The diagram above shows the **core CIP-113 standard** (Token Custody, Coordinati
 
 | Validator | Type | Parameters | Purpose |
 |-----------|------|------------|---------|
-| `programmable_logic_base` | Spend | `stake_cred` | Custody of all programmable token UTxOs. Delegates to global validator. |
-| `programmable_logic_global` | Stake (withdraw) | `protocol_params_cs` | Core coordinator. Validates transfers, checks registry, invokes transfer logic. |
-| `protocol_params_mint` | Mint | `utxo_ref`, `always_fail_hash` | One-shot mint of the protocol parameters NFT. |
+| `programmable_logic_base` | Spend | `params_policy` | Custody of all programmable token UTxOs. Delegates to global validator. |
+| `programmable_logic_global` | Stake (withdraw) | `params_policy` | Core coordinator. Validates transfers, checks registry, invokes transfer logic. |
+| `protocol_params_mint` | Mint | `utxo_ref`, `coordination_addr_hash` | One-shot mint of the protocol parameters NFT. |
+| `coordination_spend` | Spend | `_nonce` | Guards the coordination UTxO (protocol-params NFT); enforces structural upgrade rails, authorised by the datum's upgrade authority. |
+| `upgrade_multisig` | Stake (withdraw) | `signers`, `threshold` | Reference upgrade authority: M-of-N multisig approval for `coordination_spend`'s trampoline. |
 | `registry_mint` | Mint | `utxo_ref`, `issuance_cbor_hex_cs`, `registry_spend_cred` | Manages the sorted linked list of registered token policies. |
 | `registry_spend` | Spend | `protocol_params_cs` | Guards registry node UTxOs; only allows spending when `registry_mint` is active. |
-| `issuance_mint` | Mint | `programmable_logic_base`, `registry_node_cs`, `minting_logic_cred`, `plg_stake_cred` | Mints/burns programmable tokens. Parameterized per token type. |
+| `issuance_mint` | Mint | `programmable_logic_base`, `registry_node_cs`, `minting_logic_cred`, `params_policy` | Mints/burns programmable tokens. Parameterized per token type. |
 | `issuance_cbor_hex_mint` | Mint | `utxo_ref` | One-shot mint of the reference NFT holding issuance script template bytes. |
 
 Substandard validators (transfer logic, denylist management, etc.) live in the [`substandards/`](https://github.com/cardano-foundation/cip113-programmable-tokens-platform/tree/main/src/substandards) directory as separate Aiken modules.
 
 ### Dual Validator Delegation
 
-The `programmable_logic_base` validator is intentionally minimal. Its only job is to verify that the `programmable_logic_global` stake validator is present in the transaction's withdrawals:
+The `programmable_logic_base` validator is intentionally minimal. It is parameterized only by the protocol-params NFT policy — its one permanent anchor — and on every spend reads the CURRENT `programmable_logic_global` credential out of the coordination datum (located via that NFT among the reference inputs) before verifying that stake validator is present in the transaction's withdrawals:
 
 ```aiken
 // programmable_logic_base.ak — the entire spend logic
-validator programmable_logic_base(stake_cred: Credential) {
+validator programmable_logic_base(params_policy: PolicyId) {
   spend(_datum, _redeemer, _own_ref, self: Transaction) {
-    self.withdrawals |> pairs.has_key_or_fail(stake_cred)
+    let fields <- params.with_protocol_params_fields(self.reference_inputs, params_policy)
+    let plg_cred = params.prog_logic_global_cred_field(fields)
+
+    self.withdrawals |> pairs.has_key_or_fail(plg_cred)
   }
 }
 ```
@@ -323,13 +328,15 @@ type BlacklistNode {
 
 ### ProgrammableLogicGlobalParams
 
-Stored on-chain in a UTxO marked by the protocol params NFT:
+Stored on-chain in the coordination UTxO, marked by the protocol params NFT:
 
 ```aiken
 type ProgrammableLogicGlobalParams {
-  registry_node_cs: PolicyId,  // Currency symbol of registry NFTs
-  prog_logic_cred: Credential, // Payment credential of programmable_logic_base
-  unfracking_cred: Credential, // Credential of the unfracking withdraw-0 validator (Finding 17)
+  registry_node_cs: PolicyId,        // Currency symbol of registry NFTs
+  prog_logic_cred: Credential,       // Payment credential of programmable_logic_base
+  unfracking_cred: Credential,       // Credential of the unfracking withdraw-0 validator (Finding 17)
+  prog_logic_global_cred: Credential, // LIVE credential of programmable_logic_global — rewriting this field is an in-place PLG upgrade
+  upgrade_logic_cred: Credential,    // Upgrade-authority withdraw-0 credential (coordination_spend's trampoline)
 }
 ```
 
@@ -337,26 +344,37 @@ type ProgrammableLogicGlobalParams {
 
 **Global validator** (`ProgrammableLogicGlobalRedeemer`):
 
+Every variant carries `params_idx` — the index of the protocol-params NFT UTxO
+in `reference_inputs`. The validator addresses that reference input directly
+(`list.at`) and authenticates it by the one-shot params NFT, rather than
+scanning the reference-input set. The index is a position into the ledger's
+canonical `reference_inputs` ordering (see [Reference inputs and redeemer
+indices](./09-DEVELOPING-SUBSTANDARDS.md#reference-inputs-and-redeemer-indices)).
+
 ```aiken
 type ProgrammableLogicGlobalRedeemer {
   // Normal transfer: one proof per non-ADA policy in the inputs
-  TransferAct { proofs: List<RegistryProof> }
+  TransferAct { params_idx: Int, proofs: List<RegistryProof> }
   // Administrative action — forced transfer / seizure / freeze enforcement /
   // burn (see 03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md). Exactly one policy per
   // transaction; acts on every PLB input holding the subject policy; paired
   // continuing outputs begin at outputs_start_idx.
   ThirdPartyAct {
+    params_idx: Int,        // The protocol-params NFT UTxO in reference inputs
     registry_node_idx: Int, // The subject policy's registry node (one policy per tx)
     outputs_start_idx: Int,
   }
   // Finding 17: Unfracking — a holder redistributes the programmable tokens they
   // already hold across their own PLB UTxOs, WITHOUT invoking any substandard
-  // transfer logic. Value-preserving, same-owner. No payload: the standalone
-  // `unfracking` withdraw-0 validator (its credential is the params datum's
-  // `unfracking_cred`) enforces the invariants; PLG only checks it is invoked.
-  UnfrackingAct
+  // transfer logic. Value-preserving, same-owner. The standalone `unfracking`
+  // withdraw-0 validator (its credential is the params datum's `unfracking_cred`)
+  // enforces the invariants; PLG only checks it is invoked.
+  UnfrackingAct { params_idx: Int }
 }
 ```
+
+The `programmable_logic_base` spend redeemer is the same `params_idx` as an
+`Int` (it too reads the params UTxO, once per spent input).
 
 **Registry proofs** (`RegistryProof`):
 

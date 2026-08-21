@@ -14,6 +14,7 @@ use cardano/transaction.{
   Withdraw,
 }
 use issuance_mint
+use programmable_logic/params.{ProgrammableLogicGlobalParams}
 use registry_node.{RegistryNode, empty_vkey}
 use types.{
   MintingRegistryProof, OutputIndex, RefInput, TokenExists, TransferAct,
@@ -34,6 +35,15 @@ const test_ml_cred: Credential =
 
 const test_plg_cred: Credential =
   Script(#"a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1")
+
+/// The live PLG credential AFTER a simulated in-place upgrade — what the
+/// coordination datum carries once `test_plg_cred` has been retired.
+const test_plg_cred_v2: Credential =
+  Script(#"b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2")
+
+/// One-shot protocol-params NFT policy — the validator's 4th parameter.
+const test_params_policy: PolicyId =
+  #"5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e"
 
 const test_own_policy: PolicyId =
   #"44444444444444444444444444444444444444444444444444444444"
@@ -159,6 +169,38 @@ fn some_input(output: Output) -> Input {
   }
 }
 
+/// The coordination UTxO as a reference input: carries the protocol-params
+/// NFT (under `test_params_policy`) and the protocol-params datum whose
+/// field 3 (`prog_logic_global_cred`) is the LIVE PLG credential the
+/// validator must resolve. `unfracking_cred` / `upgrade_logic_cred` are
+/// never read by issuance_mint, so any placeholder credential is fine.
+fn coordination_ref_input(plg_cred: Credential) -> Input {
+  some_ref_input(
+    Output {
+      address: Address {
+        payment_credential: Script(
+          #"88888888888888888888888888888888888888888888888888888888",
+        ),
+        stake_credential: None,
+      },
+      value: min_ada
+        |> assets.add(test_params_policy, "ProtocolParams", 1),
+      datum: InlineDatum(
+        as_data(
+          ProgrammableLogicGlobalParams {
+            registry_node_cs: test_registry_cs,
+            prog_logic_cred: test_plb_cred,
+            unfracking_cred: test_ml_cred,
+            prog_logic_global_cred: plg_cred,
+            upgrade_logic_cred: test_ml_cred,
+          },
+        ),
+      ),
+      reference_script: None,
+    },
+  )
+}
+
 fn valid_redeemer() -> MintingRegistryProof {
   RefInput(0)
 }
@@ -180,7 +222,7 @@ fn call_validator(rdmr: MintingRegistryProof, tx: Transaction) -> Bool {
     test_plb_cred,
     test_registry_cs,
     test_ml_cred,
-    test_plg_cred,
+    test_params_policy,
     rdmr,
     test_own_policy,
     tx,
@@ -195,6 +237,9 @@ test valid_mint_with_ref_input() {
   call_validator(valid_redeemer(), valid_mint_tx())
 }
 
+// `reference_inputs` is deliberately absent — this test is the proof that
+// the OutputIndex path needs no coordination ref input (the coordination
+// read is lazy: only the RefInput delegation branch performs it).
 test valid_mint_with_output_index() {
   let rdmr = OutputIndex(1)
   let tx = Transaction {
@@ -224,7 +269,10 @@ test valid_burn() {
         output: mint_output(50),
       },
     ],
-    reference_inputs: [some_ref_input(registry_node_output(test_own_policy))],
+    reference_inputs: [
+      some_ref_input(registry_node_output(test_own_policy)),
+      coordination_ref_input(test_plg_cred),
+    ],
     outputs: [],
     mint: from_asset(test_own_policy, test_token_name, -50),
     withdrawals: [Pair(test_ml_cred, 0), Pair(test_plg_cred, 0)],
@@ -232,7 +280,9 @@ test valid_burn() {
       Pair(Mint(test_own_policy), as_data(rdmr)),
       Pair(
         Withdraw(test_plg_cred),
-        as_data(TransferAct { proofs: [TokenExists { node_idx: 0 }] }),
+        as_data(
+          TransferAct { params_idx: 0, proofs: [TokenExists { node_idx: 0 }] },
+        ),
       ),
     ],
   }
@@ -605,7 +655,10 @@ test multi_token_burn() {
         output: multi_mint_output(100, 50),
       },
     ],
-    reference_inputs: [some_ref_input(registry_node_output(test_own_policy))],
+    reference_inputs: [
+      some_ref_input(registry_node_output(test_own_policy)),
+      coordination_ref_input(test_plg_cred),
+    ],
     outputs: [],
     mint: from_asset(test_own_policy, test_token_name, -100)
       |> assets.add(test_own_policy, test_token_name_2, -50),
@@ -614,7 +667,9 @@ test multi_token_burn() {
       Pair(Mint(test_own_policy), as_data(rdmr)),
       Pair(
         Withdraw(test_plg_cred),
-        as_data(TransferAct { proofs: [TokenExists { node_idx: 0 }] }),
+        as_data(
+          TransferAct { params_idx: 0, proofs: [TokenExists { node_idx: 0 }] },
+        ),
       ),
     ],
   }
@@ -635,7 +690,10 @@ test multi_token_spend_and_mint_defers() {
         output: multi_mint_output(100, 50),
       },
     ],
-    reference_inputs: [some_ref_input(registry_node_output(test_own_policy))],
+    reference_inputs: [
+      some_ref_input(registry_node_output(test_own_policy)),
+      coordination_ref_input(test_plg_cred),
+    ],
     outputs: [multi_mint_output(200, 100)],
     mint: from_asset(test_own_policy, test_token_name, 100)
       |> assets.add(test_own_policy, test_token_name_2, 50),
@@ -644,7 +702,9 @@ test multi_token_spend_and_mint_defers() {
       Pair(Mint(test_own_policy), as_data(rdmr)),
       Pair(
         Withdraw(test_plg_cred),
-        as_data(TransferAct { proofs: [TokenExists { node_idx: 0 }] }),
+        as_data(
+          TransferAct { params_idx: 0, proofs: [TokenExists { node_idx: 0 }] },
+        ),
       ),
     ],
   }
@@ -896,7 +956,10 @@ test case4_spend_and_mint_same_token_valid() {
         output: mint_output(100),
       },
     ],
-    reference_inputs: [some_ref_input(registry_node_output(test_own_policy))],
+    reference_inputs: [
+      some_ref_input(registry_node_output(test_own_policy)),
+      coordination_ref_input(test_plg_cred),
+    ],
     // 150 total in outputs (100 spent + 50 minted) — all at PLB
     outputs: [mint_output(150)],
     mint: from_asset(test_own_policy, test_token_name, 50),
@@ -905,7 +968,9 @@ test case4_spend_and_mint_same_token_valid() {
       Pair(Mint(test_own_policy), as_data(rdmr)),
       Pair(
         Withdraw(test_plg_cred),
-        as_data(TransferAct { proofs: [TokenExists { node_idx: 0 }] }),
+        as_data(
+          TransferAct { params_idx: 0, proofs: [TokenExists { node_idx: 0 }] },
+        ),
       ),
     ],
   }
@@ -916,22 +981,37 @@ test case4_spend_and_mint_same_token_valid() {
 // Spends a 100-token PLB UTxO, mints 50 more, sends 75 to PLB and 25 to a
 // non-PLB address. Withdrawals include both the minting logic credential
 // AND the PLGlobal stake credential — so when consumed as-is, delegation
-// triggers and issuance_mint defers output custody to PLGlobal.
+// triggers and issuance_mint defers output custody to PLGlobal. The
+// coordination ref input (appended AFTER the registry node, so
+// `RefInput(0)` still resolves) carries the datum whose field 3 is the
+// LIVE PLGlobal credential the validator resolves delegation against.
 //
 // The companion negative test below overrides ONLY `withdrawals` (removing
-// the PLG cred). Any future change to inputs/outputs/mint/refs must keep
-// both tests in lockstep — that's the entire point of building both from
-// this single fixture.
-fn case4_defers_tx() -> Transaction {
+// the PLG cred), documenting "coordination present but PLG redeemer absent
+// ⇒ no delegation". Any future change to inputs/outputs/mint/refs must
+// keep both tests in lockstep — that's the entire point of building both
+// from this single fixture.
+//
+// `plg_cred` parameterises BOTH the coordination datum and the withdrawal,
+// so the in-place-upgrade tests below can swap the live credential while
+// every existing spread of `case4_defers_tx()` stays untouched.
+fn case4_defers_tx_with(plg_cred: Credential) -> Transaction {
   Transaction {
     ..transaction.placeholder,
     inputs: [some_input(mint_output(100))],
-    reference_inputs: [some_ref_input(registry_node_output(test_own_policy))],
+    reference_inputs: [
+      some_ref_input(registry_node_output(test_own_policy)),
+      coordination_ref_input(plg_cred),
+    ],
     outputs: [mint_output(75), non_plb_output_named(test_token_name, 25)],
     mint: from_asset(test_own_policy, test_token_name, 50),
-    withdrawals: [Pair(test_ml_cred, 0), Pair(test_plg_cred, 0)],
+    withdrawals: [Pair(test_ml_cred, 0), Pair(plg_cred, 0)],
     redeemers: [Pair(Mint(test_own_policy), as_data(valid_redeemer()))],
   }
+}
+
+fn case4_defers_tx() -> Transaction {
+  case4_defers_tx_with(test_plg_cred)
 }
 
 // Spend + mint same token: tokens escaping to non-PLB — deferred to PLGlobal.
@@ -954,7 +1034,9 @@ test case4_spend_and_mint_defers_to_plglobal() {
       Pair(Mint(test_own_policy), as_data(valid_redeemer())),
       Pair(
         Withdraw(test_plg_cred),
-        as_data(TransferAct { proofs: [TokenExists { node_idx: 0 }] }),
+        as_data(
+          TransferAct { params_idx: 0, proofs: [TokenExists { node_idx: 0 }] },
+        ),
       ),
     ],
   }
@@ -976,6 +1058,253 @@ test case4_plb_input_without_plg_cred_does_not_delegate_fails() fail {
     withdrawals: [Pair(test_ml_cred, 0)],
   }
   call_validator(valid_redeemer(), tx)
+}
+
+// ========================================================================
+// Live-PLG delegation via the coordination datum (in-place upgradability)
+//
+// The validator's 4th parameter is now `params_policy` (the protocol-params
+// NFT policy), not a frozen PLG credential. Delegation resolves the LIVE
+// PLGlobal credential from the coordination UTxO's datum (field 3), so an
+// in-place PLG upgrade automatically retires the old credential as a
+// mint-custody delegate.
+// ========================================================================
+
+// In-place upgradability follow-up (2026-08-13 naming review, finding 2):
+// the OutputIndex path performs NO coordination read — a first mint with
+// ZERO reference inputs must validate. Proof that the coordination lookup
+// is lazy (confined to the RefInput delegation branch).
+test outputindex_mint_without_coordination_ref_input_validates() {
+  let rdmr = OutputIndex(1)
+  let tx = Transaction {
+    ..transaction.placeholder,
+    reference_inputs: [],
+    outputs: [mint_output(100), registry_node_output(test_own_policy)],
+    mint: from_asset(test_own_policy, test_token_name, 100),
+    withdrawals: [Pair(test_ml_cred, 0)],
+    redeemers: [Pair(Mint(test_own_policy), as_data(rdmr))],
+  }
+  call_validator(rdmr, tx)
+}
+
+// In-place upgradability follow-up (2026-08-13 naming review, finding 2):
+// delegation keys on the credential the coordination datum names. Custody
+// is violated in the fixture (25 tokens at a non-PLB output), so this can
+// only pass because the datum-resolved credential (`test_plg_cred`) is
+// invoked with a covering proof and issuance_mint defers to PLGlobal.
+test delegation_uses_live_plg_cred_from_coordination_datum() {
+  let tx = Transaction {
+    ..case4_defers_tx_with(test_plg_cred),
+    redeemers: [
+      Pair(Mint(test_own_policy), as_data(valid_redeemer())),
+      Pair(
+        Withdraw(test_plg_cred),
+        as_data(
+          TransferAct { params_idx: 0, proofs: [TokenExists { node_idx: 0 }] },
+        ),
+      ),
+    ],
+  }
+  call_validator(valid_redeemer(), tx)
+}
+
+// In-place upgradability follow-up (2026-08-13 naming review, finding 2):
+// after an in-place PLG upgrade (coordination datum rewritten to carry
+// `test_plg_cred_v2`), the NEW credential delegates — no issuance_mint
+// redeploy needed. Same shape as the test above with the v2 credential in
+// both the datum and the invocation.
+test delegation_survives_in_place_plg_upgrade() {
+  let tx = Transaction {
+    ..case4_defers_tx_with(test_plg_cred_v2),
+    redeemers: [
+      Pair(Mint(test_own_policy), as_data(valid_redeemer())),
+      Pair(
+        Withdraw(test_plg_cred_v2),
+        as_data(
+          TransferAct { params_idx: 0, proofs: [TokenExists { node_idx: 0 }] },
+        ),
+      ),
+    ],
+  }
+  call_validator(valid_redeemer(), tx)
+}
+
+// In-place upgradability follow-up (2026-08-13 naming review, finding 2):
+// THE falsification test. The coordination datum names `test_plg_cred_v2`
+// as the live PLGlobal, but the tx invokes only the launch-era
+// `test_plg_cred` (withdrawal + covering `TokenExists { node_idx: 0 }`),
+// with custody violated. The retired credential must NOT delegate: the
+// lookup keyed on the datum-resolved v2 finds no redeemer, delegation is
+// denied, `no_escape` runs and rejects the 25-token escape.
+//
+// Verified to PASS (exploit succeeds) against pre-fix code on 2026-08-13
+// per testing convention 6 — via a pre-edit scratch test of this exact
+// shape run BEFORE the validator edit (a plain `git stash` re-run does not
+// typecheck, since the 4th parameter's type changed from Credential to
+// PolicyId), observed `pass` under the frozen-parameter validator.
+//
+// Isolation note per convention 3: this test intentionally has two
+// deviations from `delegation_uses_live_plg_cred_from_coordination_datum`
+// (the datum credential is swapped to v2 AND the old credential is the one
+// invoked) because the invariant under test is precisely their
+// disagreement — datum says v2, tx invokes v1.
+test launch_era_plg_cred_cannot_delegate_after_upgrade_fails() fail {
+  let tx = Transaction {
+    ..case4_defers_tx_with(test_plg_cred_v2),
+    withdrawals: [Pair(test_ml_cred, 0), Pair(test_plg_cred, 0)],
+    redeemers: [
+      Pair(Mint(test_own_policy), as_data(valid_redeemer())),
+      Pair(
+        Withdraw(test_plg_cred),
+        as_data(
+          TransferAct { params_idx: 0, proofs: [TokenExists { node_idx: 0 }] },
+        ),
+      ),
+    ],
+  }
+  call_validator(valid_redeemer(), tx)
+}
+
+// In-place upgradability follow-up (2026-08-13 naming review, finding 2):
+// same old-cred-invoked-after-upgrade shape as the `fail` test above, but
+// with custody intact (all `own_policy` outputs at the PLB). Denied
+// delegation falls back to the local `no_escape` check, which passes —
+// a stale delegate makes the mint self-custodied, not invalid.
+test stale_plg_cred_delegation_denied_falls_back_to_custody() {
+  let tx = Transaction {
+    ..case4_defers_tx_with(test_plg_cred_v2),
+    outputs: [mint_output(150)],
+    withdrawals: [Pair(test_ml_cred, 0), Pair(test_plg_cred, 0)],
+    redeemers: [
+      Pair(Mint(test_own_policy), as_data(valid_redeemer())),
+      Pair(
+        Withdraw(test_plg_cred),
+        as_data(
+          TransferAct { params_idx: 0, proofs: [TokenExists { node_idx: 0 }] },
+        ),
+      ),
+    ],
+  }
+  call_validator(valid_redeemer(), tx)
+}
+
+// In-place upgradability follow-up (2026-08-13 naming review, finding 2):
+// a RefInput mint with NO coordination ref input (and no PLGlobal invoked)
+// must still validate under local custody — the coordination locate is
+// non-failing (`list.find` + `has_nft_strict`), so its absence means "no
+// delegation", never a crash. Pins the fail-safe locate semantics.
+test refinput_mint_without_coordination_ref_input_falls_back_to_custody() {
+  call_validator(valid_redeemer(), valid_mint_tx())
+}
+
+// In-place upgradability follow-up (2026-08-13 naming review, finding 2):
+// the coordination LOCATE itself is load-bearing. The PLG credential is
+// invoked with a covering proof (withdrawal + `TokenExists { node_idx: 0 }`
+// redeemer) and custody is violated, but the coordination ref input is
+// ABSENT — so there is no datum to resolve a delegate from, delegation is
+// denied, and `no_escape` rejects the escape. Pre-fix this exact shape
+// delegated successfully: the frozen PLG-credential parameter needed no
+// coordination UTxO at all.
+//
+// Isolation note per convention 3: single delta against
+// `delegation_uses_live_plg_cred_from_coordination_datum` — the
+// coordination ref input is dropped from `reference_inputs`; the
+// invocation and the custody violation are identical.
+test plg_delegation_impossible_without_coordination_ref_input_fails() fail {
+  let tx = Transaction {
+    ..case4_defers_tx_with(test_plg_cred),
+    reference_inputs: [some_ref_input(registry_node_output(test_own_policy))],
+    redeemers: [
+      Pair(Mint(test_own_policy), as_data(valid_redeemer())),
+      Pair(
+        Withdraw(test_plg_cred),
+        as_data(
+          TransferAct { params_idx: 0, proofs: [TokenExists { node_idx: 0 }] },
+        ),
+      ),
+    ],
+  }
+  call_validator(valid_redeemer(), tx)
+}
+
+// In-place upgradability follow-up (2026-08-13 naming review, finding 2):
+// the params NFT check (`has_nft_strict`), not the datum shape, is what
+// authenticates the coordination UTxO — the locate is keyed on VALUE only.
+// This tx plants a ref input carrying a well-formed params datum naming
+// the invoked credential but whose value LACKS the protocol-params NFT,
+// AHEAD of the registry node (position 0). Position 0 matters: a mutant
+// locate that ignores the NFT check finds the plant FIRST and delegates —
+// this test kills that mutant directly — while the real value-keyed
+// locate skips the plant position-independently, denies delegation, and
+// `no_escape` rejects the custody violation. Guards against an attacker
+// planting a forged params-shaped datum to resurrect a retired delegate
+// (or nominate an arbitrary one).
+//
+// Isolation note per convention 3: the index pair (`RefInput(1)` /
+// `TokenExists { node_idx: 1 }`) moves in lockstep with the reordered
+// `reference_inputs` — a single conceptual delta against
+// `delegation_uses_live_plg_cred_from_coordination_datum` (the NFT-less
+// plant shadows position 0) even though three literals change.
+test coordination_datum_without_params_nft_cannot_delegate_fails() fail {
+  let nftless_coordination_plant = some_ref_input(
+    Output { ..coordination_ref_input(test_plg_cred).output, value: min_ada },
+  )
+  let rdmr = RefInput(1)
+  let tx = Transaction {
+    ..case4_defers_tx_with(test_plg_cred),
+    reference_inputs: [
+      nftless_coordination_plant,
+      some_ref_input(registry_node_output(test_own_policy)),
+    ],
+    redeemers: [
+      Pair(Mint(test_own_policy), as_data(rdmr)),
+      Pair(
+        Withdraw(test_plg_cred),
+        as_data(
+          TransferAct { params_idx: 0, proofs: [TokenExists { node_idx: 1 }] },
+        ),
+      ),
+    ],
+  }
+  call_validator(rdmr, tx)
+}
+
+// In-place upgradability follow-up (2026-08-13 cross-provider review):
+// order-independent coordination discovery on the SUCCESS path. Every
+// other positive delegation fixture places the registry node at
+// reference-input position 0 with the coordination UTxO after it; here
+// the AUTHENTIC coordination UTxO (params NFT + datum naming the invoked
+// credential) sits at position 0 and the registry node at position 1.
+// Custody is violated (case-4 shape, 25 tokens at a non-PLB output), so
+// this can only pass because (a) the value-keyed locate finds the
+// coordination UTxO regardless of its position and (b) the registry-index
+// binding (RefInput 1 / node_idx 1) is untouched by the reorder —
+// delegation fires against the datum-resolved credential.
+//
+// Isolation note per convention 3: the index pair (`RefInput(1)` /
+// `TokenExists { node_idx: 1 }`) moves in lockstep with the reordered
+// `reference_inputs` — a single conceptual delta against
+// `delegation_uses_live_plg_cred_from_coordination_datum` (the two
+// reference inputs are swapped) even though three literals change.
+test delegation_locates_coordination_ahead_of_registry_node() {
+  let rdmr = RefInput(1)
+  let tx = Transaction {
+    ..case4_defers_tx_with(test_plg_cred),
+    reference_inputs: [
+      coordination_ref_input(test_plg_cred),
+      some_ref_input(registry_node_output(test_own_policy)),
+    ],
+    redeemers: [
+      Pair(Mint(test_own_policy), as_data(rdmr)),
+      Pair(
+        Withdraw(test_plg_cred),
+        as_data(
+          TransferAct { params_idx: 0, proofs: [TokenExists { node_idx: 1 }] },
+        ),
+      ),
+    ],
+  }
+  call_validator(rdmr, tx)
 }
 
 // ========================================================================

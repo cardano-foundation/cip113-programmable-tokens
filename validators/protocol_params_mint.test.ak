@@ -4,7 +4,7 @@
 //// - Happy path (all conditions met)
 //// - One-shot UTxO consumption
 //// - Token name and quantity checks
-//// - Always-fail address enforcement
+//// - Coordination address enforcement
 //// - InlineDatum and ProgrammableLogicGlobalParams datum validation
 
 use cardano/address.{Address, Script, VerificationKey}
@@ -27,7 +27,7 @@ const test_utxo_ref =
     output_index: 0,
   }
 
-const test_always_fail_hash: ByteArray =
+const test_coordination_hash: ByteArray =
   #"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 
 const test_policy_id: PolicyId =
@@ -47,9 +47,9 @@ const min_ada =
 // Helpers
 // ---------------------------------------------------------------------------
 
-fn always_fail_address() -> Address {
+fn coordination_address() -> Address {
   Address {
-    payment_credential: Script(test_always_fail_hash),
+    payment_credential: Script(test_coordination_hash),
     stake_credential: None,
   }
 }
@@ -62,13 +62,19 @@ fn valid_params_datum() -> Data {
       unfracking_cred: Script(
         #"00000000000000000000000000000000000000000000000000def17a",
       ),
+      prog_logic_global_cred: Script(
+        #"0000000000000000000000000000000000000000000000000001091c",
+      ),
+      upgrade_logic_cred: Script(
+        #"000000000000000000000000000000000000000000000000009c6ade",
+      ),
     },
   )
 }
 
 fn valid_nft_output() -> Output {
   Output {
-    address: always_fail_address(),
+    address: coordination_address(),
     value: min_ada
       |> assets.add(test_policy_id, protocol_params_token, 1),
     datum: InlineDatum(valid_params_datum()),
@@ -121,7 +127,7 @@ fn call_validator(
 // ========================================================================
 
 test protocol_params_mint_valid() {
-  call_validator(test_utxo_ref, test_always_fail_hash, valid_transaction())
+  call_validator(test_utxo_ref, test_coordination_hash, valid_transaction())
 }
 
 // ========================================================================
@@ -133,7 +139,7 @@ test fails_when_utxo_not_consumed() fail {
     transaction_id: #"1111111111111111111111111111111111111111111111111111111111111111",
     output_index: 99,
   }
-  call_validator(wrong_utxo_ref, test_always_fail_hash, valid_transaction())
+  call_validator(wrong_utxo_ref, test_coordination_hash, valid_transaction())
 }
 
 // ========================================================================
@@ -150,7 +156,7 @@ test fails_with_wrong_token_name() fail {
     mint: from_asset(test_policy_id, "WrongName", 1),
     outputs: [valid_nft_output()],
   }
-  call_validator(test_utxo_ref, test_always_fail_hash, tx)
+  call_validator(test_utxo_ref, test_coordination_hash, tx)
 }
 
 // ========================================================================
@@ -167,7 +173,7 @@ test fails_when_quantity_is_not_one() fail {
     mint: from_asset(test_policy_id, protocol_params_token, 2),
     outputs: [valid_nft_output()],
   }
-  call_validator(test_utxo_ref, test_always_fail_hash, tx)
+  call_validator(test_utxo_ref, test_coordination_hash, tx)
 }
 
 // ========================================================================
@@ -185,7 +191,7 @@ test fails_with_multiple_token_names_minted() fail {
       |> assets.add(test_policy_id, "ExtraToken", 1),
     outputs: [valid_nft_output()],
   }
-  call_validator(test_utxo_ref, test_always_fail_hash, tx)
+  call_validator(test_utxo_ref, test_coordination_hash, tx)
 }
 
 // ========================================================================
@@ -203,18 +209,18 @@ test fails_when_no_tokens_minted_from_own_policy() fail {
     mint: from_asset(other_policy, "SomeToken", 1),
     outputs: [valid_nft_output()],
   }
-  call_validator(test_utxo_ref, test_always_fail_hash, tx)
+  call_validator(test_utxo_ref, test_coordination_hash, tx)
 }
 
 // ========================================================================
-// No output at the always-fail address
+// No output at the coordination address
 //
 // The NFT goes to a completely different address.
 // `expect Some(nft_output) = list.find(...)` crashes because no output
-// matches the expected always-fail address.
+// matches the expected coordination address.
 // ========================================================================
 
-test fails_when_no_output_at_always_fail_address() fail {
+test fails_when_no_output_at_coordination_address() fail {
   let wrong_address = Address {
     payment_credential: Script(
       #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
@@ -235,36 +241,36 @@ test fails_when_no_output_at_always_fail_address() fail {
       },
     ],
   }
-  call_validator(test_utxo_ref, test_always_fail_hash, tx)
+  call_validator(test_utxo_ref, test_coordination_hash, tx)
 }
 
 // ========================================================================
-// Output at always-fail address exists but does NOT contain the NFT
+// Output at coordination address exists but does NOT contain the NFT
 //
 // `has_nft_strict(nft_output.value, own_policy, ...)` fails because
-// the output at the always-fail address has only ADA.
+// the output at the coordination address has only ADA.
 // ========================================================================
 
-test fails_when_nft_missing_from_always_fail_output() fail {
+test fails_when_nft_missing_from_coordination_output() fail {
   let tx = Transaction {
     ..transaction.placeholder,
     inputs: [valid_input()],
     mint: from_asset(test_policy_id, protocol_params_token, 1),
     outputs: [
-      // Output at always-fail address but WITHOUT the NFT
+      // Output at coordination address but WITHOUT the NFT
       Output {
-        address: always_fail_address(),
+        address: coordination_address(),
         value: min_ada,
         datum: InlineDatum(valid_params_datum()),
         reference_script: None,
       },
     ],
   }
-  call_validator(test_utxo_ref, test_always_fail_hash, tx)
+  call_validator(test_utxo_ref, test_coordination_hash, tx)
 }
 
 // ========================================================================
-// No inline datum on the always-fail output
+// No inline datum on the coordination output
 //
 // `expect InlineDatum(datum) = nft_output.datum` crashes because the
 // output uses NoDatum.
@@ -277,7 +283,7 @@ test fails_when_no_inline_datum() fail {
     mint: from_asset(test_policy_id, protocol_params_token, 1),
     outputs: [Output { ..valid_nft_output(), datum: NoDatum }],
   }
-  call_validator(test_utxo_ref, test_always_fail_hash, tx)
+  call_validator(test_utxo_ref, test_coordination_hash, tx)
 }
 
 // ========================================================================
@@ -294,5 +300,5 @@ test fails_with_invalid_datum_type() fail {
     mint: from_asset(test_policy_id, protocol_params_token, 1),
     outputs: [Output { ..valid_nft_output(), datum: InlineDatum(as_data(42)) }],
   }
-  call_validator(test_utxo_ref, test_always_fail_hash, tx)
+  call_validator(test_utxo_ref, test_coordination_hash, tx)
 }

@@ -57,10 +57,14 @@ const second_vkey_pkh: ByteArray =
 const eve_vkey_pkh: ByteArray =
   #"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
 
-const plg_redeemer = UnfrackingAct
+const plg_redeemer = UnfrackingAct { params_idx: 0 }
 
 const unfracking_redeemer =
-  UnfrackingRedeemer { registry_node_idx: 1, outputs_start_idx: 0 }
+  UnfrackingRedeemer {
+    params_idx: 0,
+    registry_node_idx: 1,
+    outputs_start_idx: 0,
+  }
 
 // ----------------------------------------------------------------- fixtures
 
@@ -257,7 +261,11 @@ test unfracking_paired_outputs_skipped_succeeds() {
   }
   run_unfracking_with(
     tx,
-    UnfrackingRedeemer { registry_node_idx: 1, outputs_start_idx: 1 },
+    UnfrackingRedeemer {
+      params_idx: 0,
+      registry_node_idx: 1,
+      outputs_start_idx: 1,
+    },
   )
 }
 
@@ -349,7 +357,11 @@ test unfracking_preserves_unregistered_token_succeeds() {
 test unfracking_negative_outputs_start_idx_behaves_as_zero() {
   run_unfracking_with(
     valid_unfracking_tx(),
-    UnfrackingRedeemer { registry_node_idx: 1, outputs_start_idx: -1 },
+    UnfrackingRedeemer {
+      params_idx: 0,
+      registry_node_idx: 1,
+      outputs_start_idx: -1,
+    },
   )
 }
 
@@ -797,9 +809,9 @@ test unfracking_full_composition_succeeds() {
   let tx = valid_unfracking_tx()
   and {
     programmable_logic_base.programmable_logic_base.spend(
-      fixture.credential_validator_logic_global,
+      fixture.policy_protocol_params,
       None,
-      Void,
+      0,
       Void,
       tx,
     ),

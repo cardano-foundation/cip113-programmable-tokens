@@ -100,12 +100,21 @@ pub const withdrawals_unfracking: Pairs<Credential, Int> =
     Pair(credential_unfracking_hook, 0),
   ]
 
+/// Arbitrary script credential representing the upgrade-authority
+/// withdraw-0 validator (trampoline 2). Carried by the protocol-params
+/// datum (`upgrade_logic_cred`); a coordination-UTxO spend must carry
+/// this script's withdraw-0.
+pub const credential_upgrade_authority: Credential =
+  Credential.Script(#"000000000000000000000000000000000000000000000000009c6ade")
+
 /// Parameters for a specific instance of the registry.
 pub const protocol_params: ProgrammableLogicGlobalParams =
   ProgrammableLogicGlobalParams {
     registry_node_cs: policy_tokens_registry,
     prog_logic_cred: credential_validator_logic_base,
     unfracking_cred: credential_validator_unfracking,
+    prog_logic_global_cred: credential_validator_logic_global,
+    upgrade_logic_cred: credential_upgrade_authority,
   }
 
 /// Some input to pay for fuel, deterministically determined by the label.
@@ -359,7 +368,7 @@ pub fn some_transfer(
           [],
           fn(_, node_idx, proofs) { [TokenExists { node_idx }, ..proofs] },
         )
-      |> TransferAct,
+      |> fn(proofs) { TransferAct { params_idx: 0, proofs } },
   )
 }
 
@@ -436,8 +445,12 @@ pub fn some_unfracking(
       ],
       withdrawals: withdrawals_unfracking,
     },
-    UnfrackingAct,
-    UnfrackingRedeemer { registry_node_idx: 1, outputs_start_idx: 0 },
+    UnfrackingAct { params_idx: 0 },
+    UnfrackingRedeemer {
+      params_idx: 0,
+      registry_node_idx: 1,
+      outputs_start_idx: 0,
+    },
   )
 }
 

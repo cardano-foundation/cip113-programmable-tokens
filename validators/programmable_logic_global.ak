@@ -16,6 +16,7 @@ use programmable_logic/transfer.{validate_transfer}
 use registry_node.{new_registry_node_getter}
 use types.{
   ProgrammableLogicGlobalRedeemer, ThirdPartyAct, TransferAct, UnfrackingAct,
+  params_idx_of,
 }
 
 validator programmable_logic_global(params_policy: PolicyId) {
@@ -32,6 +33,7 @@ validator programmable_logic_global(params_policy: PolicyId) {
     let fields <- with_protocol_params_fields(
       self.reference_inputs,
       params_policy,
+      params_idx_of(redeemer),
     )
 
     // Pre-construct a getter for registry nodes in reference inputs, to avoid
@@ -48,7 +50,7 @@ validator programmable_logic_global(params_policy: PolicyId) {
     )
 
     when redeemer is {
-      TransferAct { proofs } ->
+      TransferAct { proofs, .. } ->
         validate_transfer(
           self,
           prog_logic_cred_field(fields),
@@ -56,7 +58,7 @@ validator programmable_logic_global(params_policy: PolicyId) {
           proofs,
         )
 
-      ThirdPartyAct { registry_node_idx, outputs_start_idx } ->
+      ThirdPartyAct { registry_node_idx, outputs_start_idx, .. } ->
         validate_3rd_party(
           self,
           prog_logic_cred_field(fields),
@@ -71,7 +73,7 @@ validator programmable_logic_global(params_policy: PolicyId) {
       // validator, whose credential lives in the protocol-params datum
       // (field 2 — read only by this branch); PLG only gates on its
       // presence so the hot-path reference script stays small.
-      UnfrackingAct ->
+      UnfrackingAct { .. } ->
         pairs.has_key_or_fail(self.withdrawals, unfracking_cred_field(fields))
     }
   }

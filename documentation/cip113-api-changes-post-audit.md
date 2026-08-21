@@ -588,6 +588,9 @@ live in that standalone validator.
   logic must account for it separately.
 - Anyone decoding the PLG redeemer must handle the new third variant.
 
+> On `feat/upgradability-in-place`, every variant additionally carries a leading
+> `params_idx: Int` — see §16.
+
 ---
 
 ## 10. Third-party action — protected prefixes + anti-injection
@@ -736,6 +739,52 @@ Two re-audit fixes are prepared on separate branches (§12):
   candidate branches (input-aware and no-escape variants).
 
 This document will be updated when each lands in `main`.
+
+---
+
+## 16. Protocol-params reference-input index in redeemers (upgradability branch)
+
+> On `feat/upgradability-in-place`. **Breaking redeemer-surface change.**
+
+Every validator that reads the protocol-params UTxO now locates it by a
+**redeemer-supplied index** into `reference_inputs`, authenticated by the
+one-shot params NFT, instead of scanning the reference-input set.
+
+**Motivation.** A programmable-token transaction references several scripts,
+each as a reference input, so scanning for the params UTxO is O(position) — and,
+before this change, aborted outright on a token-less reference-script UTxO
+ordered ahead of it (the reference-input order is fixed by the ledger, not the
+builder). A direct index is O(1) per lookup; since `programmable_logic_base`
+runs once **per spent input**, the saving multiplies across a multi-input
+transaction. The one-shot params NFT still authenticates the target, so a wrong
+index simply fails — no security is delegated to the index.
+
+### Redeemer changes
+
+- **`programmable_logic_base.spend`** — the redeemer was ignored (`Data`); it is
+  now an `Int`, the params-NFT reference-input index.
+- **`ProgrammableLogicGlobalRedeemer`** — every variant gains a leading
+  `params_idx: Int`:
+  ```aiken
+  TransferAct { params_idx: Int, proofs: List<RegistryProof> }
+  ThirdPartyAct { params_idx: Int, registry_node_idx: Int, outputs_start_idx: Int }
+  UnfrackingAct { params_idx: Int }
+  ```
+- **`UnfrackingRedeemer`** (standalone `unfracking` validator) — gains a leading
+  `params_idx: Int`.
+
+### Off-chain impact
+
+- Builders must compute the params UTxO's position in the **canonical**
+  `reference_inputs` ordering (the ledger sorts `reference_inputs` by
+  `OutputReference` = `(transaction_id, output_index)`) and pass it as
+  `params_idx` in each PLG/unfracking redeemer, and as the `Int` redeemer of
+  **every** `programmable_logic_base` spend in the transaction.
+- A wrong index fails the params-NFT authentication `expect`, so the whole
+  transaction fails — there is no silent misbehaviour.
+- `issuance_mint`'s delegation check is unaffected: it still locates the
+  coordination UTxO by NFT membership with fail-safe semantics (no coordination
+  UTxO ⇒ local custody), so it takes no params index.
 
 ---
 

@@ -23,9 +23,9 @@ fn programmable_logic(
   // Include both the base and global in the benchmark
   and {
     programmable_logic_base.programmable_logic_base.spend(
-      fixture.credential_validator_logic_global,
+      fixture.policy_protocol_params,
       None,
-      Void,
+      0,
       Void,
       self,
     ),
@@ -123,7 +123,7 @@ const fixture_baseline_3rd_party_1: Transaction = {
   }
 
 const fixture_redeemer_baseline_3rd_party_1: ProgrammableLogicGlobalRedeemer =
-  ThirdPartyAct { registry_node_idx: 1, outputs_start_idx: 2 }
+  ThirdPartyAct { params_idx: 0, registry_node_idx: 1, outputs_start_idx: 2 }
 
 test baseline_3rd_party_1() {
   programmable_logic(
@@ -268,7 +268,7 @@ const fixture_baseline_3rd_party_2: Transaction = {
   }
 
 const fixture_redeemer_baseline_3rd_party_2: ProgrammableLogicGlobalRedeemer =
-  ThirdPartyAct { registry_node_idx: 1, outputs_start_idx: 2 }
+  ThirdPartyAct { params_idx: 0, registry_node_idx: 1, outputs_start_idx: 2 }
 
 test baseline_3rd_party_2() {
   programmable_logic(
@@ -344,7 +344,7 @@ const fixture_baseline_3rd_party_3: Transaction = {
   }
 
 const fixture_redeemer_baseline_3rd_party_3: ProgrammableLogicGlobalRedeemer =
-  ThirdPartyAct { registry_node_idx: 1, outputs_start_idx: 0 }
+  ThirdPartyAct { params_idx: 0, registry_node_idx: 1, outputs_start_idx: 0 }
 
 test baseline_3rd_party_3() {
   programmable_logic(
@@ -416,7 +416,7 @@ const fixture_plutarch_baseline_transfer: Transaction = {
 /// Corresponding redeemer with a single proof of a token in the registry,
 /// located at position #2 in reference inputs
 const fixture_redeemer_plutarch_baseline_transfer: ProgrammableLogicGlobalRedeemer =
-  TransferAct { proofs: [TokenExists { node_idx: 1 }] }
+  TransferAct { params_idx: 0, proofs: [TokenExists { node_idx: 1 }] }
 
 test plutarch_baseline_transfer() {
   programmable_logic(
@@ -524,6 +524,7 @@ const fixture_plutarch_baseline_transfer_2: Transaction = {
 /// located at position #2 in reference inputs
 const fixture_redeemer_plutarch_baseline_transfer_2: ProgrammableLogicGlobalRedeemer =
   TransferAct {
+    params_idx: 0,
     proofs: [
       TokenExists { node_idx: 2 },
       TokenExists { node_idx: 3 },
@@ -618,6 +619,7 @@ const fixture_plutarch_baseline_transfer_3: Transaction = {
 
 const fixture_redeemer_plutarch_baseline_transfer_3: ProgrammableLogicGlobalRedeemer =
   TransferAct {
+    params_idx: 0,
     proofs: [
       TokenDoesNotExist { node_idx: 1 },
       TokenExists { node_idx: 2 },

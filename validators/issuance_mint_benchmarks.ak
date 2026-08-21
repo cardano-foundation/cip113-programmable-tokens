@@ -10,19 +10,25 @@
 //// our match (`TokenExists { node_idx: 0 }`) at the END — worst case for
 //// `list.any` short-circuit. Slope tells us cost per non-matching proof
 //// entry. Y-intercept tells us the constant cost of the precise check
-//// (redeemer lookup + decode + index compare).
+//// (coordination locate + datum field-3 read + redeemer lookup + decode +
+//// index compare).
+////
+//// The no-delegate sampler carries NO coordination ref input, so it also
+//// measures the failed-locate fallback (`list.find` misses, delegation
+//// denied, `no_escape` walks the outputs).
 ////
 //// Run with `aiken bench -m issuance_mint_benchmarks`.
 
 use aiken/collection/list
 use aiken/fuzz
-use cardano/address.{Address, Inline, Script}
+use cardano/address.{Address, Credential, Inline, Script}
 use cardano/assets.{ada_asset_name, ada_policy_id, from_asset}
 use cardano/transaction.{
   InlineDatum, Input, Mint, NoDatum, Output, OutputReference, Transaction,
   Withdraw,
 }
 use issuance_mint
+use programmable_logic/params.{ProgrammableLogicGlobalParams}
 use registry_node.{RegistryNode, empty_vkey}
 use types.{MintingRegistryProof, RefInput, TokenExists, TransferAct}
 
@@ -41,6 +47,9 @@ const test_ml_cred =
 
 const test_plg_cred =
   Script(#"a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1")
+
+const test_params_policy =
+  #"5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e"
 
 const test_own_policy: ByteArray =
   #"44444444444444444444444444444444444444444444444444444444"
@@ -88,6 +97,34 @@ fn registry_node_ref_input() -> Input {
   }
 }
 
+/// The coordination UTxO as a reference input (mirror of the test file's
+/// helper): protocol-params NFT + datum whose field 3 is the live PLG
+/// credential. Fields issuance_mint never reads carry placeholders.
+fn coordination_ref_input(plg_cred: Credential) -> Input {
+  Input {
+    output_reference: dummy_oref,
+    output: Output {
+      address: Address {
+        payment_credential: Script(
+          #"88888888888888888888888888888888888888888888888888888888",
+        ),
+        stake_credential: None,
+      },
+      value: min_ada |> assets.add(test_params_policy, "ProtocolParams", 1),
+      datum: InlineDatum(
+        ProgrammableLogicGlobalParams {
+          registry_node_cs: test_registry_cs,
+          prog_logic_cred: test_plb_cred,
+          unfracking_cred: test_ml_cred,
+          prog_logic_global_cred: plg_cred,
+          upgrade_logic_cred: test_ml_cred,
+        },
+      ),
+      reference_script: None,
+    },
+  }
+}
+
 fn plb_input_with_policy() -> Input {
   Input {
     output_reference: dummy_oref,
@@ -128,7 +165,7 @@ fn invoke_issuance(self: Transaction, redeemer: MintingRegistryProof) -> Bool {
     test_plb_cred,
     test_registry_cs,
     test_ml_cred,
-    test_plg_cred,
+    test_params_policy,
     redeemer,
     test_own_policy,
     self,
@@ -159,13 +196,19 @@ fn sample_delegate_transferact(
   let tx = Transaction {
     ..transaction.placeholder,
     inputs: [plb_input_with_policy()],
-    reference_inputs: [registry_node_ref_input()],
+    reference_inputs: [
+      registry_node_ref_input(),
+      coordination_ref_input(test_plg_cred),
+    ],
     outputs: [plb_output_with_policy(150)],
     mint: from_asset(test_own_policy, test_token_name, 50),
     withdrawals: [Pair(test_ml_cred, 0), Pair(test_plg_cred, 0)],
     redeemers: [
       Pair(Mint(test_own_policy), as_data(rdmr)),
-      Pair(Withdraw(test_plg_cred), as_data(TransferAct { proofs })),
+      Pair(
+        Withdraw(test_plg_cred),
+        as_data(TransferAct { params_idx: 0, proofs }),
+      ),
     ],
   }
   fuzz.constant((tx, rdmr))
