@@ -21,18 +21,19 @@ pub type ProgrammableLogicGlobalParams {
   /// Field 1 — the programmable-logic-base PAYMENT credential: the shared
   /// payment credential every programmable-token UTxO lives at.
   prog_logic_cred: Credential,
-  /// Field 2 — credential of the transfer coordinator
-  /// (`programmable_logic_global`) withdraw-0 validator.
-  /// programmable_logic_base requires it on a `SpendViaGlobal` dispatch. This
-  /// is what makes PLG swappable in place: an upgrade rewrites this field
-  /// instead of re-deploying PLB (whose hash anchors every token address).
+  /// Field 2 — credential of the `transfer` withdraw-0 validator.
+  /// programmable_logic_base requires it on a `SpendViaTransfer` dispatch.
+  /// This is what makes the transfer validator swappable in place: an
+  /// upgrade rewrites this field instead of re-deploying PLB (whose hash
+  /// anchors every token address).
   transfer_cred: Credential,
   /// Field 3 — credential of the standalone third-party-transfer (seize /
   /// clawback / freeze) withdraw-0 validator. programmable_logic_base requires
   /// it on a `SpendViaThirdParty` dispatch. Swappable in place.
   third_party_cred: Credential,
-  /// Field 4 — credential of the unfracking withdraw-0 validator (Finding 17).
-  /// Read only by PLG's `UnfrackingAct` branch. Swappable in place.
+  /// Field 4 — credential of the `unfracking` withdraw-0 validator
+  /// (Finding 17). programmable_logic_base requires it on a
+  /// `SpendViaUnfracking` dispatch. Swappable in place.
   unfracking_cred: Credential,
   /// Field 5 — credential of the upgrade-authority withdraw-0 validator
   /// (trampoline 2). Read ONLY by coordination_spend, on an upgrade
@@ -77,7 +78,7 @@ pub fn with_protocol_params_fields(
   // UTxO bearing it is the genuine params UTxO. A wrong index fails here
   // rather than silently reading some other UTxO's datum. Kept as a bare
   // policy-presence test (not the stricter name+quantity check) because this
-  // runs on the hot path — per PLG withdrawal and per PLB input.
+  // runs on the hot path — per delegate withdrawal and per PLB input.
   expect
     !dict.is_empty(
       value.tokens(protocol_params_ref.output.value, protocol_params_cs),
@@ -99,8 +100,8 @@ pub fn prog_logic_cred_field(fields: List<Data>) -> Credential {
   prog_logic_cred
 }
 
-/// Field 2: the transfer coordinator (`programmable_logic_global`) withdraw-0
-/// credential. Read by programmable_logic_base on a `SpendViaGlobal` dispatch.
+/// Field 2: the `transfer` withdraw-0 credential. Read by
+/// programmable_logic_base on a `SpendViaTransfer` dispatch.
 pub fn transfer_cred_field(fields: List<Data>) -> Credential {
   expect transfer_cred: Credential = head_list(tail_list(tail_list(fields)))
   transfer_cred
@@ -115,8 +116,8 @@ pub fn third_party_cred_field(fields: List<Data>) -> Credential {
   third_party_cred
 }
 
-/// Field 4: the unfracking withdraw-0 credential (Finding 17).
-/// Only the UnfrackingAct branch of PLG reads this far into the datum.
+/// Field 4: the `unfracking` withdraw-0 credential (Finding 17). Read by
+/// programmable_logic_base on a `SpendViaUnfracking` dispatch.
 pub fn unfracking_cred_field(fields: List<Data>) -> Credential {
   expect unfracking_cred: Credential = head_list(
     tail_list(tail_list(tail_list(tail_list(fields)))),

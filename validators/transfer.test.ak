@@ -1,4 +1,5 @@
-//// Integration tests for programmable logic global validator
+//// Integration tests for the `transfer` validator (the transfer arm of the
+//// former programmable_logic_global coordinator).
 
 use aiken/collection/list
 use cardano/address.{Address, Credential, Inline, Script, VerificationKey}
@@ -6,9 +7,9 @@ use cardano/assets.{PolicyId, from_asset, merge, negate, zero}
 use cardano/transaction.{Input, NoDatum, Output, OutputReference, Transaction}
 use programmable_logic/fixture
 use programmable_logic/params.{ProgrammableLogicGlobalParams}
-use programmable_logic_global
 use registry_node.{RegistryNode, empty_vkey}
-use types.{TokenDoesNotExist, TokenExists, TransferAct}
+use transfer
+use types.{TokenDoesNotExist, TokenExists, TransferRedeemer}
 use utils.{bytearray_lt}
 
 const test_registry_node_cs: PolicyId =
@@ -24,12 +25,12 @@ const test_token_cs: PolicyId =
   #"2122232425262728292a2b2c2d2e2f303132333435363738393a3b3c"
 
 // Test ProgrammableLogicGlobalParams structure
-test programmable_logic_global_params_structure() {
+test protocol_params_structure() {
   let params = ProgrammableLogicGlobalParams {
     prog_logic_cred: test_prog_logic_cred,
     registry_node_cs: test_registry_node_cs,
     unfracking_cred: fixture.credential_validator_unfracking,
-    transfer_cred: fixture.credential_validator_logic_global,
+    transfer_cred: fixture.credential_validator_transfer,
     upgrade_cred: fixture.credential_upgrade_authority,
     third_party_cred: fixture.credential_validator_third_party,
   }
@@ -37,17 +38,17 @@ test programmable_logic_global_params_structure() {
   params.prog_logic_cred == test_prog_logic_cred && params.registry_node_cs == test_registry_node_cs
 }
 
-// Test TransferAct redeemer
-test transfer_act_redeemer() {
+// Test TransferRedeemer shape
+test transfer_redeemer_carries_proofs() {
   let proof1 = TokenExists { node_idx: 0 }
   let proof2 = TokenDoesNotExist { node_idx: 1 }
 
-  let redeemer = TransferAct { params_idx: 0, proofs: [proof1, proof2] }
-
-  when redeemer is {
-    TransferAct { proofs, .. } -> list.length(proofs) == 2
-    _ -> False
+  let TransferRedeemer { proofs, .. } = TransferRedeemer {
+    params_idx: 0,
+    proofs: [proof1, proof2],
   }
+
+  list.length(proofs) == 2
 }
 
 // Test TokenDoesNotExist proof
@@ -216,7 +217,7 @@ test protocol_params_from_reference_inputs() {
     prog_logic_cred: test_prog_logic_cred,
     registry_node_cs: test_registry_node_cs,
     unfracking_cred: fixture.credential_validator_unfracking,
-    transfer_cred: fixture.credential_validator_logic_global,
+    transfer_cred: fixture.credential_validator_transfer,
     upgrade_cred: fixture.credential_upgrade_authority,
     third_party_cred: fixture.credential_validator_third_party,
   }
@@ -247,14 +248,14 @@ test invoked_scripts_via_withdrawals() {
 }
 
 // ---------------------------------------------------------------------------
-// TransferAct Mint Support Tests (Issue #1 from functional analysis)
+// Transfer mint support Tests (Issue #1 from functional analysis)
 // ---------------------------------------------------------------------------
 
 /// A programmable token policy used for the transfer/mint tests.
 const test_mint_policy: PolicyId =
   #"3132333435363738393a3b3c3d3e3f404142434445464748494a4b4c"
 
-// Positive: partial burn via TransferAct with mint.
+// Positive: partial burn via a transfer with mint.
 // Input has 100 FOO, burns 30, output has 70. The proof serves both for mint
 // and input to validate the burned and spent tokens against the registry,
 // adjusting the expected output down.
@@ -285,20 +286,20 @@ test transfer_act_partial_burn_with_mint_proofs_succeeds() {
       ),
     ],
     withdrawals: [
-      Pair(fixture.credential_validator_logic_global, 0),
+      Pair(fixture.credential_validator_transfer, 0),
       Pair(fixture.credential_transfer_logic, 0),
     ],
   }
 
-  let redeemer = TransferAct {
+  let redeemer = TransferRedeemer {
     params_idx: 0,
     proofs: [TokenExists { node_idx: 1 }],
   }
 
-  programmable_logic_global.programmable_logic_global.withdraw(
+  transfer.transfer.withdraw(
     fixture.policy_protocol_params,
     redeemer,
-    fixture.credential_validator_logic_global,
+    fixture.credential_validator_transfer,
     tx,
   )
 }
@@ -332,20 +333,20 @@ test transfer_act_with_minting_succeeds() {
       ),
     ],
     withdrawals: [
-      Pair(fixture.credential_validator_logic_global, 0),
+      Pair(fixture.credential_validator_transfer, 0),
       Pair(fixture.credential_transfer_logic, 0),
     ],
   }
 
-  let redeemer = TransferAct {
+  let redeemer = TransferRedeemer {
     params_idx: 0,
     proofs: [TokenExists { node_idx: 1 }],
   }
 
-  programmable_logic_global.programmable_logic_global.withdraw(
+  transfer.transfer.withdraw(
     fixture.policy_protocol_params,
     redeemer,
-    fixture.credential_validator_logic_global,
+    fixture.credential_validator_transfer,
     tx,
   )
 }
@@ -390,29 +391,29 @@ test transfer_act_transfer_plus_independent_pure_mint_succeeds() {
       ),
     ],
     withdrawals: [
-      Pair(fixture.credential_validator_logic_global, 0),
+      Pair(fixture.credential_validator_transfer, 0),
       Pair(fixture.credential_transfer_logic, 0),
     ],
   }
 
   // No proof for idx 2, necessary for the mint but tx.mint is non-empty — must be rejected
-  let redeemer = TransferAct {
+  let redeemer = TransferRedeemer {
     params_idx: 0,
     proofs: [TokenExists { node_idx: 1 }],
   }
 
-  programmable_logic_global.programmable_logic_global.withdraw(
+  transfer.transfer.withdraw(
     fixture.policy_protocol_params,
     redeemer,
-    fixture.credential_validator_logic_global,
+    fixture.credential_validator_transfer,
     tx,
   )
 }
 
 // Positive (Finding 02 fix): a pure mint of a registered policy passes the
-// transfer path with NO `TransferAct` proof — pure-mint policies are dropped
+// transfer path with NO `TransferRedeemer` proof — pure-mint policies are dropped
 // from `input_assets` and have nothing to prove. issuance_mint owns the mint
-// authorisation, not PLGlobal.
+// authorisation, not the transfer validator.
 test transfer_act_with_only_minting_succeeds() {
   let tx = Transaction {
     ..transaction.placeholder,
@@ -435,29 +436,29 @@ test transfer_act_with_only_minting_succeeds() {
       ),
     ],
     withdrawals: [
-      Pair(fixture.credential_validator_logic_global, 0),
+      Pair(fixture.credential_validator_transfer, 0),
       Pair(fixture.credential_transfer_logic, 0),
     ],
   }
 
-  // Finding 02 fix: pure mint requires NO TransferAct proof.
-  let redeemer = TransferAct { params_idx: 0, proofs: [] }
+  // Finding 02 fix: pure mint requires NO transfer proof.
+  let redeemer = TransferRedeemer { params_idx: 0, proofs: [] }
 
-  programmable_logic_global.programmable_logic_global.withdraw(
+  transfer.transfer.withdraw(
     fixture.policy_protocol_params,
     redeemer,
-    fixture.credential_validator_logic_global,
+    fixture.credential_validator_transfer,
     tx,
   )
 }
 
-// Finding 02: pure-mint policies must NOT carry a TransferAct proof. ONE delta
+// Finding 02: pure-mint policies must NOT carry a transfer proof. ONE delta
 // vs `transfer_act_with_only_minting_succeeds` — the redeemer carries
 // `TokenExists { node_idx: 1 }`. Because the mint-only policy is dropped from
 // `input_assets` by `apply_mint_to_known_policies`, that proof is leftover;
 // the final `[] == verify_proofs(...)` check rejects. Pins the strict
 // 1-proof-per-input-policy contract that protects against off-chain tx
-// builders quietly handing PLGlobal proofs it has no business consuming.
+// builders quietly handing the transfer validator proofs it has no business consuming.
 test transfer_act_pure_mint_with_unnecessary_proof_must_fail() fail {
   let tx = Transaction {
     ..transaction.placeholder,
@@ -480,21 +481,21 @@ test transfer_act_pure_mint_with_unnecessary_proof_must_fail() fail {
       ),
     ],
     withdrawals: [
-      Pair(fixture.credential_validator_logic_global, 0),
+      Pair(fixture.credential_validator_transfer, 0),
       Pair(fixture.credential_transfer_logic, 0),
     ],
   }
 
   // ONE delta vs the success case above — surplus proof for the pure-mint policy.
-  let redeemer = TransferAct {
+  let redeemer = TransferRedeemer {
     params_idx: 0,
     proofs: [TokenExists { node_idx: 1 }],
   }
 
-  programmable_logic_global.programmable_logic_global.withdraw(
+  transfer.transfer.withdraw(
     fixture.policy_protocol_params,
     redeemer,
-    fixture.credential_validator_logic_global,
+    fixture.credential_validator_transfer,
     tx,
   )
 }
@@ -520,15 +521,15 @@ test transfer_act_pure_mint_without_transfer_logic_succeeds() {
         "protocol params",
       ),
     ],
-    withdrawals: [Pair(fixture.credential_validator_logic_global, 0)],
+    withdrawals: [Pair(fixture.credential_validator_transfer, 0)],
   }
 
-  let redeemer = TransferAct { params_idx: 0, proofs: [] }
+  let redeemer = TransferRedeemer { params_idx: 0, proofs: [] }
 
-  programmable_logic_global.programmable_logic_global.withdraw(
+  transfer.transfer.withdraw(
     fixture.policy_protocol_params,
     redeemer,
-    fixture.credential_validator_logic_global,
+    fixture.credential_validator_transfer,
     tx,
   )
 }
@@ -556,20 +557,20 @@ test transfer_act_burning_compensate_spending() {
       ),
     ],
     withdrawals: [
-      Pair(fixture.credential_validator_logic_global, 0),
+      Pair(fixture.credential_validator_transfer, 0),
       Pair(fixture.credential_transfer_logic, 0),
     ],
   }
 
-  let redeemer = TransferAct {
+  let redeemer = TransferRedeemer {
     params_idx: 0,
     proofs: [TokenExists { node_idx: 1 }],
   }
 
-  programmable_logic_global.programmable_logic_global.withdraw(
+  transfer.transfer.withdraw(
     fixture.policy_protocol_params,
     redeemer,
-    fixture.credential_validator_logic_global,
+    fixture.credential_validator_transfer,
     tx,
   )
 }
@@ -601,20 +602,20 @@ test transfer_act_entirely_burning_one_token() {
       ),
     ],
     withdrawals: [
-      Pair(fixture.credential_validator_logic_global, 0),
+      Pair(fixture.credential_validator_transfer, 0),
       Pair(fixture.credential_transfer_logic, 0),
     ],
   }
 
-  let redeemer = TransferAct {
+  let redeemer = TransferRedeemer {
     params_idx: 0,
     proofs: [TokenExists { node_idx: 1 }],
   }
 
-  programmable_logic_global.programmable_logic_global.withdraw(
+  transfer.transfer.withdraw(
     fixture.policy_protocol_params,
     redeemer,
-    fixture.credential_validator_logic_global,
+    fixture.credential_validator_transfer,
     tx,
   )
 }
@@ -642,20 +643,20 @@ test transfer_act_entirely_burning_one_token_fail_if_other_missing() fail {
       ),
     ],
     withdrawals: [
-      Pair(fixture.credential_validator_logic_global, 0),
+      Pair(fixture.credential_validator_transfer, 0),
       Pair(fixture.credential_transfer_logic, 0),
     ],
   }
 
-  let redeemer = TransferAct {
+  let redeemer = TransferRedeemer {
     params_idx: 0,
     proofs: [TokenExists { node_idx: 1 }],
   }
 
-  programmable_logic_global.programmable_logic_global.withdraw(
+  transfer.transfer.withdraw(
     fixture.policy_protocol_params,
     redeemer,
-    fixture.credential_validator_logic_global,
+    fixture.credential_validator_transfer,
     tx,
   )
 }
@@ -684,18 +685,18 @@ test transfer_act_unauthorized_burning_compensate_spending_fails() fail {
         "registry node",
       ),
     ],
-    withdrawals: [Pair(fixture.credential_validator_logic_global, 0)],
+    withdrawals: [Pair(fixture.credential_validator_transfer, 0)],
   }
 
-  let redeemer = TransferAct {
+  let redeemer = TransferRedeemer {
     params_idx: 0,
     proofs: [TokenExists { node_idx: 1 }],
   }
 
-  programmable_logic_global.programmable_logic_global.withdraw(
+  transfer.transfer.withdraw(
     fixture.policy_protocol_params,
     redeemer,
-    fixture.credential_validator_logic_global,
+    fixture.credential_validator_transfer,
     tx,
   )
 }
@@ -720,17 +721,17 @@ test transfer_act_burning_compensate_spending_unproven_token_fails() fail {
       ),
     ],
     withdrawals: [
-      Pair(fixture.credential_validator_logic_global, 0),
+      Pair(fixture.credential_validator_transfer, 0),
       Pair(fixture.credential_transfer_logic, 0),
     ],
   }
 
-  let redeemer = TransferAct { params_idx: 0, proofs: [] }
+  let redeemer = TransferRedeemer { params_idx: 0, proofs: [] }
 
-  programmable_logic_global.programmable_logic_global.withdraw(
+  transfer.transfer.withdraw(
     fixture.policy_protocol_params,
     redeemer,
-    fixture.credential_validator_logic_global,
+    fixture.credential_validator_transfer,
     tx,
   )
 }
@@ -765,20 +766,20 @@ test transfer_act_mint_insufficient_output_fails() fail {
       ),
     ],
     withdrawals: [
-      Pair(fixture.credential_validator_logic_global, 0),
+      Pair(fixture.credential_validator_transfer, 0),
       Pair(fixture.credential_transfer_logic, 0),
     ],
   }
 
-  let redeemer = TransferAct {
+  let redeemer = TransferRedeemer {
     params_idx: 0,
     proofs: [TokenExists { node_idx: 1 }],
   }
 
-  programmable_logic_global.programmable_logic_global.withdraw(
+  transfer.transfer.withdraw(
     fixture.policy_protocol_params,
     redeemer,
-    fixture.credential_validator_logic_global,
+    fixture.credential_validator_transfer,
     tx,
   )
 }
@@ -802,7 +803,7 @@ const cov_owner_pkh: ByteArray =
 const cov_unregistered: PolicyId =
   #"55555555555555555555555555555555555555555555555555555555"
 
-/// A TransferAct over one registered policy, owned by a VKEY signer so that
+/// A transfer over one registered policy, owned by a VKEY signer so that
 /// dropping the transfer-logic withdrawal does not also destroy the ownership
 /// proof. (That confound is why this test was awkward to write before: the
 /// shipped fixture stakes PLB inputs with `credential_transfer_logic`, so the
@@ -824,17 +825,17 @@ fn cov_transfer(with_transfer_logic: Bool) -> Bool {
     extra_signatories: [cov_owner_pkh],
     withdrawals: if with_transfer_logic {
       [
-        Pair(fixture.credential_validator_logic_global, 0),
+        Pair(fixture.credential_validator_transfer, 0),
         Pair(fixture.credential_transfer_logic, 0),
       ]
     } else {
-      [Pair(fixture.credential_validator_logic_global, 0)]
+      [Pair(fixture.credential_validator_transfer, 0)]
     },
   }
-  programmable_logic_global.programmable_logic_global.withdraw(
+  transfer.transfer.withdraw(
     fixture.policy_protocol_params,
     redeemer,
-    fixture.credential_validator_logic_global,
+    fixture.credential_validator_transfer,
     tx,
   )
 }
@@ -849,7 +850,7 @@ test fails_transfer_without_token_transfer_logic() fail {
   cov_transfer(False)
 }
 
-/// A TransferAct over an UNREGISTERED policy, proved absent by a covering
+/// A transfer over an UNREGISTERED policy, proved absent by a covering
 /// node supplied at reference-input index 1.
 fn cov_absence(node_key: ByteArray, node_next: ByteArray) -> Bool {
   let tokens = [(cov_unregistered, "FOO", 1)]
@@ -872,10 +873,13 @@ fn cov_absence(node_key: ByteArray, node_next: ByteArray) -> Bool {
     ],
     withdrawals: fixture.withdrawals_transfer,
   }
-  programmable_logic_global.programmable_logic_global.withdraw(
+  transfer.transfer.withdraw(
     fixture.policy_protocol_params,
-    TransferAct { params_idx: 0, proofs: [TokenDoesNotExist { node_idx: 1 }] },
-    fixture.credential_validator_logic_global,
+    TransferRedeemer {
+      params_idx: 0,
+      proofs: [TokenDoesNotExist { node_idx: 1 }],
+    },
+    fixture.credential_validator_transfer,
     tx,
   )
 }
@@ -906,8 +910,8 @@ test fails_absence_proof_when_node_ends_below_policy() fail {
     #"22222222222222222222222222222222222222222222222222222222",
   )
 }
-// NOTE: PLG no longer coordinates third-party (seize / clawback) actions —
-// those moved to the standalone `third_party` withdraw-0 validator, and the
-// `ThirdPartyAct` constructor was removed from ProgrammableLogicGlobalRedeemer
-// entirely, so routing one to PLG is now unrepresentable at the type level (no
-// runtime test needed). See third_party.test.ak for the third-party coverage.
+// NOTE: the transfer validator coordinates transfers ONLY. Third-party (seize
+// / clawback) actions live in the standalone `third_party` validator and
+// unfracking in `unfracking`; `TransferRedeemer` has a single constructor, so
+// routing either of them here is unrepresentable at the type level (no runtime
+// test needed). See third_party.test.ak and programmable_logic/unfracking.test.ak.

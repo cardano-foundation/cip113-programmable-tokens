@@ -1,39 +1,43 @@
-//// End-to-end tests / benchmarks for programmable logic base+global validators
+//// End-to-end tests / benchmarks for the programmable-logic validators.
 ////
-//// PLG split — before/after record (the third-party / seize logic pulled out
-//// of programmable_logic_global into the standalone `third_party` validator,
-//// dispatched by programmable_logic_base). Compiled reference-script sizes,
-//// measured with `aiken build` on this branch vs the pre-split base:
+//// Validator split (PR #110) — before/after record. The former
+//// `programmable_logic_global` coordinator dispatched transfer / third-party
+//// / unfracking itself; now `programmable_logic_base` dispatches straight to
+//// one of three standalone withdraw-0 validators (`transfer`, `third_party`,
+//// `unfracking`). Compiled reference-script sizes, measured with
+//// `aiken build` on this branch vs the pre-split base:
 ////
-////   validator          before   after    delta
-////   PLG (global)         3163    2313     -850   (-26.9%)
-////   PLB (base)            496     759     +263
-////   third_party (NEW)       0    1806    +1806
-////   issuance_mint        1925    2063     +138
-////   unfracking           1832    1832       +0
+////   validator                 before   after    delta
+////   transfer (was PLG)          3163    2177     -986   (-31.2%)
+////   PLB (base)                   496     868     +372   (3-arm dispatch)
+////   third_party (NEW)              0    1806    +1806
+////   unfracking                  1832    1832       +0
+////   issuance_mint               1925    2063     +138
 ////
 //// Reference scripts are attached once and paid for (as a size-proportional
 //// fee) by EVERY transaction that references them, so what matters is the
-//// per-transaction reference-script footprint:
+//// per-transaction reference-script footprint, which is now exactly
+//// PLB + ONE delegate for every transaction kind:
 ////
-////   * transfer tx  (PLB + PLG) ....... 3659 -> 3072 B  = -587 B  every transfer
-////   * seize    tx  (PLB + third_party)  3659 -> 2565 B  = -1094 B every seize
+////   * transfer   tx (PLB + transfer) ..... 3659 -> 3045 B = -614 B  every transfer
+////   * seize      tx (PLB + third_party) .. 3659 -> 2674 B = -985 B  every seize
+////   * unfracking tx (PLB + unfracking) ... 5491 -> 2700 B = -2791 B every unfracking
 ////
-//// The transfer hot path shrinks because PLG no longer carries the seize
-//// invariants; the seize path shrinks MORE because it no longer loads the full
-//// transfer-carrying PLG at all — it loads only PLB + the seize-only script.
+//// The transfer hot path shrinks because the transfer validator no longer
+//// carries the seize invariants nor the unfracking gate; the seize and
+//// unfracking paths shrink MORE because they no longer load the transfer
+//// script at all — each loads only PLB + its own script.
 ////
 //// Execution (CPU/mem) on the composed happy paths below is roughly neutral:
-//// the PLB spend gains a 2-arm dispatch (~+2M cpu on the transfer path at
-//// withdrawal-index 0, where the old `has_key_or_fail` scan also stopped at the
-//// first entry). The benches here all witness `wdrl_idx = 0`, so they do NOT
+//// the PLB spend gains a 3-arm dispatch (a few M cpu at withdrawal-index 0,
+//// where the old `has_key_or_fail` scan also stopped at the first entry);
+//// the unfracking path additionally drops a whole validator run (the former
+//// PLG gate). The benches here all witness `wdrl_idx = 0`, so they do NOT
 //// measure the off-first-position case; `wdrl_idx_cost.test.ak` does, at
 //// widths 1-16 and positions 0-15. Note `list.expect_at` is O(`wdrl_idx`)
 //// (one cell drop per step), not O(1) — what the witness removes is the
-//// credential COMPARISON at every entry the old scan walked past, which is
-//// the seize case: the issuer-logic withdrawal (an issuer-chosen hash) may
-//// sort ahead of the framework credential. The headline win is the
-//// reference-script SIZE reduction, paid on every tx.
+//// credential COMPARISON at every entry the old scan walked past. The
+//// headline win is the reference-script SIZE reduction, paid on every tx.
 
 use aiken/collection/list
 use aiken/fuzz
@@ -44,40 +48,36 @@ use cardano/fuzz as cardano
 use cardano/transaction.{Input, Output, OutputReference, Transaction}
 use programmable_logic/fixture
 use programmable_logic_base
-use programmable_logic_global
 use third_party
+use transfer
 use types.{
-  ProgrammableLogicGlobalRedeemer, SpendViaGlobal, SpendViaThirdParty,
-  ThirdPartyRedeemer, TokenDoesNotExist, TokenExists, TransferAct,
-  UnfrackingRedeemer,
+  SpendViaThirdParty, SpendViaTransfer, SpendViaUnfracking, ThirdPartyRedeemer,
+  TokenDoesNotExist, TokenExists, TransferRedeemer, UnfrackingRedeemer,
 }
 use unfracking
 
-fn programmable_logic(
-  self: Transaction,
-  redeemer: ProgrammableLogicGlobalRedeemer,
-) -> Bool {
+fn programmable_logic(self: Transaction, redeemer: TransferRedeemer) -> Bool {
   // Include both the base and global in the benchmark
   and {
     programmable_logic_base.programmable_logic_base.spend(
       fixture.policy_protocol_params,
       None,
-      SpendViaGlobal { params_idx: 0, wdrl_idx: 0 },
+      SpendViaTransfer { params_idx: 0, wdrl_idx: 0 },
       Void,
       self,
     ),
-    programmable_logic_global.programmable_logic_global.withdraw(
+    transfer.transfer.withdraw(
       fixture.policy_protocol_params,
       redeemer,
-      fixture.credential_validator_logic_global,
+      fixture.credential_validator_transfer,
       self,
     ),
   }
 }
 
 /// Third-party (seize) composition: the base spend dispatches via
-/// SpendViaThirdParty to the standalone third_party validator — PLG is not
-/// invoked at all on a third-party transaction.
+/// SpendViaThirdParty to the standalone third_party validator — the transfer
+/// validator is not invoked at all on a third-party transaction.
 fn third_party_logic(self: Transaction, redeemer: ThirdPartyRedeemer) -> Bool {
   and {
     programmable_logic_base.programmable_logic_base.spend(
@@ -485,8 +485,8 @@ const fixture_plutarch_baseline_transfer: Transaction = {
 
 /// Corresponding redeemer with a single proof of a token in the registry,
 /// located at position #2 in reference inputs
-const fixture_redeemer_plutarch_baseline_transfer: ProgrammableLogicGlobalRedeemer =
-  TransferAct { params_idx: 0, proofs: [TokenExists { node_idx: 1 }] }
+const fixture_redeemer_plutarch_baseline_transfer: TransferRedeemer =
+  TransferRedeemer { params_idx: 0, proofs: [TokenExists { node_idx: 1 }] }
 
 test plutarch_baseline_transfer() {
   programmable_logic(
@@ -592,8 +592,8 @@ const fixture_plutarch_baseline_transfer_2: Transaction = {
 
 /// Corresponding redeemer with a single proof of a token in the registry,
 /// located at position #2 in reference inputs
-const fixture_redeemer_plutarch_baseline_transfer_2: ProgrammableLogicGlobalRedeemer =
-  TransferAct {
+const fixture_redeemer_plutarch_baseline_transfer_2: TransferRedeemer =
+  TransferRedeemer {
     params_idx: 0,
     proofs: [
       TokenExists { node_idx: 2 },
@@ -687,8 +687,8 @@ const fixture_plutarch_baseline_transfer_3: Transaction = {
     }
   }
 
-const fixture_redeemer_plutarch_baseline_transfer_3: ProgrammableLogicGlobalRedeemer =
-  TransferAct {
+const fixture_redeemer_plutarch_baseline_transfer_3: TransferRedeemer =
+  TransferRedeemer {
     params_idx: 0,
     proofs: [
       TokenDoesNotExist { node_idx: 1 },
@@ -700,10 +700,10 @@ const fixture_redeemer_plutarch_baseline_transfer_3: ProgrammableLogicGlobalRede
   }
 
 test plutarch_baseline_transfer_3() {
-  programmable_logic_global.programmable_logic_global.withdraw(
+  transfer.transfer.withdraw(
     fixture.policy_protocol_params,
     fixture_redeemer_plutarch_baseline_transfer_3,
-    fixture.credential_validator_logic_global,
+    fixture.credential_validator_transfer,
     fixture_plutarch_baseline_transfer_3,
   )
 }
@@ -714,9 +714,7 @@ test plutarch_baseline_transfer_3() {
 /// same policy in a transfer. All tokens are located at a single TxO, and
 /// transfered to a single address.
 /// ------------------------------------------------------------------------------------------------
-fn sample_many_tokens(
-  size: Int,
-) -> Fuzzer<(Transaction, ProgrammableLogicGlobalRedeemer)> {
+fn sample_many_tokens(size: Int) -> Fuzzer<(Transaction, TransferRedeemer)> {
   let policy_programmable_token: PolicyId = #"00000000000000000000000000000000000000000000000000000f00"
 
   let tokens <- fuzz.map(
@@ -746,9 +744,7 @@ bench many_tokens((self, redeemer) via sample_many_tokens) {
 /// policy.
 /// For similar reasons, everything is sent back to a single output.
 /// ------------------------------------------------------------------------------------------------
-fn sample_many_inputs(
-  size: Int,
-) -> Fuzzer<(Transaction, ProgrammableLogicGlobalRedeemer)> {
+fn sample_many_inputs(size: Int) -> Fuzzer<(Transaction, TransferRedeemer)> {
   let policy_programmable_token: PolicyId = #"00000000000000000000000000000000000000000000000000000f00"
 
   let asset_name_programmable_token: AssetName = "FOO"
@@ -782,9 +778,7 @@ bench many_inputs((self, redeemer) via sample_many_inputs) {
 /// only use a single token per policy, and originate all tokens from a single
 /// TxO; sent to a single output.
 /// ------------------------------------------------------------------------------------------------
-fn sample_many_policies(
-  size: Int,
-) -> Fuzzer<(Transaction, ProgrammableLogicGlobalRedeemer)> {
+fn sample_many_policies(size: Int) -> Fuzzer<(Transaction, TransferRedeemer)> {
   let tokens: List<(PolicyId, AssetName, Int)> <- fuzz.map(
     fuzz.list_between(
       cardano.policy_id() |> fuzz.map(fn(policy) { (policy, "FOO", 42) }),
@@ -805,9 +799,7 @@ bench many_policies((self, redeemer) via sample_many_policies) {
 /// A benchmark showing the impact of increasing the number of (programmable)
 /// outputs in a transfer action. All tokens are from the same policy, and come from a single TxO.
 /// ------------------------------------------------------------------------------------------------
-fn sample_many_outputs(
-  size: Int,
-) -> Fuzzer<(Transaction, ProgrammableLogicGlobalRedeemer)> {
+fn sample_many_outputs(size: Int) -> Fuzzer<(Transaction, TransferRedeemer)> {
   let policy_programmable_token: PolicyId = #"00000000000000000000000000000000000000000000000000000f00"
 
   let asset_name_programmable_token: AssetName = "FOO"
@@ -830,18 +822,23 @@ bench many_outputs((self, redeemer) via sample_many_outputs) {
   programmable_logic(self, redeemer)
 }
 
-/// Composition wrapper for unfracking transactions: on-chain, an
-/// unfracking tx runs base.spend (per PLB input), PLG.withdraw with
-/// UnfrackingAct (the delegation gate), AND the standalone
-/// unfracking.withdraw where the invariants live. Benching all
-/// three accounts for the full execution cost of the action.
+/// Unfracking composition (Finding 17): an unfracking tx runs base.spend
+/// (per PLB input) dispatching via SpendViaUnfracking, AND the standalone
+/// unfracking.withdraw where the invariants live — the transfer validator is
+/// not part of it. Benching both accounts for the full execution cost of the
+/// action.
 fn programmable_logic_unfracking(
   self: Transaction,
-  redeemer: ProgrammableLogicGlobalRedeemer,
   unfracking_redeemer: UnfrackingRedeemer,
 ) -> Bool {
   and {
-    programmable_logic(self, redeemer),
+    programmable_logic_base.programmable_logic_base.spend(
+      fixture.policy_protocol_params,
+      None,
+      SpendViaUnfracking { params_idx: 0, wdrl_idx: 0 },
+      Void,
+      self,
+    ),
     unfracking.unfracking.withdraw(
       fixture.policy_protocol_params,
       unfracking_redeemer,
@@ -860,20 +857,20 @@ fn programmable_logic_unfracking(
 /// policy's registry hook withdraw-0 is part of the composition.
 ///
 /// Calls the `programmable_logic_unfracking` wrapper so the base.spend
-/// and PLG-gate costs are also accounted for.
+/// dispatch cost is also accounted for.
 /// ------------------------------------------------------------------------------------------------
 test unfracking_baseline_two_policies() {
   let policy_a: PolicyId = #"00000000000000000000000000000000000000000000000000000a00"
   let policy_b: PolicyId = #"00000000000000000000000000000000000000000000000000000b00"
 
-  let (self, redeemer, unfracking_redeemer) = fixture.some_unfracking(
+  let (self, unfracking_redeemer) = fixture.some_unfracking(
     policy_a,
     [(policy_a, "FOO", 100), (policy_b, "BAR", 100)],
     [(policy_b, "BAR", 100)],
     [(policy_a, "FOO", 100)],
   )
 
-  programmable_logic_unfracking(self, redeemer, unfracking_redeemer)
+  programmable_logic_unfracking(self, unfracking_redeemer)
 }
 
 /// --- Bench: unfracking — policies axis (v2) -------------------------------------------------------
@@ -886,7 +883,7 @@ test unfracking_baseline_two_policies() {
 /// ------------------------------------------------------------------------------------------------
 fn sample_unfracking_many_policies(
   size: Int,
-) -> Fuzzer<(Transaction, ProgrammableLogicGlobalRedeemer, UnfrackingRedeemer)> {
+) -> Fuzzer<(Transaction, UnfrackingRedeemer)> {
   let acted_policy: PolicyId = #"00000000000000000000000000000000000000000000000000000a00"
 
   let other_tokens: List<(PolicyId, AssetName, Int)> <- fuzz.map(
@@ -906,7 +903,7 @@ fn sample_unfracking_many_policies(
 }
 
 bench unfracking_many_policies(
-  (self, redeemer, unfracking_redeemer) via sample_unfracking_many_policies,
+  (self, unfracking_redeemer) via sample_unfracking_many_policies,
 ) {
-  programmable_logic_unfracking(self, redeemer, unfracking_redeemer)
+  programmable_logic_unfracking(self, unfracking_redeemer)
 }

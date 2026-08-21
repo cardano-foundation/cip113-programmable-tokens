@@ -14,37 +14,20 @@ pub type RegistryProof {
   TokenDoesNotExist { node_idx: Int }
 }
 
-/// Redeemer for the global programmable logic stake validator.
+/// Redeemer of the `transfer` withdraw-0 validator — the script every
+/// ordinary programmable-token transfer is dispatched to by
+/// programmable_logic_base under `SpendViaTransfer`.
 ///
-/// Every variant carries `params_idx`: the index of the protocol-params NFT
-/// UTxO in `reference_inputs`. The validator jumps straight to that reference
-/// input (`list.at`) and authenticates it by the one-shot params NFT, instead
-/// of scanning every reference input to find it — a wrong index simply fails
-/// the NFT check. See `params.with_protocol_params_fields`.
-pub type ProgrammableLogicGlobalRedeemer {
-  /// Transfer action with proofs for each token type
-  TransferAct { params_idx: Int, proofs: List<RegistryProof> }
-  /// Unfracking action (v2, registry-gated) — a holder restructures
-  /// the PLB UTxOs they own for ONE registered policy, e.g. to break a
-  /// multi-policy "fracked" UTxO apart so a freeze on one policy stops
-  /// collateral-damaging unrelated policies in the same UTxO.
-  ///
-  /// Only `params_idx` here: under this redeemer PLG requires that the
-  /// standalone `unfracking` withdraw-0 validator (whose credential is
-  /// the `unfracking_cred` field of the protocol-params datum) is
-  /// invoked in the same transaction. The acted-on policy, the pairing
-  /// hints, and every invariant live with that validator (see
-  /// `UnfrackingRedeemer`), keeping the hot-path PLG reference script
-  /// small; only unfracking transactions pay for the unfracking logic.
-  UnfrackingAct { params_idx: Int }
-}
-
-/// The protocol-params reference-input index, common to every variant.
-pub fn params_idx_of(redeemer: ProgrammableLogicGlobalRedeemer) -> Int {
-  when redeemer is {
-    TransferAct { params_idx, .. } -> params_idx
-    UnfrackingAct { params_idx } -> params_idx
-  }
+/// `params_idx` is the index of the protocol-params NFT UTxO in
+/// `reference_inputs`. The validator jumps straight to that reference input
+/// (`list.at`) and authenticates it by the one-shot params NFT, instead of
+/// scanning every reference input to find it — a wrong index simply fails
+/// the NFT check. See `params.with_protocol_params_fields`. The standalone
+/// `third_party` and `unfracking` validators carry the same field.
+pub type TransferRedeemer {
+  params_idx: Int,
+  /// One registry proof per distinct spent policy, in ascending policy order
+  proofs: List<RegistryProof>,
 }
 
 /// Redeemer of the standalone `unfracking` withdraw-0 validator (v2).
@@ -66,7 +49,7 @@ pub type UnfrackingRedeemer {
 /// policy's registry node and pairs every acted-on PLB input positionally
 /// with a continuing output starting at `outputs_start_idx`. Carries the
 /// exact fields the old inline `ThirdPartyAct` arm did — the logic moved
-/// out of PLG into its own script, the redeemer surface is unchanged.
+/// out of the former coordinator into its own script, the redeemer surface is unchanged.
 pub type ThirdPartyRedeemer {
   /// Index of the protocol-params NFT UTxO in reference inputs
   params_idx: Int,
@@ -79,41 +62,49 @@ pub type ThirdPartyRedeemer {
 /// Redeemer of the `programmable_logic_base` spend validator.
 ///
 /// PLB runs once per programmable-token input, so its cost is multiplied by
-/// every such input in the transaction. It dispatches each spend to ONE of two
-/// withdraw-0 validators and witnesses WHERE that validator's credential sits
+/// every such input in the transaction. It dispatches each spend to ONE of
+/// three withdraw-0 validators — `transfer`, `third_party`, `unfracking` — and
+/// witnesses WHERE that validator's credential sits
 /// in the ledger-ordered withdrawal map (Script credentials first, then
 /// VerificationKey, bytewise within each), so the check is a direct
 /// `list.expect_at` — O(`wdrl_idx`) cell drops with no comparison on the way —
 /// plus one equality, instead of a scan that compares at every entry.
 ///
 /// Self-validating: a wrong `wdrl_idx` resolves to some other credential and a
-/// wrong arm names the other validator — either way the equality fails, so a
+/// wrong arm names another validator — either way the equality fails, so a
 /// dishonest witness can only invalidate its own transaction. Whichever
 /// validator it delegates to then enforces its full invariants over the whole
-/// transaction, so authorising either is sound.
+/// transaction, so authorising any one of them is sound. No delegate is ever
+/// reached through another: a transfer loads only `transfer`, a seize only
+/// `third_party`, an unfracking only `unfracking`.
 ///
 /// ASSUMPTION (documented, not enforced): "a wrong arm fails" holds only while
-/// the params datum carries `transfer_cred != third_party_cred`. Neither
-/// `protocol_params_mint` nor `coordination_spend` checks distinctness; it is
-/// the deployer's and the upgrade authority's responsibility. With equal
-/// credentials both arms resolve to the same script, which must then dispatch
-/// internally (the pre-split monolithic shape) — see
+/// the params datum carries pairwise-distinct `transfer_cred`,
+/// `third_party_cred` and `unfracking_cred`. Neither `protocol_params_mint`
+/// nor `coordination_spend` checks distinctness; it is the deployer's and the
+/// upgrade authority's responsibility. With two equal credentials both arms
+/// resolve to the same script, which must then dispatch internally — see
 /// `plb_equal_delegate_creds_collapse_the_arms`.
 pub type BaseSpendRedeemer {
-  /// Delegate to programmable_logic_global (transfer / unfracking). PLB
-  /// requires the `transfer_cred` (params datum field 2) at
-  /// `wdrl_idx`.
-  SpendViaGlobal { params_idx: Int, wdrl_idx: Int }
-  /// Delegate to the standalone `third_party` (seize / clawback) validator.
-  /// PLB requires the `third_party_cred` (params datum field 3) at `wdrl_idx`.
+  /// Delegate to the `transfer` validator. PLB requires the `transfer_cred`
+  /// (params datum field 2) at `wdrl_idx`.
+  SpendViaTransfer { params_idx: Int, wdrl_idx: Int }
+  /// Delegate to the `third_party` (seize / clawback / freeze-enforcement)
+  /// validator. PLB requires the `third_party_cred` (params datum field 3)
+  /// at `wdrl_idx`.
   SpendViaThirdParty { params_idx: Int, wdrl_idx: Int }
+  /// Delegate to the `unfracking` validator (Finding 17, holder-driven
+  /// same-owner PLB restructuring). PLB requires the `unfracking_cred`
+  /// (params datum field 4) at `wdrl_idx`.
+  SpendViaUnfracking { params_idx: Int, wdrl_idx: Int }
 }
 
-/// The protocol-params reference-input index, common to both arms.
+/// The protocol-params reference-input index, common to every arm.
 pub fn base_params_idx(redeemer: BaseSpendRedeemer) -> Int {
   when redeemer is {
-    SpendViaGlobal { params_idx, .. } -> params_idx
+    SpendViaTransfer { params_idx, .. } -> params_idx
     SpendViaThirdParty { params_idx, .. } -> params_idx
+    SpendViaUnfracking { params_idx, .. } -> params_idx
   }
 }
 

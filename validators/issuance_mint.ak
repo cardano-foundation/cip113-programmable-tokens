@@ -11,8 +11,8 @@ use cardano/transaction.{Input, Output, ScriptPurpose, Transaction, Withdraw}
 use programmable_logic/params
 use registry_node.{RegistryNode}
 use types.{
-  MintingRegistryProof, OutputIndex, ProgrammableLogicGlobalRedeemer, RefInput,
-  RegistryProof, ThirdPartyRedeemer, TokenExists, TransferAct, UnfrackingAct,
+  MintingRegistryProof, OutputIndex, RefInput, RegistryProof, ThirdPartyRedeemer,
+  TokenExists, TransferRedeemer,
 }
 use utils.{expect_inline_datum}
 
@@ -24,22 +24,23 @@ validator issuance_mint(
   // <- the hash of the contract of the logic for minting.
   minting_logic_cred: Credential,
   // One-shot protocol-params NFT policy — the protocol's permanent anchor,
-  // the same parameter PLB and PLGlobal take. Read ONLY inside the
-  // `RefInput` delegation branch, where it locates the coordination UTxO
-  // among `reference_inputs` and reads the LIVE PLGlobal credential from
-  // its datum (field 2, `transfer_cred`). Delegation then keys on
-  // THAT credential, so an in-place PLG upgrade automatically retires the
-  // old credential as a mint-custody delegate. Coordination UTxO absent ⇒
-  // no delegation ⇒ local `no_escape` custody (fail-safe). The OutputIndex
-  // path never reads it.
+  // the same parameter PLB and the three delegate validators take. Read ONLY
+  // inside the `RefInput` delegation branch, where it locates the
+  // coordination UTxO among `reference_inputs` and reads the LIVE delegate
+  // credentials from its datum (`transfer_cred`, field 2; `third_party_cred`,
+  // field 3). Delegation then keys on THOSE credentials, so an in-place
+  // upgrade of either validator automatically retires the old credential as
+  // a mint-custody delegate. Coordination UTxO absent ⇒ no delegation ⇒
+  // local `no_escape` custody (fail-safe). The OutputIndex path never reads
+  // it.
   params_policy: PolicyId,
 ) {
   mint(redeemer: MintingRegistryProof, own_policy: PolicyId, self: Transaction) {
     // Single-pass withdrawal scan for ONLY the substandard's minting-logic
     // proof. (Previously this was foldl2 with a second accumulator for
-    // "is PLGlobal invoked"; that signal is now rediscovered for free by
-    // the redeemer lookup below — PLGlobal is invoked iff its withdraw
-    // script-purpose has an entry in `tx.redeemers`. One scan does both.)
+    // "is the transfer validator invoked"; that signal is now rediscovered
+    // for free by the redeemer lookup below — a delegate is invoked iff its
+    // withdraw script-purpose has an entry in `tx.redeemers`.)
     let minting_logic_invoked = list.any(
       self.withdrawals,
       fn(wdrl) {
@@ -60,8 +61,8 @@ validator issuance_mint(
     // The registry proof determines WHO enforces custody:
     //
     //   OutputIndex → the policy's registry node appears as an OUTPUT of this
-    //     tx (freshly minted, OR re-emitted by a node update/insert). PLGlobal
-    //     does not see this node, so issuance_mint enforces custody itself.
+    //     tx (freshly minted, OR re-emitted by a node update/insert). No
+    //     delegate sees this node, so issuance_mint enforces custody itself.
     //
     //   RefInput { index } → the node is a reference input, and a delegate
     //     validator MAY enforce custody instead — but only when ITS redeemer
@@ -69,18 +70,19 @@ validator issuance_mint(
     //     `verify_registry_node` has already bound that index to `own_policy`
     //     (NFT asset name and datum.key both == own_policy), so comparing
     //     indices suffices — no need to re-extract a policy id from the
-    //     delegate's redeemer. Two delegates can cover us (the PLG split moved
-    //     the third-party path out of PLGlobal into its own validator):
-    //       * PLGlobal `TransferAct` → `proofs` contains
-    //         `TokenExists { node_idx: index }`
-    //       * the standalone `third_party` validator → its `ThirdPartyRedeemer`
-    //         has `registry_node_idx == index`
+    //     delegate's redeemer. Two delegates can cover us:
+    //       * the `transfer` validator → its `TransferRedeemer.proofs`
+    //         contains `TokenExists { node_idx: index }`
+    //       * the `third_party` validator → its `ThirdPartyRedeemer` has
+    //         `registry_node_idx == index`
+    //     (`unfracking` never mints, so it can never cover a mint.)
     //     If a delegate covers us → delegate; otherwise enforce custody here.
     //
-    // Closes Finding 04 / re-audit R-04: the previous broad `plg_invoked`
-    // signal let mints of non-covered policies escape; this precise check
-    // trusts PLGlobal only for the specific node our own redeemer named, and
-    // `no_escape` (below) catches any token this validator does mint.
+    // Closes Finding 04 / re-audit R-04: the previous broad "coordinator
+    // invoked" signal let mints of non-covered policies escape; this precise
+    // check trusts a delegate only for the specific node our own redeemer
+    // named, and `no_escape` (below) catches any token this validator does
+    // mint.
     let valid_minting = when redeemer is {
       OutputIndex { index } -> {
         // The policy's registry node is present as an OUTPUT here. That can
@@ -109,9 +111,9 @@ validator issuance_mint(
           verify_registry_node(ref_input.output, registry_node_cs, own_policy)
 
         or {
-          // Delegate iff PLGlobal's redeemer names the same registry node we
-          // did (it then enforces our PLB custody); otherwise enforce here.
-          plgl_delegates_for_own_registry_node(
+          // Delegate iff a delegate's redeemer names the same registry node
+          // we did (it then enforces our PLB custody); otherwise enforce here.
+          delegate_covers_own_registry_node(
             self.redeemers,
             self.reference_inputs,
             params_policy,
@@ -191,15 +193,16 @@ fn verify_registry_node(
   registry.key == own_policy
 }
 
-/// True iff PLGlobal's currently-running redeemer names the same registry
-/// node (by index) that our `RefInput { index }` already bound to
-/// `own_policy`. If so, PLGlobal will validate `own_policy`'s mint custody
-/// at runtime and issuance_mint can safely delegate.
+/// True iff a delegate validator's currently-running redeemer names the
+/// same registry node (by index) that our `RefInput { index }` already bound
+/// to `own_policy`. If so, that delegate will validate `own_policy`'s mint
+/// custody at runtime and issuance_mint can safely delegate.
 ///
-/// PLGlobal's credential is NOT a parameter: it is the LIVE one read from
-/// the coordination UTxO's datum (field 2, `transfer_cred`), so
-/// delegation trust tracks in-place PLG upgrades — a retired credential
-/// can no longer act as a mint-custody delegate.
+/// The delegates' credentials are NOT parameters: they are the LIVE ones read
+/// from the coordination UTxO's datum (`transfer_cred`, field 2;
+/// `third_party_cred`, field 3), so delegation trust tracks in-place
+/// upgrades — a retired credential can no longer act as a mint-custody
+/// delegate.
 ///
 /// We only need to compare indices — `own_registry_node_idx` is the index
 /// from issuance_mint's RefInput redeemer, which `verify_registry_node`
@@ -207,12 +210,12 @@ fn verify_registry_node(
 /// "same policy" without re-extracting any key.
 ///
 /// Every `None` case — no coordination UTxO among the reference inputs,
-/// PLGlobal not invoked at all, or PLGlobal's redeemer naming a different
+/// neither delegate invoked, or a delegate's redeemer naming a different
 /// registry node — returns False, falling back to local custody. The
 /// coordination locate is deliberately non-failing (`list.find` +
 /// `has_nft_strict`) so non-delegating RefInput mints need no coordination
 /// ref input.
-fn plgl_delegates_for_own_registry_node(
+fn delegate_covers_own_registry_node(
   redeemers: Pairs<ScriptPurpose, Data>,
   reference_inputs: List<Input>,
   params_policy: PolicyId,
@@ -234,18 +237,18 @@ fn plgl_delegates_for_own_registry_node(
     Some(coordination_ref) -> {
       let fields = unconstr_fields(expect_inline_datum(coordination_ref.output))
       or {
-        // (a) PLGlobal's TransferAct still validates our node's custody — it
-        // keeps the transfer path; only the seize path moved out (to (b)).
+        // (a) the `transfer` validator validates our node's custody: its
+        // proof walk resolves our node and `validate_transfer` contains the
+        // minted supply at PLB.
         when
-          find_plgl_redeemer(redeemers, params.transfer_cred_field(fields))
+          find_transfer_redeemer(redeemers, params.transfer_cred_field(fields))
         is {
           None -> False
-          Some(plg_redeemer) ->
-            plgl_scope_covers(plg_redeemer, own_registry_node_idx)
+          Some(transfer_redeemer) ->
+            transfer_scope_covers(transfer_redeemer, own_registry_node_idx)
         },
-        // (b) the standalone third_party (seize) validator does. Its
-        // conservation check (validate_3rd_party) covers minted subject-policy
-        // tokens exactly as the old inline ThirdPartyAct arm did, so trusting
+        // (b) the `third_party` (seize) validator does: its conservation check
+        // (validate_3rd_party) covers minted subject-policy tokens, so trusting
         // it for custody is sound (Finding 04 precise delegation preserved).
         third_party_covers_own_registry_node(
           redeemers,
@@ -257,10 +260,10 @@ fn plgl_delegates_for_own_registry_node(
   }
 }
 
-/// Does the standalone `third_party` (seize) validator's redeemer name the
-/// SAME registry node our `RefInput { index }` did? Its `registry_node_idx`
-/// IS the subject policy's node (single-policy), so "same index" ⇒ "same
-/// policy" — identical reasoning to the old inline ThirdPartyAct scope check.
+/// Does the `third_party` (seize) validator's redeemer name the SAME
+/// registry node our `RefInput { index }` did? Its `registry_node_idx` IS the
+/// subject policy's node (single-policy), so "same index" ⇒ "same policy" —
+/// the same reasoning as `transfer_scope_covers`.
 /// None (third_party not invoked, or its redeemer names a different node) ⇒
 /// no delegation, so custody falls back to local `no_escape`.
 fn third_party_covers_own_registry_node(
@@ -276,8 +279,8 @@ fn third_party_covers_own_registry_node(
 }
 
 /// Find the `third_party` validator's Withdraw redeemer in `tx.redeemers` and
-/// decode it. Mirrors `find_plgl_redeemer`; returns None when the third_party
-/// validator isn't invoked.
+/// decode it. Mirrors `find_transfer_redeemer`; returns None when the
+/// third_party validator isn't invoked.
 fn find_tp_redeemer(
   redeemers: Pairs<ScriptPurpose, Data>,
   cred: Credential,
@@ -298,55 +301,46 @@ fn find_tp_redeemer(
   }
 }
 
-/// Find PLGlobal's Withdraw redeemer in `tx.redeemers` and decode it.
-/// Linear in `|redeemers|`. Returns None when PLGlobal isn't invoked.
-fn find_plgl_redeemer(
+/// Find the `transfer` validator's Withdraw redeemer in `tx.redeemers` and
+/// decode it. Linear in `|redeemers|`. Returns None when the transfer
+/// validator isn't invoked.
+fn find_transfer_redeemer(
   redeemers: Pairs<ScriptPurpose, Data>,
   cred: Credential,
-) -> Option<ProgrammableLogicGlobalRedeemer> {
+) -> Option<TransferRedeemer> {
   when redeemers is {
     [] -> None
     [Pair(purpose, data), ..tail] ->
       when purpose is {
         Withdraw(c) ->
           if c == cred {
-            expect plg: ProgrammableLogicGlobalRedeemer = data
-            Some(plg)
+            expect transfer_redeemer: TransferRedeemer = data
+            Some(transfer_redeemer)
           } else {
-            find_plgl_redeemer(tail, cred)
+            find_transfer_redeemer(tail, cred)
           }
-        _ -> find_plgl_redeemer(tail, cred)
+        _ -> find_transfer_redeemer(tail, cred)
       }
   }
 }
 
-/// Per-mode scope check: does the given PLGlobal redeemer name the SAME
-/// registry node our `RefInput { index }` did?
+/// Scope check: does the given transfer redeemer name the SAME registry node
+/// our `RefInput { index }` did? `proofs` must contain
+/// `TokenExists { node_idx }` with `node_idx == own_registry_node_idx`. The
+/// transfer validator's `verify_proofs` walks `proofs` in lockstep with
+/// `input_assets`; if any input asset's policy lines up with this proof, it
+/// resolves our index and validates against it. If positions don't line up,
+/// it aborts and the tx fails — no escape path.
 ///
-///   * TransferAct  → `proofs` must contain `TokenExists { node_idx }`
-///                    where `node_idx == own_registry_node_idx`. PLGlobal's
-///                    `verify_proofs` walks `proofs` in lockstep with
-///                    `input_assets`; if any input asset's policy lines up
-///                    with this proof, PLGlobal will resolve our index and
-///                    validate against it. If positions don't line up,
-///                    PLGlobal aborts and the tx fails — no escape path.
-///
-/// Third-party (seize) actions are NOT handled by PLGlobal any more — they run
-/// in the standalone `third_party` validator, whose coverage is checked
-/// separately in `third_party_covers_own_registry_node` below.
-fn plgl_scope_covers(
-  plg_redeemer: ProgrammableLogicGlobalRedeemer,
+/// The `unfracking` validator is deliberately NOT a delegate: unfracking is
+/// value-preserving, same-owner PLB restructuring with NO mint, so it never
+/// validates an issuance's custody and cannot cover one (Finding 04 precise
+/// delegation).
+fn transfer_scope_covers(
+  transfer_redeemer: TransferRedeemer,
   own_registry_node_idx: Int,
 ) -> Bool {
-  when plg_redeemer is {
-    TransferAct { proofs, .. } -> {
-      let expected_proof = TokenExists(own_registry_node_idx)
-      list.any(proofs, fn(proof: RegistryProof) { expected_proof == proof })
-    }
-    // UnfrackingAct (Finding 17) is value-preserving, same-owner PLB
-    // restructuring with NO mint — it never validates an issuance's custody, so
-    // it cannot cover one. Deny delegation (Finding 04 precise delegation):
-    // issuance_mint must validate the mint outputs itself, not trust unfracking.
-    UnfrackingAct { .. } -> False
-  }
+  let TransferRedeemer { proofs, .. } = transfer_redeemer
+  let expected_proof = TokenExists(own_registry_node_idx)
+  list.any(proofs, fn(proof: RegistryProof) { expected_proof == proof })
 }

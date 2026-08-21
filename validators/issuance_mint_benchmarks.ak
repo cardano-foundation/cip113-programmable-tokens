@@ -1,12 +1,12 @@
 //// End-to-end benchmarks for the issuance_mint validator.
 ////
 //// Issuance_mint isn't exercised by `programmable_logic/benchmarks.ak`
-//// (which only invokes PLGlobal). This file measures the per-tx cost of
+//// (which only invokes the transfer validator). This file measures the per-tx cost of
 //// the precise delegation check (Finding 04 fix): the scope walk over
-//// PLGlobal's TransferAct `proofs` list to decide "is the same registry
-//// node named?" before delegating to PLGlobal.
+//// `TransferRedeemer.proofs` to decide "is the same registry
+//// node named?" before delegating to the transfer validator.
 ////
-//// The sampler scales the size of PLGlobal's `proofs` list while placing
+//// The sampler scales the size of the transfer validator's `proofs` list while placing
 //// our match (`TokenExists { node_idx: 0 }`) at the END — worst case for
 //// `list.any` short-circuit. Slope tells us cost per non-matching proof
 //// entry. Y-intercept tells us the constant cost of the precise check
@@ -30,7 +30,7 @@ use cardano/transaction.{
 use issuance_mint
 use programmable_logic/params.{ProgrammableLogicGlobalParams}
 use registry_node.{RegistryNode, empty_vkey}
-use types.{MintingRegistryProof, RefInput, TokenExists, TransferAct}
+use types.{MintingRegistryProof, RefInput, TokenExists, TransferRedeemer}
 
 // ---------------------------------------------------------------------------
 // Test constants (mirrored from issuance_mint.test.ak)
@@ -45,7 +45,7 @@ const test_registry_cs =
 const test_ml_cred =
   Script(#"33333333333333333333333333333333333333333333333333333333")
 
-const test_plg_cred =
+const test_transfer_cred =
   Script(#"a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1")
 
 const test_params_policy =
@@ -98,9 +98,9 @@ fn registry_node_ref_input() -> Input {
 }
 
 /// The coordination UTxO as a reference input (mirror of the test file's
-/// helper): protocol-params NFT + datum whose field 2 is the live PLG
+/// helper): protocol-params NFT + datum whose field 2 is the live transfer-validator
 /// credential. Fields issuance_mint never reads carry placeholders.
-fn coordination_ref_input(plg_cred: Credential) -> Input {
+fn coordination_ref_input(transfer_cred: Credential) -> Input {
   Input {
     output_reference: dummy_oref,
     output: Output {
@@ -116,7 +116,7 @@ fn coordination_ref_input(plg_cred: Credential) -> Input {
           registry_node_cs: test_registry_cs,
           prog_logic_cred: test_plb_cred,
           unfracking_cred: test_ml_cred,
-          transfer_cred: plg_cred,
+          transfer_cred,
           upgrade_cred: test_ml_cred,
           third_party_cred: test_ml_cred,
         },
@@ -174,7 +174,7 @@ fn invoke_issuance(self: Transaction, redeemer: MintingRegistryProof) -> Bool {
 }
 
 // ---------------------------------------------------------------------------
-// Sampler: scale PLGlobal's TransferAct `proofs` list with the match at the
+// Sampler: scale `TransferRedeemer.proofs` with the match at the
 // END (worst case for `list.any` short-circuit). One PLB input + one PLB
 // output + +50 mint of our policy. issuance_mint delegates iff the proofs
 // list contains `TokenExists { node_idx: 0 }`.
@@ -185,7 +185,7 @@ fn sample_delegate_transferact(
 ) -> Fuzzer<(Transaction, MintingRegistryProof)> {
   // Build proofs = [dummy, dummy, ..., dummy, match] of length `size + 1`.
   // `dummy` proofs point at a different (unrelated) ref-input index;
-  // PLGlobal would never accept them at runtime, but issuance_mint doesn't
+  // the transfer validator would never accept them at runtime, but issuance_mint doesn't
   // care about that — we're only measuring its scope walk.
   let dummy_proof = TokenExists { node_idx: 9999 }
   let extra_proofs = list.repeat(dummy_proof, size)
@@ -199,16 +199,16 @@ fn sample_delegate_transferact(
     inputs: [plb_input_with_policy()],
     reference_inputs: [
       registry_node_ref_input(),
-      coordination_ref_input(test_plg_cred),
+      coordination_ref_input(test_transfer_cred),
     ],
     outputs: [plb_output_with_policy(150)],
     mint: from_asset(test_own_policy, test_token_name, 50),
-    withdrawals: [Pair(test_ml_cred, 0), Pair(test_plg_cred, 0)],
+    withdrawals: [Pair(test_ml_cred, 0), Pair(test_transfer_cred, 0)],
     redeemers: [
       Pair(Mint(test_own_policy), as_data(rdmr)),
       Pair(
-        Withdraw(test_plg_cred),
-        as_data(TransferAct { params_idx: 0, proofs }),
+        Withdraw(test_transfer_cred),
+        as_data(TransferRedeemer { params_idx: 0, proofs }),
       ),
     ],
   }
@@ -222,7 +222,7 @@ bench delegate_transferact_many_proofs(
 }
 
 // ---------------------------------------------------------------------------
-// Sampler: PLGlobal not invoked at all (no Withdraw redeemer). issuance_mint
+// Sampler: the transfer validator not invoked at all (no Withdraw redeemer). issuance_mint
 // falls through to `validate_mint_outputs` which walks `tx.outputs`. Scale
 // the output count to measure that fallback path.
 // ---------------------------------------------------------------------------
@@ -246,7 +246,7 @@ fn sample_no_delegate_many_outputs(
     reference_inputs: [registry_node_ref_input()],
     outputs,
     mint: from_asset(test_own_policy, test_token_name, 50),
-    // Only minting-logic withdrawal — no PLGlobal.
+    // Only minting-logic withdrawal — no the transfer validator.
     withdrawals: [Pair(test_ml_cred, 0)],
     redeemers: [Pair(Mint(test_own_policy), as_data(rdmr))],
   }

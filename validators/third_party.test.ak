@@ -2,7 +2,7 @@
 //// freeze) withdraw-0 validator.
 ////
 //// These exercise `third_party.withdraw` with a `ThirdPartyRedeemer` — the
-//// same invariants the inline `ThirdPartyAct` arm of programmable_logic_global
+//// same invariants the inline `ThirdPartyAct` arm of the former programmable_logic_global coordinator
 //// used to enforce (`validate_3rd_party` in programmable_logic/third_party),
 //// now hosted in their own script. The transaction always presents the
 //// subject policy's registry node as a reference input and the issuer's
@@ -410,7 +410,7 @@ test third_party_act_wipe_full_burn_succeeds() {
       ),
     ],
     withdrawals: [
-      Pair(fixture.credential_validator_logic_global, 0),
+      Pair(fixture.credential_validator_transfer, 0),
       Pair(test_third_party_cred, 0),
     ],
   }
@@ -460,7 +460,7 @@ test third_party_act_wipe_partial_burn_succeeds() {
       ),
     ],
     withdrawals: [
-      Pair(fixture.credential_validator_logic_global, 0),
+      Pair(fixture.credential_validator_transfer, 0),
       Pair(test_third_party_cred, 0),
     ],
   }
@@ -513,7 +513,7 @@ test third_party_act_wipe_seize_and_partial_burn() {
       ),
     ],
     withdrawals: [
-      Pair(fixture.credential_validator_logic_global, 0),
+      Pair(fixture.credential_validator_transfer, 0),
       Pair(test_third_party_cred, 0),
     ],
   }
@@ -563,7 +563,7 @@ test third_party_act_wipe_insufficient_after_burn_fails() fail {
       ),
     ],
     withdrawals: [
-      Pair(fixture.credential_validator_logic_global, 0),
+      Pair(fixture.credential_validator_transfer, 0),
       Pair(test_third_party_cred, 0),
     ],
   }
@@ -608,7 +608,7 @@ test third_party_act_unauthorized_burn_compensate_spend() fail {
         test_third_party_cred,
       ),
     ],
-    withdrawals: [Pair(fixture.credential_validator_logic_global, 0)],
+    withdrawals: [Pair(fixture.credential_validator_transfer, 0)],
   }
 
   let redeemer = ThirdPartyRedeemer {
@@ -652,7 +652,7 @@ test third_party_act_unproven_burn_compensate_spend() fail {
       ),
     ],
     withdrawals: [
-      Pair(fixture.credential_validator_logic_global, 0),
+      Pair(fixture.credential_validator_transfer, 0),
       Pair(test_third_party_cred, 0),
     ],
   }
@@ -725,7 +725,7 @@ test third_party_act_same_policy_mint_during_seizure_succeeds() {
       ),
     ],
     withdrawals: [
-      Pair(fixture.credential_validator_logic_global, 0),
+      Pair(fixture.credential_validator_transfer, 0),
       Pair(test_third_party_cred, 0),
     ],
   }
@@ -775,7 +775,7 @@ test third_party_act_same_policy_mint_insufficient_output_fails() fail {
       ),
     ],
     withdrawals: [
-      Pair(fixture.credential_validator_logic_global, 0),
+      Pair(fixture.credential_validator_transfer, 0),
       Pair(test_third_party_cred, 0),
     ],
   }
@@ -829,7 +829,7 @@ test third_party_act_unrelated_policy_mint_succeeds() {
       ),
     ],
     withdrawals: [
-      Pair(fixture.credential_validator_logic_global, 0),
+      Pair(fixture.credential_validator_transfer, 0),
       Pair(test_third_party_cred, 0),
     ],
   }
@@ -882,7 +882,7 @@ test third_party_act_wipe_burn_plus_unrelated_mint_succeeds() {
       ),
     ],
     withdrawals: [
-      Pair(fixture.credential_validator_logic_global, 0),
+      Pair(fixture.credential_validator_transfer, 0),
       Pair(test_third_party_cred, 0),
     ],
   }
@@ -970,7 +970,7 @@ fn validate_third_party_with_inputs_and_outputs(
       ),
     ],
     withdrawals: [
-      Pair(fixture.credential_validator_logic_global, 0),
+      Pair(fixture.credential_validator_transfer, 0),
       Pair(test_third_party_cred, 0),
     ],
   }

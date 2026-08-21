@@ -715,7 +715,10 @@ When upgrading off-chain integration:
 - [ ] Add the 3rd protocol-params field `unfracking_cred` to your params-datum
       tooling (§8).
 - [ ] Decode the PLG redeemer's new `UnfrackingAct` variant and the reshaped
-      `ThirdPartyAct { registry_node_idx, outputs_start_idx }` (§9).
+      `ThirdPartyAct { registry_node_idx, outputs_start_idx }` (§9) — **on the
+      upgradability branch these no longer exist**: use `TransferRedeemer`,
+      `ThirdPartyRedeemer`, `UnfrackingRedeemer` and the three-arm
+      `BaseSpendRedeemer` instead (§17).
 - [ ] **Stop caching node governance credentials** — resolve
       `transfer_logic_script` / `third_party_transfer_logic_script` /
       `global_state_cs` / `protected_prefixes` fresh at build time; they are
@@ -789,65 +792,75 @@ index simply fails — no security is delegated to the index.
 
 ---
 
-## 17. PLG split — third-party path becomes its own validator, PLB dispatches (upgradability branch)
+## 17. Validator split — `transfer`, `third_party`, `unfracking` as standalone validators; PLB dispatches (upgradability branch, PR #110)
 
-> On `feat/upgradability-in-place`. **Breaking redeemer-surface + validator-set change.** Supersedes the `ThirdPartyAct` parts of §9.
+> On `feat/upgradability-in-place`. **Breaking redeemer-surface + validator-set change.** Supersedes the `ThirdPartyAct` / `UnfrackingAct` parts of §9 and the PLG redeemer shape in §16.
 
-The third-party (seize / clawback / freeze) invariants move out of
-`programmable_logic_global` (PLG) into a **new standalone withdraw-0 validator
-`third_party`**, and `programmable_logic_base` (PLB) becomes a **dispatcher**:
-each spend forwards to *either* PLG (transfer / unfracking) *or* the `third_party`
-validator, witnessing which one and where its withdrawal sits.
+The former `programmable_logic_global` (PLG) coordinator — one withdraw-0
+script that dispatched transfer / third-party / unfracking on its redeemer —
+is gone. `programmable_logic_base` (PLB) now dispatches **directly** to one of
+three standalone withdraw-0 validators, each carrying only its own invariants:
 
-**Motivation.** PLG is a reference script paid for by every transfer, forever;
-the seize logic is heavy but rare. Hosting it separately keeps those bytes off
-the transfer hot path and — because a seize transaction no longer loads PLG at
-all — off the seize path too. Measured reference-script footprint per tx:
-`transfer` 3659 → 3072 B (**−587 B**), `seize` 3659 → 2565 B (**−1094 B**); PLG
-itself 3163 → 2313 B (**−27%**).
+| Validator | Redeemer | Params-datum credential | Transaction kind |
+|---|---|---|---|
+| **`transfer`** (renamed from `programmable_logic_global`) | `TransferRedeemer { params_idx, proofs }` | `transfer_cred` (field 2) | ordinary transfers |
+| **`third_party`** (new) | `ThirdPartyRedeemer { params_idx, registry_node_idx, outputs_start_idx }` | `third_party_cred` (field 3) | seize / clawback / freeze enforcement |
+| **`unfracking`** (existing; no longer gated through PLG) | `UnfrackingRedeemer { params_idx, registry_node_idx, outputs_start_idx }` | `unfracking_cred` (field 4) | holder-driven same-owner restructuring |
 
-### New validator
+**Motivation.** The transfer validator is a reference script paid for by every
+transfer, forever; the seize logic is heavy but rare, and the unfracking arm
+was a pure trampoline (one withdrawal scan) that still forced every unfracking
+transaction to load the whole transfer script. Each transaction kind now loads
+PLB plus exactly one delegate. Measured reference-script footprint per tx:
+`transfer` 3659 → 3045 B (**−614 B**), `seize` 3659 → 2674 B (**−985 B**),
+`unfracking` 5491 → 2700 B (**−2791 B**); the transfer script itself 3163 →
+2177 B (**−31%**), PLB 496 → 868 B (three-arm dispatch).
 
-- **`validators/third_party.ak`** — withdraw-0 validator, parameterized by
-  `params_policy` (the params-NFT policy), carrying the third-party invariants
-  (`validate_3rd_party`). Its own redeemer:
-  ```aiken
-  ThirdPartyRedeemer { params_idx: Int, registry_node_idx: Int, outputs_start_idx: Int }
-  ```
-  (the exact fields the old inline `ThirdPartyAct` carried). Per-policy it still
-  requires the issuer's `third_party_transfer_logic_script` (registry-node field
-  4) withdrawal.
+### Validator set
+
+- **`validators/transfer.ak`** — blueprint title `transfer.transfer.withdraw`
+  (was `programmable_logic_global.programmable_logic_global.withdraw`).
+  Parameter unchanged (`params_policy`). Same transfer invariants
+  (`validate_transfer`); no redeemer switch.
+- **`validators/third_party.ak`** — new; blueprint title
+  `third_party.third_party.withdraw`; parameter `params_policy`; carries the
+  third-party invariants (`validate_3rd_party`). Per-policy it still requires
+  the issuer's `third_party_transfer_logic_script` (registry-node field 4)
+  withdrawal.
+- **`validators/unfracking.ak`** — unchanged bytes; now invoked via PLB's
+  `SpendViaUnfracking` instead of through PLG.
 
 ### Redeemer changes
 
-- **`programmable_logic_base.spend`** — the redeemer changes from `Int`
-  (§16's params index) to a **sum type** that also picks the delegate and
-  witnesses its withdrawal position:
+- **`programmable_logic_base.spend`** — from `Int` (§16's params index) to a
+  **sum type** that picks the delegate and witnesses its withdrawal position:
   ```aiken
   BaseSpendRedeemer {
-    SpendViaGlobal { params_idx: Int, wdrl_idx: Int }      // -> PLG (transfer / unfracking)
-    SpendViaThirdParty { params_idx: Int, wdrl_idx: Int }  // -> third_party (seize)
+    SpendViaTransfer { params_idx: Int, wdrl_idx: Int }     // constructor 0 -> transfer
+    SpendViaThirdParty { params_idx: Int, wdrl_idx: Int }   // constructor 1 -> third_party
+    SpendViaUnfracking { params_idx: Int, wdrl_idx: Int }   // constructor 2 -> unfracking
   }
   ```
-  PLB reads the delegate credential from the params datum (`transfer_cred`
-  field 2, or `third_party_cred` field 3) and requires it at `withdrawals[wdrl_idx]`
-  — a direct `list.expect_at` (O(`wdrl_idx`) cell drops, no credential
-  comparison en route; cost record in
+  PLB reads the arm's credential from the params datum (field 2 / 3 / 4) and
+  requires it at `withdrawals[wdrl_idx]` — a direct `list.expect_at`
+  (O(`wdrl_idx`) cell drops, no credential comparison en route; cost record in
   `validators/programmable_logic/wdrl_idx_cost.test.ak`) instead of a scan that
   compares at every entry. Self-validating: a wrong index or arm resolves to a
-  credential that fails the equality — assuming `transfer_cred ≠
-  third_party_cred`, which is **not** enforced on-chain (a deployment /
+  credential that fails the equality — assuming the three delegate credentials
+  are pairwise distinct, which is **not** enforced on-chain (a deployment /
   upgrade-authority responsibility; see `02-ARCHITECTURE.md`). `wdrl_idx` is a
   position in the withdrawal map as the ledger orders it (script credentials
   before key credentials, bytewise within each kind), over the complete
   withdrawal set — see `09-DEVELOPING-SUBSTANDARDS.md` › Withdrawal indices.
-- **`ProgrammableLogicGlobalRedeemer`** — the `ThirdPartyAct` constructor is
-  **removed**; PLG now coordinates transfers and unfracking only:
+- **`ProgrammableLogicGlobalRedeemer` is gone.** Its replacement is the
+  single-constructor record
   ```aiken
-  TransferAct { params_idx: Int, proofs: List<RegistryProof> }
-  UnfrackingAct { params_idx: Int }
+  TransferRedeemer { params_idx: Int, proofs: List<RegistryProof> }
   ```
-  (`UnfrackingAct`'s constructor index shifts 2 → 1.)
+  (constructor 0, same field order as the old `TransferAct`, so an existing
+  `TransferAct` encoder produces valid bytes). `ThirdPartyAct` and
+  `UnfrackingAct` no longer exist as PLG arms: their payloads live in
+  `ThirdPartyRedeemer` / `UnfrackingRedeemer` at the respective validators.
 
 ### Protocol-params datum — reordered + renamed, `third_party_cred` added
 
@@ -861,19 +874,20 @@ the framework-validator creds don't collide with the registry node's
 type ProgrammableLogicGlobalParams {
   registry_node_cs: PolicyId,   // 0
   prog_logic_cred: Credential,  // 1 — base payment credential
-  transfer_cred: Credential,    // 2 — programmable_logic_global (SpendViaGlobal)
+  transfer_cred: Credential,    // 2 — the transfer validator (SpendViaTransfer)
   third_party_cred: Credential, // 3 — the third_party validator (SpendViaThirdParty)
-  unfracking_cred: Credential,  // 4 — the unfracking validator
+  unfracking_cred: Credential,  // 4 — the unfracking validator (SpendViaUnfracking)
   upgrade_cred: Credential,     // 5 — upgrade authority (coordination_spend only)
 }
 ```
 
-The two credentials PLB reads on its per-input dispatch (`transfer_cred`,
-`third_party_cred`) sit at the shallow indices 2-3; the rarer `unfracking_cred`
-and coldest `upgrade_cred` follow. `third_party_cred` is new (the standalone
-seize validator's credential). All four delegate credentials are swappable in
+The three credentials PLB reads on its per-input dispatch sit at indices 2-4
+(ordered by how often each arm runs); the coldest `upgrade_cred` is last.
+`third_party_cred` is new. All four delegate credentials are swappable in
 place; `coordination_spend` guards each mutable one with the same
-`is_28_byte_credential` one-way-brick check.
+`is_28_byte_credential` one-way-brick check. (The type keeps its historical
+name `ProgrammableLogicGlobalParams` — it is the protocol-params datum, not
+tied to any one validator.)
 
 > **Breaking for any params-datum builder or parser**: the field ORDER and the
 > two field NAMES changed, so the on-chain CBOR field order changed. Deploy
@@ -882,25 +896,29 @@ place; `coordination_spend` guards each mutable one with the same
 
 ### issuance_mint delegation
 
-- `issuance_mint`'s mint-custody delegation (Finding 04) now recognises coverage
-  from **either** PLG's `TransferAct` (as before) **or** the `third_party`
-  validator's `ThirdPartyRedeemer` — whichever names the same registry node the
-  mint's `RefInput { index }` did. `validate_3rd_party`'s conservation check
-  covers minted subject-policy tokens exactly as the old inline arm did, so the
-  trust is sound. No change to the `issuance_mint` parameter list.
+- `issuance_mint`'s mint-custody delegation (Finding 04) recognises coverage
+  from **either** the `transfer` validator's `TransferRedeemer` (a
+  `TokenExists` proof naming the same registry node the mint's
+  `RefInput { index }` did) **or** the `third_party` validator's
+  `ThirdPartyRedeemer` (same `registry_node_idx`). `unfracking` never mints and
+  is not a delegate. No change to the `issuance_mint` parameter list.
 
 ### Off-chain impact
 
-- Each `programmable_logic_base` spend now carries a `SpendViaGlobal` /
-  `SpendViaThirdParty` redeemer: pick the arm matching the transaction (a seize
-  tx uses `SpendViaThirdParty`), and set `wdrl_idx` to the delegate credential's
-  position in the **canonical** withdrawal ordering (the ledger sorts
-  `withdrawals` by reward address).
-- A seize transaction invokes the `third_party` validator's withdraw-0 (and
-  attaches its reference script) **instead of** PLG's; it carries a
-  `ThirdPartyRedeemer` at the `third_party_cred` reward address.
-- Deployment must write `third_party_cred` into the protocol-params datum and
-  publish the `third_party` reference script.
+- Each `programmable_logic_base` spend carries a `SpendViaTransfer` /
+  `SpendViaThirdParty` / `SpendViaUnfracking` redeemer: pick the arm matching
+  the transaction and set `wdrl_idx` to the delegate credential's position in
+  the ledger-ordered withdrawal map (script credentials first, then key
+  credentials, bytewise within each kind; over the complete withdrawal set).
+- A transfer invokes `transfer`'s withdraw-0 with a `TransferRedeemer`
+  (blueprint title `transfer.transfer.withdraw`); a seize invokes `third_party`
+  with a `ThirdPartyRedeemer`; an unfracking invokes `unfracking` with an
+  `UnfrackingRedeemer` — **never more than one framework delegate per
+  transaction**, and no transaction kind needs the transfer script unless it
+  is a transfer.
+- Deployment must publish all three delegate reference scripts and write
+  `transfer_cred`, `third_party_cred`, `unfracking_cred` into the
+  protocol-params datum.
 - The SDK (`cip113-sdk-ts`) and the Java backend need corresponding updates —
   tracked separately, out of scope for the on-chain change.
 

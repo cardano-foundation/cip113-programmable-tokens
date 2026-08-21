@@ -1,17 +1,16 @@
 //// Tests for the Unfracking action — v2 (registry-gated,
-//// ThirdPartyAct-shaped). See `documentation/design/unfracking-v2-registry-hook.md`.
+//// third-party-shaped). See `documentation/design/unfracking-v2-registry-hook.md`.
 ////
 //// The fixtures sit at the top of the file (per CLAUDE.md), every test
 //// is built by spreading a known-good fixture and overriding one field
 //// to expose the invariant under test. Names read as specs.
 ////
 //// Script composition: a real unfracking transaction carries up to
-//// FOUR withdraw-0s (`fixture.withdrawals_unfracking`):
+//// THREE withdraw-0s (`fixture.withdrawals_unfracking`):
 ////
-////   * programmable_logic_base.spend — per PLB input; requires PLG's
-////     withdraw-0.
-////   * programmable_logic_global.withdraw (UnfrackingAct) — requires
-////     unfracking's withdraw-0 (the delegation gate).
+////   * programmable_logic_base.spend (SpendViaUnfracking) — per PLB input;
+////     requires unfracking's withdraw-0 at the witnessed index. The
+////     transfer validator is NOT part of an unfracking transaction.
 ////   * unfracking.withdraw — enforces the v2 invariants tested here,
 ////     including that the acted-on policy's issuer hook withdraw-0
 ////     (registry node field 5, `credential_unfracking_hook` in the
@@ -27,9 +26,8 @@ use cardano/transaction.{InlineDatum, Input, Output, Transaction}
 use programmable_logic/fixture
 use programmable_logic/params.{ProgrammableLogicGlobalParams}
 use programmable_logic_base
-use programmable_logic_global
 use registry_node.{RegistryNode, empty_vkey, sentinel_next_key}
-use types.{SpendViaGlobal, UnfrackingAct, UnfrackingRedeemer}
+use types.{SpendViaUnfracking, UnfrackingRedeemer}
 use unfracking
 
 // --------------------------------------------------------------------- consts
@@ -57,8 +55,6 @@ const second_vkey_pkh: ByteArray =
 const eve_vkey_pkh: ByteArray =
   #"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
 
-const plg_redeemer = UnfrackingAct { params_idx: 0 }
-
 const unfracking_redeemer =
   UnfrackingRedeemer {
     params_idx: 0,
@@ -75,7 +71,7 @@ const unfracking_redeemer =
 /// same owner address. Reference inputs: protocol params (0) and the
 /// acted policy's registry node with the hook set (1).
 fn valid_unfracking_tx() -> Transaction {
-  let (tx, _, _) = fixture.some_unfracking(
+  let (tx, _) = fixture.some_unfracking(
     policy_a,
     [(policy_a, "FOO", 100), (policy_b, "BAR", 100)],
     [(policy_b, "BAR", 100)],
@@ -88,7 +84,6 @@ fn valid_unfracking_tx() -> Transaction {
 /// transaction would carry. Used by the hook-invocation negative.
 const withdrawals_without_hook: Pairs<Credential, Int> =
   [
-    Pair(fixture.credential_validator_logic_global, 0),
     Pair(fixture.credential_validator_unfracking, 0),
     Pair(fixture.credential_transfer_logic, 0),
   ]
@@ -97,7 +92,6 @@ const withdrawals_without_hook: Pairs<Credential, Int> =
 /// needed — the owner signs instead).
 const withdrawals_vkey_owner: Pairs<Credential, Int> =
   [
-    Pair(fixture.credential_validator_logic_global, 0),
     Pair(fixture.credential_validator_unfracking, 0),
     Pair(fixture.credential_unfracking_hook, 0),
   ]
@@ -165,16 +159,17 @@ fn run_unfracking(tx: Transaction) -> Bool {
   run_unfracking_with(tx, unfracking_redeemer)
 }
 
-/// Dispatch helper — drives `programmable_logic_global.withdraw` with
-/// the `UnfrackingAct` redeemer. Under that redeemer PLG is only a
-/// delegation gate: it requires the withdraw-0 of the credential named
-/// by the protocol-params datum's `unfracking_cred` field and checks
-/// nothing else.
-fn run_plg_unfracking_gate(tx: Transaction) -> Bool {
-  programmable_logic_global.programmable_logic_global.withdraw(
+/// Dispatch helper — drives `programmable_logic_base.spend` with a
+/// `SpendViaUnfracking` redeemer witnessing the unfracking withdrawal at
+/// index 0 (where `fixture.withdrawals_unfracking` puts it). PLB only
+/// requires the withdraw-0 of the credential named by the protocol-params
+/// datum's `unfracking_cred` field at that index and checks nothing else.
+fn run_plb_unfracking_dispatch(tx: Transaction) -> Bool {
+  programmable_logic_base.programmable_logic_base.spend(
     fixture.policy_protocol_params,
-    plg_redeemer,
-    fixture.credential_validator_logic_global,
+    None,
+    SpendViaUnfracking { params_idx: 0, wdrl_idx: 0 },
+    Void,
     tx,
   )
 }
@@ -218,7 +213,7 @@ test unfracking_multi_utxo_consolidation_succeeds() {
 // output is rejected. Requirements-driven: in the freeze case the
 // residue keeps the continuing UTxO needing the frozen policy's
 // transfer proof (still stuck), and partial same-owner rebalancing is
-// TransferAct's job — with transfer logic as the proper bouncer — not
+// a transfer's job — with transfer logic as the proper bouncer — not
 // this bypass's.
 test unfracking_fails_partial_strip_residue_in_pair() fail {
   let tx = Transaction {
@@ -591,7 +586,7 @@ test unfracking_fails_two_stake_creds_among_inputs() fail {
 }
 
 // v2: a paired input must already hold the acted policy — a UTxO with
-// none of it has no business in this action (spend it via TransferAct).
+// none of it has no business in this action (spend it via a transfer).
 // ONE delta: a second input holding only B joins the action.
 test unfracking_fails_input_without_acted_policy() fail {
   let tx = Transaction {
@@ -616,13 +611,12 @@ test unfracking_fails_input_without_acted_policy() fail {
 }
 
 // v2: script-staked owner requires the stake script's withdraw-0. ONE
-// delta: the transfer-logic withdrawal is removed (PLG, unfracking and
+// delta: the transfer-logic withdrawal is removed (the unfracking and
 // hook withdrawals remain — they are plumbing, not owner authorisation).
 test unfracking_fails_missing_owner_authorisation() fail {
   let tx = Transaction {
     ..valid_unfracking_tx(),
     withdrawals: [
-      Pair(fixture.credential_validator_logic_global, 0),
       Pair(fixture.credential_validator_unfracking, 0),
       Pair(fixture.credential_unfracking_hook, 0),
     ],
@@ -684,39 +678,39 @@ test unfracking_fails_registry_node_wrong_nft() fail {
   run_unfracking(tx)
 }
 
-// ------------------------------------------------------- PLG delegation gate
+// ------------------------------------------------------- PLB dispatch
 //
-// Under UnfrackingAct, programmable_logic_global does not validate the
-// unfracking invariants itself — it only requires the unfracking
-// withdraw-0 to be present (its credential read from the params datum).
+// Under SpendViaUnfracking, programmable_logic_base does not validate the
+// unfracking invariants itself — it only requires the unfracking withdraw-0
+// at the witnessed index (its credential read from the params datum).
 
-// The PLG gate accepts as soon as the unfracking withdraw-0 is present.
-test plg_unfracking_gate_accepts_when_unfracking_script_invoked() {
-  run_plg_unfracking_gate(valid_unfracking_tx())
+// The dispatch accepts as soon as the unfracking withdraw-0 is where the
+// redeemer says it is.
+test plb_unfracking_dispatch_accepts_when_unfracking_script_invoked() {
+  run_plb_unfracking_dispatch(valid_unfracking_tx())
 }
 
-// UnfrackingAct without the unfracking withdraw-0 must be rejected by
-// PLG — otherwise the redeemer would unlock PLB inputs with NO
-// invariant checks at all. ONE delta: the unfracking withdrawal is
-// removed.
-test plg_unfracking_gate_rejects_when_unfracking_script_not_invoked() fail {
+// SpendViaUnfracking without the unfracking withdraw-0 must be rejected by
+// PLB — otherwise the redeemer would unlock PLB inputs with NO invariant
+// checks at all. ONE delta: the unfracking withdrawal is removed (the
+// transfer-logic withdrawal now sits at index 0 and fails the equality).
+test plb_unfracking_dispatch_rejects_when_unfracking_script_not_invoked() fail {
   let tx = Transaction {
     ..valid_unfracking_tx(),
     withdrawals: [
-      Pair(fixture.credential_validator_logic_global, 0),
       Pair(fixture.credential_transfer_logic, 0),
       Pair(fixture.credential_unfracking_hook, 0),
     ],
   }
-  run_plg_unfracking_gate(tx)
+  run_plb_unfracking_dispatch(tx)
 }
 
-// Responsibility boundary: PLG deliberately does NOT check the
-// unfracking invariants — a conservation-violating tx still passes the
-// PLG gate because the unfracking withdraw-0 is present. The same tx is
-// rejected by unfracking itself (`unfracking_fails_acted_surplus`);
-// on-chain BOTH scripts must pass.
-test plg_unfracking_gate_delegates_invariants_to_unfracking_script() {
+// Responsibility boundary: PLB deliberately does NOT check the unfracking
+// invariants — a conservation-violating tx still passes the PLB dispatch
+// because the unfracking withdraw-0 is present. The same tx is rejected by
+// unfracking itself (`unfracking_fails_acted_surplus`); on-chain BOTH
+// scripts must pass.
+test plb_unfracking_dispatch_delegates_invariants_to_unfracking_script() {
   let tx = Transaction {
     ..valid_unfracking_tx(),
     outputs: [
@@ -724,14 +718,14 @@ test plg_unfracking_gate_delegates_invariants_to_unfracking_script() {
       fixture.some_output_with_programmable_tokens([(policy_a, "FOO", 150)]),
     ],
   }
-  run_plg_unfracking_gate(tx)
+  run_plb_unfracking_dispatch(tx)
 }
 
-// The gate's target credential is READ FROM the protocol-params datum
-// (`unfracking_cred`, field 4) — not baked into the validator. ONE
-// delta: the params datum names Eve's credential as the unfracking
-// script; the genuine withdraw-0 no longer matches and the gate rejects.
-test plg_unfracking_gate_sources_cred_from_protocol_params() fail {
+// The dispatch's target credential is READ FROM the protocol-params datum
+// (`unfracking_cred`, field 4) — not baked into the validator. ONE delta:
+// the params datum names Eve's credential as the unfracking script; the
+// genuine withdraw-0 no longer matches and PLB rejects.
+test plb_unfracking_dispatch_sources_cred_from_protocol_params() fail {
   let tx = Transaction {
     ..valid_unfracking_tx(),
     reference_inputs: [
@@ -748,20 +742,20 @@ test plg_unfracking_gate_sources_cred_from_protocol_params() fail {
       ),
     ],
   }
-  run_plg_unfracking_gate(tx)
+  run_plb_unfracking_dispatch(tx)
 }
 
 /// Replica of the protocol-params datum shape BEFORE Finding 17 added
-/// `unfracking_cred`. Used to pin which branches require the extended
+/// `unfracking_cred`. Used to pin which dispatch arms require the extended
 /// datum.
 type LegacyTwoFieldParams {
   registry_node_cs: ByteArray,
   prog_logic_cred: Credential,
 }
 
-// A legacy 2-field params datum cannot authorise an UnfrackingAct — the
-// branch extracts datum field 2 and crashes when it is absent.
-test plg_unfracking_gate_fails_on_legacy_two_field_params() fail {
+// A legacy 2-field params datum cannot authorise a SpendViaUnfracking — the
+// arm extracts datum field 4 and crashes when it is absent.
+test plb_unfracking_dispatch_fails_on_legacy_two_field_params() fail {
   let modern = fixture.some_reference_input_protocol_params(
     fixture.protocol_params,
     "protocol params",
@@ -790,7 +784,7 @@ test plg_unfracking_gate_fails_on_legacy_two_field_params() fail {
       ),
     ],
   }
-  run_plg_unfracking_gate(tx)
+  run_plb_unfracking_dispatch(tx)
 }
 
 // ------------------------------------------------------- end-to-end composition
@@ -798,24 +792,17 @@ test plg_unfracking_gate_fails_on_legacy_two_field_params() fail {
 // The full on-chain composition of a v2 unfracking transaction — every
 // framework script that runs on-chain must accept the same tx:
 //
-//   * programmable_logic_base.spend for the fracked PLB input,
-//   * programmable_logic_global.withdraw with UnfrackingAct (gate),
+//   * programmable_logic_base.spend (SpendViaUnfracking) for the fracked
+//     PLB input — dispatching straight to the unfracking validator,
 //   * unfracking.withdraw (invariants + issuer-hook gating).
 //
-// (The issuer's hook script itself is substandard territory; the
-// framework's obligation — that its withdrawal is present — is what the
-// unfracking validator asserts.)
+// The transfer validator is not invoked. (The issuer's hook script itself is
+// substandard territory; the framework's obligation — that its withdrawal is
+// present — is what the unfracking validator asserts.)
 test unfracking_full_composition_succeeds() {
   let tx = valid_unfracking_tx()
   and {
-    programmable_logic_base.programmable_logic_base.spend(
-      fixture.policy_protocol_params,
-      None,
-      SpendViaGlobal { params_idx: 0, wdrl_idx: 0 },
-      Void,
-      tx,
-    ),
-    run_plg_unfracking_gate(tx),
+    run_plb_unfracking_dispatch(tx),
     run_unfracking(tx),
   }
 }

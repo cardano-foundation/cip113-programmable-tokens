@@ -78,7 +78,7 @@ The administrative path (seizure / forced transfer) is the standalone
 `third_party` withdraw-0 validator, carrying a `ThirdPartyRedeemer` and invoking
 a policy's `third_party_transfer_logic_script`. A programmable-token spend reaches
 it with a `SpendViaThirdParty` base redeemer, so `programmable_logic_base`
-requires the `third_party` validator's withdraw-0 (not PLG's). The subject of the
+requires the `third_party` validator's withdraw-0 (not the transfer validator's). The subject of the
 action is **policy A** — the registry node pointed to by `registry_node_idx`.
 Everything else in the transaction is "non-subject".
 

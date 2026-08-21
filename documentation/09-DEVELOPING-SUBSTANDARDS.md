@@ -47,30 +47,30 @@ The goal is for the community to build many more substandards for various regula
 
 As a substandard developer, you do **not** need to implement or modify the core CIP-113 infrastructure. The following components are deployed once by the protocol operator and shared by all programmable tokens.
 
-Throughout this document we use two abbreviations:
-
-- **Programmable Logic Base (PLB)** — the spending validator that custodies all programmable token UTxOs
-- **Programmable Logic Global (PLG)** — the stake validator that coordinates all validation
+Throughout this document we use one abbreviation — **Programmable Logic Base
+(PLB)**, the spending validator that custodies all programmable token UTxOs —
+and refer to the three stake validators it dispatches to by name: **`transfer`**,
+**`third_party`** and **`unfracking`**.
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    CORE INFRASTRUCTURE                       │
-│                 (Already deployed — don't touch)             │
-│                                                             │
-│  ┌─────────────────────┐  ┌──────────────────────────────┐  │
-│  │ Programmable Logic   │  │ Programmable Logic Global     │  │
-│  │ Base (PLB)           │  │ (PLG)                         │  │
-│  │ Spending validator   │──│ Stake validator               │  │
-│  │ Custodies all tokens │  │ Coordinates all validation    │  │
-│  └─────────────────────┘  └──────────┬───────────────────┘  │
-│                                      │                       │
-│  ┌─────────────────────┐  ┌──────────┴───────────────────┐  │
-│  │ Registry             │  │ Issuance Infrastructure       │  │
-│  │ (mint + spend)       │  │ (issuance_mint,               │  │
-│  │ Sorted linked list   │  │  issuance_cbor_hex,           │  │
-│  │ of registered tokens │  │  protocol_params, always_fail)│  │
-│  └─────────────────────┘  └──────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────┐
+│                         CORE INFRASTRUCTURE                          │
+│                      (Already deployed — don't touch)                 │
+│                                                                      │
+│  ┌─────────────────────┐   ┌───────────┐ ┌─────────────┐ ┌──────────┐ │
+│  │ Programmable Logic   │──▶│ transfer  │ │ third_party │ │unfracking│ │
+│  │ Base (PLB)           │──▶│ (stake)   │ │ (stake)     │ │ (stake)  │ │
+│  │ Spending validator   │──▶│ transfers │ │ seize /     │ │ same-    │ │
+│  │ Custodies all tokens │   │           │ │ clawback    │ │ owner    │ │
+│  └─────────────────────┘   └─────┬─────┘ └──────┬──────┘ └────┬─────┘ │
+│        one delegate per spend     │              │             │       │
+│  ┌─────────────────────┐   ┌──────┴──────────────┴─────────────┴─────┐ │
+│  │ Registry             │   │ Issuance Infrastructure                │ │
+│  │ (mint + spend)       │   │ (issuance_mint, issuance_cbor_hex,     │ │
+│  │ Sorted linked list   │   │  protocol_params, coordination_spend)  │ │
+│  │ of registered tokens │   │                                        │ │
+│  └─────────────────────┘   └────────────────────────────────────────┘ │
+└──────────────────────────────────────────────────────────────────────┘
                               │
                     ┌─────────┴──────────┐
                     │  YOUR SUBSTANDARD   │
@@ -86,12 +86,12 @@ Throughout this document we use two abbreviations:
 
 | Component | What it does | Why you don't touch it |
 |-----------|-------------|----------------------|
-| **Programmable Logic Base (PLB)** | Spending validator that custodies all programmable token UTxOs. Delegates to PLG. | Every token holder's UTxO lives at a PLB address. It's shared and immutable. |
-| **Programmable Logic Global (PLG)** | Stake validator (withdraw-zero) that coordinates validation. Looks up the registry, checks ownership, invokes your substandard's validators. | This is the orchestrator. It calls *your* validators — you don't call it. |
+| **Programmable Logic Base (PLB)** | Spending validator that custodies all programmable token UTxOs. Each spend's redeemer names which delegate authorises it. | Every token holder's UTxO lives at a PLB address. It's shared and immutable. |
+| **`transfer` / `third_party` / `unfracking`** | Stake validators (withdraw-zero), one per transaction kind. Each looks up the registry, checks authorisation and invokes your substandard's matching validator (transfer logic, third-party logic, unfracking hook). | These are the orchestrators. They call *your* validators — you don't call them. |
 | **Registry** | On-chain sorted linked list of all registered programmable token policies. Each entry stores which substandard validators govern that token. | Your token gets registered here, but you don't modify the registry contracts. |
 | **Issuance infrastructure** | `issuance_mint` (parameterized per token), `issuance_cbor_hex_mint`, `protocol_params_mint`, `always_fail` | Handles the mechanics of minting. Your issuance logic validator is invoked *by* `issuance_mint`. |
 
-**Key insight**: Your substandard validators are invoked by the core infrastructure, not the other way around. The PLG looks up your token in the registry, finds your validator credentials, and checks that they are present in the transaction's withdrawals.
+**Key insight**: Your substandard validators are invoked by the core infrastructure, not the other way around. The delegate validator looks up your token in the registry, finds your validator credentials, and checks that they are present in the transaction's withdrawals.
 
 ---
 
@@ -123,7 +123,7 @@ Your issuance logic validator decides **who can mint and burn** tokens. This cou
 
 ### 2. Transfer Logic (withdraw)
 
-Invoked when an **owner transfers** their tokens. The PLG looks up `transfer_logic_script` from the registry and verifies it's in the transaction's withdrawals.
+Invoked when an **owner transfers** their tokens. The `transfer` validator looks up `transfer_logic_script` from the registry and verifies it's in the transaction's withdrawals.
 
 Your transfer logic validator decides **what conditions must be met for a transfer**. This could be:
 - Check sender/recipient against a blacklist (freeze-and-seize)
@@ -207,9 +207,9 @@ All substandard validators use the **withdraw-zero pattern**. This is a Cardano 
 
 ```
 Transaction withdrawals:
-  - (programmable_logic_global, 0 ADA)    ← Core coordinator
-  - (your_issuance_logic,       0 ADA)    ← Your validator (for minting)
-  - (your_transfer_logic,       0 ADA)    ← Your validator (for transfers)
+  - (transfer,            0 ADA)    ← Core transfer validator
+  - (your_issuance_logic, 0 ADA)    ← Your validator (for minting)
+  - (your_transfer_logic, 0 ADA)    ← Your validator (for transfers)
 ```
 
 ### Why stake validators instead of spending validators?
@@ -235,9 +235,9 @@ Your validator has full access to the transaction via `self`. It can inspect inp
 
 1. A user builds a transfer transaction
 2. The transaction includes a withdrawal for your transfer logic validator (0 ADA)
-3. The PLB spending validator checks that PLG is in the withdrawals
-4. The PLG withdrawal validator looks up the token in the registry
-5. The PLG verifies that your `transfer_logic_script` is also in the withdrawals
+3. The PLB spending validator (redeemer `SpendViaTransfer`) checks that the `transfer` validator is in the withdrawals at the witnessed index
+4. The `transfer` withdrawal validator looks up the token in the registry
+5. The `transfer` validator verifies that your `transfer_logic_script` is also in the withdrawals
 6. Your transfer logic withdrawal validator runs and either succeeds or fails
 7. If all validators pass, the transaction is valid
 
@@ -383,12 +383,12 @@ Tokens are minted to the PLB address with the recipient's stake credential. The 
 ### 3. Transfer (Owner-Initiated)
 
 ```
-PLB dispatches (SpendViaGlobal) to PLG → PLG looks up registry → PLG checks your transfer logic in withdrawals → your transfer logic runs
+PLB dispatches (SpendViaTransfer) to transfer → transfer looks up registry → transfer checks your transfer logic in withdrawals → your transfer logic runs
 ```
 
 Your **transfer logic withdraw** validator is invoked. It receives the full transaction context and must verify that the transfer meets your rules (e.g., not blacklisted, on whitelist, within limits).
 
-The PLG handles:
+The `transfer` validator handles:
 - Ownership verification (sender's stake credential signed the transaction)
 - Value preservation (tokens stay at PLB addresses)
 - Registry lookup
@@ -401,7 +401,7 @@ Your validator only needs to enforce your **custom rules**.
 PLB dispatches (SpendViaThirdParty) to third_party → third_party looks up registry node → third_party checks your 3rd party logic in withdrawals → your 3rd party logic runs
 ```
 
-The spend selects the administrative path with a `SpendViaThirdParty` base redeemer, so `programmable_logic_base` requires the standalone `third_party` validator's withdraw-0 (carrying a `ThirdPartyRedeemer`) instead of PLG's. Your **third-party transfer logic withdraw** validator is then invoked. This path does NOT require the token owner's signature — it's for administrative actions like seizure or forced transfers.
+The spend selects the administrative path with a `SpendViaThirdParty` base redeemer, so `programmable_logic_base` requires the standalone `third_party` validator's withdraw-0 (carrying a `ThirdPartyRedeemer`) instead of the transfer validator's. Your **third-party transfer logic withdraw** validator is then invoked. This path does NOT require the token owner's signature — it's for administrative actions like seizure or forced transfers.
 
 ### 5. Burning
 
@@ -728,7 +728,7 @@ This pattern delegates all logic to the minting policy — the spending validato
 ```
 Transfer transaction:
   Withdrawals:
-    - (programmable_logic_global, 0)           ← Core coordinator
+    - (transfer, 0)                            ← Core transfer validator
     - (transfer [PLB_cred, blacklist_cs], 0)   ← Your transfer logic
 
   Reference inputs:
@@ -801,7 +801,7 @@ const unsignedTx = await txBuilder
 
 ### Transferring tokens
 
-A transfer transaction requires your **transfer logic withdrawal** plus the **PLG withdrawal**, and reference inputs for the protocol params and registry:
+A transfer transaction requires your **transfer logic withdrawal** plus the **`transfer` validator's withdrawal**, and reference inputs for the protocol params and registry:
 
 ```typescript
 import { MeshTxBuilder, conStr0, integer, list } from "@meshsdk/core";
@@ -821,29 +821,31 @@ const registryIndex = sortedRefInputs.findIndex(
 );
 
 const registryProof = conStr0([integer(registryIndex)]);       // TokenExists { node_idx }
-// TransferAct { params_idx, proofs } — params_idx is the protocol-params NFT
-// UTxO's position in the sorted reference inputs (see below).
-const plgRedeemer = conStr0([integer(paramsIndex), list([registryProof])]);
-const transferRedeemer = integer(200);                          // Your substandard's redeemer
+// TransferRedeemer { params_idx, proofs } — params_idx is the protocol-params
+// NFT UTxO's position in the sorted reference inputs (see below).
+const coreTransferRedeemer = conStr0([integer(paramsIndex), list([registryProof])]);
+const transferLogicRedeemer = integer(200);                     // Your substandard's redeemer
 
-// Base-spend dispatch: for a transfer, every PLB input delegates to PLG.
-// wdrl_idx is PLG's position in the withdrawals map AS THE LEDGER ORDERS IT
-// (scripts before keys, bytewise hash within each — see "Withdrawal indices"
-// below), computed over EVERY withdrawal in the transaction. Never sort
-// bech32 reward-address strings: that is not the ledger's order.
-const plgWdrlIdx = withdrawalIndexOf(
+// Base-spend dispatch: for a transfer, every PLB input delegates to the core
+// `transfer` validator. wdrl_idx is its position in the withdrawals map AS THE
+// LEDGER ORDERS IT (scripts before keys, bytewise hash within each — see
+// "Withdrawal indices" below), computed over EVERY withdrawal in the
+// transaction. Never sort bech32 reward-address strings: that is not the
+// ledger's order.
+const transferWdrlIdx = withdrawalIndexOf(
   [
     { hash: yourTransferLogic.hash, isScript: true },
-    { hash: logicGlobal.hash, isScript: true },
+    { hash: coreTransfer.hash, isScript: true },
     // ...plus any other withdrawal this transaction carries (e.g. a key-hash
     // reward withdrawal added by the wallet) — it occupies a slot too.
   ],
-  { hash: logicGlobal.hash, isScript: true },
+  { hash: coreTransfer.hash, isScript: true },
 );
-// SpendViaGlobal { params_idx, wdrl_idx } — constructor 0 of BaseSpendRedeemer.
-// (An administrative seize would use SpendViaThirdParty, constructor 1, and set
-//  wdrl_idx to the third_party validator's position instead.)
-const baseSpendRedeemer = conStr0([integer(paramsIndex), integer(plgWdrlIdx)]);
+// SpendViaTransfer { params_idx, wdrl_idx } — constructor 0 of BaseSpendRedeemer.
+// (An administrative seize uses SpendViaThirdParty, constructor 1, and an
+//  unfracking uses SpendViaUnfracking, constructor 2 — each with wdrl_idx set
+//  to the respective validator's position instead.)
+const baseSpendRedeemer = conStr0([integer(paramsIndex), integer(transferWdrlIdx)]);
 
 const txBuilder = new MeshTxBuilder({ fetcher: provider, submitter: provider, evaluator: provider });
 
@@ -862,13 +864,13 @@ txBuilder
   .withdrawalPlutusScriptV3()
   .withdrawal(yourTransferLogic.rewardAddress, "0")
   .withdrawalScript(yourTransferLogic.cbor)
-  .withdrawalRedeemerValue(transferRedeemer, "JSON")
+  .withdrawalRedeemerValue(transferLogicRedeemer, "JSON")
 
-  // 3. PLG withdrawal
+  // 3. Core transfer validator withdrawal
   .withdrawalPlutusScriptV3()
-  .withdrawal(logicGlobal.rewardAddress, "0")
-  .withdrawalScript(logicGlobal.cbor)
-  .withdrawalRedeemerValue(plgRedeemer, "JSON")
+  .withdrawal(coreTransfer.rewardAddress, "0")
+  .withdrawalScript(coreTransfer.cbor)
+  .withdrawalRedeemerValue(coreTransferRedeemer, "JSON")
   .requiredSignerHash(senderStakeCredential)
 
   // 4. Outputs
@@ -1030,7 +1032,7 @@ test blacklist_insert_maintains_sorted_order() {
 
 For full integration tests that exercise the core infrastructure + your substandard together, see the test files in the core project:
 
-- `validators/programmable_logic_global.test.ak` — Tests the full transfer/third-party flow with mock substandard validators
+- `validators/transfer.test.ak`, `validators/third_party.test.ak`, `validators/programmable_logic/unfracking.test.ak` — Tests of the transfer / third-party / unfracking flows with mock substandard validators
 - `validators/programmable_logic/benchmarks.ak` — Performance benchmarks for transfer flows
 
 ### Running tests

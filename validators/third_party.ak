@@ -4,29 +4,29 @@
 //// invariants (see `programmable_logic/third_party` for the invariants
 //// themselves and the rationale behind each one).
 ////
-//// Why a separate script instead of inlining the logic in
-//// programmable_logic_global (PLG)?
+//// Why a separate script instead of inlining the logic in the `transfer`
+//// validator?
 ////
-//// PLG is the hot path: EVERY programmable-token TRANSFER references it,
-//// so every byte of PLG is a reference-script fee paid by every user on
+//// `transfer` is the hot path: EVERY programmable-token transfer references
+//// it, so every byte of it is a reference-script fee paid by every user on
 //// every transfer, forever. The third-party (administrative) path — forced
 //// transfer, seizure, freeze enforcement, burn — is heavy but rare.
 //// Hosting it here keeps those bytes off the transfer reference script and
 //// moves their cost onto the only transactions that use them.
 ////
-//// Dispatch: unlike unfracking (which PLG still gates via its UnfrackingAct
-//// arm), the third-party path is dispatched by programmable_logic_base
-//// itself. A `SpendViaThirdParty` base spend requires THIS validator's
-//// withdraw-0 (its credential is the `third_party_cred` field of the
-//// protocol-params datum) instead of PLG's — so a third-party transaction
-//// never loads the transfer-only PLG reference script at all.
+//// Dispatch: programmable_logic_base dispatches to this validator directly.
+//// A `SpendViaThirdParty` base spend requires THIS validator's withdraw-0
+//// (its credential is the `third_party_cred` field of the protocol-params
+//// datum) — so a third-party transaction never loads the `transfer`
+//// reference script at all. `unfracking` is dispatched the same way.
 ////
 //// Security shape: this delegation is purely RESTRICTIVE and self-contained.
-//// programmable_logic_base authorises EITHER PLG (transfer / unfracking) OR
-//// this validator; whichever runs enforces its full invariants over the
-//// whole transaction, so authorising either is sound. This script reads the
-//// same protocol-params NFT reference input PLG uses; it never needs PLG's
-//// hash, so there is no circular dependency.
+//// programmable_logic_base authorises exactly ONE of `transfer`, this
+//// validator, or `unfracking` per spend; whichever runs enforces its full
+//// invariants over the whole transaction, so authorising any one of them is
+//// sound. This script reads the same protocol-params NFT reference input the
+//// others use; it never needs their hashes, so there is no circular
+//// dependency.
 
 use aiken/collection/list as aiken_list
 use assets
@@ -53,8 +53,8 @@ validator third_party(params_policy: PolicyId) {
 
     // Extract protocol parameters from reference inputs: the registry NFT
     // policy (field 0) to authenticate the subject policy's node, and the PLB
-    // payment credential (field 1) — the same first-two-fields span the PLG
-    // hot path reads.
+    // payment credential (field 1) — the same first-two-fields span the
+    // transfer hot path reads.
     let fields <- with_protocol_params_fields(
       self.reference_inputs,
       params_policy,

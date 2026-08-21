@@ -25,7 +25,7 @@
 //// identified structurally (sole input/output at this address) and the NFT is
 //// preserved by strict value conservation. Safety does not rest on naming the
 //// policy: the params NFT is one-shot, so only one genuine coordination UTxO can
-//// ever exist, and the readers (PLB/PLG) locate it by that policy themselves.
+//// ever exist, and the readers (PLB / delegate) locate it by that policy themselves.
 //// The `nonce` only gives each deployment its own coordination address.
 ////
 //// v1 policy choices (both are single-line changes if revisited):
@@ -82,7 +82,7 @@ validator coordination_spend(_nonce: ByteArray) {
     expect assets.expect_match(cont.value, own_input.output.value, >=)?
 
     // Continuing datum must be inline and a well-formed ProgrammableLogicGlobalParams
-    // — the rail that stops an upgrade from bricking PLB/PLG datum reads.
+    // — the rail that stops an upgrade from bricking PLB / delegate datum reads.
     expect InlineDatum(cont_datum) = cont.datum
     expect new_params: ProgrammableLogicGlobalParams = cont_datum
 

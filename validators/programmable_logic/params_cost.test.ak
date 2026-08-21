@@ -13,12 +13,12 @@
 ////       redeemer branch needs via the `*_field` accessors.
 ////
 //// Datum generations: 2-field (pre-Finding-17), 3-field (Finding 17
-//// added `unfracking_cred`), then the upgradability + PLG-split work
+//// added `unfracking_cred`), then the upgradability + validator-split work
 //// settled the 6-field production datum, ordered by read-frequency:
 //// `registry_node_cs` (0), `prog_logic_cred` (1), then the two credentials
 //// programmable_logic_base reads on its per-input dispatch — `transfer_cred`
-//// (2) and `third_party_cred` (3) — then `unfracking_cred` (4, read by PLG's
-//// UnfrackingAct) and `upgrade_cred` (5, read only by `coordination_spend`
+//// (2) and `third_party_cred` (3) — then `unfracking_cred` (4, read by the transfer validator's
+//// unfracking action) and `upgrade_cred` (5, read only by `coordination_spend`
 //// on an upgrade). The 2- and 3-field shapes are kept as local types so
 //// their measurements stay reproducible after the production type moved on.
 ////
@@ -38,7 +38,7 @@
 //// (Legacy 2-/3-field full-expect rows, kept for reproducibility: 488.5k/
 //// 154.9M and 503.0k/160.4M — validating more fields costs strictly more.)
 ////
-//// i.e. the PLG hot path (fields 0-1) pays ~+5.9M cpu / +26.6k mem over the
+//// i.e. the transfer hot path (fields 0-1) pays ~+5.9M cpu / +26.6k mem over the
 //// bare locate+unwrap, versus ~+22.0M cpu / +70.2k mem to `expect` the whole
 //// 6-field record — the split saves the hot path from validating four fields
 //// it never reads. Skipping whole-record validation is safe because
@@ -248,13 +248,13 @@ test cost_v5_full_expect() {
     p.registry_node_cs == fixture.policy_tokens_registry,
     p.prog_logic_cred == fixture.credential_validator_logic_base,
     p.unfracking_cred == fixture.credential_validator_unfracking,
-    p.transfer_cred == fixture.credential_validator_logic_global,
+    p.transfer_cred == fixture.credential_validator_transfer,
   }
 }
 
 /// (c) Production, transfer/3rd-party branch: fields 0-1 only —
 /// identical work to the legacy 2-field extraction, i.e. the appended
-/// fields cost the PLG hot path nothing.
+/// fields cost the transfer hot path nothing.
 test cost_v5_split_first_two() {
   let fields <- with_protocol_params_fields(
     v5_ref_inputs(),
@@ -267,7 +267,7 @@ test cost_v5_split_first_two() {
   }
 }
 
-/// (c) Production, PLB SpendViaGlobal branch: `transfer_cred` (field 2) only —
+/// (c) Production, PLB SpendViaTransfer branch: `transfer_cred` (field 2) only —
 /// the extraction cost added to every programmable-token transfer spend.
 test cost_v5_split_transfer_only() {
   let fields <- with_protocol_params_fields(
@@ -275,10 +275,10 @@ test cost_v5_split_transfer_only() {
     fixture.policy_protocol_params,
     0,
   )
-  transfer_cred_field(fields) == fixture.credential_validator_logic_global
+  transfer_cred_field(fields) == fixture.credential_validator_transfer
 }
 
-/// (c) Production, PLG UnfrackingAct branch: `unfracking_cred` (field 4) only.
+/// (c) Production, PLB SpendViaUnfracking arm: `unfracking_cred` (field 4) only.
 test cost_v5_split_unfracking_only() {
   let fields <- with_protocol_params_fields(
     v5_ref_inputs(),
@@ -299,6 +299,6 @@ test cost_v5_split_all_four() {
     registry_node_cs_field(fields) == fixture.policy_tokens_registry,
     prog_logic_cred_field(fields) == fixture.credential_validator_logic_base,
     unfracking_cred_field(fields) == fixture.credential_validator_unfracking,
-    transfer_cred_field(fields) == fixture.credential_validator_logic_global,
+    transfer_cred_field(fields) == fixture.credential_validator_transfer,
   }
 }

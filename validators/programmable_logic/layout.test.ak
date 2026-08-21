@@ -17,10 +17,9 @@ use programmable_logic/params.{
   third_party_cred_field, transfer_cred_field, unfracking_cred_field,
 }
 use types.{
-  BaseSpendRedeemer, MintingRegistryProof, OutputIndex,
-  ProgrammableLogicGlobalRedeemer, RefInput, RegistryProof, SpendViaGlobal,
-  SpendViaThirdParty, ThirdPartyRedeemer, TokenDoesNotExist, TokenExists,
-  TransferAct, UnfrackingAct, UnfrackingRedeemer,
+  BaseSpendRedeemer, MintingRegistryProof, OutputIndex, RefInput,
+  SpendViaThirdParty, SpendViaTransfer, SpendViaUnfracking, ThirdPartyRedeemer,
+  TokenDoesNotExist, TokenExists, TransferRedeemer, UnfrackingRedeemer,
 }
 
 fn constr(d: Data) -> (Int, List<Data>) {
@@ -48,21 +47,21 @@ test layout_params_datum_six_fields_in_order() {
     list.length(fields) == 6,
     field(fields, 0) == as_data(fixture.policy_tokens_registry),
     field(fields, 1) == as_data(fixture.credential_validator_logic_base),
-    field(fields, 2) == as_data(fixture.credential_validator_logic_global),
+    field(fields, 2) == as_data(fixture.credential_validator_transfer),
     field(fields, 3) == as_data(fixture.credential_validator_third_party),
     field(fields, 4) == as_data(fixture.credential_validator_unfracking),
     field(fields, 5) == as_data(fixture.credential_upgrade_authority),
   }
 }
 
-// The builtin accessors production reads through (PLB, PLG, third_party,
-// unfracking) land on the positions the type declares.
+// The builtin accessors production reads through (PLB, transfer,
+// third_party, unfracking) land on the positions the type declares.
 test layout_params_accessors_match_raw_positions() {
   let (_, fields) = constr(as_data(fixture.protocol_params))
   and {
     registry_node_cs_field(fields) == fixture.policy_tokens_registry,
     prog_logic_cred_field(fields) == fixture.credential_validator_logic_base,
-    transfer_cred_field(fields) == fixture.credential_validator_logic_global,
+    transfer_cred_field(fields) == fixture.credential_validator_transfer,
     third_party_cred_field(fields) == fixture.credential_validator_third_party,
     unfracking_cred_field(fields) == fixture.credential_validator_unfracking,
   }
@@ -77,7 +76,7 @@ test layout_params_datum_decodes_from_raw_constructor() {
     [
       as_data(fixture.policy_tokens_registry),
       as_data(fixture.credential_validator_logic_base),
-      as_data(fixture.credential_validator_logic_global),
+      as_data(fixture.credential_validator_transfer),
       as_data(fixture.credential_validator_third_party),
       as_data(fixture.credential_validator_unfracking),
       as_data(fixture.credential_upgrade_authority),
@@ -89,29 +88,37 @@ test layout_params_datum_decodes_from_raw_constructor() {
 
 // ------------------------------------------------------ PLB spend redeemer
 
-// `BaseSpendRedeemer`: SpendViaGlobal = constructor 0, SpendViaThirdParty =
-// constructor 1; both carry [params_idx, wdrl_idx] in that order.
+// `BaseSpendRedeemer`: SpendViaTransfer = constructor 0, SpendViaThirdParty =
+// constructor 1, SpendViaUnfracking = constructor 2; all carry
+// [params_idx, wdrl_idx] in that order.
 test layout_base_spend_redeemer_constructors_and_fields() {
-  let (g_tag, g_fields) = constr(
-    as_data(SpendViaGlobal { params_idx: 7, wdrl_idx: 3 }),
-  )
   let (t_tag, t_fields) = constr(
+    as_data(SpendViaTransfer { params_idx: 7, wdrl_idx: 3 }),
+  )
+  let (p_tag, p_fields) = constr(
     as_data(SpendViaThirdParty { params_idx: 7, wdrl_idx: 3 }),
   )
+  let (u_tag, u_fields) = constr(
+    as_data(SpendViaUnfracking { params_idx: 7, wdrl_idx: 3 }),
+  )
   and {
-    g_tag == 0,
-    g_fields == int_fields([7, 3]),
-    t_tag == 1,
+    t_tag == 0,
     t_fields == int_fields([7, 3]),
+    p_tag == 1,
+    p_fields == int_fields([7, 3]),
+    u_tag == 2,
+    u_fields == int_fields([7, 3]),
   }
 }
 
 test layout_base_spend_redeemer_decodes_from_raw_constructors() {
-  expect g: BaseSpendRedeemer = builtin.constr_data(0, int_fields([7, 3]))
-  expect t: BaseSpendRedeemer = builtin.constr_data(1, int_fields([7, 3]))
+  expect t: BaseSpendRedeemer = builtin.constr_data(0, int_fields([7, 3]))
+  expect p: BaseSpendRedeemer = builtin.constr_data(1, int_fields([7, 3]))
+  expect u: BaseSpendRedeemer = builtin.constr_data(2, int_fields([7, 3]))
   and {
-    g == SpendViaGlobal { params_idx: 7, wdrl_idx: 3 },
-    t == SpendViaThirdParty { params_idx: 7, wdrl_idx: 3 },
+    t == SpendViaTransfer { params_idx: 7, wdrl_idx: 3 },
+    p == SpendViaThirdParty { params_idx: 7, wdrl_idx: 3 },
+    u == SpendViaUnfracking { params_idx: 7, wdrl_idx: 3 },
   }
 }
 
@@ -144,24 +151,24 @@ test layout_third_party_redeemer_decodes_from_raw_constructor() {
   }
 }
 
-// ------------------------------------------------------ PLG redeemer
+// ------------------------------------------------------ transfer redeemer
 
-// `ProgrammableLogicGlobalRedeemer` after the split: TransferAct =
-// constructor 0 [params_idx, proofs]; UnfrackingAct = constructor 1
-// [params_idx] (it was 2 while ThirdPartyAct occupied 1). `RegistryProof`:
-// TokenExists = 0, TokenDoesNotExist = 1, each [node_idx].
-test layout_plg_redeemer_constructors_and_fields() {
+// `TransferRedeemer`: a single constructor 0 [params_idx, proofs] — the
+// former `ProgrammableLogicGlobalRedeemer` lost its ThirdPartyAct and
+// UnfrackingAct arms when those paths got their own validators.
+// `RegistryProof`: TokenExists = 0, TokenDoesNotExist = 1, each [node_idx].
+test layout_transfer_redeemer_constructor_and_fields() {
   let proofs = [TokenExists { node_idx: 2 }, TokenDoesNotExist { node_idx: 3 }]
-  let (t_tag, t_fields) = constr(as_data(TransferAct { params_idx: 1, proofs }))
-  let (u_tag, u_fields) = constr(as_data(UnfrackingAct { params_idx: 1 }))
+  let (t_tag, t_fields) = constr(
+    as_data(TransferRedeemer { params_idx: 1, proofs }),
+  )
   let (e_tag, e_fields) = constr(as_data(TokenExists { node_idx: 2 }))
   let (n_tag, n_fields) = constr(as_data(TokenDoesNotExist { node_idx: 3 }))
   and {
     t_tag == 0,
+    list.length(t_fields) == 2,
     field(t_fields, 0) == as_data(1),
     field(t_fields, 1) == as_data(proofs),
-    u_tag == 1,
-    u_fields == int_fields([1]),
     e_tag == 0,
     e_fields == int_fields([2]),
     n_tag == 1,
@@ -169,27 +176,20 @@ test layout_plg_redeemer_constructors_and_fields() {
   }
 }
 
-test layout_plg_redeemer_decodes_from_raw_constructors() {
+test layout_transfer_redeemer_decodes_from_raw_constructor() {
   let raw_proofs = builtin.list_data(
     [
       builtin.constr_data(0, int_fields([2])),
       builtin.constr_data(1, int_fields([3])),
     ],
   )
-  expect t: ProgrammableLogicGlobalRedeemer = builtin.constr_data(
+  expect t: TransferRedeemer = builtin.constr_data(
     0,
     [builtin.i_data(1), raw_proofs],
   )
-  expect u: ProgrammableLogicGlobalRedeemer = builtin.constr_data(
-    1,
-    int_fields([1]),
-  )
-  and {
-    t == TransferAct {
-      params_idx: 1,
-      proofs: [TokenExists { node_idx: 2 }, TokenDoesNotExist { node_idx: 3 }],
-    },
-    u == UnfrackingAct { params_idx: 1 },
+  t == TransferRedeemer {
+    params_idx: 1,
+    proofs: [TokenExists { node_idx: 2 }, TokenDoesNotExist { node_idx: 3 }],
   }
 }
 

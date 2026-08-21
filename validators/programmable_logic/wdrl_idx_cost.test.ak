@@ -1,5 +1,5 @@
 //// Cost record: PLB's witnessed withdrawal index vs the pre-split scan
-//// (PLG split, PR #110).
+//// (PR #110 validator split, PR #110).
 ////
 //// `programmable_logic_base` locates the delegate's withdrawal with
 //// `list.expect_at(self.withdrawals, wdrl_idx)`. That is NOT O(1): stdlib
@@ -53,10 +53,10 @@ use pairs
 use programmable_logic/fixture
 use programmable_logic/params.{transfer_cred_field, with_protocol_params_fields}
 use programmable_logic_base
-use types.{SpendViaGlobal}
+use types.{SpendViaTransfer}
 
 /// The delegate under test (params datum field 2, hash `…01091c`).
-const plg_cred: Credential = fixture.credential_validator_logic_global
+const transfer_cred: Credential = fixture.credential_validator_transfer
 
 /// Filler credential sorting BEFORE the delegate (`00…00 0i`, differs from
 /// the delegate's hash at byte 25).
@@ -88,7 +88,7 @@ fn withdrawals_with_delegate_at(
   list.concat(
     list.map(list.range(1, position), fn(i) { Pair(below(i), 0) }),
     [
-      Pair(plg_cred, 0),
+      Pair(transfer_cred, 0),
       ..list.map(
         list.range(1, width - 1 - position),
         fn(i) { Pair(above(i), 0) },
@@ -110,12 +110,12 @@ fn tx_with(width: Int, position: Int) -> Transaction {
   }
 }
 
-/// As shipped: the real validator, SpendViaGlobal witnessing `position`.
+/// As shipped: the real validator, SpendViaTransfer witnessing `position`.
 fn indexed(width: Int, position: Int) -> Bool {
   programmable_logic_base.programmable_logic_base.spend(
     fixture.policy_protocol_params,
     None,
-    SpendViaGlobal { params_idx: 0, wdrl_idx: position },
+    SpendViaTransfer { params_idx: 0, wdrl_idx: position },
     Void,
     tx_with(width, position),
   )
