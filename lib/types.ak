@@ -48,7 +48,7 @@ pub fn params_idx_of(redeemer: ProgrammableLogicGlobalRedeemer) -> Int {
 }
 
 /// Redeemer of the standalone `unfracking` withdraw-0 validator (v2).
-/// Same index-hint discipline as `ThirdPartyAct`: an unfracking action
+/// Same index-hint discipline as `ThirdPartyRedeemer`: an unfracking action
 /// is single-policy, names its registry node, and pairs every PLB input
 /// positionally with a continuing output starting at `outputs_start_idx`.
 pub type UnfrackingRedeemer {

@@ -418,7 +418,8 @@ pub fn some_reference_input_unfracking_registry_node(
 }
 
 /// Baseline transaction for an Unfracking action (v2, registry-gated).
-/// Single-policy, ThirdPartyAct-shaped: ONE fracked PLB input holding
+/// Single-policy, third-party-shaped (same per-pair discipline as
+/// `ThirdPartyRedeemer`): ONE fracked PLB input holding
 /// `input_tokens` (which must include the acted-on policy) is paired
 /// with a continuing output holding `continuing_tokens` (the untouched
 /// non-acted remainder — byte-identity is the validator's per-pair

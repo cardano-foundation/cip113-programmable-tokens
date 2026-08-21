@@ -63,15 +63,19 @@ validator issuance_mint(
     //     tx (freshly minted, OR re-emitted by a node update/insert). PLGlobal
     //     does not see this node, so issuance_mint enforces custody itself.
     //
-    //   RefInput { index } → the node is a reference input, and PLGlobal MAY
-    //     enforce custody instead — but only when its redeemer names the SAME
-    //     registry node our `index` points at. `verify_registry_node` has
-    //     already bound that index to `own_policy` (NFT asset name and
-    //     datum.key both == own_policy), so comparing indices suffices — no
-    //     need to re-extract a policy id from PLGlobal's redeemer. Scope:
-    //       * TransferAct   → `proofs` contains `TokenExists { node_idx: index }`
-    //       * ThirdPartyAct → `registry_node_idx == index`
-    //     If PLGlobal covers us → delegate; otherwise enforce custody here.
+    //   RefInput { index } → the node is a reference input, and a delegate
+    //     validator MAY enforce custody instead — but only when ITS redeemer
+    //     names the SAME registry node our `index` points at.
+    //     `verify_registry_node` has already bound that index to `own_policy`
+    //     (NFT asset name and datum.key both == own_policy), so comparing
+    //     indices suffices — no need to re-extract a policy id from the
+    //     delegate's redeemer. Two delegates can cover us (the PLG split moved
+    //     the third-party path out of PLGlobal into its own validator):
+    //       * PLGlobal `TransferAct` → `proofs` contains
+    //         `TokenExists { node_idx: index }`
+    //       * the standalone `third_party` validator → its `ThirdPartyRedeemer`
+    //         has `registry_node_idx == index`
+    //     If a delegate covers us → delegate; otherwise enforce custody here.
     //
     // Closes Finding 04 / re-audit R-04: the previous broad `plg_invoked`
     // signal let mints of non-covered policies escape; this precise check
@@ -84,8 +88,9 @@ validator issuance_mint(
         // (2) the covering node re-emitted by an insert, (3) an in-place node
         // update. In (2)/(3) the policy is ALREADY registered, so pre-existing
         // supply CAN be spent from a PLB input — e.g. preserved as a
-        // non-subject token by a co-occurring ThirdPartyAct, which references
-        // neither this node nor that policy. So this is NOT "first mint only",
+        // non-subject token by a co-occurring third-party (seize) action, which
+        // references neither this node nor that policy. So this is NOT "first
+        // mint only",
         // and an output-only quantity check could be masked by that preserved
         // supply. `no_escape` sidesteps the case analysis entirely: it forbids
         // `own_policy` at any non-PLB output, so nothing minted can escape
@@ -229,7 +234,8 @@ fn plgl_delegates_for_own_registry_node(
     Some(coordination_ref) -> {
       let fields = unconstr_fields(expect_inline_datum(coordination_ref.output))
       or {
-        // (a) PLGlobal (transfer) validates our node's custody in the same tx.
+        // (a) PLGlobal's TransferAct still validates our node's custody — it
+        // keeps the transfer path; only the seize path moved out (to (b)).
         when
           find_plgl_redeemer(redeemers, params.transfer_cred_field(fields))
         is {
