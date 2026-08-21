@@ -59,8 +59,15 @@ validator programmable_logic_base(params_policy: PolicyId) {
         (params.third_party_cred_field(fields), wdrl_idx)
     }
 
-    // Jump straight to the witnessed withdrawal entry (O(1)) and require it to
-    // carry the claimed delegate credential — the withdraw-zero trampoline.
+    // Go directly to the witnessed withdrawal entry and require it to carry
+    // the claimed delegate credential — the withdraw-zero trampoline.
+    // `list.expect_at` drops `wdrl_idx` cells to get there: O(wdrl_idx), not
+    // O(1), but with no credential comparison on the way, where the former
+    // `has_key_or_fail` scan compared at every entry up to the delegate's
+    // position (cost record: programmable_logic/wdrl_idx_cost.test.ak).
+    // The arm is meaningful only while the params datum carries
+    // `transfer_cred != third_party_cred`; that distinctness is NOT enforced
+    // on-chain (see `BaseSpendRedeemer`).
     let Pair(witnessed_cred, _) = list.expect_at(self.withdrawals, wdrl_idx)
     (witnessed_cred == claimed)?
   }

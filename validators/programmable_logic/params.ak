@@ -123,12 +123,5 @@ pub fn unfracking_cred_field(fields: List<Data>) -> Credential {
   )
   unfracking_cred
 }
-
-/// Field 5: the upgrade-authority withdraw-0 credential (trampoline 2).
-/// Read only by coordination_spend, only on an upgrade transaction.
-pub fn upgrade_cred_field(fields: List<Data>) -> Credential {
-  expect upgrade_cred: Credential = head_list(
-    tail_list(tail_list(tail_list(tail_list(tail_list(fields))))),
-  )
-  upgrade_cred
-}
+// No accessor for field 5 (`upgrade_cred`): its only reader,
+// coordination_spend, deserialises the whole record on its cold path.

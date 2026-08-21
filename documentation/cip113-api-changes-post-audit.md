@@ -754,9 +754,10 @@ one-shot params NFT, instead of scanning the reference-input set.
 each as a reference input, so scanning for the params UTxO is O(position) — and,
 before this change, aborted outright on a token-less reference-script UTxO
 ordered ahead of it (the reference-input order is fixed by the ledger, not the
-builder). A direct index is O(1) per lookup; since `programmable_logic_base`
-runs once **per spent input**, the saving multiplies across a multi-input
-transaction. The one-shot params NFT still authenticates the target, so a wrong
+builder). A direct index (`list.expect_at`) drops `params_idx` list cells and
+checks the NFT once — O(`params_idx`) cell drops, versus a policy check at
+every reference input walked; since `programmable_logic_base` runs once **per
+spent input**, the saving multiplies across a multi-input transaction. The one-shot params NFT still authenticates the target, so a wrong
 index simply fails — no security is delegated to the index.
 
 ### Redeemer changes
@@ -830,8 +831,16 @@ itself 3163 → 2313 B (**−27%**).
   ```
   PLB reads the delegate credential from the params datum (`transfer_cred`
   field 2, or `third_party_cred` field 3) and requires it at `withdrawals[wdrl_idx]`
-  — an O(1) `list.expect_at` instead of scanning the withdrawal map. Self-validating:
-  a wrong index or arm resolves to a credential that fails the equality.
+  — a direct `list.expect_at` (O(`wdrl_idx`) cell drops, no credential
+  comparison en route; cost record in
+  `validators/programmable_logic/wdrl_idx_cost.test.ak`) instead of a scan that
+  compares at every entry. Self-validating: a wrong index or arm resolves to a
+  credential that fails the equality — assuming `transfer_cred ≠
+  third_party_cred`, which is **not** enforced on-chain (a deployment /
+  upgrade-authority responsibility; see `02-ARCHITECTURE.md`). `wdrl_idx` is a
+  position in the withdrawal map as the ledger orders it (script credentials
+  before key credentials, bytewise within each kind), over the complete
+  withdrawal set — see `09-DEVELOPING-SUBSTANDARDS.md` › Withdrawal indices.
 - **`ProgrammableLogicGlobalRedeemer`** — the `ThirdPartyAct` constructor is
   **removed**; PLG now coordinates transfers and unfracking only:
   ```aiken

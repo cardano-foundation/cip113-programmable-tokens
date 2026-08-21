@@ -5,6 +5,7 @@ use aiken/collection/dict/strategy.{keep_left}
 use aiken/collection/list
 use aiken/crypto.{blake2b_256}
 use aiken/fuzz
+use aiken/primitive/bytearray
 use cardano/address.{Address, Credential, Inline}
 use cardano/assets.{AssetName, PolicyId, Value, ada_asset_name, ada_policy_id}
 use cardano/fuzz as cardano
@@ -109,6 +110,47 @@ pub const withdrawals_unfracking: Pairs<Credential, Int> =
     // (unfracking v2: the hook is always executed — no script, no party)
     Pair(credential_unfracking_hook, 0),
   ]
+
+/// The ledger's ordering of the withdrawal map, which Plutus hands to
+/// validators unchanged. `Withdrawals` is `Map RewardAccount Coin`, keyed by
+/// (network, credential); within one transaction the network is constant, so
+/// the order is cardano-ledger's derived `Ord` on `Credential`, whose
+/// constructors are declared `ScriptHashObj` BEFORE `KeyHashObj`: EVERY
+/// Script credential sorts ahead of EVERY VerificationKey credential, and
+/// hashes compare bytewise within each constructor. (This is NOT Aiken's
+/// `Credential` declaration order, which lists `VerificationKey` first.) A
+/// redeemer's `wdrl_idx` must be computed against this order, over the
+/// COMPLETE withdrawal set — a key-hash withdrawal the wallet adds still
+/// occupies a slot, after every script.
+pub fn compare_credentials_ledger(a: Credential, b: Credential) -> Ordering {
+  when (a, b) is {
+    (Credential.Script(x), Credential.Script(y)) -> bytearray.compare(x, y)
+    (Credential.VerificationKey(x), Credential.VerificationKey(y)) ->
+      bytearray.compare(x, y)
+    (Credential.Script(_), Credential.VerificationKey(_)) -> Less
+    (Credential.VerificationKey(_), Credential.Script(_)) -> Greater
+  }
+}
+
+/// Sort a withdrawal list the way the ledger will present it to the script.
+pub fn ledger_sorted_withdrawals(
+  withdrawals: Pairs<Credential, Int>,
+) -> Pairs<Credential, Int> {
+  list.sort(withdrawals, fn(a, b) { compare_credentials_ledger(a.1st, b.1st) })
+}
+
+/// Position of `credential` in an (already ledger-sorted) withdrawal list —
+/// the value an off-chain builder must write into `wdrl_idx`.
+pub fn withdrawal_index_of(
+  withdrawals: Pairs<Credential, Int>,
+  credential: Credential,
+) -> Int {
+  expect Some(idx) = list.index_of(
+    list.map(withdrawals, fn(w) { w.1st }),
+    credential,
+  )
+  idx
+}
 
 /// Arbitrary script credential representing the upgrade-authority
 /// withdraw-0 validator (trampoline 2). Carried by the protocol-params

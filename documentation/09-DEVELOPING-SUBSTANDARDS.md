@@ -827,10 +827,19 @@ const plgRedeemer = conStr0([integer(paramsIndex), list([registryProof])]);
 const transferRedeemer = integer(200);                          // Your substandard's redeemer
 
 // Base-spend dispatch: for a transfer, every PLB input delegates to PLG.
-// wdrl_idx is PLG's position in the LEDGER-SORTED withdrawals map (sorted by
-// reward address, not insertion order — see below).
-const sortedWithdrawals = [yourTransferLogic.rewardAddress, logicGlobal.rewardAddress].sort();
-const plgWdrlIdx = sortedWithdrawals.indexOf(logicGlobal.rewardAddress);
+// wdrl_idx is PLG's position in the withdrawals map AS THE LEDGER ORDERS IT
+// (scripts before keys, bytewise hash within each — see "Withdrawal indices"
+// below), computed over EVERY withdrawal in the transaction. Never sort
+// bech32 reward-address strings: that is not the ledger's order.
+const plgWdrlIdx = withdrawalIndexOf(
+  [
+    { hash: yourTransferLogic.hash, isScript: true },
+    { hash: logicGlobal.hash, isScript: true },
+    // ...plus any other withdrawal this transaction carries (e.g. a key-hash
+    // reward withdrawal added by the wallet) — it occupies a slot too.
+  ],
+  { hash: logicGlobal.hash, isScript: true },
+);
 // SpendViaGlobal { params_idx, wdrl_idx } — constructor 0 of BaseSpendRedeemer.
 // (An administrative seize would use SpendViaThirdParty, constructor 1, and set
 //  wdrl_idx to the third_party validator's position instead.)
@@ -920,6 +929,31 @@ function sortTxInputRefs(inputs: { txHash: string; outputIndex: number }[]) {
   });
 }
 ```
+
+#### Withdrawal indices (`wdrl_idx`)
+
+`BaseSpendRedeemer.wdrl_idx` is a position in the transaction's withdrawal map **as the ledger orders it** — which is *not* insertion order and *not* the sort order of bech32 reward-address strings. The ledger keys withdrawals by `RewardAccount = (network, credential)` and orders credentials with **every script credential before every key credential, bytewise by hash within each kind** (cardano-ledger's `Credential` derives `Ord` with `ScriptHashObj` declared before `KeyHashObj`; Plutus hands the script the map in that order). The index must be computed over the **complete** withdrawal set: any extra withdrawal — a key-hash reward withdrawal the wallet adds, a second substandard script — shifts every position after it.
+
+```typescript
+type WithdrawalKey = { hash: string; isScript: boolean }; // hash: 28-byte hex
+
+// Ledger order: scripts first, then keys; bytewise hash order within each.
+// Lowercase hex compares like the underlying bytes.
+function compareWithdrawalKeys(a: WithdrawalKey, b: WithdrawalKey): number {
+  if (a.isScript !== b.isScript) return a.isScript ? -1 : 1;
+  const ha = a.hash.toLowerCase(), hb = b.hash.toLowerCase();
+  return ha < hb ? -1 : ha > hb ? 1 : 0;
+}
+
+function withdrawalIndexOf(all: WithdrawalKey[], target: WithdrawalKey): number {
+  const sorted = [...all].sort(compareWithdrawalKeys);
+  return sorted.findIndex(
+    (w) => w.isScript === target.isScript && w.hash.toLowerCase() === target.hash.toLowerCase(),
+  );
+}
+```
+
+A wrong `wdrl_idx` cannot authorise anything — `programmable_logic_base` resolves the entry at that index and requires it to equal the delegate credential read from the protocol-params datum — but it does fail the transaction, so derive it from the *final* withdrawal set, after the builder has added everything. The same ordering governs the redeemer indices of withdrawal scripts themselves; if your builder assigns withdrawal redeemer indices in insertion order without re-indexing after the canonical sort, add the `.withdrawal()` calls in ledger order.
 
 #### Substandard-specific reference inputs
 

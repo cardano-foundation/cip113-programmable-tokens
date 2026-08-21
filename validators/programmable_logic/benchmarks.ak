@@ -26,11 +26,14 @@
 //// Execution (CPU/mem) on the composed happy paths below is roughly neutral:
 //// the PLB spend gains a 2-arm dispatch (~+2M cpu on the transfer path at
 //// withdrawal-index 0, where the old `has_key_or_fail` scan also stopped at the
-//// first entry), and reclaims it via the O(1) `list.expect_at` withdrawal lookup
-//// whenever the delegate's withdrawal is NOT the first entry — the seize case,
-//// where the issuer-logic withdrawal (an issuer-chosen hash) may sort ahead of
-//// the framework credential and the old scan would have to walk past it. The
-//// headline win is the reference-script SIZE reduction, paid on every tx.
+//// first entry). The benches here all witness `wdrl_idx = 0`, so they do NOT
+//// measure the off-first-position case; `wdrl_idx_cost.test.ak` does, at
+//// widths 1-16 and positions 0-15. Note `list.expect_at` is O(`wdrl_idx`)
+//// (one cell drop per step), not O(1) — what the witness removes is the
+//// credential COMPARISON at every entry the old scan walked past, which is
+//// the seize case: the issuer-logic withdrawal (an issuer-chosen hash) may
+//// sort ahead of the framework credential. The headline win is the
+//// reference-script SIZE reduction, paid on every tx.
 
 use aiken/collection/list
 use aiken/fuzz

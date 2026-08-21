@@ -81,14 +81,24 @@ pub type ThirdPartyRedeemer {
 /// PLB runs once per programmable-token input, so its cost is multiplied by
 /// every such input in the transaction. It dispatches each spend to ONE of two
 /// withdraw-0 validators and witnesses WHERE that validator's credential sits
-/// in the (credential-sorted) withdrawal map, so the check is a single equality
-/// at a known index instead of a scan.
+/// in the ledger-ordered withdrawal map (Script credentials first, then
+/// VerificationKey, bytewise within each), so the check is a direct
+/// `list.expect_at` — O(`wdrl_idx`) cell drops with no comparison on the way —
+/// plus one equality, instead of a scan that compares at every entry.
 ///
 /// Self-validating: a wrong `wdrl_idx` resolves to some other credential and a
 /// wrong arm names the other validator — either way the equality fails, so a
 /// dishonest witness can only invalidate its own transaction. Whichever
 /// validator it delegates to then enforces its full invariants over the whole
 /// transaction, so authorising either is sound.
+///
+/// ASSUMPTION (documented, not enforced): "a wrong arm fails" holds only while
+/// the params datum carries `transfer_cred != third_party_cred`. Neither
+/// `protocol_params_mint` nor `coordination_spend` checks distinctness; it is
+/// the deployer's and the upgrade authority's responsibility. With equal
+/// credentials both arms resolve to the same script, which must then dispatch
+/// internally (the pre-split monolithic shape) — see
+/// `plb_equal_delegate_creds_collapse_the_arms`.
 pub type BaseSpendRedeemer {
   /// Delegate to programmable_logic_global (transfer / unfracking). PLB
   /// requires the `transfer_cred` (params datum field 2) at

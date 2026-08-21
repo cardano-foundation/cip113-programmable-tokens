@@ -5,8 +5,12 @@
 //// withdraw-0. These tests verify both the trampoline check and the
 //// datum-driven indirection that makes PLG swappable in place.
 
+use aiken/collection/list
+use aiken/fuzz
+use aiken/primitive/bytearray
 use cardano/address.{Credential, Script, VerificationKey}
 use cardano/assets.{PolicyId}
+use cardano/fuzz as cardano
 use cardano/transaction.{InlineDatum, Input, Output, Transaction}
 use programmable_logic/fixture
 use programmable_logic/params.{ProgrammableLogicGlobalParams}
@@ -278,4 +282,137 @@ test plb_fails_global_arm_witnessing_third_party_cred() fail {
     withdrawals: [Pair(third_party_cred, 0)],
   }
   call_global_at(tx, 0, 0)
+}
+
+// ---------------------------------------------------------------------------
+// Dispatch: the distinct-credentials ASSUMPTION (documented, not enforced)
+// ---------------------------------------------------------------------------
+
+// The arm of `BaseSpendRedeemer` is only meaningful while the params datum
+// carries `transfer_cred != third_party_cred`. Neither `protocol_params_mint`
+// nor `coordination_spend` enforces that distinctness — it is the deployer's
+// (and later the upgrade authority's) responsibility. With EQUAL credentials
+// both arms resolve to the same script, so a SpendViaThirdParty spend is
+// satisfied by that one script's withdrawal exactly as SpendViaGlobal is: the
+// single delegate must then dispatch internally (the pre-split, monolithic
+// shape). This test pins that consequence so the "wrong arm rejects" claim
+// elsewhere is read with its hypothesis. See 02-ARCHITECTURE.md.
+test plb_equal_delegate_creds_collapse_the_arms() {
+  let collapsed = fixture.some_reference_input_protocol_params(
+    ProgrammableLogicGlobalParams {
+      ..fixture.protocol_params,
+      third_party_cred: plg_cred,
+    },
+    "protocol params",
+  )
+  let tx = Transaction { ..valid_plb_tx(), reference_inputs: [collapsed] }
+  and {
+    call_global_at(tx, 0, 0),
+    call_third_party_at(tx, 0, 0),
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Witnessed index: bounds
+// ---------------------------------------------------------------------------
+
+// `list.expect_at` past the end of the withdrawal map aborts — there is no
+// entry to compare, so an out-of-range witness can never authorise a spend.
+test plb_fails_when_wdrl_idx_out_of_range() fail {
+  call_global_at(valid_plb_tx(), 0, 1)
+}
+
+// A negative witness is out of range too (`list.at` is None for index < 0).
+test plb_fails_when_wdrl_idx_negative() fail {
+  call_global_at(valid_plb_tx(), 0, -1)
+}
+
+// ---------------------------------------------------------------------------
+// Witnessed index: arbitrary widths and positions (properties)
+// ---------------------------------------------------------------------------
+
+/// A random transaction layout for one PLB arm:
+///   * a withdrawal map of random width (1..12) in LEDGER order — random
+///     Script AND VerificationKey credentials around `delegate`, optionally
+///     joined by `other_delegate` (the framework credential of the OTHER arm,
+///     so the cross-arm case is exercised at its real sorted position);
+///   * the params UTxO at a random reference-input position (0..4), behind
+///     registry-node fillers.
+/// Returns (reference_inputs, params_idx, withdrawals, wdrl_idx) with the two
+/// indices computed exactly as an off-chain builder would.
+fn layout_around(
+  delegate: Credential,
+  other_delegate: Credential,
+) -> Fuzzer<(List<Input>, Int, Pairs<Credential, Int>, Int)> {
+  let others <- fuzz.and_then(fuzz.list_between(cardano.credential(), 0, 10))
+  let with_other <- fuzz.and_then(fuzz.bool())
+  let params_idx <- fuzz.map(fuzz.int_between(0, 4))
+  let creds = list.filter(
+    others,
+    fn(c) { c != delegate && c != other_delegate },
+  )
+    |> fn(cs) {
+        if with_other {
+          [other_delegate, ..cs]
+        } else {
+          cs
+        }
+      }
+  let withdrawals = fixture.ledger_sorted_withdrawals(
+    list.map([delegate, ..creds], fn(c) { Pair(c, 0) }),
+  )
+  let filler = fn(i: Int) {
+    fixture.some_reference_input_tokens_registry_node(
+      "",
+      #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      bytearray.from_int_big_endian(i, 1),
+    )
+  }
+  let reference_inputs = list.concat(
+    list.map(list.range(1, params_idx), filler),
+    [params_ref_input(), filler(0)],
+  )
+  (
+    reference_inputs,
+    params_idx,
+    withdrawals,
+    fixture.withdrawal_index_of(withdrawals, delegate),
+  )
+}
+
+// SpendViaGlobal: the recomputed (params_idx, wdrl_idx) is accepted and EVERY
+// other in-range withdrawal index is rejected (each resolves to some other
+// credential, so the equality fails) — for any width, any Script/VKey mix of
+// neighbours, with or without the third_party credential in the map.
+test plb_global_arm_accepts_only_the_recomputed_index(
+  (reference_inputs, params_idx, withdrawals, wdrl_idx) via layout_around(
+    plg_cred,
+    third_party_cred,
+  ),
+) {
+  let tx = Transaction { ..valid_plb_tx(), reference_inputs, withdrawals }
+  and {
+    call_global_at(tx, params_idx, wdrl_idx),
+    list.all(
+      list.range(0, list.length(withdrawals) - 1),
+      fn(i) { i == wdrl_idx || !call_global_at(tx, params_idx, i) },
+    ),
+  }
+}
+
+// SpendViaThirdParty: same property for the other arm.
+test plb_third_party_arm_accepts_only_the_recomputed_index(
+  (reference_inputs, params_idx, withdrawals, wdrl_idx) via layout_around(
+    third_party_cred,
+    plg_cred,
+  ),
+) {
+  let tx = Transaction { ..valid_plb_tx(), reference_inputs, withdrawals }
+  and {
+    call_third_party_at(tx, params_idx, wdrl_idx),
+    list.all(
+      list.range(0, list.length(withdrawals) - 1),
+      fn(i) { i == wdrl_idx || !call_third_party_at(tx, params_idx, i) },
+    ),
+  }
 }

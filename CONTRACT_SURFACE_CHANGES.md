@@ -19,7 +19,7 @@ once the audit branch work settles.
   `programmable_logic/params.ak` type definitions. Semantic/tx-shape
   changes come from the PR diffs.
 - Open PRs are listed as **PROVISIONAL — subject to change** until
-  merged. Last refreshed: **2026-06-11**.
+  merged. Last refreshed: **2026-08-21** (PLG split, PR #110).
 
 ## Systemic note: every merge re-hashes everything
 
@@ -127,7 +127,18 @@ committee decision (decision-doc-in-place-upgradability.md).
 
 ---
 
-### Upgradability in place — PLG split (`feat/plg-third-party-split`, PR vs `feat/upgradability-in-place`) — PROVISIONAL
+### Upgradability in place — #103 / PR #109: params UTxO by redeemer index (`a4f9bdd`, merged into `feat/upgradability-in-place`)
+
+| Surface | Change | Breaking? |
+|---|---|---|
+| `programmable_logic_base.spend` redeemer | untyped `Data` (ignored) → **`Int`** = the params-NFT reference-input index | **YES** — every PLB spend redeemer builder |
+| `ProgrammableLogicGlobalRedeemer` | every constructor gains a leading **`params_idx: Int`**: `TransferAct { params_idx, proofs }`, `ThirdPartyAct { params_idx, registry_node_idx, outputs_start_idx }`, `UnfrackingAct { params_idx }` | **YES** — PLG redeemer builders |
+| `UnfrackingRedeemer` | gains a leading **`params_idx: Int`** | **YES** — unfracking builder |
+| Tx shape | Builders compute the params UTxO's position in the ledger-sorted `reference_inputs` and pass it in every redeemer above; a wrong index fails the params-NFT `expect` | Builder change |
+
+Details: `cip113-api-changes-post-audit.md` §16.
+
+### Upgradability in place — PLG split (`feat/plg-third-party-split`, PR #110 vs `feat/upgradability-in-place`) — PROVISIONAL
 
 Third-party (seize/clawback) logic pulled out of `programmable_logic_global`
 into a standalone validator; `programmable_logic_base` becomes a dispatcher.
@@ -135,7 +146,7 @@ into a standalone validator; `programmable_logic_base` becomes a dispatcher.
 | Surface | Change | Breaking? |
 |---|---|---|
 | Validator set | **New `third_party`** (withdraw + publish; param `params_policy: PolicyId`) — hosts `validate_3rd_party`; new deploy artefact + reference script | **YES** — new deploy artefact; seize txs invoke it instead of PLG |
-| `programmable_logic_base.spend` redeemer | `Int` (params index, §16) → **`BaseSpendRedeemer { SpendViaGlobal { params_idx, wdrl_idx } \| SpendViaThirdParty { params_idx, wdrl_idx } }`** — picks the delegate + witnesses its withdrawal index (O(1), no scan) | **YES** — every PLB spend redeemer builder |
+| `programmable_logic_base.spend` redeemer | `Int` (params index, §16) → **`BaseSpendRedeemer { SpendViaGlobal { params_idx, wdrl_idx } \| SpendViaThirdParty { params_idx, wdrl_idx } }`** — picks the delegate + witnesses its withdrawal index (direct `list.expect_at`: O(`wdrl_idx`) cell drops, no per-entry credential comparison). `wdrl_idx` is a position in the ledger-ordered withdrawal map (script creds before key creds, bytewise within each) over the complete withdrawal set. The arm is meaningful only while `transfer_cred ≠ third_party_cred` — NOT enforced on-chain (deployment / upgrade-authority responsibility) | **YES** — every PLB spend redeemer builder |
 | `ProgrammableLogicGlobalRedeemer` | **`ThirdPartyAct` constructor removed** → `TransferAct \| UnfrackingAct`; `UnfrackingAct` constr index 2 → 1 | **YES** — PLG redeemer builders; third-party now uses `third_party`'s `ThirdPartyRedeemer` (same 3 fields) |
 | Protocol-params datum (`ProgrammableLogicGlobalParams`) | **6 fields, REORDERED by read-frequency + 2 renamed**: `{ registry_node_cs(0), prog_logic_cred(1), transfer_cred(2), third_party_cred(3), unfracking_cred(4), upgrade_cred(5) }`. New `third_party_cred`; `prog_logic_global_cred`→`transfer_cred`, `upgrade_logic_cred`→`upgrade_cred` (drop "logic"). PLB reads fields 2-3 on dispatch; `coordination_spend` 28-byte-guards each mutable cred | **YES** — CBOR field order + 2 names changed; params-datum builder (deploy) and any positional parser |
 | `issuance_mint` | **No param/redeemer change**; mint-custody delegation now also accepts coverage from the `third_party` validator's `ThirdPartyRedeemer` (same-registry-node), not only PLG's `TransferAct` | Semantic (delegation recognises the new validator) |
@@ -143,18 +154,17 @@ into a standalone validator; `programmable_logic_base` becomes a dispatcher.
 
 Reference-script footprint per tx (measured): transfer `PLB+PLG` 3659 →
 3072 B (**−587**), seize `PLB+third_party` 3659 → 2565 B (**−1094**); PLG
-3163 → 2313 B (−27%). Execution ~neutral (PLB 2-arm dispatch, reclaimed
-by the O(1) withdrawal lookup off-first-position). Off-chain: SDK
+3163 → 2313 B (−27%). Execution ~neutral: PLB's 2-arm dispatch costs
+~4.2M cpu at withdrawal position 0; the indexed lookup breaks even with the
+old scan at position ~3 and saves ~19M cpu at width 16 / position 15
+(`validators/programmable_logic/wdrl_idx_cost.test.ak`). Off-chain: SDK
 (`cip113-sdk-ts`) + Java backend need the new PLB sum-type redeemer,
 `third_party` deploy, and `wdrl_idx`/`params_idx` derivation — tracked
 separately.
 
 ---
 
-## Open PRs — PROVISIONAL, subject to change
-
-> NOTE: four PRs are currently open (#78, #79, #80, #81), not three —
-> confirm whether all four are in scope.
+## Audit PRs #78–#81 (open at the 2026-06-11 refresh; since merged to `main`)
 
 ### PR #78 — Finding 17, Unfracking (`fix/finding-17-unfracking`)
 
@@ -164,6 +174,10 @@ separately.
 | `programmable_logic_global` redeemer | `ProgrammableLogicGlobalRedeemer` gains **`UnfrackingAct`** (constructor index 2, no fields) | Additive (existing TransferAct/ThirdPartyAct builders unaffected) |
 | Protocol-params datum (`ProgrammableLogicGlobalParams`, built off-chain at deploy) | **Appended field 2 `unfracking_cred: Credential`** → now `{ registry_node_cs, prog_logic_cred, unfracking_cred }` (3 fields) | **YES** — params-datum builder (deploy) and any parser |
 | Tx shape | New unfracking tx pattern: PLB inputs same stake cred; withdrawals = PLG (`UnfrackingAct`) + `unfracking` script + holder authorisation; no mint; per-policy PLB conservation | Additive feature |
+
+(Superseded since: `UnfrackingAct` is constructor **1** after the PLG split
+removed `ThirdPartyAct`; the params datum grew to 6 fields — see the
+consolidated table.)
 
 ### PR #79 — Finding 12 (`fix/finding-12-utxo-contamination`) — no schema change
 
@@ -189,26 +203,32 @@ separately.
 
 ---
 
-## Consolidated surface: baseline → main + open PRs
+## Consolidated surface: baseline → `feat/upgradability-in-place` + PR #110
+
+"now" = the head of PR #110 (`feat/plg-third-party-split`), i.e. `main`
+plus the upgradability stack plus the PLG split.
 
 | Validator | Params (baseline → now) | Redeemer (baseline → now) | Changed by |
 |---|---|---|---|
-| `issuance_mint` | 3 → **4** (+`plg_stake_cred`) | `SmartTokenMintingAction{...}` → **`MintingRegistryProof`** | #51, #68 (+semantics #80) |
+| `issuance_mint` | 3 → **4** (4th is now `params_policy: PolicyId`, the params-NFT policy — it started as `plg_stake_cred` in #51 and became the live-delegate trampoline on the upgradability branch) | `SmartTokenMintingAction{...}` → **`MintingRegistryProof`** | #51, #68 (+semantics #80, upgradability, PLG split) |
 | `registry_mint` | 2 → **3** (+`registry_spend_cred`) | `RegistryInsert` fields **replaced** (`hashed_param` → `minting_logic_script`; `mode` added by #52, removed by R-06) | #51, #52, R-06 |
 | `registry_spend` | 1 (unchanged) | untyped (unchanged) | #81 semantics only |
-| `programmable_logic_global` | 1 (unchanged — went 1→2→1 during #78 development; final is 1) | +`UnfrackingAct` | #78 |
-| `programmable_logic_base` | 1 (unchanged) | untyped (unchanged) | hash cascade only |
-| `protocol_params_mint` | 2 (unchanged) | untyped (unchanged) | datum it mints changed (#78) |
+| `programmable_logic_global` | 1 (unchanged — went 1→2→1 during #78 development; final is 1, now the params-NFT policy) | `TransferAct \| ThirdPartyAct` → **`TransferAct { params_idx, proofs } \| UnfrackingAct { params_idx }`** — `UnfrackingAct` added (#78), `params_idx` added (#109), `ThirdPartyAct` **removed** (PLG split; `UnfrackingAct` constructor index 2 → **1**) | #78, #109, PLG split |
+| `programmable_logic_base` | 1: `stake_cred: Credential` (PLG's credential) → **`params_policy: PolicyId`** | untyped → `Int` (#109) → **`BaseSpendRedeemer { SpendViaGlobal { params_idx, wdrl_idx } \| SpendViaThirdParty { params_idx, wdrl_idx } }`** | upgradability #1+#2, #109, PLG split |
+| `protocol_params_mint` | 2 (unchanged; the lock-target param now receives `coordination_spend`'s hash) | untyped (unchanged) | datum it mints changed (#78, upgradability #1–#3, PLG split) |
 | `issuance_cbor_hex_mint` | 2 (unchanged) | untyped (unchanged) | its datum content (template bytes) changes with every `issuance_mint` change |
-| `unfracking` | — → **new** (1 param) | untyped | #78 |
-| `always_fail` | unchanged | — | — |
+| `unfracking` | — → **new** (1 param `params_policy`) | **`UnfrackingRedeemer { params_idx, registry_node_idx, outputs_start_idx }`** | #78, unfracking v2, #109 |
+| `third_party` | — → **new** (1 param `params_policy`) | **`ThirdPartyRedeemer { params_idx, registry_node_idx, outputs_start_idx }`** — seize / clawback / freeze-enforcement, dispatched by PLB's `SpendViaThirdParty` | PLG split |
+| `coordination_spend` | — → **new** (1 param `nonce: ByteArray`) | untyped | upgradability #3 |
+| `upgrade_multisig` | — → **new** (2 params `signers`, `threshold`) | untyped | upgradability #3 |
+| `always_fail` | unchanged (no longer the coordination-UTxO lock target) | — | — |
 
 Off-chain-built datums:
 
 | Datum | Baseline → now | Changed by |
 |---|---|---|
-| `RegistryNode` (registry NFT) | 5 → **6 fields** (`minting_logic_script` inserted at index 2) | #52 |
-| `ProgrammableLogicGlobalParams` (params NFT) | 2 → **3 fields** (`unfracking_cred` appended) | #78 (provisional) |
+| `RegistryNode` (registry NFT) | 5 → **7 fields** (`minting_logic_script` inserted at index 2; `unfracking_logic_script` added at index 5 by unfracking v2) | #52, unfracking v2 |
+| `ProgrammableLogicGlobalParams` (params NFT) | 2 → **6 fields**, reordered + renamed: `{ registry_node_cs(0), prog_logic_cred(1), transfer_cred(2), third_party_cred(3), unfracking_cred(4), upgrade_cred(5) }` | #78, upgradability #1–#3, PLG split |
 | `IssuanceCborHex` | shape unchanged; **content** (prefix/postfix bytes) changes with every issuance_mint change | #51, #68, #80 |
 
 ---
@@ -219,29 +239,46 @@ Observed touchpoints (grep, 2026-06-11) — each is a migration checklist
 item once the open PRs land:
 
 - `src/standard/blueprint.ts` — resolves validators **by title**; must
-  add the `unfracking.unfracking` title (#78). Verify param-application
-  arity for `issuance_mint` (4) and `registry_mint` (3) (#51).
+  add the `unfracking.unfracking`, `third_party.third_party`,
+  `coordination_spend.coordination_spend` and
+  `upgrade_multisig.upgrade_multisig` titles. Verify param-application
+  arity for `issuance_mint` (4) and `registry_mint` (3) (#51), and the
+  new PLB parameter (`params_policy`, not PLG's credential).
 - `src/core/evo-utils.ts` — `RegistryNode` datum builder: **already on
   the 6-field post-#52 shape** (verified: `minting_logic_script` at
-  index 2). Needs the 3-field `ProgrammableLogicGlobalParams` parser /
-  builder if it touches the params datum (#78).
+  index 2); needs `unfracking_logic_script` (index 5). Needs the
+  6-field `ProgrammableLogicGlobalParams` parser / builder (order above)
+  if it touches the params datum.
+- PLB spend redeemer — every PLB input needs a `BaseSpendRedeemer`
+  (`SpendViaGlobal` for transfers/unfracking, `SpendViaThirdParty` for
+  seizes) with `params_idx` (ledger-sorted reference-input position of
+  the params UTxO) and `wdrl_idx` (delegate's position in the
+  ledger-ordered withdrawal map — script creds before key creds,
+  bytewise within each; derivation in doc 09 › Withdrawal indices).
 - `src/core/registry.ts` — `RegistryInsert` redeemer: verify
   `minting_logic_script` support (#52) and that no `mode` field is
   encoded (R-06 removed it); verify mint redeemer is bare
   `MintingRegistryProof` (#68).
-- `src/substandards/*` (`freeze-and-seize` especially) — `ThirdPartyAct`
-  builders: must preserve `reference_script` on paired outputs (#69)
-  and be re-validated against #79's contamination rules and #80's
-  issuance scope.
+- `src/substandards/*` (`freeze-and-seize` especially) — seize
+  builders: the PLG `ThirdPartyAct` redeemer no longer exists; invoke
+  the `third_party` validator's withdraw-0 (+ reference script) with a
+  `ThirdPartyRedeemer { params_idx, registry_node_idx, outputs_start_idx }`
+  at `third_party_cred`, and use `SpendViaThirdParty` on every PLB input.
+  Must preserve `reference_script` on paired outputs (#69) and be
+  re-validated against #79's contamination rules and #80's issuance scope.
 - New (optional) feature: unfracking tx builder (#78) — PLG
-  `UnfrackingAct` redeemer (constr index 2), `unfracking` script
-  withdrawal + ref script, composition documented in
+  `UnfrackingAct { params_idx }` redeemer (constr index **1**),
+  `unfracking` script withdrawal + ref script with an `UnfrackingRedeemer`,
+  composition documented in
   `documentation/design/finding-17-unfracking-w0-delegation.md`.
 
 Other consumers to migrate in the same pass: the Java backend
 (`programmable-tokens-offchain-java`) receives `plutus.json` via
-`build.sh` and builds the params datum at deploy time (3-field change,
-#78) and applies validator parameters (#51 arity changes).
+`build.sh` and builds the params datum at deploy time (6-field layout
+above), applies validator parameters (#51 arity changes; PLB now takes
+the params-NFT policy), deploys the new `third_party`,
+`coordination_spend` and `upgrade_multisig` artefacts, and locks the
+coordination UTxO at `coordination_spend` instead of `always_fail`.
 
 ## Maintenance
 

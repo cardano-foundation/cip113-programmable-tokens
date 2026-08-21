@@ -138,15 +138,17 @@ validator programmable_logic_base(params_policy: PolicyId) {
         (params.third_party_cred_field(fields), wdrl_idx)
     }
 
-    // Jump straight to the witnessed withdrawal entry (O(1)) and require it
-    // to carry the claimed delegate credential.
+    // Go directly to the witnessed withdrawal entry and require it to
+    // carry the claimed delegate credential.
     let Pair(witnessed_cred, _) = list.expect_at(self.withdrawals, wdrl_idx)
     (witnessed_cred == claimed)?
   }
 }
 ```
 
-This pattern is critical for performance: spending validators run once *per input*, but stake validators (via withdrawals) run only once *per transaction*. Since the delegate contains the expensive registry lookups and transfer logic invocations, running it once instead of N times (for N inputs) saves significant execution units. Resolving the delegate by the redeemer-witnessed `wdrl_idx` (an O(1) lookup at a known position) rather than scanning the withdrawal map saves further cost on every input; a wrong index or arm resolves to a credential that fails the equality, so a dishonest witness only invalidates its own transaction.
+This pattern is critical for performance: spending validators run once *per input*, but stake validators (via withdrawals) run only once *per transaction*. Since the delegate contains the expensive registry lookups and transfer logic invocations, running it once instead of N times (for N inputs) saves significant execution units. Resolving the delegate by the redeemer-witnessed `wdrl_idx` — a direct `list.expect_at`, which drops `wdrl_idx` list cells (so O(`wdrl_idx`), not O(1)) but performs no credential comparison on the way — rather than scanning the withdrawal map removes one comparison per entry walked, on every input. Measured in `validators/programmable_logic/wdrl_idx_cost.test.ak`: the indexed path grows ~1.1M cpu per position against ~2.7M for the scan, breaks even around position 3, and saves ~19M cpu at width 16 / position 15. A wrong index or arm resolves to a credential that fails the equality, so a dishonest witness only invalidates its own transaction.
+
+**Distinct delegate credentials — an assumption, not an invariant.** The arm of the redeemer is only meaningful while the protocol-params datum carries `transfer_cred ≠ third_party_cred`. Neither `protocol_params_mint` (at genesis) nor `coordination_spend` (on upgrades) enforces this; it is a deployment and upgrade-authority responsibility. With equal credentials both arms resolve to the same script, so either arm is satisfied by that one script's withdrawal and the single delegate must dispatch internally — the pre-split, monolithic shape. Every "wrong arm rejects" statement in these docs, in the property tests, and in any formal statement about PLB dispatch carries this hypothesis (pinned by `plb_equal_delegate_creds_collapse_the_arms` in `programmable_logic_base.test.ak`).
 
 ---
 

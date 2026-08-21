@@ -7,18 +7,22 @@
 //// - Output validation (PLB address, stake credential)
 //// - Single mint credential enforcement
 
+use aiken/fuzz
 use cardano/address.{Address, Credential, Inline, Script}
 use cardano/assets.{PolicyId, ada_asset_name, ada_policy_id, from_asset}
 use cardano/transaction.{
-  InlineDatum, Input, Mint, NoDatum, Output, OutputReference, Transaction,
+  InlineDatum, Input, Mint, NoDatum, Output, OutputReference, Spend, Transaction,
   Withdraw,
 }
 use issuance_mint
+use programmable_logic/fixture
 use programmable_logic/params.{ProgrammableLogicGlobalParams}
+use programmable_logic_base
 use registry_node.{RegistryNode, empty_vkey}
+use third_party
 use types.{
-  MintingRegistryProof, OutputIndex, RefInput, ThirdPartyRedeemer, TokenExists,
-  TransferAct,
+  BaseSpendRedeemer, MintingRegistryProof, OutputIndex, RefInput,
+  SpendViaThirdParty, ThirdPartyRedeemer, TokenExists, TransferAct,
 }
 
 // ---------------------------------------------------------------------------
@@ -65,7 +69,23 @@ const min_ada =
 // Helpers
 // ---------------------------------------------------------------------------
 
+/// The ISSUER's third-party transfer logic credential registered in our node
+/// (`third_party_transfer_logic_script`). Its withdraw-0 is what the
+/// `third_party` validator requires on a seize of our policy.
+const test_issuer_3p_cred: Credential =
+  Script(#"66666666666666666666666666666666666666666666666666666666")
+
 fn registry_node_output(key: ByteArray) -> Output {
+  registry_node_output_with_3p(key, test_issuer_3p_cred)
+}
+
+/// Same node with an explicit issuer third-party logic credential — the
+/// composed seize tests vary it to move the framework `third_party`
+/// credential around the ledger-sorted withdrawal map.
+fn registry_node_output_with_3p(
+  key: ByteArray,
+  issuer_3p_cred: Credential,
+) -> Output {
   Output {
     address: Address {
       payment_credential: Script(
@@ -83,9 +103,7 @@ fn registry_node_output(key: ByteArray) -> Output {
           transfer_logic_script: Script(
             #"55555555555555555555555555555555555555555555555555555555",
           ),
-          third_party_transfer_logic_script: Script(
-            #"66666666666666666666666666666666666666666666666666666666",
-          ),
+          third_party_transfer_logic_script: issuer_3p_cred,
           // Must match the validator's `minting_logic_cred` parameter
           // (= `test_ml_cred` via `call_validator`). Defense-in-depth #3.
           minting_logic_script: test_ml_cred,
@@ -688,8 +706,12 @@ test multi_token_burn() {
 // same policy delegates custody to the standalone `third_party` validator, whose
 // redeemer (at `third_party_cred`, field 3) names our registry node. To isolate
 // the delegation DECISION, the minted subject tokens go to a NON-PLB output —
-// local `no_escape` alone would reject this, but delegation short-circuits it
-// (in a real tx `validate_3rd_party` enforces those tokens stay at PLB).
+// local `no_escape` alone would reject this, but delegation short-circuits it.
+// This is deliberately NOT a valid transaction end to end: the composed
+// `composed_seize_mint_*` tests below run issuance_mint + PLB + third_party
+// on one coherent tx and show `third_party` catching exactly this escape.
+// (`params_idx: 1` matches the coordination UTxO's position — issuance_mint
+// never reads it, but the redeemer must be the one a real tx would carry.)
 test refinput_mint_delegates_to_third_party_seize() {
   let rdmr = valid_redeemer()
   let escaping_output = Output {
@@ -719,7 +741,7 @@ test refinput_mint_delegates_to_third_party_seize() {
         Withdraw(test_tp_cred),
         as_data(
           ThirdPartyRedeemer {
-            params_idx: 0,
+            params_idx: 1,
             registry_node_idx: 0,
             outputs_start_idx: 0,
           },
@@ -761,7 +783,7 @@ test refinput_mint_third_party_wrong_node_no_delegation_fails() fail {
         Withdraw(test_tp_cred),
         as_data(
           ThirdPartyRedeemer {
-            params_idx: 0,
+            params_idx: 1,
             registry_node_idx: 1,
             outputs_start_idx: 0,
           },
@@ -1604,4 +1626,229 @@ test outputindex_covering_node_mint_escape_fails() fail {
     redeemers: [Pair(Mint(test_own_policy), as_data(rdmr))],
   }
   call_validator(rdmr, tx)
+}
+
+// ===========================================================================
+// Composed transaction: issuance_mint × programmable_logic_base × third_party
+// ===========================================================================
+//
+// PR #110 review: the isolated delegation tests above only run issuance_mint.
+// These run all three validators on ONE coherent transaction — a seize of our
+// policy that also mints (or burns) it — with every index (RefInput,
+// params_idx, registry_node_idx, wdrl_idx) derived from the same layout, and
+// show that a one-token escape is caught by `third_party` specifically:
+// issuance_mint has delegated, PLB has dispatched, and the conservation check
+// in `validate_3rd_party` is what says no.
+
+/// A PLB output in the seizing authority's custody (stake credential of the
+/// substandard's escrow logic) holding `qty` subject tokens.
+fn seized_output(qty: Int) -> Output {
+  Output {
+    address: Address {
+      payment_credential: test_plb_cred,
+      stake_credential: Some(
+        Inline(
+          Script(#"adadadadadadadadadadadadadadadadadadadadadadadadadadadad"),
+        ),
+      ),
+    },
+    value: min_ada |> assets.add(test_own_policy, test_token_name, qty),
+    datum: NoDatum,
+    reference_script: None,
+  }
+}
+
+/// ONE subject-policy token at a non-PLB address — the escape.
+fn escaped_token_output() -> Output {
+  non_plb_output_named(test_token_name, 1)
+}
+
+/// An issuer third-party logic credential that sorts AFTER the framework
+/// `third_party` credential (c3c3…) in the ledger's withdrawal order, moving
+/// `wdrl_idx` from 2 to 1 (`test_issuer_3p_cred`, 6666…, sorts before it).
+const test_issuer_3p_cred_late: Credential =
+  Script(#"dddddddddddddddddddddddddddddddddddddddddddddddddddddddd")
+
+/// Everything the three validators need for one composed seize-with-mint tx.
+type Composed {
+  tx: Transaction,
+  mint_redeemer: MintingRegistryProof,
+  base_redeemer: BaseSpendRedeemer,
+  tp_redeemer: ThirdPartyRedeemer,
+}
+
+/// Build the composed transaction:
+///   * ONE holder PLB input with `held` subject tokens is fully seized — its
+///     paired output (outputs_start_idx = 0) keeps address, datum and
+///     lovelace but no subject tokens;
+///   * `delta` subject tokens are minted (or burned, if negative);
+///   * `custody_outputs` follow the paired output — where `held + delta` is
+///     expected to land (one PLB custody output in the positive case);
+///   * the registry node and the coordination UTxO sit in either order
+///     (`coordination_first`), so RefInput / params_idx / registry_node_idx
+///     all come from the same layout;
+///   * withdrawals are listed in LEDGER order (`fixture.ledger_sorted_withdrawals`);
+///     `issuer_3p_cred` (the node's third-party logic) decides whether the
+///     framework `third_party` credential sorts at index 1 or 2, and
+///     `wdrl_idx` is computed from that order, as a builder would.
+fn composed_seize_mint(
+  held: Int,
+  delta: Int,
+  coordination_first: Bool,
+  issuer_3p_cred: Credential,
+  custody_outputs: List<Output>,
+) -> Composed {
+  let node = some_ref_input(
+    registry_node_output_with_3p(test_own_policy, issuer_3p_cred),
+  )
+  let coordination = coordination_ref_input(test_plg_cred)
+  let (reference_inputs, node_idx, params_idx) = if coordination_first {
+    ([coordination, node], 1, 0)
+  } else {
+    ([node, coordination], 0, 1)
+  }
+  let withdrawals = fixture.ledger_sorted_withdrawals(
+    [Pair(test_ml_cred, 0), Pair(issuer_3p_cred, 0), Pair(test_tp_cred, 0)],
+  )
+  let wdrl_idx = fixture.withdrawal_index_of(withdrawals, test_tp_cred)
+  let holder_input = some_input(mint_output(held))
+  let mint_redeemer = RefInput(node_idx)
+  let base_redeemer = SpendViaThirdParty { params_idx, wdrl_idx }
+  let tp_redeemer = ThirdPartyRedeemer {
+    params_idx,
+    registry_node_idx: node_idx,
+    outputs_start_idx: 0,
+  }
+  let tx = Transaction {
+    ..transaction.placeholder,
+    inputs: [holder_input],
+    reference_inputs,
+    outputs: [mint_output(0), ..custody_outputs],
+    mint: from_asset(test_own_policy, test_token_name, delta),
+    withdrawals,
+    redeemers: [
+      Pair(Spend(holder_input.output_reference), as_data(base_redeemer)),
+      Pair(Mint(test_own_policy), as_data(mint_redeemer)),
+      Pair(Withdraw(test_tp_cred), as_data(tp_redeemer)),
+    ],
+  }
+  Composed { tx, mint_redeemer, base_redeemer, tp_redeemer }
+}
+
+fn mint_ok(c: Composed) -> Bool {
+  call_validator(c.mint_redeemer, c.tx)
+}
+
+fn base_ok(c: Composed) -> Bool {
+  programmable_logic_base.programmable_logic_base.spend(
+    test_params_policy,
+    None,
+    c.base_redeemer,
+    Void,
+    c.tx,
+  )
+}
+
+fn third_party_ok(c: Composed) -> Bool {
+  third_party.third_party.withdraw(
+    test_params_policy,
+    c.tp_redeemer,
+    test_tp_cred,
+    c.tx,
+  )
+}
+
+// Positive: seize 40 + mint 100 → 140 in PLB custody; all three pass.
+test composed_seize_mint_all_three_validators_pass() {
+  let c = composed_seize_mint(
+    40,
+    100,
+    False,
+    test_issuer_3p_cred,
+    [seized_output(140)],
+  )
+  and {
+    mint_ok(c),
+    base_ok(c),
+    third_party_ok(c),
+  }
+}
+
+// Mutation: ONE of the 140 tokens escapes to a non-PLB output. issuance_mint
+// still delegates (the third_party redeemer names our node) and PLB still
+// dispatches (the witnessed withdrawal IS the third_party credential) — the
+// rejection comes from `third_party` alone: its conservation check finds 139
+// at PLB against 40 seized + 100 minted, and returns False (no abort), so
+// the other two verdicts are asserted in the same expression.
+test composed_seize_mint_one_token_escape_rejected_by_third_party() {
+  let c = composed_seize_mint(
+    40,
+    100,
+    False,
+    test_issuer_3p_cred,
+    [seized_output(139), escaped_token_output()],
+  )
+  and {
+    mint_ok(c),
+    base_ok(c),
+    !third_party_ok(c),
+  }
+}
+
+/// Random seize-with-mint shape: `held` 1..1e9; `delta` in (-held, 1e9] minus
+/// zero (a burn never empties the custody output, so the conservation check
+/// keeps a non-trivial target); either reference-input order; and an issuer
+/// credential that sorts the framework third_party credential to withdrawal
+/// index 1 or 2.
+fn composed_shape() -> Fuzzer<(Int, Int, Bool, Credential)> {
+  let held <- fuzz.and_then(fuzz.int_between(1, 1_000_000_000))
+  let delta <- fuzz.and_then(
+    fuzz.such_that(fuzz.int_between(1 - held, 1_000_000_000), fn(d) { d != 0 }),
+  )
+  let coordination_first <- fuzz.and_then(fuzz.bool())
+  let issuer_late <- fuzz.map(fuzz.bool())
+  let issuer_3p_cred = if issuer_late {
+    test_issuer_3p_cred_late
+  } else {
+    test_issuer_3p_cred
+  }
+  (held, delta, coordination_first, issuer_3p_cred)
+}
+
+// For any quantities and any index placement, the composed positive tx passes
+// all three validators.
+test composed_seize_mint_holds_for_any_quantities_and_placement(
+  (held, delta, coordination_first, issuer_3p_cred) via composed_shape(),
+) {
+  let c = composed_seize_mint(
+    held,
+    delta,
+    coordination_first,
+    issuer_3p_cred,
+    [seized_output(held + delta)],
+  )
+  and {
+    mint_ok(c),
+    base_ok(c),
+    third_party_ok(c),
+  }
+}
+
+// ...and for any of those shapes, a one-token escape is rejected by
+// `third_party` while issuance_mint and PLB still pass.
+test composed_seize_mint_escape_rejected_for_any_quantities_and_placement(
+  (held, delta, coordination_first, issuer_3p_cred) via composed_shape(),
+) {
+  let c = composed_seize_mint(
+    held,
+    delta,
+    coordination_first,
+    issuer_3p_cred,
+    [seized_output(held + delta - 1), escaped_token_output()],
+  )
+  and {
+    mint_ok(c),
+    base_ok(c),
+    !third_party_ok(c),
+  }
 }
