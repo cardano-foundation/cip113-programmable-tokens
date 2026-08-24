@@ -554,4 +554,4 @@ A registry node is spent only by `registry_spend`, which forbids minting or burn
 
 ---
 
-**Next**: [Developing Substandards](./09-DEVELOPING-SUBSTANDARDS.md) for a guide on implementing custom substandards | **Back to**: [README](../README.md) | [Introduction](./01-INTRODUCTION.md)
+**Next**: [Guarantees & Responsibilities](./04-GUARANTEES-AND-RESPONSIBILITIES.md) for the invariant-level split of who enforces what, or [Developing Substandards](./09-DEVELOPING-SUBSTANDARDS.md) for a guide on implementing custom substandards | **Back to**: [README](../README.md) | [Introduction](./01-INTRODUCTION.md)

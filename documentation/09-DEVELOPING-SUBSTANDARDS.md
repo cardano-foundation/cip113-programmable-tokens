@@ -97,6 +97,11 @@ and refer to the three stake validators it dispatches to by name: **`transfer`**
 
 ## What You Must Implement
 
+> Before writing any of it, read
+> [`04-GUARANTEES-AND-RESPONSIBILITIES.md`](./04-GUARANTEES-AND-RESPONSIBILITIES.md). It lists
+> what the core already enforces (so you know which checks are redundant rather than load-bearing)
+> and the eleven duties — `SUB-01` … `SUB-11` — that no other party performs for you.
+
 A substandard consists of **three withdraw-zero validators** (stake validators invoked via 0-ADA withdrawals):
 
 ### 1. Issuance Logic (withdraw)

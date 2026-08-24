@@ -12,7 +12,9 @@ but does not spell out:
 
 Implementation lives in `validators/programmable_logic/third_party.ak`,
 `lib/registry_node.ak`, and `lib/linked_list.ak`; this document is the normative
-reading of their intent.
+reading of their intent. For the invariant-by-invariant split — what the core
+enforces, what your substandard must enforce, and what nobody enforces — see
+[`04-GUARANTEES-AND-RESPONSIBILITIES.md`](./04-GUARANTEES-AND-RESPONSIBILITIES.md).
 
 ---
 
