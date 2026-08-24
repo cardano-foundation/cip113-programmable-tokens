@@ -18,7 +18,7 @@ pub fn validate_transfer(
   get_registry_node: fn(Int) -> Data,
   proofs: List<RegistryProof>,
 ) -> Bool {
-  // NOTE: The programmable logic global is alway invoked via a withdrawal, so
+  // NOTE: The transfer validator is always invoked via a withdrawal, so
   // we know there's AT LEAST ONE withdrawal.
   let first_withdrawal = list.head(self.withdrawals).1st
   let has_withdrawal = new_withdrawal_checker(
@@ -78,11 +78,11 @@ fn collect_input_assets(
   //
   // Side-effect to watch: with this fix the transfer path no longer
   // accidentally rejects a pure mint routed to a non-PLB address. That
-  // custody check belongs in issuance_mint; its current `or { plg_invoked,
-  // validate_mint_outputs }` delegation is too broad — same root cause as
-  // finding 04 (which documents the ThirdPartyAct + mint escape), now
-  // exposed as a TransferAct + mint variant too. Tightening issuance_mint's
-  // delegation closes both. Tracked separately.
+  // custody check belongs in issuance_mint, whose precise per-registry-node
+  // delegation (Finding 04 fix) covers both the third-party + mint escape
+  // and this transfer + mint variant: it delegates only to a validator whose
+  // redeemer names the minted policy's node, and otherwise enforces
+  // `no_escape` itself.
   let plb_inputs = assets.collect(
     tx.inputs,
     [],

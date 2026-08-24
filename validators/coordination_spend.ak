@@ -12,7 +12,7 @@
 ////     and the permanently-frozen fields (`prog_logic_cred`, `registry_node_cs`)
 ////     are unchanged. These can never be delegated away.
 ////   * The AUTHORISATION decision ("may this upgrade happen?") is trampolined to
-////     the `upgrade_logic_cred` withdraw-0 named in the CURRENT (spent) datum.
+////     the `upgrade_cred` withdraw-0 named in the CURRENT (spent) datum.
 ////     This validator never inspects that authority's internals — no signer
 ////     keys, no threshold — so the authority model (federated multisig now, a
 ////     governance-action validator later) can be swapped by rewriting one datum
@@ -25,7 +25,7 @@
 //// identified structurally (sole input/output at this address) and the NFT is
 //// preserved by strict value conservation. Safety does not rest on naming the
 //// policy: the params NFT is one-shot, so only one genuine coordination UTxO can
-//// ever exist, and the readers (PLB/PLG) locate it by that policy themselves.
+//// ever exist, and the readers (PLB / delegate) locate it by that policy themselves.
 //// The `nonce` only gives each deployment its own coordination address.
 ////
 //// v1 policy choices (both are single-line changes if revisited):
@@ -52,7 +52,7 @@ validator coordination_spend(_nonce: ByteArray) {
   ) {
     trace @"Starting coordination_spend validation"
 
-    // Current wiring, from the UTxO being spent. `upgrade_logic_cred` here is the
+    // Current wiring, from the UTxO being spent. `upgrade_cred` here is the
     // authority that must approve this spend; the frozen fields anchor the check.
     expect Some(old_params) = datum
 
@@ -82,7 +82,7 @@ validator coordination_spend(_nonce: ByteArray) {
     expect assets.expect_match(cont.value, own_input.output.value, >=)?
 
     // Continuing datum must be inline and a well-formed ProgrammableLogicGlobalParams
-    // — the rail that stops an upgrade from bricking PLB/PLG datum reads.
+    // — the rail that stops an upgrade from bricking PLB / delegate datum reads.
     expect InlineDatum(cont_datum) = cont.datum
     expect new_params: ProgrammableLogicGlobalParams = cont_datum
 
@@ -96,14 +96,19 @@ validator coordination_spend(_nonce: ByteArray) {
       // Every MUTABLE credential must be a well-formed 28-byte hash. A reward
       // account is a header byte + 28-byte hash, so a wrong-length hash can
       // never appear in tx.withdrawals. Writing one here is a ONE-WAY BRICK:
-      // an unsatisfiable upgrade_logic_cred makes this validator's own
+      // an unsatisfiable upgrade_cred makes this validator's own
       // authority check below permanently unsatisfiable, with no repair path,
-      // and an unsatisfiable prog_logic_global_cred makes every programmable
+      // and an unsatisfiable transfer_cred makes every programmable
       // token UTxO unspendable. Same rule linked_list.ak already applies to
       // every registry-node credential.
-      is_28_byte_credential(new_params.prog_logic_global_cred)?,
+      is_28_byte_credential(new_params.transfer_cred)?,
       is_28_byte_credential(new_params.unfracking_cred)?,
-      is_28_byte_credential(new_params.upgrade_logic_cred)?,
+      is_28_byte_credential(new_params.upgrade_cred)?,
+      // Same one-way-brick rule for the third-party validator credential: a
+      // wrong-length hash can never appear in tx.withdrawals, so writing one
+      // would make every SpendViaThirdParty base spend permanently
+      // unsatisfiable (freezing the third-party/seize path for all policies).
+      is_28_byte_credential(new_params.third_party_cred)?,
       // No reference script may be attached to the coordination UTxO.
       (cont.reference_script == None)?,
       // Authorisation (trampoline 2): the CURRENT datum's upgrade authority must
@@ -111,7 +116,7 @@ validator coordination_spend(_nonce: ByteArray) {
       // sitting authority authorises every change, including a change of authority.
       // The upgrade authority's withdraw-0 must be present; mirrors the
       // trampoline-1 check in programmable_logic_base.
-      self.withdrawals |> pairs.has_key_or_fail(old_params.upgrade_logic_cred),
+      self.withdrawals |> pairs.has_key_or_fail(old_params.upgrade_cred),
     }
   }
 

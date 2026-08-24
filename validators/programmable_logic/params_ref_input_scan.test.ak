@@ -1,7 +1,7 @@
 //// Characterization tests for the protocol-params reference-input lookup.
 ////
 //// `with_protocol_params_fields` no longer SCANS `reference_inputs` for the
-//// params NFT. The PLG/PLB redeemers now carry an explicit `params_idx`, and
+//// params NFT. The delegate/PLB redeemers now carry an explicit `params_idx`, and
 //// the lookup is a direct `list.at(reference_inputs, params_idx)` followed by
 //// an authentication `expect` that the indexed output actually holds the
 //// `protocol_params_cs` policy (the params NFT).

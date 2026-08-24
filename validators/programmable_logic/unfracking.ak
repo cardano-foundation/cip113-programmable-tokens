@@ -1,11 +1,10 @@
-//// Unfracking invariants — v2 (registry-gated, ThirdPartyAct-shaped)
+//// Unfracking invariants — v2 (registry-gated, third-party-shaped)
 ////
 //// This module is the engine of the standalone `unfracking` withdraw-0
-//// validator. Under the `UnfrackingAct` redeemer,
-//// `programmable_logic_global` (PLG) does NOT run this logic — it only
-//// requires `unfracking`'s withdrawal to be present, keeping the
-//// hot-path PLG reference script small. See `unfracking`'s module docs
-//// for the delegation rationale.
+//// validator, which programmable_logic_base dispatches to directly under a
+//// `SpendViaUnfracking` redeemer — the `transfer` validator plays no part in
+//// an unfracking transaction, keeping the hot-path transfer reference script
+//// small. See `unfracking`'s module docs for the delegation rationale.
 ////
 //// An unfracking action lets a holder restructure the PLB UTxOs they
 //// own for ONE registered policy — the motivating case being a
@@ -32,7 +31,7 @@
 ////     output still carrying the acted policy would still require that
 ////     policy's transfer proof on every future spend (still stuck, in
 ////     the freeze case), and any partial same-owner rebalancing is
-////     TransferAct's job — with the policy's transfer logic as the
+////     a transfer's job — with the policy's transfer logic as the
 ////     proper bouncer — not this bypass's.
 ////
 //// Invariants enforced here:
@@ -47,7 +46,7 @@
 ////     first PLB input. The owner authorises once: a vkey stake
 ////     credential signs (`extra_signatories`), a script stake
 ////     credential's withdraw-0 must be invoked (same pattern as
-////     TransferAct). Restructuring across owners would be a transfer in
+////     a transfer). Restructuring across owners would be a transfer in
 ////     disguise, bypassing `transfer_logic_script`.
 ////   * PER PAIR: `address`, `datum`, `reference_script` byte-identical;
 ////     the ada-less asset lists are compared in ONE lockstep walk that

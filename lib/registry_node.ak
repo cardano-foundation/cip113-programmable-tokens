@@ -63,7 +63,7 @@ pub type RegistryNode {
   transfer_logic_script: Credential,
   /// The third party transfer logic script credential that handles admin actions (seizure, etc.)
   third_party_transfer_logic_script: Credential,
-  /// Credential whose withdraw-0 must be invoked by any UnfrackingAct
+  /// Credential whose withdraw-0 must be invoked by any unfracking action
   /// touching this policy — the issuer-declared unfracking constraint
   /// hook. `empty_vkey` means unfracking is FORBIDDEN for this policy
   /// (least permission by default: no script, no party). A `Script`

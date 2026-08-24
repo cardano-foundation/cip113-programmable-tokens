@@ -8,33 +8,41 @@ use cardano/transaction.{InlineDatum, Input}
 /// Protocol parameters NFT token name
 pub const protocol_params_token = "ProtocolParams"
 
-/// Protocol parameters stored on-chain
-/// This is referenced by all programmable token transactions
+/// Protocol parameters stored on-chain, referenced by all programmable-token
+/// transactions. Fields are ordered by read-frequency / hot-path depth: the
+/// registry policy and base payment credential (read by the transfer /
+/// third-party containment checks) first, then the two credentials
+/// programmable_logic_base dispatches to on every per-input spend
+/// (`transfer_cred`, `third_party_cred`), then the rarer `unfracking_cred`, and
+/// finally the coldest `upgrade_cred` (read only by coordination_spend).
 pub type ProgrammableLogicGlobalParams {
-  /// Currency symbol of the registry node NFTs
+  /// Field 0 — currency symbol of the registry node NFTs.
   registry_node_cs: PolicyId,
-  /// The programmable logic base credential (payment credential for all programmable token UTxOs)
+  /// Field 1 — the programmable-logic-base PAYMENT credential: the shared
+  /// payment credential every programmable-token UTxO lives at.
   prog_logic_cred: Credential,
-  /// Credential of the unfracking withdraw-0 validator (Finding 17).
-  /// Appended LAST on purpose: the transfer / third-party hot path reads
-  /// only the first two fields, so it pays nothing for this one.
+  /// Field 2 — credential of the `transfer` withdraw-0 validator.
+  /// programmable_logic_base requires it on a `SpendViaTransfer` dispatch.
+  /// This is what makes the transfer validator swappable in place: an
+  /// upgrade rewrites this field instead of re-deploying PLB (whose hash
+  /// anchors every token address).
+  transfer_cred: Credential,
+  /// Field 3 — credential of the standalone third-party-transfer (seize /
+  /// clawback / freeze) withdraw-0 validator. programmable_logic_base requires
+  /// it on a `SpendViaThirdParty` dispatch. Swappable in place.
+  third_party_cred: Credential,
+  /// Field 4 — credential of the `unfracking` withdraw-0 validator
+  /// (Finding 17). programmable_logic_base requires it on a
+  /// `SpendViaUnfracking` dispatch. Swappable in place.
   unfracking_cred: Credential,
-  /// Credential of the programmable-logic-global withdraw-0 validator.
-  /// Read by programmable_logic_base on every spend — this is what makes
-  /// PLG swappable in place: an upgrade rewrites this field instead of
-  /// re-deploying PLB (whose hash anchors every token address).
-  /// Appended after `unfracking_cred` to keep prior field indices stable.
-  prog_logic_global_cred: Credential,
-  /// Credential of the upgrade-authority withdraw-0 validator (trampoline 2).
-  /// Read ONLY by coordination_spend, and only on an upgrade transaction, to
-  /// decide *who* may rewrite this datum. Making it a datum field (rather than
-  /// a coordination_spend parameter) is what lets the upgrade authority itself
-  /// be swapped in place — e.g. federated multisig now, a governance-action
-  /// validator later — without moving the coordination UTxO. coordination_spend
-  /// never inspects the authority's internals (no signer keys here), so
-  /// retiring one authority model for another leaves no trace in this datum.
-  /// Appended last to keep prior field indices stable.
-  upgrade_logic_cred: Credential,
+  /// Field 5 — credential of the upgrade-authority withdraw-0 validator
+  /// (trampoline 2). Read ONLY by coordination_spend, on an upgrade
+  /// transaction, to decide *who* may rewrite this datum. Making it a datum
+  /// field (rather than a coordination_spend parameter) is what lets the
+  /// upgrade authority itself be swapped in place — federated multisig now, a
+  /// governance-action validator later — without moving the coordination UTxO.
+  /// Last because it is the coldest read.
+  upgrade_cred: Credential,
 }
 
 /// Authenticate the protocol-params NFT reference input by its
@@ -70,7 +78,7 @@ pub fn with_protocol_params_fields(
   // UTxO bearing it is the genuine params UTxO. A wrong index fails here
   // rather than silently reading some other UTxO's datum. Kept as a bare
   // policy-presence test (not the stricter name+quantity check) because this
-  // runs on the hot path — per PLG withdrawal and per PLB input.
+  // runs on the hot path — per delegate withdrawal and per PLB input.
   expect
     !dict.is_empty(
       value.tokens(protocol_params_ref.output.value, protocol_params_cs),
@@ -86,33 +94,35 @@ pub fn registry_node_cs_field(fields: List<Data>) -> PolicyId {
   registry_node_cs
 }
 
-/// Field 1: the programmable logic base (PLB) payment credential.
+/// Field 1: the programmable-logic-base (PLB) payment credential.
 pub fn prog_logic_cred_field(fields: List<Data>) -> Credential {
   expect prog_logic_cred: Credential = head_list(tail_list(fields))
   prog_logic_cred
 }
 
-/// Field 2: the unfracking withdraw-0 credential (Finding 17).
-/// Only the UnfrackingAct branch of PLG reads this far into the datum.
-pub fn unfracking_cred_field(fields: List<Data>) -> Credential {
-  expect unfracking_cred: Credential = head_list(tail_list(tail_list(fields)))
-  unfracking_cred
+/// Field 2: the `transfer` withdraw-0 credential. Read by
+/// programmable_logic_base on a `SpendViaTransfer` dispatch.
+pub fn transfer_cred_field(fields: List<Data>) -> Credential {
+  expect transfer_cred: Credential = head_list(tail_list(tail_list(fields)))
+  transfer_cred
 }
 
-/// Field 3: the programmable-logic-global withdraw-0 credential.
-/// Read by programmable_logic_base on every spend.
-pub fn prog_logic_global_cred_field(fields: List<Data>) -> Credential {
-  expect prog_logic_global_cred: Credential = head_list(
+/// Field 3: the standalone third-party-transfer withdraw-0 credential.
+/// Read by programmable_logic_base on a `SpendViaThirdParty` dispatch.
+pub fn third_party_cred_field(fields: List<Data>) -> Credential {
+  expect third_party_cred: Credential = head_list(
     tail_list(tail_list(tail_list(fields))),
   )
-  prog_logic_global_cred
+  third_party_cred
 }
 
-/// Field 4: the upgrade-authority withdraw-0 credential (trampoline 2).
-/// Read only by coordination_spend, only on an upgrade transaction.
-pub fn upgrade_logic_cred_field(fields: List<Data>) -> Credential {
-  expect upgrade_logic_cred: Credential = head_list(
+/// Field 4: the `unfracking` withdraw-0 credential (Finding 17). Read by
+/// programmable_logic_base on a `SpendViaUnfracking` dispatch.
+pub fn unfracking_cred_field(fields: List<Data>) -> Credential {
+  expect unfracking_cred: Credential = head_list(
     tail_list(tail_list(tail_list(tail_list(fields)))),
   )
-  upgrade_logic_cred
+  unfracking_cred
 }
+// No accessor for field 5 (`upgrade_cred`): its only reader,
+// coordination_spend, deserialises the whole record on its cold path.

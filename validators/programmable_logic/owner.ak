@@ -8,7 +8,7 @@
 ////     (`withdrawals`), the standard smart-wallet pattern.
 ////
 //// Shared by the two actions that spend PLB UTxOs on the owner's own
-//// authority: the TransferAct input scan (every PLB input) and the
+//// authority: the transfer input scan (every PLB input) and the
 //// unfracking owner pinning (first PLB input; subsequent inputs must
 //// then equal the pinned address). ThirdPartyAct deliberately does NOT
 //// use it — admin actions are authorised by the policy's third-party

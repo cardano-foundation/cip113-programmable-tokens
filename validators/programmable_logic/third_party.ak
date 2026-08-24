@@ -1,5 +1,5 @@
-//// Programmable Logic Global Stake Validator
-//// This is the core CIP-113 validator that coordinates all programmable token transfers
+//// Third-party transfer invariants (seize / clawback / freeze enforcement),
+//// hosted by the standalone `third_party` withdraw-0 validator.
 //// Migrated from SmartTokens.Contracts.ProgrammableLogicBase (mkProgrammableLogicGlobal)
 
 use aiken/collection/dict
@@ -208,7 +208,7 @@ fn validate_io_constraints_and_balance(
         // that the per-pair check never inspects, making the whole seizure a
         // net no-op while every pair still shows a local delta. A proper
         // per-owner aggregate anti-churn check was measured and costs ~+22%
-        // in script size, CPU and memory on PLGlobal (the coordinator every
+        // in script size, CPU and memory on the coordinator (the script every
         // transfer references) — disproportionate for a threat Cardano's fee
         // model already mitigates: each forced respend costs the (trusted)
         // admin real fees, so sustained no-op churn is self-limiting. The

@@ -13,31 +13,37 @@
 ////       redeemer branch needs via the `*_field` accessors.
 ////
 //// Datum generations: 2-field (pre-Finding-17), 3-field (Finding 17
-//// added `unfracking_cred`), 5-field (upgradability appended
-//// `prog_logic_global_cred`, read by PLB on every spend, then
-//// `upgrade_logic_cred`, read only by `coordination_spend` on an
-//// upgrade transaction — not the transfer hot path — so it gets no
-//// per-field cost row of its own below). The 2- and 3-field shapes
-//// are kept as local types so their measurements stay reproducible
-//// after the production type moved on.
+//// added `unfracking_cred`), then the upgradability + validator-split work
+//// settled the 6-field production datum, ordered by read-frequency:
+//// `registry_node_cs` (0), `prog_logic_cred` (1), then the two credentials
+//// programmable_logic_base reads on its per-input dispatch — `transfer_cred`
+//// (2) and `third_party_cred` (3) — then `unfracking_cred` (4, read by the transfer validator's
+//// unfracking action) and `upgrade_cred` (5, read only by `coordination_spend`
+//// on an upgrade). The 2- and 3-field shapes are kept as local types so
+//// their measurements stay reproducible after the production type moved on.
 ////
-//// Representative run (aiken v1.1.22; deltas above each family's
-//// locate+unwrap baseline):
+//// Representative run (aiken v1.1.22; ABSOLUTE mem/cpu per test — compare
+//// rows, they share one reference-input layout. Since the #103 index change
+//// the split path locates the params UTxO by index while the baseline scans,
+//// so subtracting the baseline no longer isolates pure extraction cost; read
+//// the rows against each other instead):
 ////
-////   (a) 2-field builtins, both fields ........ +13.5k mem / +3.6M cpu
-////   (b) 2-field full expect .................. +21.0k mem / +6.2M cpu
-////   (b) 3-field full expect .................. +35.5k mem / +11.3M cpu
-////   (b) 5-field full expect .................. +48.7k mem / +16.3M cpu
-////   (c) 5-field split, fields 0-1 (PLG) ...... +13.2k mem / +2.9M cpu
-////   (c) 5-field split, field 2 (unfracking) .. +10.1k mem / +2.2M cpu
-////   (c) 5-field split, field 3 (PLB) ......... +10.3k mem / +2.3M cpu
+////   locate + unwrap baseline (6-field) ......... 459.8k mem / 147.2M cpu
+////   (b) 6-field full expect .................... 530.2k mem / 169.4M cpu
+////   (c) split, fields 0-1 (shared shallow) ..... 486.3k mem / 153.1M cpu
+////   (c) split, transfer_cred field 2 (PLB) ..... 483.2k mem / 152.4M cpu
+////   (c) split, unfracking_cred field 4 ......... 483.6k mem / 152.6M cpu
+////   (c) split, all four fields ................. 510.1k mem / 162.5M cpu
 ////
-//// i.e. full deserialisation costs ~4.7x the split approach in mem and
-//// ~7x in cpu on any single-consumer path; the split keeps each
-//// consumer at the cost of only the fields it reads (the PLG hot path
-//// is unchanged from its pre-refactor numbers). Skipping whole-record
-//// validation is safe because protocol_params_mint fully deserialises
-//// the datum at mint time (see `with_protocol_params_fields` docs).
+//// (Legacy 2-/3-field full-expect rows, kept for reproducibility: 488.5k/
+//// 154.9M and 503.0k/160.4M — validating more fields costs strictly more.)
+////
+//// i.e. the transfer hot path (fields 0-1) pays ~+5.9M cpu / +26.6k mem over the
+//// bare locate+unwrap, versus ~+22.0M cpu / +70.2k mem to `expect` the whole
+//// 6-field record — the split saves the hot path from validating four fields
+//// it never reads. Skipping whole-record validation is safe because
+//// protocol_params_mint fully deserialises the datum at mint time (see
+//// `with_protocol_params_fields` docs).
 ////
 //// Every test shares the same reference-input layout (params NFT input
 //// first, one registry node behind it — same order as the tx fixtures)
@@ -53,9 +59,8 @@ use cardano/assets.{PolicyId} as value
 use cardano/transaction.{InlineDatum, Input, Output}
 use programmable_logic/fixture
 use programmable_logic/params.{
-  ProgrammableLogicGlobalParams, prog_logic_cred_field,
-  prog_logic_global_cred_field, registry_node_cs_field, unfracking_cred_field,
-  with_protocol_params_fields,
+  ProgrammableLogicGlobalParams, prog_logic_cred_field, registry_node_cs_field,
+  transfer_cred_field, unfracking_cred_field, with_protocol_params_fields,
 }
 
 // --------------------------------------------------------------------- types
@@ -68,7 +73,7 @@ type LegacyTwoFieldParams {
 }
 
 /// The protocol-params datum shape AFTER Finding 17 but BEFORE the
-/// upgradability refactor appended `prog_logic_global_cred`.
+/// upgradability refactor appended `transfer_cred`.
 type LegacyThreeFieldParams {
   registry_node_cs: PolicyId,
   prog_logic_cred: Credential,
@@ -91,7 +96,7 @@ const legacy3_params: LegacyThreeFieldParams =
   }
 
 /// Reference inputs as they appear in the tx fixtures, with an
-/// arbitrary datum in place of the current 5-field one.
+/// arbitrary datum in place of the current 6-field one.
 fn ref_inputs_with_datum(datum: Data) -> List<Input> {
   let modern = fixture.some_reference_input_protocol_params(
     fixture.protocol_params,
@@ -120,7 +125,7 @@ fn v3_ref_inputs() -> List<Input> {
   ref_inputs_with_datum(as_data(legacy3_params))
 }
 
-/// Same layout with the current (5-field) params datum.
+/// Same layout with the current (6-field) params datum.
 fn v5_ref_inputs() -> List<Input> {
   [
     fixture.some_reference_input_protocol_params(
@@ -184,7 +189,7 @@ test cost_baseline_locate_and_unwrap_v3() {
   datum == as_data(legacy3_params)
 }
 
-/// Same cost floor over the current 5-field inputs (their construction
+/// Same cost floor over the current 6-field inputs (their construction
 /// cost differs slightly, so each family gets its own baseline).
 test cost_baseline_locate_and_unwrap_v5() {
   let input = locate_params_ref(v5_ref_inputs(), fixture.policy_protocol_params)
@@ -233,7 +238,7 @@ test cost_v3_full_expect() {
 
 // ----------------------------------------- v5 datum (current, 5 fields)
 
-/// (b) Full `expect` deserialisation of the 5-field datum — what the
+/// (b) Full `expect` deserialisation of the 6-field datum — what the
 /// simplest implementation would pay on EVERY redeemer branch.
 test cost_v5_full_expect() {
   let input = locate_params_ref(v5_ref_inputs(), fixture.policy_protocol_params)
@@ -243,13 +248,13 @@ test cost_v5_full_expect() {
     p.registry_node_cs == fixture.policy_tokens_registry,
     p.prog_logic_cred == fixture.credential_validator_logic_base,
     p.unfracking_cred == fixture.credential_validator_unfracking,
-    p.prog_logic_global_cred == fixture.credential_validator_logic_global,
+    p.transfer_cred == fixture.credential_validator_transfer,
   }
 }
 
 /// (c) Production, transfer/3rd-party branch: fields 0-1 only —
 /// identical work to the legacy 2-field extraction, i.e. the appended
-/// fields cost the PLG hot path nothing.
+/// fields cost the transfer hot path nothing.
 test cost_v5_split_first_two() {
   let fields <- with_protocol_params_fields(
     v5_ref_inputs(),
@@ -262,25 +267,25 @@ test cost_v5_split_first_two() {
   }
 }
 
-/// (c) Production, unfracking branch: field 2 only.
-test cost_v5_split_third_only() {
+/// (c) Production, PLB SpendViaTransfer branch: `transfer_cred` (field 2) only —
+/// the extraction cost added to every programmable-token transfer spend.
+test cost_v5_split_transfer_only() {
+  let fields <- with_protocol_params_fields(
+    v5_ref_inputs(),
+    fixture.policy_protocol_params,
+    0,
+  )
+  transfer_cred_field(fields) == fixture.credential_validator_transfer
+}
+
+/// (c) Production, PLB SpendViaUnfracking arm: `unfracking_cred` (field 4) only.
+test cost_v5_split_unfracking_only() {
   let fields <- with_protocol_params_fields(
     v5_ref_inputs(),
     fixture.policy_protocol_params,
     0,
   )
   unfracking_cred_field(fields) == fixture.credential_validator_unfracking
-}
-
-/// (c) Production, PLB spend (upgradability trampoline): field 3 only —
-/// the extraction cost added to every programmable-token spend.
-test cost_v5_split_fourth_only() {
-  let fields <- with_protocol_params_fields(
-    v5_ref_inputs(),
-    fixture.policy_protocol_params,
-    0,
-  )
-  prog_logic_global_cred_field(fields) == fixture.credential_validator_logic_global
 }
 
 /// (c) Split upper bound: all four fields via the accessors.
@@ -294,6 +299,6 @@ test cost_v5_split_all_four() {
     registry_node_cs_field(fields) == fixture.policy_tokens_registry,
     prog_logic_cred_field(fields) == fixture.credential_validator_logic_base,
     unfracking_cred_field(fields) == fixture.credential_validator_unfracking,
-    prog_logic_global_cred_field(fields) == fixture.credential_validator_logic_global,
+    transfer_cred_field(fields) == fixture.credential_validator_transfer,
   }
 }

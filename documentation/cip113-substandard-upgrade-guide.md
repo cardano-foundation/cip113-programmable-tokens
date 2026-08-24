@@ -145,12 +145,21 @@ minting logic can never update — updates are script-gated by construction.
    transaction-build time; never cache transfer/third-party/global-state creds
    as immutable.**
 
-### 1.4 The admin path (`ThirdPartyAct`) has a defined, bounded custody scope
+### 1.4 The admin path has a defined, bounded custody scope
 
-Pre-audit, the third-party/seizure path was under-specified. Post-audit it is a
-first-class redeemer (`ProgrammableLogicGlobalRedeemer.ThirdPartyAct`) with
-structural guarantees the base layer enforces regardless of your substandard
-(`validators/programmable_logic/third_party.ak`):
+> **Superseded on `feat/upgradability-in-place`** by the validator split — see
+> `cip113-api-changes-post-audit.md` §17. The third-party path is no longer a
+> `programmable_logic_global` redeemer arm; it is the **standalone `third_party`
+> validator** (redeemer `ThirdPartyRedeemer { params_idx, registry_node_idx,
+> outputs_start_idx }`), dispatched by `programmable_logic_base` via
+> `SpendViaThirdParty`. (`programmable_logic_global` itself is renamed
+> **`transfer`**, redeemer `TransferRedeemer`, and handles transfers only.) The
+> custody guarantees below are unchanged — only the validator that hosts them
+> and the redeemer that carries the action moved.
+
+Pre-audit, the third-party/seizure path was under-specified. It is now a
+first-class action with structural guarantees the base layer enforces regardless
+of your substandard (`validators/programmable_logic/third_party.ak`):
 
 - Your `third_party_transfer_logic_script` MUST be invoked (withdraw-0) — the
   admin cannot act without your logic authorising it.
@@ -190,6 +199,13 @@ CIP-68/102-aware minting/transfer logic. See
 [`03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md`](./03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md).
 
 ### 1.6 Holders can restructure their own UTxOs (Unfracking)
+
+> **Superseded on `feat/upgradability-in-place`** by the validator split — see
+> `cip113-api-changes-post-audit.md` §17. There is no `UnfrackingAct` any more:
+> `programmable_logic_base` dispatches straight to the `unfracking` validator
+> via `SpendViaUnfracking`, and the transfer validator is not part of an
+> unfracking transaction at all. Everything below about *what* unfracking does
+> and why your substandard cares still holds.
 
 New action `ProgrammableLogicGlobalRedeemer.UnfrackingAct` (Finding 17) lets a
 holder redistribute the programmable tokens they already hold across their own
@@ -416,10 +432,10 @@ Ordered so that CBOR/parameter breakage (which blocks everything) comes first.
 | Registry node datum & field mutability | `lib/registry_node.ak:RegistryNode`, `lib/linked_list.ak:is_field_updated_registry_node` |
 | Node update path & authority (R-01) | `validators/registry_spend.ak` |
 | Registration flows (with/without first mint) | `lib/types.ak:RegistryRedeemer`, `validators/registry_mint.ak` |
-| Issuance / delegation / custody | `validators/issuance_mint.ak:plgl_scope_covers` |
+| Issuance / delegation / custody | `validators/issuance_mint.ak:plgl_scope_covers` (`transfer_scope_covers` on `feat/upgradability-in-place`) |
 | Transfer proof contract | `validators/programmable_logic/transfer.ak:verify_proofs` |
 | Third-party scope & protected prefixes | `validators/programmable_logic/third_party.ak` |
 | Protocol-params datum | `validators/programmable_logic/params.ak` |
-| Unfracking | `validators/programmable_logic/unfracking.ak`, PLG `UnfrackingAct` branch |
+| Unfracking | `validators/programmable_logic/unfracking.ak` (on `feat/upgradability-in-place`: dispatched by PLB's `SpendViaUnfracking`, no PLG branch) |
 | Control scope (human narrative) | [`03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md`](./03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md) |
 | Field-level API/CBOR surface | [`cip113-api-changes-post-audit.md`](./cip113-api-changes-post-audit.md) |
