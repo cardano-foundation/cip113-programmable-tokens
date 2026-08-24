@@ -32,7 +32,6 @@ use cardano/transaction.{Transaction}
 use programmable_logic/params
 use types.{
   BaseSpendRedeemer, SpendViaThirdParty, SpendViaTransfer, SpendViaUnfracking,
-  base_params_idx,
 }
 
 validator programmable_logic_base(params_policy: PolicyId) {
@@ -49,34 +48,60 @@ validator programmable_logic_base(params_policy: PolicyId) {
     // of its datum. The params UTxO is already a mandatory reference input on
     // every programmable-token transaction, so this adds no availability
     // requirement.
-    let fields <- params.with_protocol_params_fields(
-      self.reference_inputs,
-      params_policy,
-      base_params_idx(redeemer),
-    )
-
-    // Select the delegate credential this spend claims to forward to, and the
-    // withdrawal index that must carry it.
-    let (claimed, wdrl_idx) = when redeemer is {
-      SpendViaTransfer { wdrl_idx, .. } ->
-        (params.transfer_cred_field(fields), wdrl_idx)
-      SpendViaThirdParty { wdrl_idx, .. } ->
-        (params.third_party_cred_field(fields), wdrl_idx)
-      SpendViaUnfracking { wdrl_idx, .. } ->
-        (params.unfracking_cred_field(fields), wdrl_idx)
+    // redeemer is kinda unwrapped twice, one here for the param index and one below for the withdrawal index (check costs of destructuring once earlier)
+    // One `when` over the redeemer, and the params lookup inside each arm.
+    //
+    // The obvious shape — read `params_idx` up here, then `when` again below to
+    // pick the credential — destructures the redeemer TWICE, and this validator
+    // runs once per programmable input, so the second decode is multiplied by
+    // every input in the transaction. Measured at ~1.0M cpu and ~1.2k mem per
+    // spend (see the record in `programmable_logic/benchmarks.ak`).
+    //
+    // Hence the repetition below, which is deliberate: the three arms differ
+    // only in which datum field they read, but hoisting that difference out
+    // costs more than it saves. Two shapes were measured and rejected — a
+    // shared lookup selected by an integer tag (+53k cpu, the tag comparison
+    // outweighing the decode it removed), and carrying the field accessor as a
+    // function in a tuple (rejected by the compiler: tuple inhabitants must be
+    // serialisable to Data). The cost of this shape is +14 bytes of script.
+    let witnessed = fn(wdrl_idx: Int) {
+      let Pair(cred, _) = list.expect_at(self.withdrawals, wdrl_idx)
+      cred
     }
 
-    // Go directly to the witnessed withdrawal entry and require it to carry
-    // the claimed delegate credential — the withdraw-zero trampoline.
-    // `list.expect_at` drops `wdrl_idx` cells to get there: O(wdrl_idx), not
-    // O(1), but with no credential comparison on the way, where the former
-    // `has_key_or_fail` scan compared at every entry up to the delegate's
-    // position (cost record: programmable_logic/wdrl_idx_cost.test.ak).
-    // The arm is meaningful only while the three delegate credentials in the
-    // params datum are pairwise distinct; that distinctness is NOT enforced
-    // on-chain (see `BaseSpendRedeemer`).
-    let Pair(witnessed_cred, _) = list.expect_at(self.withdrawals, wdrl_idx)
-    (witnessed_cred == claimed)?
+    // Whichever arm runs, the check is the same: the withdrawal the redeemer
+    // points at must carry the delegate credential that arm names, read live
+    // from the protocol-params datum. A wrong index or a wrong arm resolves to
+    // some other credential and the equality fails, so a dishonest witness can
+    // only invalidate its own transaction. The arm is meaningful only while the
+    // three delegate credentials are pairwise distinct; that distinctness is
+    // NOT enforced on-chain (see `BaseSpendRedeemer`).
+    when redeemer is {
+      SpendViaTransfer { params_idx, wdrl_idx } -> {
+        let fields <- params.with_protocol_params_fields(
+          self.reference_inputs,
+          params_policy,
+          params_idx,
+        )
+        (witnessed(wdrl_idx) == params.transfer_cred_field(fields))?
+      }
+      SpendViaThirdParty { params_idx, wdrl_idx } -> {
+        let fields <- params.with_protocol_params_fields(
+          self.reference_inputs,
+          params_policy,
+          params_idx,
+        )
+        (witnessed(wdrl_idx) == params.third_party_cred_field(fields))?
+      }
+      SpendViaUnfracking { params_idx, wdrl_idx } -> {
+        let fields <- params.with_protocol_params_fields(
+          self.reference_inputs,
+          params_policy,
+          params_idx,
+        )
+        (witnessed(wdrl_idx) == params.unfracking_cred_field(fields))?
+      }
+    }
   }
 
   else(_) {

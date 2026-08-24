@@ -28,6 +28,31 @@
 //// unfracking paths shrink MORE because they no longer load the transfer
 //// script at all — each loads only PLB + its own script.
 ////
+//// PLB redeemer decode — record (2026-08-24). `programmable_logic_base` used
+//// to destructure its redeemer twice: once for `params_idx` before the params
+//// lookup, once again to pick the delegate credential. Since the validator runs
+//// once per programmable input, the second decode is multiplied by every input.
+//// Folding both into a single `when`, with the params lookup repeated inside
+//// each arm, measured:
+////
+////   plb_passes_when_datum_transfer_cred_in_withdrawals  -998,132 cpu   -1,190 mem
+////   plutarch_baseline_transfer                        -1,174,132 cpu   -2,290 mem
+////   plutarch_baseline_transfer_2                      -1,142,132 cpu   -2,090 mem
+////   baseline_3rd_party_1                              -1,414,514 cpu   -2,992 mem
+////   unfracking_baseline_two_policies                  -1,478,514 cpu   -3,392 mem
+////
+//// at a cost of +14 B on the PLB reference script. Note these harnesses call
+//// `spend` ONCE regardless of input count, so the figures are per invocation —
+//// the ledger multiplies them by the number of programmable inputs. On Conway
+//// fee rates the +14 B (~210 lovelace/tx) is repaid at roughly three inputs;
+//// below that it is marginally fee-negative and bought for execution-budget
+//// headroom rather than for fees.
+////
+//// Two alternative shapes were measured and rejected: a shared lookup selected
+//// by an integer tag (+52,856 cpu — the tag comparison outweighed the decode it
+//// removed) and carrying the field accessor as a function in a tuple (rejected
+//// by the compiler, tuple inhabitants must be Data-serialisable).
+////
 //// Execution (CPU/mem) on the composed happy paths below is roughly neutral:
 //// the PLB spend gains a 3-arm dispatch (a few M cpu at withdrawal-index 0,
 //// where the old `has_key_or_fail` scan also stopped at the first entry);
