@@ -53,6 +53,7 @@ fn valid_params_datum() -> Data {
       third_party_cred: Script(
         #"00000000000000000000000000000000000000000000000000731d3a",
       ),
+      max_inline_datum_bytes: 1024,
     },
   )
 }

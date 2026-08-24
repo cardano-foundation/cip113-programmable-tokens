@@ -1,6 +1,7 @@
 use aiken/builtin.{unconstr_fields}
 use aiken/collection/dict
 use aiken/collection/list
+use assets as prog_assets
 // Programmable Token Issuance Minting Policy
 // This policy handles minting and burning of registered programmable tokens
 // Migrated from SmartTokens.Contracts.Issuance
@@ -163,7 +164,10 @@ fn no_escape(
     fn(output) {
       if output.address.payment_credential == programmable_logic_base {
         expect Some(Inline(_stake_cred)) = output.address.stake_credential
-        True
+        // A minted programmable-token UTxO must stay seizable: no datum hash
+        // (unspendable without the preimage), no reference script (bloats the
+        // mandatory seizure continuing-output).
+        prog_assets.is_seizable_output_shape(output)
       } else {
         dict.is_empty(assets.tokens(output.value, own_policy))
       }

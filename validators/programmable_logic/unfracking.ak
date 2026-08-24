@@ -98,6 +98,7 @@ pub fn validate_unfracking(
   prog_logic_cred: Credential,
   registry_node: Data,
   outputs_start_idx: Int,
+  max_inline_datum_bytes: Int,
 ) -> Bool {
   // Unfracking is value-preserving by construction: any mint/burn would
   // silently change the totals the conservation equality compares.
@@ -135,6 +136,7 @@ pub fn validate_unfracking(
     outputs_start_idx,
     owner_address,
     policy_id,
+    max_inline_datum_bytes,
     dict.empty,
   )
 
@@ -142,6 +144,7 @@ pub fn validate_unfracking(
     prog_logic_cred,
     owner_address,
     policy_id,
+    max_inline_datum_bytes,
     self.inputs,
     outputs,
     dict.empty,
@@ -191,6 +194,7 @@ fn drop_accum_owner_tokens(
   n: Int,
   owner_address: Address,
   policy_id: PolicyId,
+  max_inline_datum_bytes: Int,
   acc: Tokens,
   return: fn(Tokens, List<Output>) -> result,
 ) -> result {
@@ -204,11 +208,16 @@ fn drop_accum_owner_tokens(
       n - 1,
       owner_address,
       policy_id,
+      max_inline_datum_bytes,
       _,
       return,
     )
 
     if output.address == owner_address {
+      // Destination outputs are freshly created PLB UTxOs; keep them seizable
+      // (no datum hash, no reference script).
+      expect
+        assets.is_seizable_output_shape_bounded(output, max_inline_datum_bytes)?
       loop(tokens.union(acc, output.value |> value.tokens(policy_id)))
     } else {
       loop(acc)
@@ -223,6 +232,7 @@ fn validate_pairs_and_conservation(
   prog_logic_cred: Credential,
   owner_address: Address,
   policy_id: PolicyId,
+  max_inline_datum_bytes: Int,
   inputs: List<Input>,
   outputs: List<Output>,
   input_tokens: Tokens,
@@ -240,6 +250,13 @@ fn validate_pairs_and_conservation(
         output_tokens,
         fn(output, acc) {
           if output.address == owner_address {
+            // Destination outputs are freshly created PLB UTxOs; keep them
+            // seizable (no datum hash, no reference script).
+            expect
+              assets.is_seizable_output_shape_bounded(
+                output,
+                max_inline_datum_bytes,
+              )?
             tokens.union(output.value |> value.tokens(policy_id), acc)
           } else {
             acc
@@ -285,6 +302,7 @@ fn validate_pairs_and_conservation(
           prog_logic_cred,
           owner_address,
           policy_id,
+          max_inline_datum_bytes,
           tail_inputs,
           list.tail(outputs),
           tokens.union(input_tokens, acted_tokens),
@@ -295,6 +313,7 @@ fn validate_pairs_and_conservation(
           prog_logic_cred,
           owner_address,
           policy_id,
+          max_inline_datum_bytes,
           tail_inputs,
           outputs,
           input_tokens,

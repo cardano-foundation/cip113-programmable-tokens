@@ -16,7 +16,8 @@ use cardano/assets.{
   AssetName, PolicyId, ada_asset_name, ada_policy_id, from_asset, merge,
 }
 use cardano/transaction.{
-  InlineDatum, Input, NoDatum, Output, OutputReference, Transaction,
+  Datum, DatumHash, InlineDatum, Input, NoDatum, Output, OutputReference,
+  Transaction,
 }
 use programmable_logic/fixture
 use registry_node.{RegistryNode, empty_vkey}
@@ -1155,4 +1156,81 @@ test third_party_act_pair_foreign_policy_injection_still_fails() fail {
     ],
     0,
   )
+}
+
+// ===========================================================================
+// Issue #106 — a seizure's DESTINATION outputs must stay seizable in turn
+// ===========================================================================
+//
+// A third-party action creates fresh PLB UTxOs: the destinations the seized
+// tokens land in. They are not paired outputs (those are byte-identical to
+// their inputs and so inherit their shape), and until now nothing constrained
+// them — so an administrator, or a hostile substandard's third-party logic,
+// could seize tokens into a UTxO that could never be seized again. Each test
+// below is ONE delta from `valid_seize_tx`: the destination output's shape.
+
+/// The seizure destination — `valid_seize_tx`'s second output, the one holding
+/// the 42 seized FOO — rebuilt with a caller-chosen shape.
+fn seize_with_destination(datum: Datum, ref_script: Option<ScriptHash>) -> Bool {
+  let base = fixture.some_output_with_programmable_tokens(
+    [(test_third_party_policy, "FOO", 42)],
+  )
+  let tx = Transaction {
+    ..valid_seize_tx(),
+    outputs: [
+      fixture.some_output_with_programmable_tokens([]),
+      Output { ..base, datum, reference_script: ref_script },
+    ],
+  }
+  run_seize_tx(tx)
+}
+
+// A datum HASH on the destination would make the seized UTxO unspendable by
+// anyone without the preimage — the vector of issue #106, applied by the
+// administrator rather than by the holder.
+test third_party_act_destination_datum_hash_fails() fail {
+  seize_with_destination(
+    DatumHash(
+      #"deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef00",
+    ),
+    None,
+  )
+}
+
+// A reference script on the destination would bloat every FUTURE seizure of
+// that UTxO, which must reproduce it byte-for-byte.
+test third_party_act_destination_reference_script_fails() fail {
+  seize_with_destination(
+    NoDatum,
+    Some(#"b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2"),
+  )
+}
+
+// The destination keeps its inline stake credential. Without one there is no
+// owner `owner.ak` could ever authorise, so the tokens would be permanently
+// unspendable. `issuance_mint` skips `no_escape` when it delegates custody to
+// this path, so this check is the only thing standing between a mint composed
+// with a seize and an unspendable output.
+test third_party_act_destination_without_stake_credential_fails() fail {
+  let base = fixture.some_output_with_programmable_tokens(
+    [(test_third_party_policy, "FOO", 42)],
+  )
+  let tx = Transaction {
+    ..valid_seize_tx(),
+    outputs: [
+      fixture.some_output_with_programmable_tokens([]),
+      Output {
+        ..base,
+        address: Address { ..base.address, stake_credential: None },
+      },
+    ],
+  }
+  run_seize_tx(tx)
+}
+
+// Positive control: the ordinary destination shape (inline stake credential,
+// no datum, no reference script) still passes — the guard rejects only the
+// three shapes above.
+test third_party_act_destination_plain_shape_succeeds() {
+  seize_with_destination(NoDatum, None)
 }

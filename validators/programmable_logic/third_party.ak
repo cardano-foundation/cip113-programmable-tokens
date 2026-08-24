@@ -5,7 +5,7 @@
 use aiken/collection/dict
 use aiken/collection/list.{foldl} as aiken_list
 use assets
-use cardano/address.{Credential}
+use cardano/address.{Credential, Inline}
 use cardano/assets.{PolicyId} as value
 use cardano/transaction.{Input, Output, Transaction}
 use list
@@ -18,6 +18,7 @@ pub fn validate_3rd_party(
   prog_logic_cred: Credential,
   registry_node: Data,
   outputs_start_idx: Int,
+  max_inline_datum_bytes: Int,
 ) -> Bool {
   // Extract registry details from datum
   let policy_id, third_party_logic <- with_key_and_3rd_party_logic(
@@ -32,6 +33,7 @@ pub fn validate_3rd_party(
     outputs_start_idx,
     prog_logic_cred,
     policy_id,
+    max_inline_datum_bytes,
     dict.empty,
   )
 
@@ -47,6 +49,7 @@ pub fn validate_3rd_party(
   validate_io_constraints_and_balance(
     prog_logic_cred,
     policy_id,
+    max_inline_datum_bytes,
     self.inputs,
     outputs,
     minted_or_burned,
@@ -60,6 +63,7 @@ fn drop_accum_tokens(
   n: Int,
   prog_logic_cred: Credential,
   policy_id: PolicyId,
+  max_inline_datum_bytes: Int,
   tokens: Tokens,
   return: fn(Tokens, List<Output>) -> result,
 ) -> result {
@@ -73,11 +77,15 @@ fn drop_accum_tokens(
       n - 1,
       prog_logic_cred,
       policy_id,
+      max_inline_datum_bytes,
       _,
       return,
     )
 
     if output.address.payment_credential == prog_logic_cred {
+      expect Some(Inline(..)) = output.address.stake_credential
+      expect
+        assets.is_seizable_output_shape_bounded(output, max_inline_datum_bytes)?
       loop(tokens.union(tokens, output.value |> value.tokens(policy_id)))
     } else {
       loop(tokens)
@@ -110,6 +118,7 @@ fn drop_accum_tokens(
 fn validate_io_constraints_and_balance(
   prog_logic_cred: Credential,
   policy_id: PolicyId,
+  max_inline_datum_bytes: Int,
   inputs: List<Input>,
   outputs: List<Output>,
   input_tokens: Tokens,
@@ -126,6 +135,27 @@ fn validate_io_constraints_and_balance(
         fn(output, acc) {
           // Ensure to only count programmable outputs, to not allow tokens to escape.
           if output.address.payment_credential == prog_logic_cred {
+            // Issue #106, fourth creation site: a third-party action creates
+            // fresh PLB outputs (the destinations the seized tokens land in),
+            // and those must stay seizable in turn — no datum hash, no
+            // reference script. Without this an administrator, or a hostile
+            // substandard's third-party logic, could produce a UTxO nobody can
+            // ever seize again. The PAIRED outputs need no check here: they are
+            // byte-identical to their inputs, which were themselves shape-checked
+            // when created.
+            //
+            // The inline stake credential is required for the same reason
+            // `no_escape` requires it on the issuance path: a PLB output without
+            // one has no owner `owner.ak` can ever authorise, so it is
+            // permanently unspendable. `issuance_mint` skips `no_escape` when it
+            // delegates custody here, so this is the only place that catches a
+            // mint composed with a seize.
+            expect Some(Inline(..)) = output.address.stake_credential
+            expect
+              assets.is_seizable_output_shape_bounded(
+                output,
+                max_inline_datum_bytes,
+              )?
             tokens.union(
               // We can safely restrict to the given policy id, to prevent arbitrarily large values
               // from being too costly to merge. We check inclusion in the end, from tokens that have
@@ -224,6 +254,7 @@ fn validate_io_constraints_and_balance(
         validate_io_constraints_and_balance(
           prog_logic_cred,
           policy_id,
+          max_inline_datum_bytes,
           tail_inputs,
           list.tail(outputs),
           tokens.union(input_tokens, input_tokens_at),
@@ -233,6 +264,7 @@ fn validate_io_constraints_and_balance(
         validate_io_constraints_and_balance(
           prog_logic_cred,
           policy_id,
+          max_inline_datum_bytes,
           tail_inputs,
           outputs,
           input_tokens,

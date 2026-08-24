@@ -161,6 +161,7 @@ test coord_authority_handover_succeeds() {
         ProgrammableLogicGlobalParams {
           ..fixture.protocol_params,
           upgrade_cred: new_transfer_cred,
+          max_inline_datum_bytes: 1024,
         },
         coordination_value(),
         coordination_address(),
@@ -214,6 +215,7 @@ test coord_handover_needs_current_authority() fail {
         ProgrammableLogicGlobalParams {
           ..fixture.protocol_params,
           upgrade_cred: new_transfer_cred,
+          max_inline_datum_bytes: 1024,
         },
         coordination_value(),
         coordination_address(),
@@ -469,6 +471,7 @@ test coord_fails_unsatisfiable_upgrade_authority() fail {
       ProgrammableLogicGlobalParams {
         ..fixture.protocol_params,
         upgrade_cred: unsatisfiable_cred,
+        max_inline_datum_bytes: 1024,
       },
     ),
   )

@@ -118,6 +118,7 @@ fn coordination_ref_input(transfer_cred: Credential) -> Input {
           unfracking_cred: test_ml_cred,
           transfer_cred,
           upgrade_cred: test_ml_cred,
+          max_inline_datum_bytes: 1024,
           third_party_cred: test_ml_cred,
         },
       ),

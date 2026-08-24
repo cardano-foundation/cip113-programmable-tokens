@@ -17,6 +17,7 @@ pub fn validate_transfer(
   prog_logic_cred: Credential,
   get_registry_node: fn(Int) -> Data,
   proofs: List<RegistryProof>,
+  max_inline_datum_bytes: Int,
 ) -> Bool {
   // NOTE: The transfer validator is always invoked via a withdrawal, so
   // we know there's AT LEAST ONE withdrawal.
@@ -38,6 +39,7 @@ pub fn validate_transfer(
   let output_assets = assets.collect_output_assets(
     self.outputs,
     prog_logic_cred,
+    max_inline_datum_bytes,
   )
 
   // Check transfer logic for each programmable token type and filter to only programmable tokens.

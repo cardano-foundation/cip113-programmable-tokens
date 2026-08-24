@@ -1,8 +1,9 @@
 use aiken/builtin.{less_than_bytearray, less_than_equals_bytearray}
 use aiken/collection/dict
+use aiken/primitive/bytearray
 use cardano/address.{Credential, Inline}
 use cardano/assets.{AssetName, PolicyId, Value}
-use cardano/transaction.{Output}
+use cardano/transaction.{DatumHash, InlineDatum, NoDatum, Output}
 use env
 use list
 use tokens.{Tokens}
@@ -187,6 +188,7 @@ pub fn has_policy_nft_strictly(
 pub fn collect_output_assets(
   outputs: List<Output>,
   prog_logic_cred: Credential,
+  max_inline_datum_bytes: Int,
 ) -> Assets {
   collect(
     outputs,
@@ -194,10 +196,89 @@ pub fn collect_output_assets(
     fn(output, select, discard) {
       if output.address.payment_credential == prog_logic_cred {
         expect Some(Inline(..)) = output.address.stake_credential
+        expect is_seizable_output_shape_bounded(output, max_inline_datum_bytes)?
         select(output)
       } else {
         discard()
       }
     },
   )
+}
+
+/// A programmable-token (PLB) output must stay seizable by a third party.
+///
+///   * A datum HASH is forbidden: to spend a datum-hash UTxO the ledger
+///     requires the datum preimage in the transaction witness, so a holder
+///     could pin an output with a secret preimage and make it unspendable by
+///     anyone but themselves — a third-party seizure could never be
+///     constructed. Only `NoDatum` or an inline datum is allowed.
+///   * A reference script is forbidden: a seizure must reproduce the paired
+///     input's reference script byte-for-byte in the continuing output, so a
+///     large one would bloat the (unavoidable, per-UTxO-atomic) seizure
+///     transaction past `maxTxSize`. Programmable-token UTxOs have no
+///     legitimate need to carry a reference script.
+///   * An inline datum is BOUNDED by `max_inline_datum_bytes` (issue #106, vector 3):
+///     seizure must reproduce it byte-for-byte too, so an unbounded one pushes
+///     the seizure past `maxTxSize` — or, short of that, collapses how many
+///     UTxOs an issuer can seize per transaction. The bound is a live datum
+///     field (`ProgrammableLogicGlobalParams.max_inline_datum_bytes`), not a constant,
+///     so it can be retuned as DeFi order/loan state grows without
+///     re-deploying the delegates.
+///
+/// Enforced at every PLB-output creation site (transfer, mint, unfracking
+/// destinations) so the property holds inductively for all PLB UTxOs.
+pub fn is_seizable_output_shape(output: Output) -> Bool {
+  let datum_is_not_hash = when output.datum is {
+    DatumHash(_) -> False
+    _ -> True
+  }
+  datum_is_not_hash && output.reference_script == None
+}
+
+/// `is_seizable_output_shape` PLUS the inline-datum size bound (issue #106,
+/// vector 3): the serialised datum must fit in `max_inline_datum_bytes`, the
+/// live `ProgrammableLogicGlobalParams` field.
+///
+/// Used at the HOLDER-driven creation sites — the transfer gate, and the fresh
+/// destination outputs of a third-party or unfracking action. Deliberately NOT
+/// used by `issuance_mint`:
+///
+///   * Minting is gated by the substandard's minting-logic withdraw-0, so the
+///     party choosing a mint output's datum is the issuing side, not the
+///     holder. An issuer that bloats a datum has only made its own asset
+///     awkward to seize — outside the threat model, which is a HOLDER making
+///     their own holdings unseizable.
+///   * Bloat cannot propagate: any onward holder-driven spend goes through
+///     `transfer`, whose outputs ARE bounded here, so a bloated UTxO can never
+///     produce another one.
+///   * CIP-68 reference tokens are legitimately minted to PLB addresses with
+///     rich metadata datums; bounding the mint path would break them.
+///   * It keeps the protocol-params UTxO OPTIONAL on the mint path, preserving
+///     the "a first mint with zero reference inputs validates" property.
+///
+/// Where the mint-side rule belongs: the SUBSTANDARD's minting-logic
+/// withdraw-0, not `issuance_mint`. That script already gates every mint of
+/// its policy, it knows what its own outputs are supposed to look like, and it
+/// is the only mint-path code that can tell an issuer-driven mint from a
+/// user-driven one. The default it should enforce is NO datum at all: nothing
+/// in the core reads a mint datum, and carrying one only makes that UTxO more
+/// expensive to seize later. Where a datum IS needed — CIP-68 reference-token
+/// metadata being the standing example — the substandard should keep it small
+/// and prefer a URI over embedded bytes.
+///
+/// The consequence is a real narrowing: "every PLB UTxO is within the size
+/// bound" is NOT a core guarantee — only "every PLB UTxO a holder created is".
+/// A substandard whose minting is permissionless or user-triggered must bound
+/// the datum in its own minting logic.
+pub fn is_seizable_output_shape_bounded(
+  output: Output,
+  max_inline_datum_bytes: Int,
+) -> Bool {
+  let datum_ok = when output.datum is {
+    DatumHash(_) -> False
+    NoDatum -> True
+    InlineDatum(d) ->
+      bytearray.length(builtin.serialise_data(d)) <= max_inline_datum_bytes
+  }
+  datum_ok && output.reference_script == None
 }

@@ -35,7 +35,8 @@ use cardano/assets.{PolicyId} as value
 use cardano/certificate.{Certificate, RegisterCredential}
 use cardano/transaction.{InlineDatum, Input, Transaction}
 use programmable_logic/params.{
-  prog_logic_cred_field, registry_node_cs_field, with_protocol_params_fields,
+  max_inline_datum_bytes_field, prog_logic_cred_field, registry_node_cs_field,
+  with_protocol_params_fields,
 }
 use programmable_logic/third_party as invariants
 use types.{ThirdPartyRedeemer}
@@ -72,6 +73,7 @@ validator third_party(params_policy: PolicyId) {
       prog_logic_cred_field(fields),
       registry_node,
       outputs_start_idx,
+      max_inline_datum_bytes_field(fields),
     )
   }
 
