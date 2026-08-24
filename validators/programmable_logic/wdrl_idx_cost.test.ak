@@ -15,27 +15,27 @@
 //// local reproduction of the pre-split scan over the same params read, so
 //// the two columns share every cost except the lookup itself.
 ////
-//// Representative run (aiken v1.1.22; mem / cpu per test, ABSOLUTE):
+//// Representative run (aiken v1.1.23; mem / cpu per test, ABSOLUTE):
 ////
 ////   width  position   indexed (PLB as shipped)     scan (pre-split check)
 ////   -----  --------   ------------------------     ----------------------
-////     1       0      299.7k /  94.17M            286.7k /  90.00M
-////     4       0      322.1k / 104.00M            309.1k /  99.83M
-////     4       3      334.8k / 107.87M            323.0k / 107.88M
-////     8       0      351.9k / 117.12M            338.9k / 112.95M
-////     8       4      366.4k / 121.58M            357.4k / 123.68M
-////     8       7      379.1k / 125.44M            371.3k / 131.73M
-////    16       0      411.6k / 143.35M            398.6k / 139.18M
-////    16      15      467.7k / 160.59M            468.0k / 179.42M
+////     1       0      297.9k /  93.07M            286.7k /  90.00M
+////     4       0      320.3k / 102.91M            309.1k /  99.83M
+////     4       3      333.0k / 106.78M            323.0k / 107.88M
+////     8       0      350.2k / 116.02M            338.9k / 112.95M
+////     8       4      364.6k / 120.48M            357.4k / 123.68M
+////     8       7      377.3k / 124.35M            371.3k / 131.73M
+////    16       0      409.8k / 142.25M            398.6k / 139.18M
+////    16      15      465.9k / 159.50M            468.0k / 179.42M
 ////
 //// (Absolute figures include building the fixture transaction, which is why
 //// both columns grow with width; compare rows, not totals.)
 ////
-//// Per position, the indexed path grows ~1.1M cpu (one cell drop) and the
+//// Per position, the indexed path grows ~1.2M cpu (one cell drop) and the
 //// scan ~2.7M cpu (cell drop + credential comparison). The indexed path pays
-//// a fixed ~4.2M cpu at position 0 for decoding its redeemer and the 2-arm
-//// dispatch, so the two cross at position ~3; by width 16 / position 15 the
-//// witness saves ~19M cpu and the memory difference has vanished.
+//// a fixed ~3.1M cpu at position 0 for decoding its redeemer and the 3-arm
+//// dispatch, so the two cross at position ~2; by width 16 / position 15 the
+//// witness saves ~20M cpu and the memory difference has vanished.
 ////
 //// Read the indexed column down a width: cost rises with `position`, which
 //// is the O(`wdrl_idx`) growth. Read across a row: the gap to the scan is

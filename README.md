@@ -1,6 +1,6 @@
 # CIP-113 Programmable Tokens — Aiken Implementation
 
-![Aiken](https://img.shields.io/badge/Aiken-v1.1.22-blue)
+![Aiken](https://img.shields.io/badge/Aiken-v1.1.23-blue)
 ![CIP-113](https://img.shields.io/badge/CIP--113-Last%20Check-green)
 ![Status](https://img.shields.io/badge/Status-Audit%20in%20progress-yellow)
 
@@ -66,7 +66,7 @@ Programmable tokens are **native Cardano assets** with an additional layer of va
 
 ### Prerequisites
 
-- [Aiken](https://aiken-lang.org/installation-instructions) v1.1.22 (pinned in `aiken.toml`)
+- [Aiken](https://aiken-lang.org/installation-instructions) v1.1.23 (pinned in `aiken.toml`)
 - [Cardano CLI](https://github.com/IntersectMBO/cardano-cli) (optional, for deployment)
 
 ### Build
