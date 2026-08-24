@@ -49,58 +49,47 @@ validator programmable_logic_base(params_policy: PolicyId) {
     // every programmable-token transaction, so this adds no availability
     // requirement.
     // redeemer is kinda unwrapped twice, one here for the param index and one below for the withdrawal index (check costs of destructuring once earlier)
-    // One `when` over the redeemer, and the params lookup inside each arm.
+    // The redeemer is destructured ONCE, and everything the three arms share
+    // is hoisted into one function. This validator runs per programmable input,
+    // so anything left inside an arm is paid per input and anything duplicated
+    // across arms is paid in reference-script bytes on every transaction.
     //
-    // The obvious shape — read `params_idx` up here, then `when` again below to
-    // pick the credential — destructures the redeemer TWICE, and this validator
-    // runs once per programmable input, so the second decode is multiplied by
-    // every input in the transaction. Measured at ~1.0M cpu and ~1.2k mem per
-    // spend (see the record in `programmable_logic/benchmarks.ak`).
+    // Measured ladder (PLB script size / cpu on `plb_passes_when_datum_transfer_cred_in_withdrawals`,
+    // full record in `programmable_logic/benchmarks.ak`):
     //
-    // Hence the repetition below, which is deliberate: the three arms differ
-    // only in which datum field they read, but hoisting that difference out
-    // costs more than it saves. Two shapes were measured and rejected — a
-    // shared lookup selected by an integer tag (+53k cpu, the tag comparison
-    // outweighing the decode it removed), and carrying the field accessor as a
-    // function in a tuple (rejected by the compiler: tuple inhabitants must be
-    // serialisable to Data). The cost of this shape is +14 bytes of script.
-    let witnessed = fn(wdrl_idx: Int) {
-      let Pair(cred, _) = list.expect_at(self.withdrawals, wdrl_idx)
-      cred
+    //   before, redeemer decoded twice ........... 868 B / 91,319,764
+    //   decode once, lookup repeated per arm ..... 882 B / 90,321,632
+    //   + partial application of the lookup ...... 850 B / 90,241,632
+    //   + share the comparison as well ........... 849 B / 90,289,632
+    //   + pass the field accessor in (this) ...... 829 B / 90,097,632
+    //
+    // Two shapes do not work at all: selecting the credential by an integer tag
+    // costs more than the decode it removes (+52,856 cpu), and returning the
+    // accessor in a TUPLE is rejected by the compiler — tuple inhabitants must
+    // be serialisable to Data. Passing it as an ARGUMENT, as below, is fine.
+    // Everything the three arms share, hoisted into one function: locate the
+    // params datum, resolve the witnessed withdrawal, compare. The arms then
+    // differ only in which datum field they read, which is passed in.
+    // (A function may be passed as an ARGUMENT even though it may not live in
+    // a tuple — tuple inhabitants must be serialisable to Data, arguments need
+    // not be.)
+    let check = fn(params_idx: Int, wdrl_idx: Int, cred_of) {
+      let fields <- params.with_protocol_params_fields(
+        self.reference_inputs,
+        params_policy,
+        params_idx,
+      )
+      let Pair(witnessed, _) = list.expect_at(self.withdrawals, wdrl_idx)
+      (witnessed == cred_of(fields))?
     }
 
-    // Whichever arm runs, the check is the same: the withdrawal the redeemer
-    // points at must carry the delegate credential that arm names, read live
-    // from the protocol-params datum. A wrong index or a wrong arm resolves to
-    // some other credential and the equality fails, so a dishonest witness can
-    // only invalidate its own transaction. The arm is meaningful only while the
-    // three delegate credentials are pairwise distinct; that distinctness is
-    // NOT enforced on-chain (see `BaseSpendRedeemer`).
     when redeemer is {
-      SpendViaTransfer { params_idx, wdrl_idx } -> {
-        let fields <- params.with_protocol_params_fields(
-          self.reference_inputs,
-          params_policy,
-          params_idx,
-        )
-        (witnessed(wdrl_idx) == params.transfer_cred_field(fields))?
-      }
-      SpendViaThirdParty { params_idx, wdrl_idx } -> {
-        let fields <- params.with_protocol_params_fields(
-          self.reference_inputs,
-          params_policy,
-          params_idx,
-        )
-        (witnessed(wdrl_idx) == params.third_party_cred_field(fields))?
-      }
-      SpendViaUnfracking { params_idx, wdrl_idx } -> {
-        let fields <- params.with_protocol_params_fields(
-          self.reference_inputs,
-          params_policy,
-          params_idx,
-        )
-        (witnessed(wdrl_idx) == params.unfracking_cred_field(fields))?
-      }
+      SpendViaTransfer { params_idx, wdrl_idx } ->
+        check(params_idx, wdrl_idx, params.transfer_cred_field)
+      SpendViaThirdParty { params_idx, wdrl_idx } ->
+        check(params_idx, wdrl_idx, params.third_party_cred_field)
+      SpendViaUnfracking { params_idx, wdrl_idx } ->
+        check(params_idx, wdrl_idx, params.unfracking_cred_field)
     }
   }
 
