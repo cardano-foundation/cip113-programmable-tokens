@@ -99,15 +99,6 @@ pub type BaseSpendRedeemer {
   SpendViaUnfracking { params_idx: Int, wdrl_idx: Int }
 }
 
-/// The protocol-params reference-input index, common to every arm.
-pub fn base_params_idx(redeemer: BaseSpendRedeemer) -> Int {
-  when redeemer is {
-    SpendViaTransfer { params_idx, .. } -> params_idx
-    SpendViaThirdParty { params_idx, .. } -> params_idx
-    SpendViaUnfracking { params_idx, .. } -> params_idx
-  }
-}
-
 /// Redeemer for the issuance minting policy.
 ///
 /// The redeemer is the registry proof itself — a `RefInput` index for a

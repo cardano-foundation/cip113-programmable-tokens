@@ -28,6 +28,24 @@
 //// unfracking paths shrink MORE because they no longer load the transfer
 //// script at all — each loads only PLB + its own script.
 ////
+//// Replace double datum unwrapping — record (2026-08-24).
+//// `programmable_logic_base` used to unwrap its redeemer twice: once for
+//// `params_idx`, once again to pick the delegate credential. It now decodes
+//// once and hoists the whole shared body — params lookup, withdrawal
+//// resolution, comparison — into one function taking the differing field
+//// accessor as an argument, leaving each arm a one-line call. Net: 868 B ->
+//// 829 B and -1.22M cpu per invocation, so cheaper on BOTH axes — no
+//// size-versus-cpu trade to weigh. (The validator runs once per programmable
+//// input; these harnesses call `spend` once, so cpu figures are per
+//// invocation and the ledger multiplies them.)
+////
+//// Measured and rejected: selecting the credential by an integer tag (the tag
+//// comparison outweighed the decode it removed); inlining the withdrawal
+//// lookup per arm instead of sharing it (+25 B for no cpu gain). Does not
+//// compile: returning the field accessor inside a TUPLE — tuple inhabitants
+//// must be serialisable to Data. Passing a function as an argument is fine,
+//// which is what makes the shipped shape possible.
+////
 //// Execution (CPU/mem) on the composed happy paths below is roughly neutral:
 //// the PLB spend gains a 3-arm dispatch (a few M cpu at withdrawal-index 0,
 //// where the old `has_key_or_fail` scan also stopped at the first entry);
