@@ -25,7 +25,8 @@ use cardano/assets.{PolicyId} as value
 use cardano/certificate.{Certificate, RegisterCredential}
 use cardano/transaction.{Transaction}
 use programmable_logic/params.{
-  prog_logic_cred_field, registry_node_cs_field, with_protocol_params_fields,
+  max_inline_datum_bytes_field, prog_logic_cred_field, registry_node_cs_field,
+  with_protocol_params_fields,
 }
 use programmable_logic/transfer as invariants
 use registry_node.{new_registry_node_getter}
@@ -38,9 +39,10 @@ validator transfer(params_policy: PolicyId) {
     let TransferRedeemer { params_idx, proofs } = redeemer
 
     // Locate the protocol-params datum by its witnessed reference-input
-    // index and extract only the two fields the transfer path reads
-    // (cheaper than deserialising the whole record, which validates every
-    // field on every run).
+    // index and extract only the fields the transfer path reads (cheaper
+    // than deserialising the whole record, which validates every field on
+    // every run). `max_inline_datum_bytes` is read ONCE here and threaded down to
+    // the output walk, never re-read per output.
     let fields <- with_protocol_params_fields(
       self.reference_inputs,
       params_policy,
@@ -60,6 +62,7 @@ validator transfer(params_policy: PolicyId) {
       prog_logic_cred_field(fields),
       get_registry_node,
       proofs,
+      max_inline_datum_bytes_field(fields),
     )
   }
 

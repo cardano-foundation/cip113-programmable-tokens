@@ -32,6 +32,7 @@ test protocol_params_structure() {
     unfracking_cred: fixture.credential_validator_unfracking,
     transfer_cred: fixture.credential_validator_transfer,
     upgrade_cred: fixture.credential_upgrade_authority,
+    max_inline_datum_bytes: 1024,
     third_party_cred: fixture.credential_validator_third_party,
   }
 
@@ -219,6 +220,7 @@ test protocol_params_from_reference_inputs() {
     unfracking_cred: fixture.credential_validator_unfracking,
     transfer_cred: fixture.credential_validator_transfer,
     upgrade_cred: fixture.credential_upgrade_authority,
+    max_inline_datum_bytes: 1024,
     third_party_cred: fixture.credential_validator_third_party,
   }
 

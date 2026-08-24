@@ -158,6 +158,11 @@ pub fn withdrawal_index_of(
 pub const credential_upgrade_authority: Credential =
   Credential.Script(#"000000000000000000000000000000000000000000000000009c6ade")
 
+/// The inline-datum size bound carried by the params datum (issue #106,
+/// vector 3). Named so tests can assert the layout position without
+/// hard-coding the number twice.
+pub const max_inline_datum_bytes: Int = 1024
+
 /// Parameters for a specific instance of the registry.
 pub const protocol_params: ProgrammableLogicGlobalParams =
   ProgrammableLogicGlobalParams {
@@ -166,6 +171,7 @@ pub const protocol_params: ProgrammableLogicGlobalParams =
     unfracking_cred: credential_validator_unfracking,
     transfer_cred: credential_validator_transfer,
     upgrade_cred: credential_upgrade_authority,
+    max_inline_datum_bytes,
     third_party_cred: credential_validator_third_party,
   }
 

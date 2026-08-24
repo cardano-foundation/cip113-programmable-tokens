@@ -13,8 +13,9 @@ use aiken/builtin
 use aiken/collection/list
 use programmable_logic/fixture
 use programmable_logic/params.{
-  ProgrammableLogicGlobalParams, prog_logic_cred_field, registry_node_cs_field,
-  third_party_cred_field, transfer_cred_field, unfracking_cred_field,
+  ProgrammableLogicGlobalParams, max_inline_datum_bytes_field,
+  prog_logic_cred_field, registry_node_cs_field, third_party_cred_field,
+  transfer_cred_field, unfracking_cred_field,
 }
 use types.{
   BaseSpendRedeemer, MintingRegistryProof, OutputIndex, RefInput,
@@ -37,20 +38,28 @@ fn int_fields(ints: List<Int>) -> List<Data> {
 
 // ------------------------------------------------------ protocol-params datum
 
-// `ProgrammableLogicGlobalParams`: constructor 0, six fields, in this order:
+// `ProgrammableLogicGlobalParams`: constructor 0, seven fields, in this order:
 //   0 registry_node_cs, 1 prog_logic_cred, 2 transfer_cred,
-//   3 third_party_cred, 4 unfracking_cred, 5 upgrade_cred.
-test layout_params_datum_six_fields_in_order() {
+//   3 third_party_cred, 4 unfracking_cred, 5 upgrade_cred,
+//   6 max_inline_datum_bytes.
+//
+// Issue #106 vector 3: `max_inline_datum_bytes` is APPENDED last precisely so
+// positions 0-5 are unchanged — this test is what pins that. Field order is
+// load-bearing: every accessor is a `tail_list` walk, and the params NFT
+// policy (hence PLB's hash, hence every token address) is a function of
+// `protocol_params_mint`, which deserialises this exact shape.
+test layout_params_datum_seven_fields_in_order() {
   let (tag, fields) = constr(as_data(fixture.protocol_params))
   and {
     tag == 0,
-    list.length(fields) == 6,
+    list.length(fields) == 7,
     field(fields, 0) == as_data(fixture.policy_tokens_registry),
     field(fields, 1) == as_data(fixture.credential_validator_logic_base),
     field(fields, 2) == as_data(fixture.credential_validator_transfer),
     field(fields, 3) == as_data(fixture.credential_validator_third_party),
     field(fields, 4) == as_data(fixture.credential_validator_unfracking),
     field(fields, 5) == as_data(fixture.credential_upgrade_authority),
+    field(fields, 6) == as_data(fixture.max_inline_datum_bytes),
   }
 }
 
@@ -64,10 +73,11 @@ test layout_params_accessors_match_raw_positions() {
     transfer_cred_field(fields) == fixture.credential_validator_transfer,
     third_party_cred_field(fields) == fixture.credential_validator_third_party,
     unfracking_cred_field(fields) == fixture.credential_validator_unfracking,
+    max_inline_datum_bytes_field(fields) == fixture.max_inline_datum_bytes,
   }
 }
 
-// Decode direction: a hand-built constructor 0 with the six fields in that
+// Decode direction: a hand-built constructor 0 with the seven fields in that
 // order is accepted as the params type with every field where expected
 // (what `protocol_params_mint` does at mint time).
 test layout_params_datum_decodes_from_raw_constructor() {
@@ -80,6 +90,7 @@ test layout_params_datum_decodes_from_raw_constructor() {
       as_data(fixture.credential_validator_third_party),
       as_data(fixture.credential_validator_unfracking),
       as_data(fixture.credential_upgrade_authority),
+      as_data(fixture.max_inline_datum_bytes),
     ],
   )
   expect p: ProgrammableLogicGlobalParams = raw

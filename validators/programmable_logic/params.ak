@@ -13,8 +13,12 @@ pub const protocol_params_token = "ProtocolParams"
 /// registry policy and base payment credential (read by the transfer /
 /// third-party containment checks) first, then the two credentials
 /// programmable_logic_base dispatches to on every per-input spend
-/// (`transfer_cred`, `third_party_cred`), then the rarer `unfracking_cred`, and
-/// finally the coldest `upgrade_cred` (read only by coordination_spend).
+/// (`transfer_cred`, `third_party_cred`), then the rarer `unfracking_cred`,
+/// then the coldest `upgrade_cred` (read only by coordination_spend).
+/// `max_inline_datum_bytes` is appended LAST so that adding it left every
+/// pre-existing accessor at its original depth; it is read once per delegate
+/// invocation rather than per input, so paying six `tail_list` hops for it
+/// once per transaction is cheaper than displacing a hot field.
 pub type ProgrammableLogicGlobalParams {
   /// Field 0 — currency symbol of the registry node NFTs.
   registry_node_cs: PolicyId,
@@ -41,8 +45,30 @@ pub type ProgrammableLogicGlobalParams {
   /// field (rather than a coordination_spend parameter) is what lets the
   /// upgrade authority itself be swapped in place — federated multisig now, a
   /// governance-action validator later — without moving the coordination UTxO.
-  /// Last because it is the coldest read.
+  /// Last of the original six because it is the coldest read.
   upgrade_cred: Credential,
+  /// Field 6 — maximum serialised size, in BYTES, of the inline datum a
+  /// programmable-token (PLB) output may carry (issue #106, vector 3).
+  ///
+  /// A seizure must reproduce the paired input's datum byte-for-byte on the
+  /// continuing output, so an unbounded datum lets a holder push the seizure
+  /// transaction past `maxTxSize` — or, short of that, collapse how many
+  /// UTxOs an issuer can seize per transaction. The holder pays nothing for
+  /// it: `transfer` never pairs an input to an output, so it never reads the
+  /// datum. Bounding it at CREATION is what keeps every PLB UTxO seizable.
+  ///
+  /// A datum field rather than a compile-time constant so the bound can be
+  /// retuned — DeFi order and loan state grows — by rewriting this datum
+  /// instead of re-deploying the delegates. It grants the upgrade authority
+  /// no new power: it can already swap `transfer_cred` for a validator with
+  /// no bound at all, which is strictly more.
+  ///
+  /// APPENDED LAST on purpose: every pre-existing accessor keeps its current
+  /// `tail_list` depth, so adding it costs the hot paths (above all PLB's
+  /// per-input credential read) exactly nothing. It is itself read ONCE per
+  /// delegate invocation and threaded down to the output walk, never re-read
+  /// per output, so its own depth is paid once per transaction.
+  max_inline_datum_bytes: Int,
 }
 
 /// Authenticate the protocol-params NFT reference input by its
@@ -124,5 +150,16 @@ pub fn unfracking_cred_field(fields: List<Data>) -> Credential {
   )
   unfracking_cred
 }
+
 // No accessor for field 5 (`upgrade_cred`): its only reader,
 // coordination_spend, deserialises the whole record on its cold path.
+
+/// Field 6: the maximum serialised inline-datum size a PLB output may carry.
+/// Read ONCE per delegate invocation (transfer / third_party / unfracking /
+/// issuance_mint) and threaded down to the output walk.
+pub fn max_inline_datum_bytes_field(fields: List<Data>) -> Int {
+  expect max_inline_datum_bytes: Int = head_list(
+    tail_list(tail_list(tail_list(tail_list(tail_list(tail_list(fields)))))),
+  )
+  max_inline_datum_bytes
+}

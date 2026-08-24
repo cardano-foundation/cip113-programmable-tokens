@@ -1,0 +1,1607 @@
+//// Cost record: inline-datum SIZE on programmable outputs (issue #106,
+//// vector 3) — the measurements behind the choice of a cap `N`.
+////
+//// Vectors 1 and 2 (datum hash, reference script) are closed by
+//// `is_seizable_output_shape`, both O(1) pattern matches. Vector 3 — a large
+//// INLINE datum — is not, and is asymmetric: the holder creates and spends
+//// the fat UTxO for free, while `third_party` (and `unfracking`) must
+//// reproduce the datum byte-for-byte on the paired continuing output.
+////
+//// Every test here PASSES; the output of interest is `execution_units`.
+//// Fixtures are `const` and so constant-folded — `cost_fixture_*` is flat at
+//// every size, which is what makes the rest pure validator cost.
+////
+//// WHERE THE COST COMES FROM. Delete `expect output.datum == input.datum`
+//// (`third_party.ak:183`) and every size below collapses to one identical
+//// figure. That single comparison is 100% of the size-dependent cost.
+////
+//// SEIZE, flat ByteArray — the CHEAPEST shape per byte:
+////
+////   raw B   serialised B            cpu          delta   cpu/ser.B
+////       0              1    106,506,391              —           —
+////     512            530    108,224,968      1,718,577       3,249
+////    2048          2,114    113,462,536      6,956,145       3,292
+////    8192          8,450    134,412,808     27,906,417       3,303
+////
+//// SEIZE, List<Int> of one-byte elements — one Data node per serialised
+//// byte, which is what an adversary actually picks:
+////
+////   nodes   serialised B            cpu          delta   cpu/ser.B
+////     128            130    123,937,672     17,458,560     135,338
+////    1024          1,026    246,147,592    139,668,480     136,262
+////    2048          2,050    385,816,072    279,336,960     136,328
+////
+//// A 41x spread at IDENTICAL serialised length. Cross-checked against four
+//// more shapes (`cost_seize_shape_*`): cost tracks Data NODE COUNT at
+//// ~136,395 cpu/node, and the cheapest node encodes in one byte. So a
+//// byte-length cap bounds cpu only via that 1-byte-per-node floor — it does
+//// not bound the work directly. Worst case: ~136,400 cpu per serialised byte.
+////
+//// `mem` does NOT scale with datum size at all (constant 292,586 across
+//// every size and shape). Only cpu and transaction size matter.
+////
+//// TRANSFER — the holder's side — is byte-identical at every size
+//// (105,433,466). Transfer never pairs an input to an output, so the fat
+//// datum is never read. The holder creates once, holds free, and may drop
+//// the datum when spending. Only the seizer ever pays.
+////
+//// WHICH LIMIT BINDS. Mainnet Conway: maxTxSize 16,384, maxTxExUnits
+//// mem 14,000,000 / cpu 10,000,000,000. Baseline seize ~106.5M leaves
+//// ~9,893M cpu = 72,530 worst-case serialised bytes, against only ~15,400
+//// bytes of tx-size room. Both scale as (pairs x datum), so TX SIZE BINDS
+//// FIRST, ALWAYS, by ~5x. The practical consequence is seize batching:
+//// pairs per seize tx ~= 15,400 / (115 + D), i.e. ~130 at the 3-byte unit
+//// datum every SDK writes today, ~24 at 512 B, ~13 at 1 KB, 1 at 8 KB.
+////
+//// COST OF THE CAP ITSELF (`cost_outdatum_*`, guard =
+//// `bytearray.length(builtin.serialise_data(d)) <= N`): +31 B of script on
+//// transfer / third_party / unfracking / issuance_mint, and +2.72M cpu per
+//// programmable output — paid even for a 3-byte unit datum, because
+//// serialiseData's intercept dominates at small sizes — then +26,650 cpu
+//// per further serialised byte. A fast path short-circuiting the unit datum
+//// recovers only 25% for +21 B, and was rejected on that basis.
+////
+//// Full write-up and the choice of N: ISSUE-106-VECTOR-3-DATUM-CAP.md
+
+use aiken/builtin
+use aiken/collection/list
+use aiken/primitive/bytearray
+use cardano/address.{Address, Inline}
+use cardano/assets.{AssetName, PolicyId}
+use cardano/transaction.{
+  InlineDatum, Input, Output, OutputReference, Transaction,
+}
+use programmable_logic/fixture
+use programmable_logic_base
+use third_party
+use transfer
+use types.{
+  SpendViaThirdParty, SpendViaTransfer, ThirdPartyRedeemer, TokenExists,
+  TransferRedeemer,
+}
+
+const policy_tok: PolicyId =
+  #"76658c4afd597ba7524f85bf32ac59d9e58856593a2e8399326f853a"
+
+const asset_tok: AssetName = "tUSDT"
+
+/// PLB + third_party, exactly as `benchmarks.ak` composes a seize.
+fn seize_logic(self: Transaction, redeemer: ThirdPartyRedeemer) -> Bool {
+  and {
+    programmable_logic_base.programmable_logic_base.spend(
+      fixture.policy_protocol_params,
+      None,
+      SpendViaThirdParty { params_idx: 0, wdrl_idx: 0 },
+      Void,
+      self,
+    ),
+    third_party.third_party.withdraw(
+      fixture.policy_protocol_params,
+      redeemer,
+      fixture.credential_validator_third_party,
+      self,
+    ),
+  }
+}
+
+/// PLB + transfer, exactly as `benchmarks.ak` composes a transfer.
+fn transfer_logic(self: Transaction, redeemer: TransferRedeemer) -> Bool {
+  and {
+    programmable_logic_base.programmable_logic_base.spend(
+      fixture.policy_protocol_params,
+      None,
+      SpendViaTransfer { params_idx: 0, wdrl_idx: 0 },
+      Void,
+      self,
+    ),
+    transfer.transfer.withdraw(
+      fixture.policy_protocol_params,
+      redeemer,
+      fixture.credential_validator_transfer,
+      self,
+    ),
+  }
+}
+
+const seize_redeemer: ThirdPartyRedeemer =
+  ThirdPartyRedeemer {
+    params_idx: 0,
+    registry_node_idx: 1,
+    outputs_start_idx: 2,
+  }
+
+const transfer_redeemer: TransferRedeemer =
+  TransferRedeemer { params_idx: 0, proofs: [TokenExists { node_idx: 1 }] }
+
+/// `baseline_3rd_party_1` with the seized input and its paired continuing
+/// output both carrying `datum` — the shape `third_party` must reproduce.
+fn seize_tx(datum: Data) -> Transaction {
+  let paired_address = Address {
+    payment_credential: fixture.credential_validator_logic_base,
+    stake_credential: Some(Inline(fixture.credential_transfer_logic)),
+  }
+  Transaction {
+    ..transaction.placeholder,
+    inputs: [
+      Input {
+        output_reference: OutputReference {
+          transaction_id: #"6ef7ec1c8b5dc017042fed2eff90c3f6e4742e8a686099f95eaf73a1d403c402",
+          output_index: 3,
+        },
+        output: fixture.some_input_fuel("fuel input").output,
+      },
+      Input {
+        output_reference: OutputReference {
+          transaction_id: #"c5972f88da7442689b281d8a85c43321d0fbf32b8f41d4e9a968e0d3edda9a71",
+          output_index: 1,
+        },
+        output: Output {
+          ..fixture.some_input_with_programmable_tokens(
+            [(policy_tok, asset_tok, 999999999999)],
+            "programmable tokens",
+          ).output,
+          address: paired_address,
+          datum: InlineDatum(datum),
+        },
+      },
+    ],
+    outputs: [
+      fixture.some_output_change("noise output"),
+      fixture.some_output_with_seized_tokens(
+        [(policy_tok, asset_tok, 999999999999)],
+      ),
+      Output {
+        ..fixture.some_output_with_programmable_tokens([]),
+        address: paired_address,
+        datum: InlineDatum(datum),
+      },
+      fixture.some_output_change("change output"),
+    ],
+    reference_inputs: [
+      fixture.some_reference_input_protocol_params(
+        fixture.protocol_params,
+        "protocol params",
+      ),
+      fixture.some_reference_input_tokens_registry_node(
+        policy_tok,
+        #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "current",
+      ),
+    ],
+    withdrawals: fixture.withdrawals_3rd_party,
+  }
+}
+
+/// `plutarch_baseline_transfer` with the SPENT input carrying `datum` and the
+/// continuing outputs slim — transfer never pairs input to output, so the
+/// holder is free to drop the fat datum on the way out.
+fn transfer_tx(datum: Data) -> Transaction {
+  Transaction {
+    ..transaction.placeholder,
+    inputs: [
+      Input {
+        ..fixture.some_input_with_programmable_tokens(
+          [(policy_tok, asset_tok, 42)],
+          "programmable tokens input",
+        ),
+        output: Output {
+          ..fixture.some_input_with_programmable_tokens(
+            [(policy_tok, asset_tok, 42)],
+            "programmable tokens input",
+          ).output,
+          datum: InlineDatum(datum),
+        },
+      },
+      fixture.some_input_fuel("fuel input"),
+    ],
+    outputs: [
+      fixture.some_output_with_programmable_tokens(
+        [(policy_tok, asset_tok, 28)],
+      ),
+      fixture.some_output_with_programmable_tokens(
+        [(policy_tok, asset_tok, 14)],
+      ),
+      fixture.some_output_change("change output"),
+    ],
+    reference_inputs: [
+      fixture.some_reference_input_protocol_params(
+        fixture.protocol_params,
+        "protocol params",
+      ),
+      fixture.some_reference_input_tokens_registry_node(
+        policy_tok,
+        #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "current",
+      ),
+    ],
+    withdrawals: fixture.withdrawals_transfer,
+  }
+}
+
+/// `plutarch_baseline_transfer` with the two continuing programmable OUTPUTS
+/// carrying `datum` — the honest case a substandard with per-UTxO state
+/// creates, and the one a creation-side size cap has to pay for.
+fn transfer_out_tx(datum: Data) -> Transaction {
+  Transaction {
+    ..transfer_tx(datum),
+    outputs: [
+      Output {
+        ..fixture.some_output_with_programmable_tokens(
+          [(policy_tok, asset_tok, 28)],
+        ),
+        datum: InlineDatum(datum),
+      },
+      Output {
+        ..fixture.some_output_with_programmable_tokens(
+          [(policy_tok, asset_tok, 14)],
+        ),
+        datum: InlineDatum(datum),
+      },
+      fixture.some_output_change("change output"),
+    ],
+  }
+}
+
+// --- flat ByteArray datums --------------------------------------------
+const flat_0: Data = as_data(#"")
+
+const seize_tx_flat_0: Transaction = seize_tx(flat_0)
+
+const transfer_tx_flat_0: Transaction = transfer_tx(flat_0)
+
+test cost_seize_flat_0() {
+  seize_logic(seize_tx_flat_0, seize_redeemer)
+}
+
+test cost_transfer_flat_0() {
+  transfer_logic(transfer_tx_flat_0, transfer_redeemer)
+}
+
+test cost_fixture_flat_0() {
+  list.length(seize_tx_flat_0.inputs) == 2
+}
+
+const flat_128: Data =
+  as_data(
+    #"0b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186abd0f51a3f6489aed3f81d42678cb1d6fb20456a8fb4d9fe23486d92b7dc01264b7095badf04294e7398bde2072c51769bc0e50a2f54799ec3e80d32577ca1c6eb10355a7fa4c9ee13385d82a7ccf1163b6085aacff4193e6388add2f71c4166",
+  )
+
+const seize_tx_flat_128: Transaction = seize_tx(flat_128)
+
+const transfer_tx_flat_128: Transaction = transfer_tx(flat_128)
+
+test cost_seize_flat_128() {
+  seize_logic(seize_tx_flat_128, seize_redeemer)
+}
+
+test cost_transfer_flat_128() {
+  transfer_logic(transfer_tx_flat_128, transfer_redeemer)
+}
+
+test cost_fixture_flat_128() {
+  list.length(seize_tx_flat_128.inputs) == 2
+}
+
+const flat_512: Data =
+  as_data(
+    #"0b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186abd0f51a3f6489aed3f81d42678cb1d6fb20456a8fb4d9fe23486d92b7dc01264b7095badf04294e7398bde2072c51769bc0e50a2f54799ec3e80d32577ca1c6eb10355a7fa4c9ee13385d82a7ccf1163b6085aacff4193e6388add2f71c41668bb0d5fa1f44698eb3d8fd22476c91b6db00254a6f94b9de03284d7297bce1062b50759abfe4092e53789dc2e70c31567ba0c5ea0f34597ea3c8ed12375c81a6cbf0153a5f84a9cef3183d6287acd1f61b40658aafd4f91e43688db2d7fc21466b90b5daff24496e93b8dd02274c7196bbe0052a4f7499bee3082d52779cc1e60b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186abd0f51a3f6489aed3f81d42678cb1d6fb20456a8fb4d9fe23486d92b7dc01264b7095badf04294e7398bde2072c51769bc0e50a2f54799ec3e80d32577ca1c6eb10355a7fa4c9ee13385d82a7ccf1163b6085aacff4193e6388add2f71c41668bb0d5fa1f44698eb3d8fd22476c91b6db00254a6f94b9de03284d7297bce1062b50759abfe4092e53789dc2e70c31567ba0c5ea0f34597ea3c8ed12375c81a6cbf0153a5f84a9cef3183d6287acd1f61b40658aafd4f91e43688db2d7fc21466b90b5daff24496e93b8dd02274c7196bbe0052a4f7499bee3082d52779cc1e6",
+  )
+
+const seize_tx_flat_512: Transaction = seize_tx(flat_512)
+
+const transfer_tx_flat_512: Transaction = transfer_tx(flat_512)
+
+test cost_seize_flat_512() {
+  seize_logic(seize_tx_flat_512, seize_redeemer)
+}
+
+test cost_transfer_flat_512() {
+  transfer_logic(transfer_tx_flat_512, transfer_redeemer)
+}
+
+test cost_fixture_flat_512() {
+  list.length(seize_tx_flat_512.inputs) == 2
+}
+
+const flat_1024: Data =
+  as_data(
+    #"0b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186abd0f51a3f6489aed3f81d42678cb1d6fb20456a8fb4d9fe23486d92b7dc01264b7095badf04294e7398bde2072c51769bc0e50a2f54799ec3e80d32577ca1c6eb10355a7fa4c9ee13385d82a7ccf1163b6085aacff4193e6388add2f71c41668bb0d5fa1f44698eb3d8fd22476c91b6db00254a6f94b9de03284d7297bce1062b50759abfe4092e53789dc2e70c31567ba0c5ea0f34597ea3c8ed12375c81a6cbf0153a5f84a9cef3183d6287acd1f61b40658aafd4f91e43688db2d7fc21466b90b5daff24496e93b8dd02274c7196bbe0052a4f7499bee3082d52779cc1e60b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186abd0f51a3f6489aed3f81d42678cb1d6fb20456a8fb4d9fe23486d92b7dc01264b7095badf04294e7398bde2072c51769bc0e50a2f54799ec3e80d32577ca1c6eb10355a7fa4c9ee13385d82a7ccf1163b6085aacff4193e6388add2f71c41668bb0d5fa1f44698eb3d8fd22476c91b6db00254a6f94b9de03284d7297bce1062b50759abfe4092e53789dc2e70c31567ba0c5ea0f34597ea3c8ed12375c81a6cbf0153a5f84a9cef3183d6287acd1f61b40658aafd4f91e43688db2d7fc21466b90b5daff24496e93b8dd02274c7196bbe0052a4f7499bee3082d52779cc1e60b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186abd0f51a3f6489aed3f81d42678cb1d6fb20456a8fb4d9fe23486d92b7dc01264b7095badf04294e7398bde2072c51769bc0e50a2f54799ec3e80d32577ca1c6eb10355a7fa4c9ee13385d82a7ccf1163b6085aacff4193e6388add2f71c41668bb0d5fa1f44698eb3d8fd22476c91b6db00254a6f94b9de03284d7297bce1062b50759abfe4092e53789dc2e70c31567ba0c5ea0f34597ea3c8ed12375c81a6cbf0153a5f84a9cef3183d6287acd1f61b40658aafd4f91e43688db2d7fc21466b90b5daff24496e93b8dd02274c7196bbe0052a4f7499bee3082d52779cc1e60b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186abd0f51a3f6489aed3f81d42678cb1d6fb20456a8fb4d9fe23486d92b7dc01264b7095badf04294e7398bde2072c51769bc0e50a2f54799ec3e80d32577ca1c6eb10355a7fa4c9ee13385d82a7ccf1163b6085aacff4193e6388add2f71c41668bb0d5fa1f44698eb3d8fd22476c91b6db00254a6f94b9de03284d7297bce1062b50759abfe4092e53789dc2e70c31567ba0c5ea0f34597ea3c8ed12375c81a6cbf0153a5f84a9cef3183d6287acd1f61b40658aafd4f91e43688db2d7fc21466b90b5daff24496e93b8dd02274c7196bbe0052a4f7499bee3082d52779cc1e6",
+  )
+
+const seize_tx_flat_1024: Transaction = seize_tx(flat_1024)
+
+const transfer_tx_flat_1024: Transaction = transfer_tx(flat_1024)
+
+test cost_seize_flat_1024() {
+  seize_logic(seize_tx_flat_1024, seize_redeemer)
+}
+
+test cost_transfer_flat_1024() {
+  transfer_logic(transfer_tx_flat_1024, transfer_redeemer)
+}
+
+test cost_fixture_flat_1024() {
+  list.length(seize_tx_flat_1024.inputs) == 2
+}
+
+const flat_2048: Data =
+  as_data(
+    #"0b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186abd0f51a3f6489aed3f81d42678cb1d6fb20456a8fb4d9fe23486d92b7dc01264b7095badf04294e7398bde2072c51769bc0e50a2f54799ec3e80d32577ca1c6eb10355a7fa4c9ee13385d82a7ccf1163b6085aacff4193e6388add2f71c41668bb0d5fa1f44698eb3d8fd22476c91b6db00254a6f94b9de03284d7297bce1062b50759abfe4092e53789dc2e70c31567ba0c5ea0f34597ea3c8ed12375c81a6cbf0153a5f84a9cef3183d6287acd1f61b40658aafd4f91e43688db2d7fc21466b90b5daff24496e93b8dd02274c7196bbe0052a4f7499bee3082d52779cc1e60b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186abd0f51a3f6489aed3f81d42678cb1d6fb20456a8fb4d9fe23486d92b7dc01264b7095badf04294e7398bde2072c51769bc0e50a2f54799ec3e80d32577ca1c6eb10355a7fa4c9ee13385d82a7ccf1163b6085aacff4193e6388add2f71c41668bb0d5fa1f44698eb3d8fd22476c91b6db00254a6f94b9de03284d7297bce1062b50759abfe4092e53789dc2e70c31567ba0c5ea0f34597ea3c8ed12375c81a6cbf0153a5f84a9cef3183d6287acd1f61b40658aafd4f91e43688db2d7fc21466b90b5daff24496e93b8dd02274c7196bbe0052a4f7499bee3082d52779cc1e60b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186abd0f51a3f6489aed3f81d42678cb1d6fb20456a8fb4d9fe23486d92b7dc01264b7095badf04294e7398bde2072c51769bc0e50a2f54799ec3e80d32577ca1c6eb10355a7fa4c9ee13385d82a7ccf1163b6085aacff4193e6388add2f71c41668bb0d5fa1f44698eb3d8fd22476c91b6db00254a6f94b9de03284d7297bce1062b50759abfe4092e53789dc2e70c31567ba0c5ea0f34597ea3c8ed12375c81a6cbf0153a5f84a9cef3183d6287acd1f61b40658aafd4f91e43688db2d7fc21466b90b5daff24496e93b8dd02274c7196bbe0052a4f7499bee3082d52779cc1e60b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186abd0f51a3f6489aed3f81d42678cb1d6fb20456a8fb4d9fe23486d92b7dc01264b7095badf04294e7398bde2072c51769bc0e50a2f54799ec3e80d32577ca1c6eb10355a7fa4c9ee13385d82a7ccf1163b6085aacff4193e6388add2f71c41668bb0d5fa1f44698eb3d8fd22476c91b6db00254a6f94b9de03284d7297bce1062b50759abfe4092e53789dc2e70c31567ba0c5ea0f34597ea3c8ed12375c81a6cbf0153a5f84a9cef3183d6287acd1f61b40658aafd4f91e43688db2d7fc21466b90b5daff24496e93b8dd02274c7196bbe0052a4f7499bee3082d52779cc1e60b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186abd0f51a3f6489aed3f81d42678cb1d6fb20456a8fb4d9fe23486d92b7dc01264b7095badf04294e7398bde2072c51769bc0e50a2f54799ec3e80d32577ca1c6eb10355a7fa4c9ee13385d82a7ccf1163b6085aacff4193e6388add2f71c41668bb0d5fa1f44698eb3d8fd22476c91b6db00254a6f94b9de03284d7297bce1062b50759abfe4092e53789dc2e70c31567ba0c5ea0f34597ea3c8ed12375c81a6cbf0153a5f84a9cef3183d6287acd1f61b40658aafd4f91e43688db2d7fc21466b90b5daff24496e93b8dd02274c7196bbe0052a4f7499bee3082d52779cc1e60b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186abd0f51a3f6489aed3f81d42678cb1d6fb20456a8fb4d9fe23486d92b7dc01264b7095badf04294e7398bde2072c51769bc0e50a2f54799ec3e80d32577ca1c6eb10355a7fa4c9ee13385d82a7ccf1163b6085aacff4193e6388add2f71c41668bb0d5fa1f44698eb3d8fd22476c91b6db00254a6f94b9de03284d7297bce1062b50759abfe4092e53789dc2e70c31567ba0c5ea0f34597ea3c8ed12375c81a6cbf0153a5f84a9cef3183d6287acd1f61b40658aafd4f91e43688db2d7fc21466b90b5daff24496e93b8dd02274c7196bbe0052a4f7499bee3082d52779cc1e60b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186abd0f51a3f6489aed3f81d42678cb1d6fb20456a8fb4d9fe23486d92b7dc01264b7095badf04294e7398bde2072c51769bc0e50a2f54799ec3e80d32577ca1c6eb10355a7fa4c9ee13385d82a7ccf1163b6085aacff4193e6388add2f71c41668bb0d5fa1f44698eb3d8fd22476c91b6db00254a6f94b9de03284d7297bce1062b50759abfe4092e53789dc2e70c31567ba0c5ea0f34597ea3c8ed12375c81a6cbf0153a5f84a9cef3183d6287acd1f61b40658aafd4f91e43688db2d7fc21466b90b5daff24496e93b8dd02274c7196bbe0052a4f7499bee3082d52779cc1e60b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186abd0f51a3f6489aed3f81d42678cb1d6fb20456a8fb4d9fe23486d92b7dc01264b7095badf04294e7398bde2072c51769bc0e50a2f54799ec3e80d32577ca1c6eb10355a7fa4c9ee13385d82a7ccf1163b6085aacff4193e6388add2f71c41668bb0d5fa1f44698eb3d8fd22476c91b6db00254a6f94b9de03284d7297bce1062b50759abfe4092e53789dc2e70c31567ba0c5ea0f34597ea3c8ed12375c81a6cbf0153a5f84a9cef3183d6287acd1f61b40658aafd4f91e43688db2d7fc21466b90b5daff24496e93b8dd02274c7196bbe0052a4f7499bee3082d52779cc1e6",
+  )
+
+const seize_tx_flat_2048: Transaction = seize_tx(flat_2048)
+
+const transfer_tx_flat_2048: Transaction = transfer_tx(flat_2048)
+
+test cost_seize_flat_2048() {
+  seize_logic(seize_tx_flat_2048, seize_redeemer)
+}
+
+test cost_transfer_flat_2048() {
+  transfer_logic(transfer_tx_flat_2048, transfer_redeemer)
+}
+
+test cost_fixture_flat_2048() {
+  list.length(seize_tx_flat_2048.inputs) == 2
+}
+
+const flat_4096: Data =
+  as_data(
+    #"0b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186abd0f51a3f6489aed3f81d42678cb1d6fb20456a8fb4d9fe23486d92b7dc01264b7095badf04294e7398bde2072c51769bc0e50a2f54799ec3e80d32577ca1c6eb10355a7fa4c9ee13385d82a7ccf1163b6085aacff4193e6388add2f71c41668bb0d5fa1f44698eb3d8fd22476c91b6db00254a6f94b9de03284d7297bce1062b50759abfe4092e53789dc2e70c31567ba0c5ea0f34597ea3c8ed12375c81a6cbf0153a5f84a9cef3183d6287acd1f61b40658aafd4f91e43688db2d7fc21466b90b5daff24496e93b8dd02274c7196bbe0052a4f7499bee3082d52779cc1e60b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186abd0f51a3f6489aed3f81d42678cb1d6fb20456a8fb4d9fe23486d92b7dc01264b7095badf04294e7398bde2072c51769bc0e50a2f54799ec3e80d32577ca1c6eb10355a7fa4c9ee13385d82a7ccf1163b6085aacff4193e6388add2f71c41668bb0d5fa1f44698eb3d8fd22476c91b6db00254a6f94b9de03284d7297bce1062b50759abfe4092e53789dc2e70c31567ba0c5ea0f34597ea3c8ed12375c81a6cbf0153a5f84a9cef3183d6287acd1f61b40658aafd4f91e43688db2d7fc21466b90b5daff24496e93b8dd02274c7196bbe0052a4f7499bee3082d52779cc1e60b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186abd0f51a3f6489aed3f81d42678cb1d6fb20456a8fb4d9fe23486d92b7dc01264b7095badf04294e7398bde2072c51769bc0e50a2f54799ec3e80d32577ca1c6eb10355a7fa4c9ee13385d82a7ccf1163b6085aacff4193e6388add2f71c41668bb0d5fa1f44698eb3d8fd22476c91b6db00254a6f94b9de03284d7297bce1062b50759abfe4092e53789dc2e70c31567ba0c5ea0f34597ea3c8ed12375c81a6cbf0153a5f84a9cef3183d6287acd1f61b40658aafd4f91e43688db2d7fc21466b90b5daff24496e93b8dd02274c7196bbe0052a4f7499bee3082d52779cc1e60b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186abd0f51a3f6489aed3f81d42678cb1d6fb20456a8fb4d9fe23486d92b7dc01264b7095badf04294e7398bde2072c51769bc0e50a2f54799ec3e80d32577ca1c6eb10355a7fa4c9ee13385d82a7ccf1163b6085aacff4193e6388add2f71c41668bb0d5fa1f44698eb3d8fd22476c91b6db00254a6f94b9de03284d7297bce1062b50759abfe4092e53789dc2e70c31567ba0c5ea0f34597ea3c8ed12375c81a6cbf0153a5f84a9cef3183d6287acd1f61b40658aafd4f91e43688db2d7fc21466b90b5daff24496e93b8dd02274c7196bbe0052a4f7499bee3082d52779cc1e60b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186abd0f51a3f6489aed3f81d42678cb1d6fb20456a8fb4d9fe23486d92b7dc01264b7095badf04294e7398bde2072c51769bc0e50a2f54799ec3e80d32577ca1c6eb10355a7fa4c9ee13385d82a7ccf1163b6085aacff4193e6388add2f71c41668bb0d5fa1f44698eb3d8fd22476c91b6db00254a6f94b9de03284d7297bce1062b50759abfe4092e53789dc2e70c31567ba0c5ea0f34597ea3c8ed12375c81a6cbf0153a5f84a9cef3183d6287acd1f61b40658aafd4f91e43688db2d7fc21466b90b5daff24496e93b8dd02274c7196bbe0052a4f7499bee3082d52779cc1e60b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186abd0f51a3f6489aed3f81d42678cb1d6fb20456a8fb4d9fe23486d92b7dc01264b7095badf04294e7398bde2072c51769bc0e50a2f54799ec3e80d32577ca1c6eb10355a7fa4c9ee13385d82a7ccf1163b6085aacff4193e6388add2f71c41668bb0d5fa1f44698eb3d8fd22476c91b6db00254a6f94b9de03284d7297bce1062b50759abfe4092e53789dc2e70c31567ba0c5ea0f34597ea3c8ed12375c81a6cbf0153a5f84a9cef3183d6287acd1f61b40658aafd4f91e43688db2d7fc21466b90b5daff24496e93b8dd02274c7196bbe0052a4f7499bee3082d52779cc1e60b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186abd0f51a3f6489aed3f81d42678cb1d6fb20456a8fb4d9fe23486d92b7dc01264b7095badf04294e7398bde2072c51769bc0e50a2f54799ec3e80d32577ca1c6eb10355a7fa4c9ee13385d82a7ccf1163b6085aacff4193e6388add2f71c41668bb0d5fa1f44698eb3d8fd22476c91b6db00254a6f94b9de03284d7297bce1062b50759abfe4092e53789dc2e70c31567ba0c5ea0f34597ea3c8ed12375c81a6cbf0153a5f84a9cef3183d6287acd1f61b40658aafd4f91e43688db2d7fc21466b90b5daff24496e93b8dd02274c7196bbe0052a4f7499bee3082d52779cc1e60b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186abd0f51a3f6489aed3f81d42678cb1d6fb20456a8fb4d9fe23486d92b7dc01264b7095badf04294e7398bde2072c51769bc0e50a2f54799ec3e80d32577ca1c6eb10355a7fa4c9ee13385d82a7ccf1163b6085aacff4193e6388add2f71c41668bb0d5fa1f44698eb3d8fd22476c91b6db00254a6f94b9de03284d7297bce1062b50759abfe4092e53789dc2e70c31567ba0c5ea0f34597ea3c8ed12375c81a6cbf0153a5f84a9cef3183d6287acd1f61b40658aafd4f91e43688db2d7fc21466b90b5daff24496e93b8dd02274c7196bbe0052a4f7499bee3082d52779cc1e60b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186abd0f51a3f6489aed3f81d42678cb1d6fb20456a8fb4d9fe23486d92b7dc01264b7095badf04294e7398bde2072c51769bc0e50a2f54799ec3e80d32577ca1c6eb10355a7fa4c9ee13385d82a7ccf1163b6085aacff4193e6388add2f71c41668bb0d5fa1f44698eb3d8fd22476c91b6db00254a6f94b9de03284d7297bce1062b50759abfe4092e53789dc2e70c31567ba0c5ea0f34597ea3c8ed12375c81a6cbf0153a5f84a9cef3183d6287acd1f61b40658aafd4f91e43688db2d7fc21466b90b5daff24496e93b8dd02274c7196bbe0052a4f7499bee3082d52779cc1e60b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186abd0f51a3f6489aed3f81d42678cb1d6fb20456a8fb4d9fe23486d92b7dc01264b7095badf04294e7398bde2072c51769bc0e50a2f54799ec3e80d32577ca1c6eb10355a7fa4c9ee13385d82a7ccf1163b6085aacff4193e6388add2f71c41668bb0d5fa1f44698eb3d8fd22476c91b6db00254a6f94b9de03284d7297bce1062b50759abfe4092e53789dc2e70c31567ba0c5ea0f34597ea3c8ed12375c81a6cbf0153a5f84a9cef3183d6287acd1f61b40658aafd4f91e43688db2d7fc21466b90b5daff24496e93b8dd02274c7196bbe0052a4f7499bee3082d52779cc1e60b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186abd0f51a3f6489aed3f81d42678cb1d6fb20456a8fb4d9fe23486d92b7dc01264b7095badf04294e7398bde2072c51769bc0e50a2f54799ec3e80d32577ca1c6eb10355a7fa4c9ee13385d82a7ccf1163b6085aacff4193e6388add2f71c41668bb0d5fa1f44698eb3d8fd22476c91b6db00254a6f94b9de03284d7297bce1062b50759abfe4092e53789dc2e70c31567ba0c5ea0f34597ea3c8ed12375c81a6cbf0153a5f84a9cef3183d6287acd1f61b40658aafd4f91e43688db2d7fc21466b90b5daff24496e93b8dd02274c7196bbe0052a4f7499bee3082d52779cc1e60b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186abd0f51a3f6489aed3f81d42678cb1d6fb20456a8fb4d9fe23486d92b7dc01264b7095badf04294e7398bde2072c51769bc0e50a2f54799ec3e80d32577ca1c6eb10355a7fa4c9ee13385d82a7ccf1163b6085aacff4193e6388add2f71c41668bb0d5fa1f44698eb3d8fd22476c91b6db00254a6f94b9de03284d7297bce1062b50759abfe4092e53789dc2e70c31567ba0c5ea0f34597ea3c8ed12375c81a6cbf0153a5f84a9cef3183d6287acd1f61b40658aafd4f91e43688db2d7fc21466b90b5daff24496e93b8dd02274c7196bbe0052a4f7499bee3082d52779cc1e60b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186abd0f51a3f6489aed3f81d42678cb1d6fb20456a8fb4d9fe23486d92b7dc01264b7095badf04294e7398bde2072c51769bc0e50a2f54799ec3e80d32577ca1c6eb10355a7fa4c9ee13385d82a7ccf1163b6085aacff4193e6388add2f71c41668bb0d5fa1f44698eb3d8fd22476c91b6db00254a6f94b9de03284d7297bce1062b50759abfe4092e53789dc2e70c31567ba0c5ea0f34597ea3c8ed12375c81a6cbf0153a5f84a9cef3183d6287acd1f61b40658aafd4f91e43688db2d7fc21466b90b5daff24496e93b8dd02274c7196bbe0052a4f7499bee3082d52779cc1e60b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186abd0f51a3f6489aed3f81d42678cb1d6fb20456a8fb4d9fe23486d92b7dc01264b7095badf04294e7398bde2072c51769bc0e50a2f54799ec3e80d32577ca1c6eb10355a7fa4c9ee13385d82a7ccf1163b6085aacff4193e6388add2f71c41668bb0d5fa1f44698eb3d8fd22476c91b6db00254a6f94b9de03284d7297bce1062b50759abfe4092e53789dc2e70c31567ba0c5ea0f34597ea3c8ed12375c81a6cbf0153a5f84a9cef3183d6287acd1f61b40658aafd4f91e43688db2d7fc21466b90b5daff24496e93b8dd02274c7196bbe0052a4f7499bee3082d52779cc1e60b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186abd0f51a3f6489aed3f81d42678cb1d6fb20456a8fb4d9fe23486d92b7dc01264b7095badf04294e7398bde2072c51769bc0e50a2f54799ec3e80d32577ca1c6eb10355a7fa4c9ee13385d82a7ccf1163b6085aacff4193e6388add2f71c41668bb0d5fa1f44698eb3d8fd22476c91b6db00254a6f94b9de03284d7297bce1062b50759abfe4092e53789dc2e70c31567ba0c5ea0f34597ea3c8ed12375c81a6cbf0153a5f84a9cef3183d6287acd1f61b40658aafd4f91e43688db2d7fc21466b90b5daff24496e93b8dd02274c7196bbe0052a4f7499bee3082d52779cc1e60b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186abd0f51a3f6489aed3f81d42678cb1d6fb20456a8fb4d9fe23486d92b7dc01264b7095badf04294e7398bde2072c51769bc0e50a2f54799ec3e80d32577ca1c6eb10355a7fa4c9ee13385d82a7ccf1163b6085aacff4193e6388add2f71c41668bb0d5fa1f44698eb3d8fd22476c91b6db00254a6f94b9de03284d7297bce1062b50759abfe4092e53789dc2e70c31567ba0c5ea0f34597ea3c8ed12375c81a6cbf0153a5f84a9cef3183d6287acd1f61b40658aafd4f91e43688db2d7fc21466b90b5daff24496e93b8dd02274c7196bbe0052a4f7499bee3082d52779cc1e6",
+  )
+
+const seize_tx_flat_4096: Transaction = seize_tx(flat_4096)
+
+const transfer_tx_flat_4096: Transaction = transfer_tx(flat_4096)
+
+test cost_seize_flat_4096() {
+  seize_logic(seize_tx_flat_4096, seize_redeemer)
+}
+
+test cost_transfer_flat_4096() {
+  transfer_logic(transfer_tx_flat_4096, transfer_redeemer)
+}
+
+test cost_fixture_flat_4096() {
+  list.length(seize_tx_flat_4096.inputs) == 2
+}
+
+const flat_8192: Data =
+  as_data(
+    #"0b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186abd0f51a3f6489aed3f81d42678cb1d6fb20456a8fb4d9fe23486d92b7dc01264b7095badf04294e7398bde2072c51769bc0e50a2f54799ec3e80d32577ca1c6eb10355a7fa4c9ee13385d82a7ccf1163b6085aacff4193e6388add2f71c41668bb0d5fa1f44698eb3d8fd22476c91b6db00254a6f94b9de03284d7297bce1062b50759abfe4092e53789dc2e70c31567ba0c5ea0f34597ea3c8ed12375c81a6cbf0153a5f84a9cef3183d6287acd1f61b40658aafd4f91e43688db2d7fc21466b90b5daff24496e93b8dd02274c7196bbe0052a4f7499bee3082d52779cc1e60b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186abd0f51a3f6489aed3f81d42678cb1d6fb20456a8fb4d9fe23486d92b7dc01264b7095badf04294e7398bde2072c51769bc0e50a2f54799ec3e80d32577ca1c6eb10355a7fa4c9ee13385d82a7ccf1163b6085aacff4193e6388add2f71c41668bb0d5fa1f44698eb3d8fd22476c91b6db00254a6f94b9de03284d7297bce1062b50759abfe4092e53789dc2e70c31567ba0c5ea0f34597ea3c8ed12375c81a6cbf0153a5f84a9cef3183d6287acd1f61b40658aafd4f91e43688db2d7fc21466b90b5daff24496e93b8dd02274c7196bbe0052a4f7499bee3082d52779cc1e60b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186abd0f51a3f6489aed3f81d42678cb1d6fb20456a8fb4d9fe23486d92b7dc01264b7095badf04294e7398bde2072c51769bc0e50a2f54799ec3e80d32577ca1c6eb10355a7fa4c9ee13385d82a7ccf1163b6085aacff4193e6388add2f71c41668bb0d5fa1f44698eb3d8fd22476c91b6db00254a6f94b9de03284d7297bce1062b50759abfe4092e53789dc2e70c31567ba0c5ea0f34597ea3c8ed12375c81a6cbf0153a5f84a9cef3183d6287acd1f61b40658aafd4f91e43688db2d7fc21466b90b5daff24496e93b8dd02274c7196bbe0052a4f7499bee3082d52779cc1e60b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186abd0f51a3f6489aed3f81d42678cb1d6fb20456a8fb4d9fe23486d92b7dc01264b7095badf04294e7398bde2072c51769bc0e50a2f54799ec3e80d32577ca1c6eb10355a7fa4c9ee13385d82a7ccf1163b6085aacff4193e6388add2f71c41668bb0d5fa1f44698eb3d8fd22476c91b6db00254a6f94b9de03284d7297bce1062b50759abfe4092e53789dc2e70c31567ba0c5ea0f34597ea3c8ed12375c81a6cbf0153a5f84a9cef3183d6287acd1f61b40658aafd4f91e43688db2d7fc21466b90b5daff24496e93b8dd02274c7196bbe0052a4f7499bee3082d52779cc1e60b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186abd0f51a3f6489aed3f81d42678cb1d6fb20456a8fb4d9fe23486d92b7dc01264b7095badf04294e7398bde2072c51769bc0e50a2f54799ec3e80d32577ca1c6eb10355a7fa4c9ee13385d82a7ccf1163b6085aacff4193e6388add2f71c41668bb0d5fa1f44698eb3d8fd22476c91b6db00254a6f94b9de03284d7297bce1062b50759abfe4092e53789dc2e70c31567ba0c5ea0f34597ea3c8ed12375c81a6cbf0153a5f84a9cef3183d6287acd1f61b40658aafd4f91e43688db2d7fc21466b90b5daff24496e93b8dd02274c7196bbe0052a4f7499bee3082d52779cc1e60b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186abd0f51a3f6489aed3f81d42678cb1d6fb20456a8fb4d9fe23486d92b7dc01264b7095badf04294e7398bde2072c51769bc0e50a2f54799ec3e80d32577ca1c6eb10355a7fa4c9ee13385d82a7ccf1163b6085aacff4193e6388add2f71c41668bb0d5fa1f44698eb3d8fd22476c91b6db00254a6f94b9de03284d7297bce1062b50759abfe4092e53789dc2e70c31567ba0c5ea0f34597ea3c8ed12375c81a6cbf0153a5f84a9cef3183d6287acd1f61b40658aafd4f91e43688db2d7fc21466b90b5daff24496e93b8dd02274c7196bbe0052a4f7499bee3082d52779cc1e60b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186abd0f51a3f6489aed3f81d42678cb1d6fb20456a8fb4d9fe23486d92b7dc01264b7095badf04294e7398bde2072c51769bc0e50a2f54799ec3e80d32577ca1c6eb10355a7fa4c9ee13385d82a7ccf1163b6085aacff4193e6388add2f71c41668bb0d5fa1f44698eb3d8fd22476c91b6db00254a6f94b9de03284d7297bce1062b50759abfe4092e53789dc2e70c31567ba0c5ea0f34597ea3c8ed12375c81a6cbf0153a5f84a9cef3183d6287acd1f61b40658aafd4f91e43688db2d7fc21466b90b5daff24496e93b8dd02274c7196bbe0052a4f7499bee3082d52779cc1e60b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186abd0f51a3f6489aed3f81d42678cb1d6fb20456a8fb4d9fe23486d92b7dc01264b7095badf04294e7398bde2072c51769bc0e50a2f54799ec3e80d32577ca1c6eb10355a7fa4c9ee13385d82a7ccf1163b6085aacff4193e6388add2f71c41668bb0d5fa1f44698eb3d8fd22476c91b6db00254a6f94b9de03284d7297bce1062b50759abfe4092e53789dc2e70c31567ba0c5ea0f34597ea3c8ed12375c81a6cbf0153a5f84a9cef3183d6287acd1f61b40658aafd4f91e43688db2d7fc21466b90b5daff24496e93b8dd02274c7196bbe0052a4f7499bee3082d52779cc1e60b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186abd0f51a3f6489aed3f81d42678cb1d6fb20456a8fb4d9fe23486d92b7dc01264b7095badf04294e7398bde2072c51769bc0e50a2f54799ec3e80d32577ca1c6eb10355a7fa4c9ee13385d82a7ccf1163b6085aacff4193e6388add2f71c41668bb0d5fa1f44698eb3d8fd22476c91b6db00254a6f94b9de03284d7297bce1062b50759abfe4092e53789dc2e70c31567ba0c5ea0f34597ea3c8ed12375c81a6cbf0153a5f84a9cef3183d6287acd1f61b40658aafd4f91e43688db2d7fc21466b90b5daff24496e93b8dd02274c7196bbe0052a4f7499bee3082d52779cc1e60b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186abd0f51a3f6489aed3f81d42678cb1d6fb20456a8fb4d9fe23486d92b7dc01264b7095badf04294e7398bde2072c51769bc0e50a2f54799ec3e80d32577ca1c6eb10355a7fa4c9ee13385d82a7ccf1163b6085aacff4193e6388add2f71c41668bb0d5fa1f44698eb3d8fd22476c91b6db00254a6f94b9de03284d7297bce1062b50759abfe4092e53789dc2e70c31567ba0c5ea0f34597ea3c8ed12375c81a6cbf0153a5f84a9cef3183d6287acd1f61b40658aafd4f91e43688db2d7fc21466b90b5daff24496e93b8dd02274c7196bbe0052a4f7499bee3082d52779cc1e60b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186abd0f51a3f6489aed3f81d42678cb1d6fb20456a8fb4d9fe23486d92b7dc01264b7095badf04294e7398bde2072c51769bc0e50a2f54799ec3e80d32577ca1c6eb10355a7fa4c9ee13385d82a7ccf1163b6085aacff4193e6388add2f71c41668bb0d5fa1f44698eb3d8fd22476c91b6db00254a6f94b9de03284d7297bce1062b50759abfe4092e53789dc2e70c31567ba0c5ea0f34597ea3c8ed12375c81a6cbf0153a5f84a9cef3183d6287acd1f61b40658aafd4f91e43688db2d7fc21466b90b5daff24496e93b8dd02274c7196bbe0052a4f7499bee3082d52779cc1e60b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186abd0f51a3f6489aed3f81d42678cb1d6fb20456a8fb4d9fe23486d92b7dc01264b7095badf04294e7398bde2072c51769bc0e50a2f54799ec3e80d32577ca1c6eb10355a7fa4c9ee13385d82a7ccf1163b6085aacff4193e6388add2f71c41668bb0d5fa1f44698eb3d8fd22476c91b6db00254a6f94b9de03284d7297bce1062b50759abfe4092e53789dc2e70c31567ba0c5ea0f34597ea3c8ed12375c81a6cbf0153a5f84a9cef3183d6287acd1f61b40658aafd4f91e43688db2d7fc21466b90b5daff24496e93b8dd02274c7196bbe0052a4f7499bee3082d52779cc1e60b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186abd0f51a3f6489aed3f81d42678cb1d6fb20456a8fb4d9fe23486d92b7dc01264b7095badf04294e7398bde2072c51769bc0e50a2f54799ec3e80d32577ca1c6eb10355a7fa4c9ee13385d82a7ccf1163b6085aacff4193e6388add2f71c41668bb0d5fa1f44698eb3d8fd22476c91b6db00254a6f94b9de03284d7297bce1062b50759abfe4092e53789dc2e70c31567ba0c5ea0f34597ea3c8ed12375c81a6cbf0153a5f84a9cef3183d6287acd1f61b40658aafd4f91e43688db2d7fc21466b90b5daff24496e93b8dd02274c7196bbe0052a4f7499bee3082d52779cc1e60b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186abd0f51a3f6489aed3f81d42678cb1d6fb20456a8fb4d9fe23486d92b7dc01264b7095badf04294e7398bde2072c51769bc0e50a2f54799ec3e80d32577ca1c6eb10355a7fa4c9ee13385d82a7ccf1163b6085aacff4193e6388add2f71c41668bb0d5fa1f44698eb3d8fd22476c91b6db00254a6f94b9de03284d7297bce1062b50759abfe4092e53789dc2e70c31567ba0c5ea0f34597ea3c8ed12375c81a6cbf0153a5f84a9cef3183d6287acd1f61b40658aafd4f91e43688db2d7fc21466b90b5daff24496e93b8dd02274c7196bbe0052a4f7499bee3082d52779cc1e60b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186abd0f51a3f6489aed3f81d42678cb1d6fb20456a8fb4d9fe23486d92b7dc01264b7095badf04294e7398bde2072c51769bc0e50a2f54799ec3e80d32577ca1c6eb10355a7fa4c9ee13385d82a7ccf1163b6085aacff4193e6388add2f71c41668bb0d5fa1f44698eb3d8fd22476c91b6db00254a6f94b9de03284d7297bce1062b50759abfe4092e53789dc2e70c31567ba0c5ea0f34597ea3c8ed12375c81a6cbf0153a5f84a9cef3183d6287acd1f61b40658aafd4f91e43688db2d7fc21466b90b5daff24496e93b8dd02274c7196bbe0052a4f7499bee3082d52779cc1e60b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186abd0f51a3f6489aed3f81d42678cb1d6fb20456a8fb4d9fe23486d92b7dc01264b7095badf04294e7398bde2072c51769bc0e50a2f54799ec3e80d32577ca1c6eb10355a7fa4c9ee13385d82a7ccf1163b6085aacff4193e6388add2f71c41668bb0d5fa1f44698eb3d8fd22476c91b6db00254a6f94b9de03284d7297bce1062b50759abfe4092e53789dc2e70c31567ba0c5ea0f34597ea3c8ed12375c81a6cbf0153a5f84a9cef3183d6287acd1f61b40658aafd4f91e43688db2d7fc21466b90b5daff24496e93b8dd02274c7196bbe0052a4f7499bee3082d52779cc1e60b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186abd0f51a3f6489aed3f81d42678cb1d6fb20456a8fb4d9fe23486d92b7dc01264b7095badf04294e7398bde2072c51769bc0e50a2f54799ec3e80d32577ca1c6eb10355a7fa4c9ee13385d82a7ccf1163b6085aacff4193e6388add2f71c41668bb0d5fa1f44698eb3d8fd22476c91b6db00254a6f94b9de03284d7297bce1062b50759abfe4092e53789dc2e70c31567ba0c5ea0f34597ea3c8ed12375c81a6cbf0153a5f84a9cef3183d6287acd1f61b40658aafd4f91e43688db2d7fc21466b90b5daff24496e93b8dd02274c7196bbe0052a4f7499bee3082d52779cc1e60b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186abd0f51a3f6489aed3f81d42678cb1d6fb20456a8fb4d9fe23486d92b7dc01264b7095badf04294e7398bde2072c51769bc0e50a2f54799ec3e80d32577ca1c6eb10355a7fa4c9ee13385d82a7ccf1163b6085aacff4193e6388add2f71c41668bb0d5fa1f44698eb3d8fd22476c91b6db00254a6f94b9de03284d7297bce1062b50759abfe4092e53789dc2e70c31567ba0c5ea0f34597ea3c8ed12375c81a6cbf0153a5f84a9cef3183d6287acd1f61b40658aafd4f91e43688db2d7fc21466b90b5daff24496e93b8dd02274c7196bbe0052a4f7499bee3082d52779cc1e60b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186abd0f51a3f6489aed3f81d42678cb1d6fb20456a8fb4d9fe23486d92b7dc01264b7095badf04294e7398bde2072c51769bc0e50a2f54799ec3e80d32577ca1c6eb10355a7fa4c9ee13385d82a7ccf1163b6085aacff4193e6388add2f71c41668bb0d5fa1f44698eb3d8fd22476c91b6db00254a6f94b9de03284d7297bce1062b50759abfe4092e53789dc2e70c31567ba0c5ea0f34597ea3c8ed12375c81a6cbf0153a5f84a9cef3183d6287acd1f61b40658aafd4f91e43688db2d7fc21466b90b5daff24496e93b8dd02274c7196bbe0052a4f7499bee3082d52779cc1e60b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186abd0f51a3f6489aed3f81d42678cb1d6fb20456a8fb4d9fe23486d92b7dc01264b7095badf04294e7398bde2072c51769bc0e50a2f54799ec3e80d32577ca1c6eb10355a7fa4c9ee13385d82a7ccf1163b6085aacff4193e6388add2f71c41668bb0d5fa1f44698eb3d8fd22476c91b6db00254a6f94b9de03284d7297bce1062b50759abfe4092e53789dc2e70c31567ba0c5ea0f34597ea3c8ed12375c81a6cbf0153a5f84a9cef3183d6287acd1f61b40658aafd4f91e43688db2d7fc21466b90b5daff24496e93b8dd02274c7196bbe0052a4f7499bee3082d52779cc1e60b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186abd0f51a3f6489aed3f81d42678cb1d6fb20456a8fb4d9fe23486d92b7dc01264b7095badf04294e7398bde2072c51769bc0e50a2f54799ec3e80d32577ca1c6eb10355a7fa4c9ee13385d82a7ccf1163b6085aacff4193e6388add2f71c41668bb0d5fa1f44698eb3d8fd22476c91b6db00254a6f94b9de03284d7297bce1062b50759abfe4092e53789dc2e70c31567ba0c5ea0f34597ea3c8ed12375c81a6cbf0153a5f84a9cef3183d6287acd1f61b40658aafd4f91e43688db2d7fc21466b90b5daff24496e93b8dd02274c7196bbe0052a4f7499bee3082d52779cc1e60b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186abd0f51a3f6489aed3f81d42678cb1d6fb20456a8fb4d9fe23486d92b7dc01264b7095badf04294e7398bde2072c51769bc0e50a2f54799ec3e80d32577ca1c6eb10355a7fa4c9ee13385d82a7ccf1163b6085aacff4193e6388add2f71c41668bb0d5fa1f44698eb3d8fd22476c91b6db00254a6f94b9de03284d7297bce1062b50759abfe4092e53789dc2e70c31567ba0c5ea0f34597ea3c8ed12375c81a6cbf0153a5f84a9cef3183d6287acd1f61b40658aafd4f91e43688db2d7fc21466b90b5daff24496e93b8dd02274c7196bbe0052a4f7499bee3082d52779cc1e60b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186abd0f51a3f6489aed3f81d42678cb1d6fb20456a8fb4d9fe23486d92b7dc01264b7095badf04294e7398bde2072c51769bc0e50a2f54799ec3e80d32577ca1c6eb10355a7fa4c9ee13385d82a7ccf1163b6085aacff4193e6388add2f71c41668bb0d5fa1f44698eb3d8fd22476c91b6db00254a6f94b9de03284d7297bce1062b50759abfe4092e53789dc2e70c31567ba0c5ea0f34597ea3c8ed12375c81a6cbf0153a5f84a9cef3183d6287acd1f61b40658aafd4f91e43688db2d7fc21466b90b5daff24496e93b8dd02274c7196bbe0052a4f7499bee3082d52779cc1e60b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186abd0f51a3f6489aed3f81d42678cb1d6fb20456a8fb4d9fe23486d92b7dc01264b7095badf04294e7398bde2072c51769bc0e50a2f54799ec3e80d32577ca1c6eb10355a7fa4c9ee13385d82a7ccf1163b6085aacff4193e6388add2f71c41668bb0d5fa1f44698eb3d8fd22476c91b6db00254a6f94b9de03284d7297bce1062b50759abfe4092e53789dc2e70c31567ba0c5ea0f34597ea3c8ed12375c81a6cbf0153a5f84a9cef3183d6287acd1f61b40658aafd4f91e43688db2d7fc21466b90b5daff24496e93b8dd02274c7196bbe0052a4f7499bee3082d52779cc1e60b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186abd0f51a3f6489aed3f81d42678cb1d6fb20456a8fb4d9fe23486d92b7dc01264b7095badf04294e7398bde2072c51769bc0e50a2f54799ec3e80d32577ca1c6eb10355a7fa4c9ee13385d82a7ccf1163b6085aacff4193e6388add2f71c41668bb0d5fa1f44698eb3d8fd22476c91b6db00254a6f94b9de03284d7297bce1062b50759abfe4092e53789dc2e70c31567ba0c5ea0f34597ea3c8ed12375c81a6cbf0153a5f84a9cef3183d6287acd1f61b40658aafd4f91e43688db2d7fc21466b90b5daff24496e93b8dd02274c7196bbe0052a4f7499bee3082d52779cc1e60b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186abd0f51a3f6489aed3f81d42678cb1d6fb20456a8fb4d9fe23486d92b7dc01264b7095badf04294e7398bde2072c51769bc0e50a2f54799ec3e80d32577ca1c6eb10355a7fa4c9ee13385d82a7ccf1163b6085aacff4193e6388add2f71c41668bb0d5fa1f44698eb3d8fd22476c91b6db00254a6f94b9de03284d7297bce1062b50759abfe4092e53789dc2e70c31567ba0c5ea0f34597ea3c8ed12375c81a6cbf0153a5f84a9cef3183d6287acd1f61b40658aafd4f91e43688db2d7fc21466b90b5daff24496e93b8dd02274c7196bbe0052a4f7499bee3082d52779cc1e60b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186abd0f51a3f6489aed3f81d42678cb1d6fb20456a8fb4d9fe23486d92b7dc01264b7095badf04294e7398bde2072c51769bc0e50a2f54799ec3e80d32577ca1c6eb10355a7fa4c9ee13385d82a7ccf1163b6085aacff4193e6388add2f71c41668bb0d5fa1f44698eb3d8fd22476c91b6db00254a6f94b9de03284d7297bce1062b50759abfe4092e53789dc2e70c31567ba0c5ea0f34597ea3c8ed12375c81a6cbf0153a5f84a9cef3183d6287acd1f61b40658aafd4f91e43688db2d7fc21466b90b5daff24496e93b8dd02274c7196bbe0052a4f7499bee3082d52779cc1e60b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186abd0f51a3f6489aed3f81d42678cb1d6fb20456a8fb4d9fe23486d92b7dc01264b7095badf04294e7398bde2072c51769bc0e50a2f54799ec3e80d32577ca1c6eb10355a7fa4c9ee13385d82a7ccf1163b6085aacff4193e6388add2f71c41668bb0d5fa1f44698eb3d8fd22476c91b6db00254a6f94b9de03284d7297bce1062b50759abfe4092e53789dc2e70c31567ba0c5ea0f34597ea3c8ed12375c81a6cbf0153a5f84a9cef3183d6287acd1f61b40658aafd4f91e43688db2d7fc21466b90b5daff24496e93b8dd02274c7196bbe0052a4f7499bee3082d52779cc1e60b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186abd0f51a3f6489aed3f81d42678cb1d6fb20456a8fb4d9fe23486d92b7dc01264b7095badf04294e7398bde2072c51769bc0e50a2f54799ec3e80d32577ca1c6eb10355a7fa4c9ee13385d82a7ccf1163b6085aacff4193e6388add2f71c41668bb0d5fa1f44698eb3d8fd22476c91b6db00254a6f94b9de03284d7297bce1062b50759abfe4092e53789dc2e70c31567ba0c5ea0f34597ea3c8ed12375c81a6cbf0153a5f84a9cef3183d6287acd1f61b40658aafd4f91e43688db2d7fc21466b90b5daff24496e93b8dd02274c7196bbe0052a4f7499bee3082d52779cc1e60b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186abd0f51a3f6489aed3f81d42678cb1d6fb20456a8fb4d9fe23486d92b7dc01264b7095badf04294e7398bde2072c51769bc0e50a2f54799ec3e80d32577ca1c6eb10355a7fa4c9ee13385d82a7ccf1163b6085aacff4193e6388add2f71c41668bb0d5fa1f44698eb3d8fd22476c91b6db00254a6f94b9de03284d7297bce1062b50759abfe4092e53789dc2e70c31567ba0c5ea0f34597ea3c8ed12375c81a6cbf0153a5f84a9cef3183d6287acd1f61b40658aafd4f91e43688db2d7fc21466b90b5daff24496e93b8dd02274c7196bbe0052a4f7499bee3082d52779cc1e60b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186abd0f51a3f6489aed3f81d42678cb1d6fb20456a8fb4d9fe23486d92b7dc01264b7095badf04294e7398bde2072c51769bc0e50a2f54799ec3e80d32577ca1c6eb10355a7fa4c9ee13385d82a7ccf1163b6085aacff4193e6388add2f71c41668bb0d5fa1f44698eb3d8fd22476c91b6db00254a6f94b9de03284d7297bce1062b50759abfe4092e53789dc2e70c31567ba0c5ea0f34597ea3c8ed12375c81a6cbf0153a5f84a9cef3183d6287acd1f61b40658aafd4f91e43688db2d7fc21466b90b5daff24496e93b8dd02274c7196bbe0052a4f7499bee3082d52779cc1e60b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186abd0f51a3f6489aed3f81d42678cb1d6fb20456a8fb4d9fe23486d92b7dc01264b7095badf04294e7398bde2072c51769bc0e50a2f54799ec3e80d32577ca1c6eb10355a7fa4c9ee13385d82a7ccf1163b6085aacff4193e6388add2f71c41668bb0d5fa1f44698eb3d8fd22476c91b6db00254a6f94b9de03284d7297bce1062b50759abfe4092e53789dc2e70c31567ba0c5ea0f34597ea3c8ed12375c81a6cbf0153a5f84a9cef3183d6287acd1f61b40658aafd4f91e43688db2d7fc21466b90b5daff24496e93b8dd02274c7196bbe0052a4f7499bee3082d52779cc1e6",
+  )
+
+const seize_tx_flat_8192: Transaction = seize_tx(flat_8192)
+
+const transfer_tx_flat_8192: Transaction = transfer_tx(flat_8192)
+
+test cost_seize_flat_8192() {
+  seize_logic(seize_tx_flat_8192, seize_redeemer)
+}
+
+test cost_transfer_flat_8192() {
+  transfer_logic(transfer_tx_flat_8192, transfer_redeemer)
+}
+
+test cost_fixture_flat_8192() {
+  list.length(seize_tx_flat_8192.inputs) == 2
+}
+
+// --- nested List<Int> datums (worst case per serialised byte) ---------
+const nested_0: Data = as_data([])
+
+const seize_tx_nested_0: Transaction = seize_tx(nested_0)
+
+test cost_seize_nested_0() {
+  seize_logic(seize_tx_nested_0, seize_redeemer)
+}
+
+test cost_fixture_nested_0() {
+  list.length(seize_tx_nested_0.inputs) == 2
+}
+
+const nested_128: Data =
+  as_data(
+    [
+      0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
+      21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17,
+      18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14,
+      15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11,
+      12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8,
+      9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4,
+      5, 6, 7,
+    ],
+  )
+
+const seize_tx_nested_128: Transaction = seize_tx(nested_128)
+
+test cost_seize_nested_128() {
+  seize_logic(seize_tx_nested_128, seize_redeemer)
+}
+
+test cost_fixture_nested_128() {
+  list.length(seize_tx_nested_128.inputs) == 2
+}
+
+const nested_512: Data =
+  as_data(
+    [
+      0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
+      21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17,
+      18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14,
+      15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11,
+      12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8,
+      9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4,
+      5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0,
+      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
+      22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18,
+      19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
+      16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
+      13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9,
+      10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5,
+      6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1,
+      2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22,
+      23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
+      20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
+      17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13,
+      14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+      11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7,
+      8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3,
+      4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
+      0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
+      21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17,
+      18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7,
+    ],
+  )
+
+const seize_tx_nested_512: Transaction = seize_tx(nested_512)
+
+test cost_seize_nested_512() {
+  seize_logic(seize_tx_nested_512, seize_redeemer)
+}
+
+test cost_fixture_nested_512() {
+  list.length(seize_tx_nested_512.inputs) == 2
+}
+
+const nested_1024: Data =
+  as_data(
+    [
+      0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
+      21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17,
+      18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14,
+      15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11,
+      12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8,
+      9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4,
+      5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0,
+      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
+      22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18,
+      19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
+      16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
+      13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9,
+      10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5,
+      6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1,
+      2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22,
+      23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
+      20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
+      17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13,
+      14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+      11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7,
+      8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3,
+      4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
+      0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
+      21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17,
+      18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14,
+      15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11,
+      12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8,
+      9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4,
+      5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0,
+      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
+      22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18,
+      19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
+      16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
+      13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9,
+      10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5,
+      6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1,
+      2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22,
+      23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
+      20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
+      17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13,
+      14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+      11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7,
+      8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3,
+      4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
+      0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
+      21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17,
+      18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14,
+      15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11,
+      12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8,
+      9, 10, 11, 12, 13, 14, 15,
+    ],
+  )
+
+const seize_tx_nested_1024: Transaction = seize_tx(nested_1024)
+
+test cost_seize_nested_1024() {
+  seize_logic(seize_tx_nested_1024, seize_redeemer)
+}
+
+test cost_fixture_nested_1024() {
+  list.length(seize_tx_nested_1024.inputs) == 2
+}
+
+const nested_2048: Data =
+  as_data(
+    [
+      0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
+      21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17,
+      18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14,
+      15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11,
+      12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8,
+      9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4,
+      5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0,
+      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
+      22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18,
+      19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
+      16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
+      13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9,
+      10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5,
+      6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1,
+      2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22,
+      23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
+      20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
+      17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13,
+      14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+      11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7,
+      8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3,
+      4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
+      0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
+      21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17,
+      18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14,
+      15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11,
+      12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8,
+      9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4,
+      5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0,
+      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
+      22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18,
+      19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
+      16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
+      13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9,
+      10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5,
+      6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1,
+      2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22,
+      23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
+      20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
+      17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13,
+      14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+      11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7,
+      8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3,
+      4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
+      0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
+      21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17,
+      18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14,
+      15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11,
+      12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8,
+      9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4,
+      5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0,
+      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
+      22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18,
+      19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
+      16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
+      13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9,
+      10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5,
+      6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1,
+      2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22,
+      23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
+      20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
+      17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13,
+      14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+      11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7,
+      8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3,
+      4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
+      0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
+      21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17,
+      18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14,
+      15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11,
+      12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8,
+      9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4,
+      5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0,
+      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
+      22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18,
+      19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
+      16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
+      13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9,
+      10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5,
+      6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1,
+      2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22,
+      23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
+      20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
+      17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13,
+      14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+      11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7,
+      8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3,
+      4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
+      0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
+      21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17,
+      18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14,
+      15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11,
+      12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8,
+      9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4,
+      5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0,
+      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
+      22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18,
+      19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
+      16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7,
+    ],
+  )
+
+const seize_tx_nested_2048: Transaction = seize_tx(nested_2048)
+
+test cost_seize_nested_2048() {
+  seize_logic(seize_tx_nested_2048, seize_redeemer)
+}
+
+test cost_fixture_nested_2048() {
+  list.length(seize_tx_nested_2048.inputs) == 2
+}
+
+// --- alternative adversarial shapes at equal serialised length --------
+const shape_ints: Data =
+  as_data(
+    [
+      0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
+      21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17,
+      18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14,
+      15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11,
+      12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8,
+      9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4,
+      5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0,
+      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
+      22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18,
+      19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
+      16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
+      13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9,
+      10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5,
+      6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1,
+      2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22,
+      23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
+      20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
+      17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13,
+      14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+      11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7,
+      8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3,
+      4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
+      0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
+      21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17,
+      18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14,
+      15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11,
+      12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8,
+      9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4,
+      5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0,
+      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
+      22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18,
+      19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
+      16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
+      13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9,
+      10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5,
+      6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1,
+      2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22,
+      23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
+      20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
+      17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13,
+      14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+      11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7,
+      8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3,
+      4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
+      0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
+      21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17,
+      18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14,
+      15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11,
+      12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8,
+      9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4,
+      5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0,
+      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
+      22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18,
+      19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
+      16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
+      13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9,
+      10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5,
+      6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1,
+      2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22,
+      23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
+      20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
+      17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13,
+      14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+      11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7,
+      8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3,
+      4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
+      0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
+      21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17,
+      18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14,
+      15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11,
+      12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8,
+      9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4,
+      5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0,
+      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
+      22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18,
+      19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
+      16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
+      13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9,
+      10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5,
+      6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1,
+      2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22,
+      23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
+      20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
+      17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13,
+      14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+      11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7,
+      8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3,
+      4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
+      0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
+      21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17,
+      18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14,
+      15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11,
+      12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8,
+      9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4,
+      5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0,
+      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
+      22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18,
+      19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
+      16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6, 7,
+    ],
+  )
+
+const seize_tx_shape_ints: Transaction = seize_tx(shape_ints)
+
+test cost_seize_shape_ints() {
+  seize_logic(seize_tx_shape_ints, seize_redeemer)
+}
+
+test len_shape_ints() {
+  trace @"ints": bytearray.length(builtin.serialise_data(shape_ints))
+  True
+}
+
+const shape_emptylist: Data =
+  as_data(
+    [
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+      [], [], [], [], [], [], [], [], [], [], [], [], [], [], [],
+    ],
+  )
+
+const seize_tx_shape_emptylist: Transaction = seize_tx(shape_emptylist)
+
+test cost_seize_shape_emptylist() {
+  seize_logic(seize_tx_shape_emptylist, seize_redeemer)
+}
+
+test len_shape_emptylist() {
+  trace @"emptylist": bytearray.length(builtin.serialise_data(shape_emptylist))
+  True
+}
+
+const shape_emptybstr: Data =
+  as_data(
+    [
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"", #"",
+      #"", #"", #"", #"", #"", #"", #"", #"",
+    ],
+  )
+
+const seize_tx_shape_emptybstr: Transaction = seize_tx(shape_emptybstr)
+
+test cost_seize_shape_emptybstr() {
+  seize_logic(seize_tx_shape_emptybstr, seize_redeemer)
+}
+
+test len_shape_emptybstr() {
+  trace @"emptybstr": bytearray.length(builtin.serialise_data(shape_emptybstr))
+  True
+}
+
+const shape_onebytebs: Data =
+  as_data(
+    [
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+      #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1", #"a1",
+    ],
+  )
+
+const seize_tx_shape_onebytebs: Transaction = seize_tx(shape_onebytebs)
+
+test cost_seize_shape_onebytebs() {
+  seize_logic(seize_tx_shape_onebytebs, seize_redeemer)
+}
+
+test len_shape_onebytebs() {
+  trace @"onebytebs": bytearray.length(builtin.serialise_data(shape_onebytebs))
+  True
+}
+
+const shape_boolpairs: Data =
+  as_data(
+    [
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+      (0, 1), (0, 1), (0, 1), (0, 1), (0, 1),
+    ],
+  )
+
+const seize_tx_shape_boolpairs: Transaction = seize_tx(shape_boolpairs)
+
+test cost_seize_shape_boolpairs() {
+  seize_logic(seize_tx_shape_boolpairs, seize_redeemer)
+}
+
+test len_shape_boolpairs() {
+  trace @"boolpairs": bytearray.length(builtin.serialise_data(shape_boolpairs))
+  True
+}
+
+const flat_32: Data =
+  as_data(#"0b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186")
+
+const flat_64: Data =
+  as_data(
+    #"0b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186abd0f51a3f6489aed3f81d42678cb1d6fb20456a8fb4d9fe23486d92b7dc0126",
+  )
+
+const flat_256: Data =
+  as_data(
+    #"0b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186abd0f51a3f6489aed3f81d42678cb1d6fb20456a8fb4d9fe23486d92b7dc01264b7095badf04294e7398bde2072c51769bc0e50a2f54799ec3e80d32577ca1c6eb10355a7fa4c9ee13385d82a7ccf1163b6085aacff4193e6388add2f71c41668bb0d5fa1f44698eb3d8fd22476c91b6db00254a6f94b9de03284d7297bce1062b50759abfe4092e53789dc2e70c31567ba0c5ea0f34597ea3c8ed12375c81a6cbf0153a5f84a9cef3183d6287acd1f61b40658aafd4f91e43688db2d7fc21466b90b5daff24496e93b8dd02274c7196bbe0052a4f7499bee3082d52779cc1e6",
+  )
+
+// --- honest case: cost of CREATING an output with an inline datum ----
+const transfer_out_tx_flat_0: Transaction = transfer_out_tx(flat_0)
+
+test cost_outdatum_flat_0() {
+  transfer_logic(transfer_out_tx_flat_0, transfer_redeemer)
+}
+
+const transfer_out_tx_flat_32: Transaction = transfer_out_tx(flat_32)
+
+test cost_outdatum_flat_32() {
+  transfer_logic(transfer_out_tx_flat_32, transfer_redeemer)
+}
+
+const transfer_out_tx_flat_64: Transaction = transfer_out_tx(flat_64)
+
+test cost_outdatum_flat_64() {
+  transfer_logic(transfer_out_tx_flat_64, transfer_redeemer)
+}
+
+const transfer_out_tx_flat_128: Transaction = transfer_out_tx(flat_128)
+
+test cost_outdatum_flat_128() {
+  transfer_logic(transfer_out_tx_flat_128, transfer_redeemer)
+}
+
+const transfer_out_tx_flat_256: Transaction = transfer_out_tx(flat_256)
+
+test cost_outdatum_flat_256() {
+  transfer_logic(transfer_out_tx_flat_256, transfer_redeemer)
+}
+
+const transfer_out_tx_flat_512: Transaction = transfer_out_tx(flat_512)
+
+test cost_outdatum_flat_512() {
+  transfer_logic(transfer_out_tx_flat_512, transfer_redeemer)
+}
+
+const transfer_out_tx_flat_1024: Transaction = transfer_out_tx(flat_1024)
+
+/// End-to-end negative: 1024 RAW bytes serialise to 1058, over the fixture's
+/// `max_inline_datum_bytes` of 1024, so the real `transfer` validator rejects
+/// the transaction. Paired with `cost_outdatum_flat_512` (530 serialised,
+/// accepted) — the only delta between them is the datum size.
+test transfer_rejects_output_datum_over_the_bound() fail {
+  transfer_logic(transfer_out_tx_flat_1024, transfer_redeemer)
+}
+
+/// The datum every off-chain builder actually writes on a programmable
+/// output: the unit constructor `Constr(0, [])`, 3 bytes serialised.
+/// (Evolution `Data.constr(0n, [])`, Mesh `conStr0([])`, cardano-client-lib
+/// `ConstrPlutusData.of(0)`.) This is the production cost case.
+const unit_d: Data = builtin.constr_data(0, [])
+
+const transfer_out_tx_unit: Transaction = transfer_out_tx(unit_d)
+
+test cost_outdatum_unit() {
+  transfer_logic(transfer_out_tx_unit, transfer_redeemer)
+}
+
+const seize_tx_unit: Transaction = seize_tx(unit_d)
+
+test cost_seize_unit() {
+  seize_logic(seize_tx_unit, seize_redeemer)
+}
