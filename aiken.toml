@@ -1,6 +1,6 @@
 name = "cardano-foundation/cip113-programmable-tokens"
-version = "0.5.0-alpha.1"
-compiler = "v1.1.22"
+version = "0.5.0-alpha.2"
+compiler = "v1.1.23"
 plutus = "v3"
 license = "Apache-2.0"
 description = "Aiken implementation of CIP-113 programmable tokens"

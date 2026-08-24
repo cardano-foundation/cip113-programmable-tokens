@@ -18,18 +18,19 @@
 //// `registry_node_cs` (0), `prog_logic_cred` (1), then the two credentials
 //// programmable_logic_base reads on its per-input dispatch — `transfer_cred`
 //// (2) and `third_party_cred` (3) — then `unfracking_cred` (4, read by the transfer validator's
-//// unfracking action) and `upgrade_cred` (5, read only by `coordination_spend`
-//// on an upgrade). The 2- and 3-field shapes are kept as local types so
+//// unfracking action), `upgrade_cred` (5, read only by `coordination_spend`
+//// on an upgrade) and `max_inline_datum_bytes` (6, issue #106 vector 3, read
+//// once per delegate invocation). The 2- and 3-field shapes are kept as local types so
 //// their measurements stay reproducible after the production type moved on.
 ////
-//// Representative run (aiken v1.1.22; ABSOLUTE mem/cpu per test — compare
+//// Representative run (aiken v1.1.23; ABSOLUTE mem/cpu per test — compare
 //// rows, they share one reference-input layout. Since the #103 index change
 //// the split path locates the params UTxO by index while the baseline scans,
 //// so subtracting the baseline no longer isolates pure extraction cost; read
 //// the rows against each other instead):
 ////
-////   locate + unwrap baseline (6-field) ......... 459.8k mem / 147.2M cpu
-////   (b) 6-field full expect .................... 530.2k mem / 169.4M cpu
+////   locate + unwrap baseline (7-field) ......... 459.8k mem / 147.4M cpu
+////   (b) 7-field full expect .................... 533.6k mem / 170.3M cpu
 ////   (c) split, fields 0-1 (shared shallow) ..... 486.3k mem / 153.1M cpu
 ////   (c) split, transfer_cred field 2 (PLB) ..... 483.2k mem / 152.4M cpu
 ////   (c) split, unfracking_cred field 4 ......... 483.6k mem / 152.6M cpu
@@ -38,9 +39,9 @@
 //// (Legacy 2-/3-field full-expect rows, kept for reproducibility: 488.5k/
 //// 154.9M and 503.0k/160.4M — validating more fields costs strictly more.)
 ////
-//// i.e. the transfer hot path (fields 0-1) pays ~+5.9M cpu / +26.6k mem over the
-//// bare locate+unwrap, versus ~+22.0M cpu / +70.2k mem to `expect` the whole
-//// 6-field record — the split saves the hot path from validating four fields
+//// i.e. the transfer hot path (fields 0-1) pays ~+5.7M cpu / +26.5k mem over the
+//// bare locate+unwrap, versus ~+22.9M cpu / +73.8k mem to `expect` the whole
+//// 7-field record — the split saves the hot path from validating five fields
 //// it never reads. Skipping whole-record validation is safe because
 //// protocol_params_mint fully deserialises the datum at mint time (see
 //// `with_protocol_params_fields` docs).

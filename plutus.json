@@ -2,11 +2,11 @@
   "preamble": {
     "title": "cardano-foundation/cip113-programmable-tokens",
     "description": "Aiken implementation of CIP-113 programmable tokens",
-    "version": "0.5.0-alpha.1",
+    "version": "0.5.0-alpha.2",
     "plutusVersion": "v3",
     "compiler": {
       "name": "Aiken",
-      "version": "v1.1.22+39d6b04"
+      "version": "v1.1.23+8949565"
     },
     "license": "Apache-2.0"
   },
