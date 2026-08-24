@@ -340,15 +340,10 @@ type RegistryNode {
   minting_logic_script: Credential,            // Stake validator for issuance / registration authority
   transfer_logic_script: Credential,           // Stake validator for transfer rules
   third_party_transfer_logic_script: Credential, // Stake validator for seizure/freeze
+  unfracking_logic_script: Credential,         // Stake validator gating unfracking (unset = forbidden)
   global_state_cs: ByteArray,                  // Optional NFT for global state (e.g., denylist)
-  protected_prefixes: List<ByteArray>,         // Append-only CIP-67 label prefixes the third-party path may not seize/burn
 }
 ```
-
-`protected_prefixes` is an issuer-declared, append-only list of 4-byte CIP-67
-asset-name label prefixes (kept in strictly ascending order) that the admin path
-cannot extract or burn — see
-[`03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md`](./03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md) §2.2.
 
 ### BlacklistNode (freeze-and-seize substandard)
 
@@ -511,16 +506,16 @@ Key invariant: the total programmable token value in outputs at the `prog_logic_
 Administrative / compliance operations — forced transfer, seizure, freeze enforcement, or burn — run through the standalone `third_party` validator. A programmable-token spend selects this path with a `SpendViaThirdParty` base redeemer (so PLB requires the `third_party` validator's withdraw-0 instead of the transfer validator's), and the `third_party` validator's withdraw-0 carries a `ThirdPartyRedeemer`. It differs from transfers:
 
 1. **No ownership check** — the `third_party_transfer_logic_script` authorizes the action instead of the stake credential owner
-2. **Amount redistribution** — a third-party action is a forced transfer: the subject policy's non-protected tokens on each paired output may be decreased, fully removed, increased, or left unchanged. Aggregate conservation (below) keeps the *total* non-protected subject amount across all PLB outputs accounting for every seized input plus any mint/burn — tokens are redistributed within the PLB, never created from nothing or made to escape
+2. **Amount redistribution** — a third-party action is a forced transfer: the subject policy's tokens on each paired output may be decreased, fully removed, increased, or left unchanged. Aggregate conservation (below) keeps the *total* subject amount across all PLB outputs accounting for every seized input plus any mint/burn — tokens are redistributed within the PLB, never created from nothing or made to escape
 3. **Per-pair mapping** — each spent PLB input is paired positionally with a continuing output (the first pair starts at `outputs_start_idx`); the action covers every PLB input that holds the subject policy
-4. **Preservation** — the paired output must preserve the holder's address, datum, **and reference script**, changing only the subject policy's non-protected tokens; all non-subject tokens are conserved byte-for-byte
+4. **Preservation** — the paired output must preserve the holder's address, datum, **and reference script**, changing only the subject policy's tokens; all non-subject tokens are conserved byte-for-byte
 5. **Anti-injection / anti-DoS** — the paired input must already hold the subject policy, so the admin can neither inject the policy onto a UTxO that never held it nor drag an unrelated UTxO into the action
-6. **Protected prefixes** — tokens whose CIP-67 label prefix is on the node's `protected_prefixes` list cannot be extracted or burned ("preserve, not fail")
+6. **No carve-out within the subject policy** — every token of policy A on a paired input is reachable, companion assets (CIP-68 reference NFTs, CIP-102 royalty tokens) included; protecting them is the substandard's third-party logic's job, not the framework's
 7. **One policy per transaction** — a `ThirdPartyRedeemer` targets exactly one registry node (see scope note below)
 
 Splitting the seize logic into its own script keeps it off the transfer reference-script hot path: a seize transaction loads `third_party` instead of `transfer`. Measured reference-script footprint drops accordingly — a transfer tx from 3659 B to 3045 B, a seize tx from 3659 B to 2674 B, and (with unfracking dispatched the same way) an unfracking tx from 5491 B to 2700 B.
 
-> **Scope & limits.** The full extraction scope — protected prefixes, the
+> **Scope & limits.** The full extraction scope — the companion-asset duty, the
 > freeze-vs-extract asymmetry, who is seizable (holder scope), and the
 > single-policy-per-transaction constraint — is specified in
 > [`03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md`](./03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md).

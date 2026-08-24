@@ -42,7 +42,7 @@ The audit-remediation PRs landing between them (newest first):
 
 ```
 3a6d8d6 fix(registry_spend): R-01 — node spend cannot issue its own token (#88)
-17ef775 feat: control & admin scope — protected prefixes (Findings 01,15,16,18) (#82)
+17ef775 feat: control & admin scope — protected prefixes (Findings 01,15,16,18) (#82)   [the protected-prefix field was later removed — see §10]
 cbedcfe feat(unfracking): Finding 17 — same-owner PLB UTxO restructuring (#78)
 39a6b1e Merge #81 — registry design limitation (Finding 05 / contention)
 8e42d65 fix(issuance_mint): Finding 04 — precise per-redeemer scope delegation (#80)
@@ -60,7 +60,7 @@ ebd9ffa chore: added ref script validation (#69)
 > (unchanged in substance) cover everything through `ebd9ffa`. Sections
 > §7–§12 are new: registry-node field updates (§7), the `unfracking_cred`
 > protocol-params field (§8), the `UnfrackingAct` / reshaped `ThirdPartyAct`
-> PLG redeemer (§9), third-party protected prefixes & anti-injection (§10),
+> PLG redeemer (§9), third-party anti-injection (§10),
 > the pure-mint transfer contract (§11), and the re-audit layer (§12).
 
 Validators with **no public-surface changes** since baseline (no off-chain
@@ -87,8 +87,8 @@ The rest of this document walks through the components that did change.
 | `RegistryInsert` withdrawal requirement | The substandard's withdraw-0 (`minting_logic_script` credential) **must** appear in `tx.withdrawals`, even when the registration carries no first mint. |
 | `issuance_mint` delegation signal | `issuance_mint` now consults `tx.withdrawals` (looking for `plg_stake_cred`), not `tx.inputs` (looking for PLB spends), to decide whether to delegate output-custody to PLGlobal. |
 | `ThirdPartyAct` continuing outputs | Must now preserve `reference_script` of the paired input (in addition to address and datum). Tx builders that strip ref scripts on seize-style outputs will be rejected. |
-| `RegistryNode` datum (again) | **Add** a 7th field `protected_prefixes: List<ByteArray>` at the end. Datum CBOR shape changed again since the 2026-05-26 revision. See [§7](#7-registry-node-field-updates--in-place-node-upgradability). |
-| Registry-node **updates** | New capability: a node's `transfer_logic_script` / `third_party_transfer_logic_script` / `global_state_cs` / `protected_prefixes` can be changed by **re-spending the node UTxO** via `registry_spend` (authorised by its `minting_logic_script` withdraw-0). Indexers must treat these as **live, not frozen**. See [§7](#7-registry-node-field-updates--in-place-node-upgradability). |
+| `RegistryNode` datum (again) | **Add** `unfracking_logic_script: Credential` as the 6th field, at index 5 (immediately before `global_state_cs`; the record is then 7 fields). Datum CBOR shape changed again since the 2026-05-26 revision. An unset (empty) credential means unfracking is forbidden for the policy. If you built against a draft of this document that specified a `protected_prefixes` field, **remove it** — it does not exist on-chain; see [§10](#10-third-party-action--anti-injection). |
+| Registry-node **updates** | New capability: a node's `transfer_logic_script` / `third_party_transfer_logic_script` / `unfracking_logic_script` / `global_state_cs` can be changed by **re-spending the node UTxO** via `registry_spend` (authorised by its `minting_logic_script` withdraw-0). Indexers must treat these as **live, not frozen**. See [§7](#7-registry-node-field-updates--in-place-node-upgradability). |
 | Protocol-params datum | **Add** a 3rd field `unfracking_cred: Credential`. Deploy tooling that writes the params datum must include it. See [§8](#8-protocol-params-datum--new-unfracking_cred-field). |
 | PLG redeemer | **Add** `UnfrackingAct` (no payload); `ThirdPartyAct` now carries `{registry_node_idx, outputs_start_idx}`. See [§9](#9-programmable_logic_global-redeemer--unfrackingact--reshaped-thirdpartyact). |
 | `TransferAct` proofs | Supply **exactly one proof per PLB *input* policy**; do **not** supply a proof for a policy that only appears in `tx.mint` (pure mint) — it is rejected as surplus. See [§11](#11-transfer-pure-mints-no-longer-require-a-proof-finding-02). |
@@ -184,8 +184,8 @@ pub type RegistryNode {
   minting_logic_script: Credential,             // NEW (position #3, this window)
   transfer_logic_script: Credential,
   third_party_transfer_logic_script: Credential,
+  unfracking_logic_script: Credential,          // NEW (position #6)
   global_state_cs: ByteArray,
-  protected_prefixes: List<ByteArray>,          // NEW (position #7, Finding 18 — see §7/§10)
 }
 ```
 
@@ -193,19 +193,18 @@ Off-chain impact:
 
 - Anyone constructing a `RegistryNode` datum CBOR must include `minting_logic_script`
   at index 2 (between `next` and `transfer_logic_script`) **and**
-  `protected_prefixes` as the final field.
+  `unfracking_logic_script` at index 5, immediately before `global_state_cs`.
 - Anyone parsing legacy pre-audit registry UTxOs will need to handle both
   shapes during migration (no automatic ledger migration — new nodes are
   inserted with the new shape).
 - `registry_mint` enforces that `minting_logic_script` equals the value
   supplied in the `RegistryInsert` redeemer, and that both are cryptographically
   bound to `key`. The field cannot lie.
-- `protected_prefixes` is a list of 4-byte CIP-67 asset-name label prefixes,
-  **strictly ascending** and **append-only** across updates. It marks companion
-  assets (e.g. CIP-68 label 100, CIP-102 label 500) that `ThirdPartyAct` may
-  neither seize nor burn. See [§7](#7-registry-node-field-updates--in-place-node-upgradability)
-  (mutability) and [§10](#10-third-party-action--protected-prefixes--anti-injection)
-  (enforcement).
+- There is **no** `protected_prefixes` field. The base layer protects no subset
+  of a policy's tokens from an administrative action; companion assets (CIP-68
+  label 100, CIP-102 label 500) are as reachable as the user token, and shielding
+  them is the substandard's third-party logic's duty — see
+  [`03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md`](./03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md) §2.2.
 
 ---
 
@@ -501,8 +500,8 @@ that tx → the "update" branch). The rules are in
 | `minting_logic_script` | **No** — bound to `key` |
 | `transfer_logic_script` | **Yes** (must be a 28-byte credential) |
 | `third_party_transfer_logic_script` | **Yes** (28-byte credential) |
+| `unfracking_logic_script` | **Yes** (28-byte credential; unset = unfracking forbidden) |
 | `global_state_cs` | **Yes** (28 bytes or empty) |
-| `protected_prefixes` | **Yes, APPEND-ONLY** (4-byte, strictly-ascending; new ⊇ old) |
 
 **Authority.** The update is valid only if the node's `minting_logic_script` is
 a `Script` credential **and** its withdraw-0 is invoked in the update tx. A
@@ -517,8 +516,8 @@ spend.
 **Off-chain impact:**
 
 - **Indexers / wallets / custodial software: treat `transfer_logic_script`,
-  `third_party_transfer_logic_script`, `global_state_cs`, and
-  `protected_prefixes` as LIVE.** Resolve them fresh from the current node at
+  `third_party_transfer_logic_script`, `unfracking_logic_script`, and
+  `global_state_cs` as LIVE.** Resolve them fresh from the current node at
   transaction-build time; do not cache them as immutable. A token's governance
   can change under existing holders. *(This is a behavioural change with no
   signature change — the classic silent breakage.)*
@@ -593,25 +592,25 @@ live in that standalone validator.
 
 ---
 
-## 10. Third-party action — protected prefixes + anti-injection
+## 10. Third-party action — anti-injection
 
-Beyond the `reference_script` preservation of §5, `ThirdPartyAct` gained two
-invariants in `validators/programmable_logic/third_party.ak`:
+Beyond the `reference_script` preservation of §5, the third-party path gained an
+invariant in `validators/programmable_logic/third_party.ak`:
 
 - **Anti-injection (Finding 12, #79).** The paired PLB input must already hold
   the subject policy (`expect !dict.is_empty(input_tokens_at)`). The admin
   cannot conjure the policy onto a UTxO that never held it, nor drag an
   unrelated UTxO into the action.
-- **Protected prefixes (Finding 18, #82).** Any token of the subject policy
-  whose CIP-67 label prefix is in the node's `protected_prefixes` must be
-  **byte-equal** between the paired input and output — it can be neither
-  extracted nor burned ("preserve, not fail"). The unprotected remainder stays
-  fully seizable.
 
-**Off-chain impact:** seize-style tx builders must (a) only target inputs that
-already hold the subject policy, and (b) leave protected-prefixed tokens
-untouched on the continuing output. Registration is where you *declare* the
-protected prefixes (append-only thereafter). No PLG redeemer signature change.
+**No protected-label mechanism exists.** Finding 18's scope question is resolved
+in documentation and in substandard responsibility, not in the base layer: every
+token of the subject policy on a paired input is reachable by an administrative
+action, companion assets included. A substandard that must shield CIP-68/102
+companion assets does so in its own `third_party_transfer_logic_script` — see
+[`03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md`](./03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md) §2.2.
+
+**Off-chain impact:** seize-style tx builders must only target inputs that
+already hold the subject policy. No redeemer signature change.
 
 > **Note (re-audit R-03, pending).** A former per-pair "the subject amount must
 > change" anti-DoS guard is being removed on a separate branch (§12). It does
@@ -672,7 +671,7 @@ When R-03 and R-04 land in `main`, this section and §10/§4 will be updated.
 | 12 | UTxO contamination in ThirdPartyAct | `third_party.ak` anti-injection (§10) |
 | 13 | Reference script preservation in ThirdPartyAct | `third_party.ak` reference-script equality (§5) |
 | 17 | Unfracking action | `UnfrackingAct` + `unfracking_cred` (§8, §9) |
-| 18 | Admin/control scope — protected prefixes | `RegistryNode.protected_prefixes` (§7, §10) |
+| 18 | Admin/control scope | Documented scope boundary (`03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md`); companion-asset protection is substandard responsibility, not a base-layer mechanism (§10) |
 | 19 | Redundant length/ordering checks in RegistryInsert | `registry_mint` internal (#70) |
 | R-01 | Node spend cannot issue its own token | `registry_spend` guard (§7, §12) |
 | R-06 | Redundant `RegistryInsert` registration-mode tag | removed before release — final redeemer is `{key, minting_logic_script}` (§1.3) |
@@ -706,12 +705,12 @@ When upgrading off-chain integration:
       `minting_logic_script` withdraw-0 even though no programmable tokens are
       being minted — the registry validator now requires it explicitly.
 - [ ] If your tx builder uses the `ThirdPartyAct` path, ensure the continuing
-      PLB outputs preserve the input's reference script verbatim, only target
-      inputs already holding the subject policy, and leave protected-prefixed
-      tokens byte-equal on the continuing output (§10).
-- [ ] Add the 7th `RegistryNode` field `protected_prefixes` (and the 3rd
-      `minting_logic_script` if migrating from pre-`ebd9ffa`) to every datum
-      constructor/parser (§2, §7).
+      PLB outputs preserve the input's reference script verbatim and only target
+      inputs already holding the subject policy (§10).
+- [ ] Add the `RegistryNode` field `unfracking_logic_script` at index 5 (and the
+      3rd `minting_logic_script` if migrating from pre-`ebd9ffa`) to every datum
+      constructor/parser; **remove `protected_prefixes` if a draft of this
+      document led you to add it** (§2, §7).
 - [ ] Add the 3rd protocol-params field `unfracking_cred` to your params-datum
       tooling (§8).
 - [ ] Decode the PLG redeemer's new `UnfrackingAct` variant and the reshaped
@@ -721,7 +720,7 @@ When upgrading off-chain integration:
       `BaseSpendRedeemer` instead (§17).
 - [ ] **Stop caching node governance credentials** — resolve
       `transfer_logic_script` / `third_party_transfer_logic_script` /
-      `global_state_cs` / `protected_prefixes` fresh at build time; they are
+      `unfracking_logic_script` / `global_state_cs` fresh at build time; they are
       updatable (§7).
 - [ ] In transfer builders, drop `TransferAct` proofs for pure-mint policies;
       keep exactly one per PLB input policy (§11).

@@ -162,8 +162,8 @@ A sorted linked list of registered programmable tokens, stored as on-chain UTxOs
 - Issuance (minting-logic) script credential — also the entry's lifecycle authority
 - Transfer validation script credential
 - Issuer control (third-party) script credential
+- Unfracking hook credential (unset means unfracking is forbidden for the policy)
 - Optional global state reference (e.g., denylist)
-- Protected asset-name prefixes that issuer actions may never seize or burn
 
 The linked list structure enables **O(1) verification** - you can prove a token is registered (or not registered) with constant-time lookups.
 

@@ -93,8 +93,8 @@ RegistryNode {
   minting_logic_script               : Credential   -- your issuance withdraw-0
   transfer_logic_script              : Credential   -- your transfer withdraw-0
   third_party_transfer_logic_script  : Credential   -- your admin/seizure withdraw-0
+  unfracking_logic_script            : Credential   -- your unfracking hook (unset = forbidden)
   global_state_cs                    : ByteArray     -- optional global-state policy (28B or empty)
-  protected_prefixes                 : List<ByteArray> -- CIP-67 labels the admin can't touch
 }
 ```
 
@@ -122,8 +122,8 @@ re-spending the node UTxO through `validators/registry_spend.ak`
 | `minting_logic_script` | **No** | Immutable — it is bound to `key`; changing it would break the binding. |
 | `transfer_logic_script` | **Yes** | The rules governing ordinary transfers can change. |
 | `third_party_transfer_logic_script` | **Yes** | The admin/seizure rules can change. |
+| `unfracking_logic_script` | **Yes** | The hook gating unfracking. Unset means unfracking is forbidden for the policy. |
 | `global_state_cs` | **Yes** | 28-byte credential or empty. |
-| `protected_prefixes` | **Yes, APPEND-ONLY** | May add CIP-67 labels; may never drop one. Protection cannot be revoked. |
 
 Authority to update is **the `minting_logic_script` itself**: the update is only
 valid if `minting_logic_script` is a `Script` credential *and* its withdraw-0 is
@@ -178,25 +178,25 @@ action is authorised; the framework guarantees *what shape* it can take. You no
 longer have to (and cannot) re-implement custody preservation — but you also
 cannot exceed this scope. See §1.5 for what you can carve out of it.
 
-### 1.5 Companion assets stay inside the PLB — and you protect them with prefixes
+### 1.5 Companion assets stay inside the PLB — and protecting them is yours
 
 The framework never lets a registered policy's tokens leave the PLB (no
 carve-out). Companion assets (CIP-68 reference NFTs label 100, CIP-102 royalty
-tokens label 500) therefore live *inside* the PLB under the same policy, and you
-shield them from admin seizure via `protected_prefixes` on the node:
+tokens label 500) therefore live *inside* the PLB under the same policy — and
+the base layer, which applies control at the **policy** level and models no
+CIP-67 token roles, cannot tell them apart from the user token.
 
-`ThirdPartyAct` may **not extract or burn** any token whose CIP-67 asset-name
-label prefix is on `protected_prefixes` — on each pair those tokens must be
-byte-equal across input and output ("preserve, not fail":
-`third_party.ak:protected_subset`). The unprotected remainder is still fully
-seizable.
+The consequence: **an administrative action can extract or burn your reference
+NFT or royalty token.** There is no field to declare, no list to append to, and
+no framework mechanism that will stop it.
 
 **Why your substandard cares:** if your token has CIP-68/102 companion assets,
-declaring their label prefixes as protected is now *your* responsibility at
-registration (and you can only ever *add* more later — §1.3). Metadata/royalty
-management itself is out of framework scope and lives in your
-CIP-68/102-aware minting/transfer logic. See
-[`03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md`](./03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md).
+refusing an administrative action that would touch them is *your* duty, in the
+`third_party_transfer_logic_script` the framework guarantees is invoked. The
+reference shape is in
+[`03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md`](./03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md)
+§2.2. Metadata/royalty management itself remains out of framework scope and
+lives in your CIP-68/102-aware minting/transfer logic.
 
 ### 1.6 Holders can restructure their own UTxOs (Unfracking)
 
@@ -245,7 +245,7 @@ these are the dangerous ones.
 | B9 | `ThirdPartyAct` paired input must already hold the subject policy (Finding 12) | **LOUD** | Seizure of a UTxO that never held the policy is rejected | §3.4 |
 | S1 | **Node governance fields are upgradable** — cached transfer/third-party/global-state creds go stale | **SILENT** | Integrator enforces old rules after an update; holders governed by rules they can't see | §3.5 |
 | S2 | `issuance_mint` delegation signal moved input→withdrawal (Finding 09) | **SILENT** | Incidental PLB inputs no longer trigger delegation; custody validated by a different party than before | §3.6 |
-| S3 | Companion assets are seizable unless you declare `protected_prefixes` | **SILENT** | Admin can seize/burn your CIP-68/102 assets you assumed were safe | §3.4 |
+| S3 | Companion assets are seizable, full stop — no base-layer carve-out exists | **SILENT** | Admin can seize/burn CIP-68/102 assets you assumed the framework protected | §3.4 |
 | S4 | Unfracking moves your token between a holder's UTxOs without your transfer logic | **SILENT** | Transfer-logic-based accounting misses same-owner restructuring | §3.5 |
 | S5 | Net-positive mints must land at PLB even when pre-existing supply exists (re-audit R-04) | **SILENT** (until R-04 lands) | Mint routed outside PLB can escape custody | §3.6 |
 
@@ -262,8 +262,9 @@ Ordered so that CBOR/parameter breakage (which blocks everything) comes first.
   `validators/programmable_logic/params.ak`); the PLG redeemer added
   `UnfrackingAct` and reshaped `ThirdPartyAct`
   (`lib/types.ak:ProgrammableLogicGlobalRedeemer`).
-- **WHY.** Findings 17/18 added `unfracking_cred` and `protected_prefixes`; the
-  admin path was made batch-capable.
+- **WHY.** Finding 17 added `unfracking_cred`; Finding 18's scope question was
+  answered in documentation and substandard responsibility rather than a
+  base-layer field; the admin path was made batch-capable.
 - **WHAT YOU MUST DO.** Regenerate every off-chain constructor/parser for these
   three CBOR shapes. Field order matters — match `lib/registry_node.ak` and
   `params.ak` exactly. If you parse *existing* pre-audit registry UTxOs, handle
@@ -317,27 +318,28 @@ Ordered so that CBOR/parameter breakage (which blocks everything) comes first.
 - **HOW TO VERIFY.** A transfer that mints a new policy and supplies a proof for
   it is rejected as surplus; removing that proof passes.
 
-### 3.4 Preserve reference scripts, respect protected prefixes, don't inject (B8, B9, S3)
+### 3.4 Preserve reference scripts, don't inject — and guard your own companion assets (B8, B9, S3)
 
-- **WHAT CHANGED.** On `ThirdPartyAct`, the continuing output must preserve the
-  input's `reference_script` (Finding 13); the paired input must already hold
-  the subject policy (Finding 12); protected-prefixed tokens must be byte-equal
-  across the pair (Finding 18).
-- **WHY.** Close reference-script tampering, UTxO contamination, and
-  companion-asset seizure.
+- **WHAT CHANGED.** On the third-party path, the continuing output must preserve
+  the input's `reference_script` (Finding 13) and the paired input must already
+  hold the subject policy (Finding 12). Finding 18 did **not** add a base-layer
+  protected-label mechanism: no token of the subject policy is exempt.
+- **WHY.** Close reference-script tampering and UTxO contamination in the base
+  layer; keep token-role semantics (which the framework does not model) in the
+  substandard that does model them.
 - **WHAT YOU MUST DO.** In your third-party tx builder, copy the input's
-  reference script to the continuing output verbatim; only target UTxOs that
-  already hold the subject policy; and at registration, declare the CIP-67 label
-  prefixes of any companion assets you want shielded in `protected_prefixes`
-  (remember: append-only — you can add later but never remove).
-- **HOW TO VERIFY.** A seize tx that drops a ref script, or targets a UTxO
-  without the policy, or reduces a protected token, is rejected; the same tx
-  respecting all three passes.
+  reference script to the continuing output verbatim and only target UTxOs that
+  already hold the subject policy. In your third-party *validator*, refuse any
+  action that would extract or burn a companion label you care about — nothing
+  else will.
+- **HOW TO VERIFY.** A seize tx that drops a ref script or targets a UTxO
+  without the policy is rejected by the framework; a seize tx that sweeps your
+  reference NFT is rejected only if **your** logic rejects it — write that test.
 
 ### 3.5 Stop caching governance credentials; account for unfracking (S1, S4)
 
 - **WHAT CHANGED.** Node `transfer_logic_script` / `third_party_transfer_logic_script`
-  / `global_state_cs` / `protected_prefixes` are mutable post-registration
+  / `unfracking_logic_script` / `global_state_cs` are mutable post-registration
   (§1.3); unfracking moves tokens between a holder's own UTxOs without your
   transfer logic (§1.6).
 - **WHY.** Node upgradability (Finding-era in-place update) and Finding 17.
@@ -391,13 +393,13 @@ Ordered so that CBOR/parameter breakage (which blocks everything) comes first.
 | If your pre-audit code did this | Now do this |
 |---|---|
 | Built one tx that registered + minted, implicitly | Still works (register + first mint in one tx); include minting-logic withdraw-0 |
-| Constructed `RegistryNode` with 5 fields | Construct 7 fields; add `minting_logic_script` (#3) and `protected_prefixes` (#7) |
+| Constructed `RegistryNode` with 5 fields | Construct 7 fields; add `minting_logic_script` (#3) and `unfracking_logic_script` (#6) |
 | Passed `SmartTokenMintingAction { minting_logic_cred, proof }` | Pass `MintingRegistryProof` directly (`RefInput`/`OutputIndex`) |
 | Passed `hashed_param` in `RegistryInsert` | Pass `minting_logic_script`; the validator derives the hash |
 | Added a PLB input to signal issuance delegation | Invoke PLGlobal withdraw-0 (`plg_stake_cred`) explicitly |
 | Supplied a `TransferAct` proof for every minted policy | Supply proofs only for PLB *input* policies; none for pure mints |
 | Cached "policy X → transfer logic L" | Read the node fresh each build; L can change |
-| Assumed companion assets can't be seized | Declare their CIP-67 prefixes in `protected_prefixes` (append-only) |
+| Assumed companion assets can't be seized | They can — gate them in your own third-party logic; the framework has no carve-out |
 | Wrote protocol-params datum with 2 fields | Write 3 fields; add `unfracking_cred` |
 | Hardcoded script bytes/addresses | Fetch blueprints from the API after redeploy |
 
@@ -410,9 +412,9 @@ Ordered so that CBOR/parameter breakage (which blocks everything) comes first.
       both modes; wrong-mode and missing-withdrawal txs are rejected by test
       (B5, B6).
 - [ ] Transfer builder supplies exact proofs; a pure-mint proof is rejected (B7).
-- [ ] Third-party builder preserves ref scripts, targets only policy-holding
-      inputs, and leaves protected prefixes byte-equal; negative tests fail
-      (B8, B9, S3).
+- [ ] Third-party builder preserves ref scripts and targets only policy-holding
+      inputs; your third-party validator refuses actions touching companion
+      labels; negative tests fail (B8, B9, S3).
 - [ ] No governance credential is cached; a node update is picked up on the next
       build with no code change (S1).
 - [ ] Off-chain accounting handles `UnfrackingAct` (same-owner, no transfer
@@ -434,7 +436,7 @@ Ordered so that CBOR/parameter breakage (which blocks everything) comes first.
 | Registration flows (with/without first mint) | `lib/types.ak:RegistryRedeemer`, `validators/registry_mint.ak` |
 | Issuance / delegation / custody | `validators/issuance_mint.ak:plgl_scope_covers` (`transfer_scope_covers` on `feat/upgradability-in-place`) |
 | Transfer proof contract | `validators/programmable_logic/transfer.ak:verify_proofs` |
-| Third-party scope & protected prefixes | `validators/programmable_logic/third_party.ak` |
+| Third-party scope | `validators/programmable_logic/third_party.ak` |
 | Protocol-params datum | `validators/programmable_logic/params.ak` |
 | Unfracking | `validators/programmable_logic/unfracking.ak` (on `feat/upgradability-in-place`: dispatched by PLB's `SpendViaUnfracking`, no PLG branch) |
 | Control scope (human narrative) | [`03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md`](./03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md) |

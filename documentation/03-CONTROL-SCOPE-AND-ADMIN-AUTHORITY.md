@@ -58,17 +58,22 @@ CIP-68/102-aware substandard:
   reference NFT's datum (the transfer path does not pin output datums, so a
   CIP-68-aware substandard can permit datum updates), or handling royalty
   payouts. This is the substandard author's responsibility, not the framework's.
-- **The third-party path is forbidden from interfering** with them: list labels
-  100/500 in the node's protected prefixes (§2.2) and the administrator can
-  neither seize nor burn the companion assets. Only the owner — through the
-  substandard's transfer logic — can move them.
+- **The third-party path can reach them too.** Control is applied at the policy
+  level, and the base layer models no CIP-67 token roles, so an administrative
+  action does not distinguish a reference NFT or a royalty token from a user
+  token: all are tokens of policy A and all are within the subject scope. Keeping
+  companion assets out of an administrative action is therefore the
+  **substandard's** duty, discharged in its `third_party_transfer_logic_script` —
+  see §2.2.
 - CIP-68/102 consumers locate companion assets by *policy id + CIP-67 label asset
   name* and read their datum regardless of on-chain location, so
   interoperability holds without any escape.
 
-In short: keep everything in the mini-ledger, make the substandard
-CIP-68/102-aware, and protect the companion labels. The administrator cannot
-seize, burn, or move them; a correctly-implemented substandard can.
+In short: keep everything in the mini-ledger and make the substandard
+CIP-68/102-aware on **both** paths — its transfer logic decides how companion
+assets may legitimately move, its third-party logic decides whether an
+administrator may touch them at all. The framework enforces custody; it does not
+enforce token roles.
 
 ---
 
@@ -91,7 +96,7 @@ substandard:
 |---|---|
 | A's `third_party_transfer_logic_script` is invoked (withdraw-0) | `third_party.ak` |
 | Each spent PLB UTxO is paired 1:1 with a continuing output preserving **address, datum, and reference script** byte-for-byte | `third_party.ak` |
-| **Non-subject** token quantities are conserved per pair, byte-for-byte — no other policy can be injected, redirected, split, or destroyed | `third_party.ak` |
+| **Non-subject** token quantities are conserved per pair, byte-for-byte — no other policy can be injected, redirected, split, or destroyed (lovelace excepted: it is ratcheted `>=`, not pinned, so the paired output may be topped up but never drained) | `third_party.ak` |
 | The paired input **must already hold** policy A — the admin cannot conjure A onto a UTxO that never held it (anti-injection), nor drag an unrelated UTxO into the action (anti-DoS) | `third_party.ak` |
 | The subject delta across all pairs reconciles against A's `mint`/burn; nothing escapes the PLB | `third_party.ak` |
 | The action resolves exactly **one** registry node (`registry_node_idx`), hence exactly one policy per transaction (see §3.1) | `third_party` |
@@ -101,42 +106,67 @@ one transaction; each spent PLB input gets its own paired output.
 
 **On the subject policy, the admin may change amounts in any direction.**
 A third-party action is a forced *transfer*, not only a removal: on each paired
-output the subject policy's non-protected tokens may be **decreased, removed
-entirely, increased, or left unchanged**. The framework does not require the
+output the subject policy's tokens may be **decreased, removed entirely,
+increased, or left unchanged**. The framework does not require the
 amount to change — an admin can re-spend a holder's UTxO without altering its
 subject balance, a capability bounded by transaction fees rather than the
 validator; custody is unaffected either way. The per-pair check pins the
-protected subset (§2.2) and the non-subject tokens; the *direction* of the
-subject change is otherwise unconstrained per pair. The aggregate rule (the
-`mint`/burn-reconciled superset check above) keeps the *total* non-protected
-subject amount within the PLB across all outputs — so amounts are
+non-subject tokens; the *direction* of the subject change is otherwise
+unconstrained per pair. The aggregate rule (the `mint`/burn-reconciled superset
+check above) keeps the *total* subject amount within the PLB across all outputs — so amounts are
 **redistributed** (or minted/burned), never created from nothing or made to
 escape. An increase on one UTxO must therefore be backed by a decrease on
 another seized input or by a mint of A.
 
-### 2.2 Protected prefixes — extraction the admin cannot perform
+### 2.2 Companion assets — a duty the framework does not discharge
 
-The `RegistryNode` carries `protected_prefixes`: an **issuer-declared,
-append-only** list of 4-byte CIP-67 asset-name label prefixes, kept in
-**strictly ascending order** (which deduplicates it and lets the framework
-validate the list and the append-only invariant in a single pass).
+There is **no framework-level carve-out for any token of the subject policy.**
+Everything under policy A sitting on a paired input is within the administrator's
+reach: to the base layer a CIP-68 reference NFT (label 100), a CIP-102 royalty
+token (label 500) and the user token are indistinguishable. That is the direct
+consequence of the policy-level scope described in §1 — the framework does not
+model token roles, so it cannot protect one.
 
-A third-party action may **not extract or burn** any token of policy A whose asset
-name begins with a protected prefix. On each paired UTxO the protected-labelled
-tokens must be **byte-equal** between input and continuing output; only the
-non-protected remainder may be seized or otherwise changed. This is
-**"preserve, not fail"**:
-co-locating a protected token in a UTxO does **not** block the admin from
-seizing everything else in it, and the protected token simply stays put.
+The consequence is concrete. An administrative action can **burn** a policy's
+reference NFT or royalty token — irrecoverably — or **move it to an output whose
+datum and stake credential the administrator chooses**. Only *paired* outputs are
+datum-pinned (§2.1); a token routed to any other PLB output carries whatever
+datum that output declares, which for a CIP-68 reference NFT *is* the metadata.
+Lookup itself survives a move (consumers resolve companion assets by policy id +
+label asset name, §1), so the exposure is the metadata and the ownership, not
+discoverability.
 
-The list is **append-only** — a registry-node update may only *add* prefixes,
-never remove one. Protection, once declared, cannot be revoked to enable a later
-seizure.
+Preventing it is the substandard's duty, discharged in its
+`third_party_transfer_logic_script` — the one script the framework guarantees is
+invoked on every third-party action (§2.1). The reference shape:
 
-Typical use: protect CIP-68 reference NFTs (label 100, prefix `000643b0`) and
-CIP-102 royalty tokens (label 500, prefix `001f4d70`), so administrative seizure
-of the user token never sweeps the metadata/royalty infrastructure. This is the
-mechanism by which the §1 scope boundary is enforced on the admin path.
+Your third-party validator is a withdraw handler: it receives the redeemer, its
+own credential and the transaction, and nothing else — in particular it does not
+receive the framework's `outputs_start_idx`, so it cannot reconstruct the
+input↔output pairing. Work in aggregate instead, over the PLB credential your
+validator is parameterised with (the pattern deployed substandards already use to
+find programmable inputs):
+
+1. A CIP-67 label is the first 4 bytes of the asset name — `000643b0` for label
+   100, `001f4d70` for 500. Decide which labels of *your* policy are companion
+   assets.
+2. Sum those tokens across the transaction's inputs sitting at the PLB
+   credential, and across its outputs at the PLB credential. Require the two
+   equal: nothing of a protected label was extracted from the mini-ledger or
+   burned.
+3. If your metadata lives in a reference NFT's datum, also require the output
+   carrying that NFT to repeat the datum of the input that held it — per the
+   note above, an unpaired output's datum is unconstrained by the framework.
+4. Decline the action otherwise.
+
+Aggregate, not per-pair, is deliberate — **"preserve, not fail"**: the
+administrator must still be able to seize everything else in a UTxO that happens
+to hold a companion asset. A per-pair veto would let anyone grief an
+administrator into paralysis by parking a reference NFT in the target UTxO.
+
+The label set is yours to define, and — because `third_party_transfer_logic_script`
+is itself a mutable node field — yours to evolve, subject to the retroactivity
+warning in §3.2. Nothing in the base layer records, validates, or enforces it.
 
 ### 2.3 Freeze vs. extract
 
@@ -215,9 +245,9 @@ permanent limitation.
 
 ### 3.2 Registry-node update authority
 
-A node's three mutable fields — `transfer_logic_script`,
-`third_party_transfer_logic_script`, `global_state_cs` — and growth of
-`protected_prefixes` can be changed through the registry lifecycle (update) path,
+A node's four mutable fields — `transfer_logic_script`,
+`third_party_transfer_logic_script`, `unfracking_logic_script` and
+`global_state_cs` — can be changed through the registry lifecycle (update) path,
 authorised by the registration credential (`minting_logic_script`). `key`,
 `next`, and `minting_logic_script` are frozen.
 

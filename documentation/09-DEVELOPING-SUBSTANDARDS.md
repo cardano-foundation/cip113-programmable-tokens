@@ -135,10 +135,12 @@ Your transfer logic validator decides **what conditions must be met for a transf
 > framework's.** Reference NFTs and royalty tokens stay in the PLB under the
 > same policy. Transferring them is allowed — your CIP-68/102-aware transfer and
 > minting logic must ensure it happens the proper way (moving them, updating a
-> reference NFT's datum, handling royalties). List their CIP-67 labels (100 /
-> 500) in the registry node's `protected_prefixes` so the third-party path cannot
-> seize or burn them. See
-> [`03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md`](./03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md) §1.
+> reference NFT's datum, handling royalties). And because the base layer models
+> no CIP-67 token roles, an administrative action **can extract or burn them** —
+> if that must not happen for your token, your *third-party* logic is what has to
+> refuse it. See
+> [`03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md`](./03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md) §2.2
+> for the reference shape.
 
 ### 3. Third-Party Transfer Logic (withdraw)
 
@@ -149,9 +151,12 @@ Invoked when a **third party** (not the token owner) moves tokens. The standalon
 
 **Scope and responsibility.** The base layer guarantees the structural envelope
 (paired-output address/datum/reference-script preservation, byte-for-byte
-non-subject conservation, anti-injection) and honours the node's
-`protected_prefixes` — labels it may never seize or burn. What it does **not**
-decide is *who* is seizable: a `VerificationKey`-staked UTxO is a user wallet
+non-subject conservation, anti-injection). What it does **not** decide is
+*which tokens of the subject policy are off limits*: there is no carve-out, so a
+CIP-68 reference NFT or CIP-102 royalty token is exactly as seizable as the user
+token unless your logic refuses it (see
+[`03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md`](./03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md) §2.2).
+Nor does it decide *who* is seizable: a `VerificationKey`-staked UTxO is a user wallet
 (extraction is appropriate), but a script-staked UTxO is ambiguous (smart wallet
 vs DeFi pool), so **your** third-party logic owns that call. Two reference
 patterns gate extraction of script-staked inputs — an issuer **allowlist** of
@@ -190,8 +195,8 @@ type RegistryNode {
   minting_logic_script: Credential,              // YOUR issuance / registration authority
   transfer_logic_script: Credential,             // YOUR transfer logic
   third_party_transfer_logic_script: Credential, // YOUR 3rd party logic
+  unfracking_logic_script: Credential,           // YOUR unfracking hook (unset = unfracking forbidden)
   global_state_cs: ByteArray,                    // YOUR global state NFT (optional)
-  protected_prefixes: List<ByteArray>,           // CIP-67 labels the third-party path may not seize/burn (append-only)
 }
 ```
 
@@ -436,8 +441,8 @@ changed in place after registration:
 
 - `transfer_logic_script`
 - `third_party_transfer_logic_script`
+- `unfracking_logic_script`
 - `global_state_cs`
-- growth of `protected_prefixes` (append-only — prefixes may be added, never removed)
 
 `key`, `next`, and `minting_logic_script` are **frozen**. Updates are
 **retroactive**: the new transfer / third-party logic governs *all existing
@@ -463,7 +468,7 @@ withdraw-0 credential is checked in three different contexts:
 
 So **your issuance-logic validator runs in all three** — and by default, whoever
 can mint can also register and reconfigure the registry entry (transfer logic,
-third-party logic, global state, protected prefixes).
+third-party logic, unfracking hook, global state).
 
 > **The in-place update path requires a *script* `minting_logic_script`.**
 > `registry_spend` authorises a node update by checking that
