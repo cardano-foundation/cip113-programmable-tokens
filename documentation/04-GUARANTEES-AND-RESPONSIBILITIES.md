@@ -65,6 +65,11 @@ Each `CORE-*` entry cites the test that locks it, so the claim is checkable:
 aiken check -m <test-name>
 ```
 
+A handful of names are shared by two modules (`protocol_params_mint` and `issuance_cbor_hex_mint`
+both have `fails_when_utxo_not_consumed`, `fails_when_quantity_is_not_one` and
+`fails_with_invalid_datum_type`), so `-m` on those runs both modules' copies. Read the module
+name in the output before concluding which one you exercised.
+
 Line numbers were considered and rejected: nothing in CI reads prose, so a `file:line`
 reference rots silently on the next refactor and the document keeps being cited as normative.
 A test name is a string the build can be made to assert still exists. Entries whose invariant
@@ -114,7 +119,7 @@ The remaining three kinds do not spend programmable tokens through the dispatche
 | Authorised by | the policy's `minting_logic_script` withdraw-0 | the node's `minting_logic_script` withdraw-0 — **`Script` credentials only** | the **current** datum's `upgrade_cred` withdraw-0 |
 | Core constrains the amount? | **No** — presence of your minting logic is the whole check | n/a | n/a |
 | Custody of what is minted | pinned at the PLB, unless a delegate covering the same registry node is running | n/a | n/a |
-| May mint the node's own token | n/a | **No** — lifecycle and issuance are always separate transactions | n/a |
+| May mint a policy in the same transaction | n/a | **Not the spent node's own policy.** On an insert the spent node is the *covering* node, so the newly registered policy **may** be minted in the same transaction — the standard register-and-first-mint flow, validated by `issuance_mint` | n/a |
 
 > Reading the matrix: a row that says **No** is a duty, not an absence. Every "No" in the
 > *constrained?* rows is a `SUB-*` entry in §4, because it is a decision the core has left to
@@ -131,7 +136,7 @@ protects: true today, unguarded against tomorrow's refactor. Treat those as weak
 
 | id | Guarantee | Layer | Evidence |
 |---|---|---|---|
-| `CORE-PLB-01` | Every programmable token lives at the base validator's payment credential, and any spend of one must invoke a delegate's withdraw-0. | SPEC | `plb_fails_with_empty_withdrawals` |
+| `CORE-PLB-01` | Any spend of a programmable-token UTxO must invoke a delegate's withdraw-0. (That tokens *arrive* at the base credential in the first place is upheld by `CORE-IM-03` and `CORE-TR-03`, not by this validator, which only dispatches.) | SPEC | `plb_fails_with_empty_withdrawals` |
 | `CORE-PLB-02` | The delegate credential is read **live** from the protocol-params datum at the redeemer's `params_idx`, authenticated by the one-shot params NFT. | IMPL | `plb_fails_without_params_reference_input` |
 | `CORE-PLB-03` | The withdrawal at the redeemer's `wdrl_idx` must carry exactly the credential the chosen arm names; every other index is rejected. | IMPL | `plb_fails_when_wdrl_idx_points_at_wrong_entry`; property `plb_transfer_arm_accepts_only_the_recomputed_index` |
 | `CORE-PLB-04` | An arm cannot be satisfied by another arm's delegate — a transfer redeemer is not satisfied by the third-party or unfracking credential, and vice versa. | IMPL | `plb_fails_third_party_arm_witnessing_transfer_cred` and its four siblings |
@@ -146,7 +151,7 @@ protects: true today, unguarded against tomorrow's refactor. Treat those as weak
 |---|---|---|---|
 | `CORE-TR-01` | Every spent PLB input's stake credential authorises the transaction: a signature for a verification key, a withdrawal keyed by that script for a script credential. | SPEC | `owner_consent_rejects_unsigned_vkey`, `owner_consent_rejects_script_without_withdrawal` (kernel-level) |
 | `CORE-TR-02` | Each registered policy among the inputs has its `transfer_logic_script` withdraw-0 invoked. | SPEC | `fails_transfer_without_token_transfer_logic` |
-| `CORE-TR-03` | Registered tokens cannot leave the base address: for each input policy, the total across PLB outputs is at least the total across PLB inputs, reconciled against mint and burn. | SPEC | `transfer_act_mint_insufficient_output_fails` |
+| `CORE-TR-03` | Registered tokens cannot leave the base address: for each **registered** input policy, the total across PLB outputs is at least the total across PLB inputs, reconciled against mint and burn. A policy proved *unregistered* is skipped entirely. | SPEC | `transfer_act_mint_insufficient_output_fails` |
 | `CORE-TR-04` | A claim that a policy is *unregistered* must be proved by a covering node that genuinely brackets it (`key < policy < next`). | SPEC | `fails_absence_proof_when_node_starts_above_policy`, `fails_absence_proof_when_node_ends_below_policy` |
 | `CORE-TR-05` | Proofs are consumed exactly — one per distinct input policy, no leftovers. | IMPL | `transfer_act_pure_mint_with_unnecessary_proof_must_fail` |
 | `CORE-TR-06` | A policy that appears only in `mint` (a pure mint) is outside the transfer path entirely; its custody belongs to `issuance_mint`. | IMPL | `transfer_act_with_only_minting_succeeds` |
@@ -174,11 +179,11 @@ protects: true today, unguarded against tomorrow's refactor. Treat those as weak
 
 | id | Guarantee | Layer | Evidence |
 |---|---|---|---|
-| `CORE-TP-01` | The subject policy's `third_party_transfer_logic_script` withdraw-0 must be invoked — the sole authorisation for the administrative path. | SPEC | **no covering test** |
+| `CORE-TP-01` | The subject policy's `third_party_transfer_logic_script` withdraw-0 must be invoked — the sole authorisation for the administrative path. | SPEC | `third_party_act_unauthorized_burn_compensate_spend` — verified by mutation to fail when the check is removed, but it varies the mint too, so it is not a single-delta lock |
 | `CORE-TP-02` | Each spent PLB input is paired positionally with a continuing output, starting at `outputs_start_idx`. | IMPL | `third_party_act_missing_prog_output`, `third_party_act_prog_outputs_out_of_order` |
-| `CORE-TP-03` | The paired output preserves the holder's **address** and **datum** byte-for-byte. | SPEC | positive coverage only — no test varies either |
+| `CORE-TP-03` | The paired output preserves the holder's **address** and **datum** byte-for-byte. | SPEC | address: `third_party_act_prog_outputs_out_of_order`; datum: **no covering test** |
 | `CORE-TP-04` | The paired output preserves the input's **reference script** byte-for-byte. | IMPL | `third_party_act_reference_script_added_fails`, `third_party_act_reference_script_swapped_fails` (Finding 13) |
-| `CORE-TP-05` | The paired output's lovelace is ratcheted `>=`, never equal: it may be topped up, never drained. | IMPL | `third_party_act_pair_ada_drain_fails`, `third_party_act_pair_ada_topup_succeeds` (issue #96) |
+| `CORE-TP-05` | The paired output's lovelace is ratcheted `>=`, not equality-pinned: it may be topped up, never drained (equality is the normal case). | IMPL | `third_party_act_pair_ada_drain_fails`, `third_party_act_pair_ada_topup_succeeds` (issue #96) |
 | `CORE-TP-06` | The paired input must already hold the subject policy — the administrator cannot conjure it onto an untouched UTxO, nor drag one into the action. | SPEC | `third_party_act_paired_input_missing_acted_on_policy_fails` (Finding 12) |
 | `CORE-TP-07` | Every **non-subject** policy is byte-identical across the pair — none can be injected, redirected, split or destroyed. | SPEC | `third_party_act_pair_foreign_policy_injection_still_fails` |
 | `CORE-TP-08` | The subject policy's total across all PLB outputs is a superset of the total across all PLB inputs, seeded by mint and burn — seized tokens cannot escape the base address. | SPEC | `third_party_act_seized_tokens_escape_prog_cred_must_fail`, `third_party_act_delta_insufficient_remaining_fails` |
@@ -211,12 +216,18 @@ protects: true today, unguarded against tomorrow's refactor. Treat those as weak
 |---|---|---|---|
 | `CORE-IM-01` | The policy's `minting_logic_script` withdraw-0 must be invoked for any mint or burn. | SPEC | `minting_logic_not_invoked_fails` |
 | `CORE-IM-02` | The registry node named by the redeemer is authenticated and its `key` equals the minting policy — a policy cannot mint against another's node. | SPEC | `wrong_registry_key_fails`, `registry_nft_missing_fails`, `wrong_registry_cs_nft_fails` |
-| `CORE-IM-03` | No token of the minted policy may sit at a non-PLB output, and every PLB output carries an inline stake credential. | SPEC | `output_not_at_plb_fails`, `output_missing_stake_cred_fails`, `output_partial_escape_to_non_plb_fails` |
+| `CORE-IM-03` | No token of the minted policy may sit at a non-PLB output, and every PLB output carries an inline stake credential — **unless custody is delegated** (`CORE-IM-04`), in which case the delegate's own rules apply instead. The `transfer` delegate re-imposes both clauses; the `third_party` delegate re-imposes containment but **not** the inline-stake-credential clause. | SPEC | `output_not_at_plb_fails`, `output_missing_stake_cred_fails`, `output_partial_escape_to_non_plb_fails` |
 | `CORE-IM-04` | Custody may be **delegated**, but only to a delegate whose own redeemer names the *same* registry node. | IMPL | `refinput_mint_third_party_wrong_node_no_delegation_fails` (Finding 04) |
 | `CORE-IM-05` | Delegation tracks the live delegate credentials; a retired one cannot cover a mint. | IMPL | `launch_era_transfer_cred_cannot_delegate_after_upgrade_fails` |
 
 > **What `CORE-IM-01` does NOT imply.** Presence is the entire check. `issuance_mint` constrains
 > no quantity, no asset name and no cap — supply policy is `SUB-08`.
+>
+> **A mint composed with a seize is the one gap in `CORE-IM-03`.** Under `third_party`
+> delegation `no_escape` is skipped and the third-party path checks only the payment credential,
+> so a minted token can land at a base-address output carrying no stake credential — which
+> `owner.ak` can never authorise, making it permanently unspendable. Self-inflicted (the minter
+> builds it), but nothing stops it.
 >
 > **`CORE-IM-04` fails safe but silently.** With no coordination reference input, or a delegate
 > whose redeemer names a different node, delegation simply does not happen and local custody
@@ -232,10 +243,13 @@ protects: true today, unguarded against tomorrow's refactor. Treat those as weak
 | `CORE-REG-03` | The covering node is re-emitted unchanged except for `next` — an insertion cannot tamper with a neighbour's governance fields. | IMPL | `is_updated_directory_node_rejects_transfer_logic_swap` and siblings |
 | `CORE-REG-04` | A node update may change only `transfer_logic_script`, `third_party_transfer_logic_script`, `unfracking_logic_script`, `global_state_cs`; `key`, `next` and `minting_logic_script` are frozen. | SPEC | `fails_update_changes_minting_logic` |
 | `CORE-REG-05` | A node update is authorised by that node's own `minting_logic_script` withdraw-0. | SPEC | `fails_update_without_minting_logic_withdrawal`, `fails_update_wrong_withdrawal_credential` |
-| `CORE-REG-06` | A registry-node spend may not mint or burn that node's own policy: lifecycle and issuance are always separate transactions. | SPEC | `fails_update_mints_own_programmable_token` (R-01) |
+| `CORE-REG-06` | A registry-node spend may not mint or burn **the spent node's** own policy. On an insert the spent node is the covering predecessor, so the newly registered policy may be minted in the same transaction (register-and-first-mint). What the rule forbids is a node acting as its own issuer. | SPEC | `fails_update_mints_own_programmable_token` (R-01) |
 
-> A `VerificationKey` `minting_logic_script` can never satisfy `CORE-REG-05`, so such a node can
-> never be updated — irreversibly, since that field is frozen (`SUB-07`). **no covering test**.
+> A non-`Script` `minting_logic_script` is rejected at **registration**: `is_programmable_token_id_valid`
+> destructures it as `Script(..)` before deriving the policy id, so no such node can exist to
+> begin with. Evidence: `registry_insert_fails_verification_key_substandard`. The
+> `VerificationKey` arm in `registry_spend`'s update path is therefore a dead branch — belt and
+> braces, not a hazard.
 
 ### Protocol parameters and upgrade — `protocol_params_mint`, `coordination_spend`
 
@@ -294,8 +308,7 @@ of more than one published substandard.
 ### SUB-04 — Rule on unfracking deliberately · MUST
 
 `unfracking_logic_script` is **default-deny**: a node registered with the field unset forbids
-unfracking for that policy, permanently, until the node is updated — and it cannot be updated at
-all if the policy's `minting_logic_script` is a `VerificationKey` (SUB-07).
+unfracking for that policy, permanently, until the node is updated.
 
 *If you skip it:* your holders can never split a "fracked" multi-policy UTxO. That is precisely
 the collateral damage unfracking exists to prevent — a freeze on someone else's policy sharing
@@ -329,9 +342,9 @@ One credential, `minting_logic_script`, authorises **both** minting and registry
 Whoever can mint can also reconfigure the node — retroactively, for all existing holders. If those
 must be distinct authorities, split them inside your issuance logic; nothing upstream will.
 
-Related and **irreversible**: if that credential is a `VerificationKey`, the node can never be
-updated, because `registry_spend` requires its withdraw-0 and only a `Script` can supply one.
-Decide before you register.
+Your `minting_logic_script` must be a `Script` credential — registration derives the policy id
+from its hash and rejects anything else — so the update path is always *available* to you. What
+is worth deciding early is who holds it, since that one credential is both powers.
 
 ### SUB-08 — Enforce your own supply and naming policy · MUST
 

@@ -662,15 +662,12 @@ distinct, they must be script credentials, the registry NFT policy must be genui
 and the genesis wiring must be correct. Verify them once, at deployment, and re-verify after
 every upgrade.
 
-**Decisions that cannot be undone.** Two are made at registration time, per policy, and are
-irreversible:
-
-- A `VerificationKey` `minting_logic_script` means the node can **never** be updated, because
-  `registry_spend` requires that credential's withdraw-0 and only a script can supply one — and
-  the field itself is frozen (`SUB-07`).
-- An unset `unfracking_logic_script` forbids unfracking for that policy by default, so its
-  holders can never split a fracked UTxO — until the node is updated, which the previous point
-  may have made impossible (`SUB-04`).
+**Decisions that stick.** Your `minting_logic_script` must be a `Script` credential —
+registration derives the policy id from its hash and rejects anything else — and it is frozen
+for the life of the node, so whoever holds it holds both the issuance and the lifecycle
+authority forever (`SUB-07`). Separately, an unset `unfracking_logic_script` forbids unfracking
+for that policy by default: its holders cannot split a fracked UTxO until you update the node
+(`SUB-04`). Set it deliberately at registration rather than discovering it later.
 
 **There is no registry removal** (`RESIDUAL-04`). A registered policy is registered permanently;
 the remedy for a retired token is a node update, not a deletion.
