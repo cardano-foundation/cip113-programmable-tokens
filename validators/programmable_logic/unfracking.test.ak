@@ -242,6 +242,37 @@ test unfracking_rejects_datum_hash_destination() fail {
   run_unfracking(tx)
 }
 
+// The reference-script half of the same guard: a large one would bloat every
+// future seizure of the restructured UTxO, which must reproduce it byte-for-byte.
+test unfracking_rejects_reference_script_destination() fail {
+  let input_2 = fixture.some_input_with_programmable_tokens(
+    [(policy_a, "FOO", 50), (policy_b, "BAR", 50)],
+    "unfracking input 2",
+  )
+  let destination_with_ref_script = Output {
+    ..fixture.some_output_with_programmable_tokens([(policy_a, "FOO", 150)]),
+    reference_script: Some(
+      #"b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
+    ),
+  }
+  let tx = Transaction {
+    ..valid_unfracking_tx(),
+    inputs: [
+      fixture.some_input_with_programmable_tokens(
+        [(policy_a, "FOO", 100), (policy_b, "BAR", 100)],
+        "unfracking input",
+      ),
+      input_2,
+    ],
+    outputs: [
+      fixture.some_output_with_programmable_tokens([(policy_b, "BAR", 100)]),
+      fixture.some_output_with_programmable_tokens([(policy_b, "BAR", 50)]),
+      destination_with_ref_script,
+    ],
+  }
+  run_unfracking(tx)
+}
+
 // Full strip: a PARTIAL strip leaving acted residue in the continuing
 // output is rejected. Requirements-driven: in the freeze case the
 // residue keeps the continuing UTxO needing the frozen policy's
