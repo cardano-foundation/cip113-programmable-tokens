@@ -70,6 +70,11 @@ reference rots silently on the next refactor and the document keeps being cited 
 A test name is a string the build can be made to assert still exists. Entries whose invariant
 has no covering test say so — that is a real signal, not an omission.
 
+Convention, so the citation can be checked mechanically: **inside an Evidence cell, a
+backticked name is a test name and nothing else.** `.github/scripts/check-doc-citations.py`
+enforces both halves — that every cited id is defined here, and that every cited test still
+exists.
+
 ### Duplicating a guarantee is allowed
 
 This document is not a licence to delete code. Re-checking something the core already enforces
@@ -177,7 +182,7 @@ protects: true today, unguarded against tomorrow's refactor. Treat those as weak
 | `CORE-TP-06` | The paired input must already hold the subject policy — the administrator cannot conjure it onto an untouched UTxO, nor drag one into the action. | SPEC | `third_party_act_paired_input_missing_acted_on_policy_fails` (Finding 12) |
 | `CORE-TP-07` | Every **non-subject** policy is byte-identical across the pair — none can be injected, redirected, split or destroyed. | SPEC | `third_party_act_pair_foreign_policy_injection_still_fails` |
 | `CORE-TP-08` | The subject policy's total across all PLB outputs is a superset of the total across all PLB inputs, seeded by mint and burn — seized tokens cannot escape the base address. | SPEC | `third_party_act_seized_tokens_escape_prog_cred_must_fail`, `third_party_act_delta_insufficient_remaining_fails` |
-| `CORE-TP-09` | Exactly one registry node, therefore exactly one policy, per administrative transaction. | IMPL | structural (`ThirdPartyRedeemer` carries one `registry_node_idx`) |
+| `CORE-TP-09` | Exactly one registry node, therefore exactly one policy, per administrative transaction. | IMPL | structural — the redeemer carries a single registry_node_idx |
 
 > **What the third-party guarantees do NOT imply.** No holder consent is required — that is the
 > point of the path. `CORE-TP-03` pins **paired** outputs only: a token routed to any *other* PLB
@@ -239,7 +244,7 @@ protects: true today, unguarded against tomorrow's refactor. Treat those as weak
 | `CORE-PAR-01` | The protocol-params NFT is one-shot: exactly one, minted against a consumed reference, locked at the coordination address with a well-formed inline datum. | SPEC | `fails_when_utxo_not_consumed`, `fails_when_quantity_is_not_one`, `fails_with_invalid_datum_type` |
 | `CORE-PAR-02` | An upgrade preserves the coordination UTxO exactly — one in, one out, non-ADA value identical, ADA ratcheted, no reference script attached. | IMPL | `coord_fails_dropping_nft`, `coord_fails_injecting_tokens`, `coord_fails_draining_ada`, `coord_fails_reference_script_attached` |
 | `CORE-PAR-03` | `prog_logic_cred` and `registry_node_cs` are frozen forever: no upgrade can move token custody or repoint the registry. | SPEC | `coord_fails_changing_prog_logic_cred`, `coord_fails_changing_registry_node_cs` |
-| `CORE-PAR-04` | Every mutable credential written by an upgrade must be a well-formed 28-byte hash — a one-way-brick guard. | IMPL | `coord_fails_unsatisfiable_transfer_cred`, `coord_fails_unsatisfiable_unfracking_cred` (`third_party_cred`: **no covering test**) |
+| `CORE-PAR-04` | Every mutable credential written by an upgrade must be a well-formed 28-byte hash — a one-way-brick guard. | IMPL | `coord_fails_unsatisfiable_transfer_cred`, `coord_fails_unsatisfiable_unfracking_cred` — third_party_cred: **no covering test** |
 | `CORE-PAR-05` | The **sitting** authority approves every change, including its own replacement: the check reads the old datum's `upgrade_cred`. | SPEC | `coord_handover_needs_current_authority` |
 
 > `CORE-PAR-04` checks the *length* of a credential, not its kind. A verification-key credential
@@ -369,7 +374,8 @@ this is the metadata itself.
 
 ### Residual risks
 
-**`RESIDUAL-01` — a no-op forced respend is not prevented.** An administrator can re-spend a
+#### `RESIDUAL-01` — a no-op forced respend is not prevented
+ An administrator can re-spend a
 holder's UTxO without changing its subject balance, and can restore a balance through an
 unpaired output that the per-pair walk never inspects. A pair-local guard existed and was
 removed (re-audit R-03): it was pair-local, so it never delivered the aggregate property it
@@ -377,20 +383,24 @@ appeared to, and a per-owner aggregate check measured ~+22% in size, CPU and mem
 path. *Mitigation:* each respend costs the administrator real fees, so sustained churn is
 self-limiting. A substandard may add its own rule. Documented by `third_party_act_no_op_seize_succeeds`.
 
-**`RESIDUAL-02` — your withdraw-0 can be invoked by anyone, in any transaction.** The framework
+#### `RESIDUAL-02` — your withdraw-0 can be invoked by anyone, in any transaction
+ The framework
 requires your script's withdrawal to be *present*; nothing prevents a third party including it
 in a transaction of their own. *Mitigation:* `SUB-09` — anchor any state transition yourself.
 
-**`RESIDUAL-03` — one policy per administrative transaction.** Multi-policy seizure was
+#### `RESIDUAL-03` — one policy per administrative transaction
+ Multi-policy seizure was
 prototyped and deliberately not adopted (execution-cost and script-size tax on the common
 single-policy path). A compliance operation spanning policies needs sequential transactions and
 accepts the exposure window between them. Permanent.
 
-**`RESIDUAL-04` — no registry removal.** `RegistryRedeemer` offers `Init` and `Insert` only. A
+#### `RESIDUAL-04` — no registry removal
+ `RegistryRedeemer` offers `Init` and `Insert` only. A
 registered policy is registered forever; the remedy for a retired token is a node update, not a
 removal.
 
-**`RESIDUAL-05` — no on-chain timelock on upgrades.** A valid upgrade transaction takes effect
+#### `RESIDUAL-05` — no on-chain timelock on upgrades
+ A valid upgrade transaction takes effect
 in the block that carries it. The seam exists (validity intervals) but nothing enforces a delay,
 so the sole protection against a hostile upgrade is the authority behind `upgrade_cred`.
 
@@ -400,23 +410,26 @@ These are conditions the `CORE-*` guarantees rest on and that **nothing on-chain
 are the deployer's and the upgrade authority's responsibility, and an integrator relying on the
 guarantees above should verify them against the deployment they are pointed at.
 
-**`ASSUME-01` — the three delegate credentials are pairwise distinct.** If any two of
+#### `ASSUME-01` — the three delegate credentials are pairwise distinct
+ If any two of
 `transfer_cred`, `third_party_cred` and `unfracking_cred` are equal, the corresponding
 `BaseSpendRedeemer` arms collapse into one and `CORE-PLB-04` is vacuous. Neither
 `protocol_params_mint` nor `coordination_spend` checks it. Pinned by
 `plb_equal_delegate_creds_collapse_the_arms`, which documents the collapse rather than
 preventing it.
 
-**`ASSUME-02` — the delegate credentials are script credentials.** `CORE-PAR-04` checks length,
+#### `ASSUME-02` — the delegate credentials are script credentials
+ `CORE-PAR-04` checks length,
 not kind. A 28-byte verification-key credential would pass, making the "delegate" a reward
 account any holder of that key can satisfy.
 
-**`ASSUME-03` — the registry NFT policy is genuinely one-shot, and `registry_mint` is its only
-minter.** Every reader of a registry node authenticates it by policy id alone and trusts
+#### `ASSUME-03` — the registry NFT policy is genuinely one-shot, and `registry_mint` is its only minter
+ Every reader of a registry node authenticates it by policy id alone and trusts
 `registry_mint`'s binding rather than re-deriving it. A second minter of that policy would forge
 nodes that every delegate accepts.
 
-**`ASSUME-04` — the deployment wiring is correct and was verified once.** The params datum's
+#### `ASSUME-04` — the deployment wiring is correct and was verified once
+ The params datum's
 `prog_logic_cred` must be the base validator actually holding the tokens, and each delegate
 credential the script actually deployed at that hash. Nothing on-chain cross-checks the wiring;
 `CORE-PAR-03` freezes it only *after* genesis has set it.

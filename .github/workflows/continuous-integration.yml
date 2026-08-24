@@ -20,3 +20,5 @@ jobs:
       # pre-condition. Without this step that assertion never executes.
       - run: aiken check -D --env with_assertions
       - run: aiken build
+      - name: Documentation citations resolve
+        run: python3 .github/scripts/check-doc-citations.py

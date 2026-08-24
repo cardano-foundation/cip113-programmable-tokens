@@ -12,6 +12,12 @@ Before reading this guide, familiarity with the [Architecture](./02-ARCHITECTURE
 2. [For Wallet Developers](#for-wallet-developers)
 3. [For Indexers and Explorers](#for-indexers-and-explorers)
 4. [For dApp Developers](#for-dapp-developers)
+5. [For Exchanges and Custodians](#for-exchanges-and-custodians)
+6. [For Issuers and Protocol Operators](#for-issuers-and-protocol-operators)
+
+Each audience section opens with what the protocol guarantees you and what it does **not** —
+citing [`04-GUARANTEES-AND-RESPONSIBILITIES.md`](./04-GUARANTEES-AND-RESPONSIBILITIES.md), which
+carries the full statement of every id.
 
 ---
 
@@ -63,6 +69,32 @@ This flexibility means:
 ---
 
 ## For Wallet Developers
+
+**You can rely on:** every programmable token of every holder sits at one payment credential,
+and the *stake* credential names the owner (`CORE-PLB-01`); a spend requires that owner's
+signature, or their script's approval (`CORE-TR-01`); registered tokens cannot leave the base
+address, so no transfer you build can silently strand them at a non-programmable address
+(`CORE-TR-03`); and the token's own transfer rules are invoked for you (`CORE-TR-02`) — you do
+not need to know what they say.
+
+**You must not assume:**
+
+- **that a well-formed transaction will validate.** The core checks structure; the token's
+  substandard decides whether *this* transfer is allowed, and it may decline for reasons you
+  cannot see (`SUB-01`). Surface a declined transfer as a policy refusal, not as a wallet bug.
+- **that the recipient is checked by the protocol.** It is not — any base address with an inline
+  stake credential is structurally valid (`SUB-01`). If the token forbids a recipient, only the
+  substandard knows.
+- **that a token's rules are stable.** The registry node is live configuration: its logic
+  credentials can be updated in place, retroactively, for all existing holders. Resolve the node
+  at build time, every time.
+- **that the delegate scripts are fixed.** `programmable_logic_base` reads them from the
+  protocol-params datum on every spend and an upgrade can replace them without changing a single
+  address. Resolve `transfer_cred` from that datum rather than pinning a hash.
+
+**You do not need to care about:** which delegate validator is deployed, how the registry is
+structured internally, or what any substandard's rules are. You name the arm; the base validator
+resolves the rest.
 
 ### Balance Resolution
 
@@ -299,6 +331,31 @@ into the trap.**
 
 Indexers and explorers share the core concern of reading and interpreting on-chain state. The primary difference is presentation: explorers display to humans, indexers store for API consumers. The underlying data access patterns are the same.
 
+**You can rely on:** lifecycle and issuance are always separate transactions — a registry-node
+spend may not mint or burn that node's own policy (`CORE-REG-06`), so a registration event is
+never also a supply event; a paired output in an administrative action preserves the holder's
+address and datum (`CORE-TP-03`), so holder continuity across a seizure is reconstructable; and
+tokens never leave the base address on any path.
+
+**You must not assume:**
+
+- **that the delegate credentials are constants.** This is the one that will silently corrupt an
+  index. `transfer_cred`, `third_party_cred` and `unfracking_cred` live in the protocol-params
+  datum and can be replaced by an upgrade while every token address stays identical. A historical
+  reindex must resolve them **as of the block being indexed**, not from today's deployment —
+  otherwise every transaction after an upgrade is classified against the wrong credential set,
+  and nothing about the transaction looks wrong.
+- **that a third-party action moved value.** A no-op forced respend is permitted and costs the
+  administrator only fees (`RESIDUAL-01`). Classify by path, and report the delta separately.
+- **that a multi-policy UTxO is contamination.** A CIP-68 user token and its reference NFT are
+  one policy; a dApp legitimately holds several. Flag and explain rather than block.
+- **that "third-party action" means seizure.** Freeze and extract are indistinguishable at the
+  base layer — no action tag exists (`SUB-05`). What actually happened is the substandard's
+  semantics, not the framework's.
+
+**You do not need to care about:** proof indices, withdrawal ordering, or any redeemer arithmetic
+— those are builder concerns and a malformed one simply fails.
+
 ### Balance Tracking
 
 #### Resolving Ownership
@@ -409,6 +466,24 @@ For tokens using the freeze-and-seize substandard, indexers should additionally 
 ## For dApp Developers
 
 If your dApp (DEX, lending protocol, DAO treasury, escrow, etc.) needs to **hold or manage programmable tokens**, the integration model is fundamentally different from regular native tokens. The core issue: your dApp's smart contract must be the "owner" of the programmable token UTxOs, which means its script hash occupies the stake credential slot.
+
+**You can rely on:** the same custody guarantees every holder gets — tokens cannot leave the
+base address (`CORE-TR-03`), and no other party's transfer can touch a UTxO staked to your
+script without your script approving the transaction.
+
+**You must not assume — and this is the one that matters for a dApp:** that "my script ran" is
+narrower than it is. The core authorises a spend of a script-staked UTxO by checking that **a
+withdrawal keyed by that script is present** (`CORE-TR-01`). Because a failing withdraw-0 kills
+the transaction, that does prove your script ran and approved *this transaction* — the whole of
+it. So **your stake script is the ownership authority for everything staked to it**, including
+programmable tokens whose presence it was never written to consider. A script that approves
+"any transaction that satisfies my own business invariant" will approve one that also moves the
+programmable tokens it holds. Guard them explicitly, or hold them under a credential that does.
+
+Related: an administrative action against your protocol's holdings is decided entirely by the
+token's issuer logic, which cannot tell a smart wallet from a pooled vault (`SUB-06`). If you
+hold tokens on behalf of users, ask the issuer how their third-party logic treats script-staked
+UTxOs before you accept the token.
 
 ### Script as Owner: The Fundamental Shift
 
@@ -530,6 +605,79 @@ A dApp UTxO at `addr(programmable_logic_base, dapp_script_hash)` can hold both p
 | Not budgeting execution units | Multiple validator invocations in one transaction can exceed default budgets. Profile your transactions on testnet/preview. |
 | Assuming direct UTxO spending | You don't spend programmable token UTxOs with your spending validator. You authorize via withdraw-zero. The `programmable_logic_base` is the spending validator — it dispatches each spend to exactly one of `transfer` (ordinary transfers), `third_party` (administrative actions) or `unfracking` (same-owner restructuring), whichever the spend's redeemer names. |
 | Minting the token in a registry lifecycle tx | A registry-node lifecycle transaction — registering a token, or updating a node in place — must **not** mint or burn that node's own programmable token; `registry_spend` rejects it. Lifecycle and issuance are always **separate** transactions. (Registering a *new* token still mints the new key — the rule applies to the node being *spent*, e.g. the covering predecessor.) See [Registry Lifecycle & Upgradeability](./09-DEVELOPING-SUBSTANDARDS.md#registry-lifecycle--upgradeability) and [`03` §3.2](./03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md). |
+
+---
+
+## For Exchanges and Custodians
+
+Custody differs from a wallet in two ways that matter here: you hold other people's tokens, and
+you often hold them pooled.
+
+**Address shape.** Exchange accounts are frequently *enterprise* addresses with no stake
+credential. Programmable tokens require the stake slot to identify the owner, so the convention
+is to place the **payment** key hash there — the validators do not distinguish payment from stake
+key hashes, only `VerificationKey` from `Script` (see [Credential Flexibility](#credential-flexibility)).
+Whichever key occupies that slot is the key that must sign.
+
+**Querying.** Query by the **full address**, never by the payment credential alone: every holder
+of every programmable token shares that credential, so a credential-only query returns the entire
+protocol's UTxO set, not your customer's.
+
+**Pooled custody and administrative actions.** An administrative action targets **UTxOs**, not
+people. Pooling many customers' balances of one policy into a single UTxO means an action aimed
+at one customer reaches the whole UTxO's balance of that policy — the framework has no notion of
+which fraction belongs to whom, and cannot. If the tokens you custody support administrative
+action, segregate per-customer UTxOs, or accept that exposure knowingly.
+
+**Withdrawals to customers.** A customer cannot withdraw a programmable token to an ordinary
+address: it can only ever move to another base address (`CORE-TR-03`). What varies is the stake
+credential. A withdrawal is a transfer within the mini-ledger, and the token's own rules apply to
+it exactly as to any other transfer.
+
+**Your balance can change without a transaction of yours.** A token's issuer can update its
+governance in place, retroactively (`CORE-REG-04`), and an administrative action can move or burn
+tokens you hold without your consent — that is the point of the path (`CORE-TP-01`). Neither is a
+malfunction. Monitor registry-node updates for the policies you list.
+
+## For Issuers and Protocol Operators
+
+This section is for whoever deploys the protocol and holds the upgrade authority.
+
+**What an upgrade can and cannot change.** `prog_logic_cred` and `registry_node_cs` are frozen
+forever — no upgrade can move token custody or repoint the registry (`CORE-PAR-03`). Everything
+else in the params datum is swappable in place, which is the point: the delegate validators can
+be replaced without changing a single token address. The sitting authority approves every change
+including its own replacement (`CORE-PAR-05`), and there is **no timelock** — a valid upgrade
+takes effect in the block that carries it (`RESIDUAL-05`).
+
+**One-way bricks.** `coordination_spend` requires each mutable credential to be a well-formed
+28-byte hash, because a malformed one can never appear in a withdrawal and would make its path
+permanently unsatisfiable (`CORE-PAR-04`). It checks *length*, not kind: a verification-key
+credential of the right length passes, which would make a delegate a reward account any holder
+of that key can satisfy (`ASSUME-02`). Write script credentials.
+
+**Assumptions you are responsible for.** The `CORE-*` guarantees rest on four conditions nothing
+on-chain enforces (`ASSUME-01`…`ASSUME-04`): the three delegate credentials must be pairwise
+distinct, they must be script credentials, the registry NFT policy must be genuinely one-shot,
+and the genesis wiring must be correct. Verify them once, at deployment, and re-verify after
+every upgrade.
+
+**Decisions that cannot be undone.** Two are made at registration time, per policy, and are
+irreversible:
+
+- A `VerificationKey` `minting_logic_script` means the node can **never** be updated, because
+  `registry_spend` requires that credential's withdraw-0 and only a script can supply one — and
+  the field itself is frozen (`SUB-07`).
+- An unset `unfracking_logic_script` forbids unfracking for that policy by default, so its
+  holders can never split a fracked UTxO — until the node is updated, which the previous point
+  may have made impossible (`SUB-04`).
+
+**There is no registry removal** (`RESIDUAL-04`). A registered policy is registered permanently;
+the remedy for a retired token is a node update, not a deletion.
+
+**Stake address registration.** Every withdraw-zero script — the three delegates and every
+substandard logic script — needs its stake address registered before it can be invoked at all.
+An unregistered one fails at the ledger level with no validator error.
 
 ---
 
