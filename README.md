@@ -218,7 +218,7 @@ graph TB
 All programmable tokens are locked at a shared smart contract address. When a transfer occurs:
 
 1. Transaction spends token UTxO from programmable logic address
-2. Global validator looks up token in on-chain registry
+2. The `transfer` validator looks up the token in the on-chain registry
 3. If registered, corresponding transfer logic script executes
 4. Transfer succeeds only if all validation passes
 5. Tokens return to programmable logic address with new stake credential

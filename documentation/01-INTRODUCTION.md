@@ -73,7 +73,7 @@ This approach means:
 
 CIP-113 follows a layered design:
 
-- **CIP-113 (Core Standard)** — The overarching framework that defines the shared infrastructure: the custody model (programmable logic base), the on-chain registry, the global validation coordinator, and the token issuance mechanism. This framework is deployed once and shared by all programmable tokens. It requires no hard fork — everything is built on existing Cardano L1 features.
+- **CIP-113 (Core Standard)** — The overarching framework that defines the shared infrastructure: the custody model (programmable logic base), the on-chain registry, the delegate validators that enforce transfers and administrative actions, and the token issuance mechanism. This framework is deployed once and shared by all programmable tokens. It requires no hard fork — everything is built on existing Cardano L1 features.
 
 - **Substandards** — The actual rules that specific programmable tokens must obey. A substandard is a pluggable set of validators (typically stake scripts invoked via the withdraw-zero pattern) that define transfer logic, issuer controls, and any supporting on-chain state. Different tokens can use different substandards depending on their compliance requirements. Examples include:
   - **Simple permissioned transfer** — Requires a specific credential to authorize transfers
@@ -127,7 +127,7 @@ Programmable tokens use a multi-layered architecture with on-chain registries, s
 ```mermaid
 graph TB
     A[User Initiates Transfer] --> B[Transaction Spends from Programmable Address]
-    B --> C{Global Validator Invoked}
+    B --> C{Transfer Validator Invoked}
     C --> D[Lookup Token in On-Chain Registry]
     D --> E{Token Registered?}
     E -->|Yes| F[Invoke Transfer Logic Script]
@@ -174,13 +174,20 @@ Pluggable stake validators defined by substandards that enforce token-specific r
 
 Different tokens can use different substandards — each substandard is registered in the on-chain registry and invoked automatically by the core framework. Scripts are invoked using the **withdraw-zero pattern** — stake validators are triggered with 0 ADA withdrawals.
 
-#### 4. Global Validator
-The core CIP-113 validator that coordinates all operations:
-1. Identifies programmable tokens in the transaction
-2. Looks up each token in the on-chain registry
-3. Invokes corresponding transfer logic scripts
-4. Validates ownership via stake credentials
-5. Ensures tokens return to programmable logic address
+#### 4. Delegate Validators
+Each spend from the custody address names, in its redeemer, exactly one of three
+stake validators to answer to — and only that one runs:
+
+- **`transfer`** — ordinary transfers, the hot path. It identifies the
+  programmable tokens in the transaction, looks each one up in the on-chain
+  registry, invokes the corresponding transfer logic scripts, validates ownership
+  via stake credentials, and ensures the tokens return to the programmable logic
+  address.
+- **`third_party`** — administrative actions (forced transfer, seizure, freeze
+  enforcement, burn), authorised by the token's issuer control script rather than
+  by its owner.
+- **`unfracking`** — a holder restructuring their own UTxOs for one policy,
+  value-preserving and same-owner.
 
 ### Transaction Flow Example
 
@@ -196,7 +203,7 @@ Let's walk through a simple transfer:
    - Signature: Alice signs with her stake key
 
 3. **Validation executes**:
-   - Global validator checks Alice's signature ✓
+   - Transfer validator checks Alice's signature ✓
    - Registry lookup finds USDC is registered ✓
    - Transfer logic script runs (e.g., checks denylist) ✓
    - Tokens go to programmable address with Bob's stake credential ✓

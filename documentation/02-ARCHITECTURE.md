@@ -176,8 +176,8 @@ The **withdraw-zero pattern** is the mechanism that invokes stake validators wit
 
 This pattern enables three critical capabilities:
 
-1. **Single execution for multiple inputs** — The global validator runs once per transaction, not once per UTxO input. This is essential for multi-input transfers.
-2. **Composable validation** — Multiple stake validators can be invoked in the same transaction (global + transfer logic + issuer logic), each checking different aspects.
+1. **Single execution for multiple inputs** — the delegate validator runs once per transaction, not once per UTxO input. This is essential for multi-input transfers.
+2. **Composable validation** — Multiple stake validators can be invoked in the same transaction (the delegate + transfer logic + issuer logic), each checking different aspects.
 3. **Pluggable logic** — Transfer logic scripts are registered in the on-chain registry as stake credentials. Any new transfer logic can be deployed without modifying the core validators.
 
 ### In Practice
@@ -237,7 +237,7 @@ Covering node proof:
   → 0xbcd... is NOT in the registry
 ```
 
-This is how the global validator handles non-programmable tokens in the same transaction — it doesn't reject them; it simply skips validation for tokens proven not to be in the registry.
+This is how the `transfer` validator handles non-programmable tokens in the same transaction — it doesn't reject them; it simply skips validation for tokens proven not to be in the registry.
 
 ### Insertion
 
@@ -538,10 +538,10 @@ Splitting the seize logic into its own script keeps it off the transfer referenc
 Every registry and denylist node is marked with an NFT from a one-shot minting policy. Validators always check `has_currency_symbol(node.value, expected_cs)` before trusting any datum. This prevents forged registry entries.
 
 ### Ownership Enforcement
-The global validator iterates over **all** inputs from `prog_logic_cred` and requires each one to be authorized by its stake credential (signature for verification keys, withdrawal invocation for scripts). If any input lacks authorization, the entire transaction fails.
+The `transfer` validator iterates over **all** inputs from `prog_logic_cred` and requires each one to be authorized by its stake credential: a signature in `extra_signatories` for a verification key, or a withdrawal keyed by that script for a script credential. If any input lacks authorization, the entire transaction fails. Note the scope of the script case — the withdrawal proves that script ran and approved *this transaction*, so a script used as a stake credential is the ownership authority for everything staked to it. The administrative path deliberately does **not** apply this check: a third-party action is authorized by the policy's issuer-control script instead of by the holder.
 
 ### Value Preservation
-During transfers, the global validator computes the total programmable token value from authorized inputs and verifies that outputs at `prog_logic_cred` contain **at least** that much value. Tokens cannot be moved to non-programmable addresses.
+During transfers, the `transfer` validator computes the total programmable token value from authorized inputs and verifies that outputs at `prog_logic_cred` contain **at least** that much value. Tokens cannot be moved to non-programmable addresses.
 
 ### Sorted List Integrity
 Both registry and denylist maintain the invariant `node.key < node.next` for every node. Insertions verify the covering node covers the new key. This prevents duplicate entries and ensures covering-node proofs are always valid.

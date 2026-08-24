@@ -261,6 +261,14 @@ Two properties integrators must understand:
 Therefore the **registry node is the live source of truth**: wallets, indexers,
 and integrators must read the current node, never cache its logic credentials.
 
+**A `VerificationKey` `minting_logic_script` freezes the node permanently.**
+`registry_spend` authorises an update by requiring that credential's withdraw-0,
+which only a `Script` credential can ever satisfy — so a policy registered under
+a plain key can mint, but its node can never be updated. Nothing warns you at
+registration, and the choice is irreversible because `minting_logic_script` is
+itself frozen. Decide before you register (see
+[`09-DEVELOPING-SUBSTANDARDS.md`](./09-DEVELOPING-SUBSTANDARDS.md#registry-lifecycle--upgradeability)).
+
 **Lifecycle is not issuance — but shares a credential.** The authorising
 credential (`minting_logic_script`) is also the token's *issuance* authority, so
 by default the party that can mint can also register and update the node. A

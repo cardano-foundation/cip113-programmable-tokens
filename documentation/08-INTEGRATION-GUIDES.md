@@ -43,10 +43,10 @@ The stake credential slot is **polymorphic** — it can hold three types of cred
 The on-chain validators do not distinguish between payment and stake key hashes. They only check whether the credential is a `VerificationKey` (requires signature) or `Script` (requires withdrawal invocation):
 
 ```aiken
-// From the transfer validator (programmable_logic/owner.ak) — credential-agnostic authorization
+// programmable_logic/owner.ak:authorised_stake_cred — credential-agnostic authorization
 when stake_cred is {
-  VerificationKey(pkh) -> is_signed_by(tx, pkh)    // Any key hash, payment or stake
-  Script(_hash) -> is_script_invoked(tx, stake_cred) // Script via withdraw-zero
+  VerificationKey(pkh) -> has_signatory(pkh)   // any key hash, payment or stake, in extra_signatories
+  Script(_hash) -> has_withdrawal(stake_cred)  // that script ran (and approved) via withdraw-zero
 }
 ```
 
@@ -424,14 +424,14 @@ Programmable Address = addr(programmable_logic_base, dapp_script_hash)
 To authorize spending from this address, the on-chain validator requires:
 
 ```aiken
-Script(_hash) -> is_script_invoked(tx, stake_cred)
+Script(_hash) -> has_withdrawal(stake_cred)   // programmable_logic/owner.ak
 ```
 
 This means your dApp's script must be **invokable as a stake validator via the withdraw-zero pattern**. Specifically:
 
 1. **Your script must implement the `withdraw` purpose** — it will be invoked with a zero-ADA withdrawal, not as a spending validator.
 2. **Your script's stake address must be registered on-chain** — the Cardano ledger requires stake address registration before any withdrawal (even zero-ADA) can occur.
-3. **Your script authorizes spending** — when the programmable logic global validator sees your script hash in the stake slot, it checks that your script's credential appears in the transaction's withdrawals.
+3. **Your script authorizes spending** — when the `transfer` validator sees your script hash in the stake slot, it checks that your script's credential appears in the transaction's withdrawals. Note what that does and does not mean: a withdrawal proves your script **ran and approved this transaction**, so your script must be written knowing that everything staked to it — including programmable tokens it may not know about — is under its guard.
 
 ### Transaction Building
 
@@ -518,7 +518,7 @@ When your dApp releases programmable tokens (e.g., a user withdraws from a pool)
 
 #### Holding Mixed Assets
 
-A dApp UTxO at `addr(programmable_logic_base, dapp_script_hash)` can hold both programmable and non-programmable tokens. The global validator handles this gracefully — non-programmable tokens are proven absent from the registry via `TokenDoesNotExist` proofs and skipped.
+A dApp UTxO at `addr(programmable_logic_base, dapp_script_hash)` can hold both programmable and non-programmable tokens. The `transfer` validator handles this gracefully — non-programmable tokens are proven absent from the registry via `TokenDoesNotExist` proofs and skipped.
 
 ### Common Pitfalls
 
@@ -528,7 +528,7 @@ A dApp UTxO at `addr(programmable_logic_base, dapp_script_hash)` can hold both p
 | Forgetting stake address registration | The script's stake address must be registered on-chain before any withdraw-zero invocation. Without registration, transactions fail at the ledger level — no validator error message, just a cryptic ledger rejection. |
 | Conflating zero-ADA and real withdrawals | If your script's `withdraw` handler is invoked for both programmable-token authorization (0 ADA) and actual reward withdrawal, it must handle both cases correctly. Check the withdrawal amount. |
 | Not budgeting execution units | Multiple validator invocations in one transaction can exceed default budgets. Profile your transactions on testnet/preview. |
-| Assuming direct UTxO spending | You don't spend programmable token UTxOs with your spending validator. You authorize via withdraw-zero. The `programmable_logic_base` is the spending validator — it just dispatches each spend to the global coordinator (transfers) or the `third_party` validator (administrative actions). |
+| Assuming direct UTxO spending | You don't spend programmable token UTxOs with your spending validator. You authorize via withdraw-zero. The `programmable_logic_base` is the spending validator — it dispatches each spend to exactly one of `transfer` (ordinary transfers), `third_party` (administrative actions) or `unfracking` (same-owner restructuring), whichever the spend's redeemer names. |
 | Minting the token in a registry lifecycle tx | A registry-node lifecycle transaction — registering a token, or updating a node in place — must **not** mint or burn that node's own programmable token; `registry_spend` rejects it. Lifecycle and issuance are always **separate** transactions. (Registering a *new* token still mints the new key — the rule applies to the node being *spent*, e.g. the covering predecessor.) See [Registry Lifecycle & Upgradeability](./09-DEVELOPING-SUBSTANDARDS.md#registry-lifecycle--upgradeability) and [`03` §3.2](./03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md). |
 
 ---
