@@ -28,36 +28,23 @@
 //// unfracking paths shrink MORE because they no longer load the transfer
 //// script at all — each loads only PLB + its own script.
 ////
-//// PLB redeemer decode — record (2026-08-24). `programmable_logic_base` used
-//// to destructure its redeemer twice: once for `params_idx` before the params
-//// lookup, once again to pick the delegate credential. The validator runs once
-//// per programmable input, so the second decode is multiplied by every input,
-//// while anything DUPLICATED across the three arms is paid in reference-script
-//// bytes on every transaction. Both were addressed by decoding once and
-//// hoisting the whole shared body — params lookup, withdrawal resolution and
-//// comparison — into a single function that takes the differing field accessor
-//// as an argument, leaving each arm a one-line call.
+//// Replace double datum unwrapping — record (2026-08-24).
+//// `programmable_logic_base` used to unwrap its redeemer twice: once for
+//// `params_idx`, once again to pick the delegate credential. It now decodes
+//// once and hoists the whole shared body — params lookup, withdrawal
+//// resolution, comparison — into one function taking the differing field
+//// accessor as an argument, leaving each arm a one-line call. Net: 868 B ->
+//// 829 B and -1.22M cpu per invocation, so cheaper on BOTH axes — no
+//// size-versus-cpu trade to weigh. (The validator runs once per programmable
+//// input; these harnesses call `spend` once, so cpu figures are per
+//// invocation and the ledger multiplies them.)
 ////
-////   shape                                     PLB size   cpu (plb-only test)
-////   ---------------------------------------   --------   -------------------
-////   before: redeemer decoded twice               868 B            91,319,764
-////   decode once, lookup repeated per arm         882 B            90,321,632
-////   + partial application of the lookup          850 B            90,241,632
-////   + share the comparison too                   849 B            90,289,632
-////   + pass the field accessor in   (shipped)     829 B            90,097,632
-////
-//// Net against the previous code: -39 B and -1.22M cpu per invocation, so this
-//// is cheaper on BOTH axes — there is no size-versus-cpu trade to weigh. Per
-//// composed path: transfer -1,142,132, third-party -1,382,514, unfracking
-//// -1,446,514 cpu. Note these harnesses call `spend` ONCE regardless of input
-//// count, so the cpu figures are per invocation; the ledger multiplies them.
-////
-//// Rejected, measured: selecting the credential by an integer tag (+52,856 cpu
-//// — the tag comparison outweighed the decode it removed); dropping the shared
-//// helper and inlining the withdrawal lookup in each arm (875 B, +25 B for no
-//// cpu gain). Rejected, does not compile: returning the field accessor inside a
-//// TUPLE — tuple inhabitants must be serialisable to Data. Passing a function
-//// as an argument is fine, which is what makes the shipped shape possible.
+//// Measured and rejected: selecting the credential by an integer tag (the tag
+//// comparison outweighed the decode it removed); inlining the withdrawal
+//// lookup per arm instead of sharing it (+25 B for no cpu gain). Does not
+//// compile: returning the field accessor inside a TUPLE — tuple inhabitants
+//// must be serialisable to Data. Passing a function as an argument is fine,
+//// which is what makes the shipped shape possible.
 ////
 //// Execution (CPU/mem) on the composed happy paths below is roughly neutral:
 //// the PLB spend gains a 3-arm dispatch (a few M cpu at withdrawal-index 0,

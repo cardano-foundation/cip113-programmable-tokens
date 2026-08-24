@@ -48,31 +48,30 @@ validator programmable_logic_base(params_policy: PolicyId) {
     // of its datum. The params UTxO is already a mandatory reference input on
     // every programmable-token transaction, so this adds no availability
     // requirement.
-    // redeemer is kinda unwrapped twice, one here for the param index and one below for the withdrawal index (check costs of destructuring once earlier)
-    // The redeemer is destructured ONCE, and everything the three arms share
-    // is hoisted into one function. This validator runs per programmable input,
-    // so anything left inside an arm is paid per input and anything duplicated
-    // across arms is paid in reference-script bytes on every transaction.
     //
-    // Measured ladder (PLB script size / cpu on `plb_passes_when_datum_transfer_cred_in_withdrawals`,
-    // full record in `programmable_logic/benchmarks.ak`):
+    // The redeemer used to be unwrapped twice — once here for `params_idx`,
+    // once again below to pick the delegate credential. It is now destructured
+    // ONCE, and everything the three arms share is hoisted into a single
+    // function: locate the params datum, resolve the witnessed withdrawal,
+    // compare. The arms differ only in which datum field they read, which is
+    // passed in. That matters on both axes: this validator runs per
+    // programmable input, so work left inside an arm is paid per input, and
+    // work duplicated across arms is paid in reference-script bytes on every
+    // transaction. Cost record and the rejected alternatives:
+    // `programmable_logic/benchmarks.ak`.
     //
-    //   before, redeemer decoded twice ........... 868 B / 91,319,764
-    //   decode once, lookup repeated per arm ..... 882 B / 90,321,632
-    //   + partial application of the lookup ...... 850 B / 90,241,632
-    //   + share the comparison as well ........... 849 B / 90,289,632
-    //   + pass the field accessor in (this) ...... 829 B / 90,097,632
-    //
-    // Two shapes do not work at all: selecting the credential by an integer tag
-    // costs more than the decode it removes (+52,856 cpu), and returning the
-    // accessor in a TUPLE is rejected by the compiler — tuple inhabitants must
-    // be serialisable to Data. Passing it as an ARGUMENT, as below, is fine.
-    // Everything the three arms share, hoisted into one function: locate the
-    // params datum, resolve the witnessed withdrawal, compare. The arms then
-    // differ only in which datum field they read, which is passed in.
     // (A function may be passed as an ARGUMENT even though it may not live in
     // a tuple — tuple inhabitants must be serialisable to Data, arguments need
-    // not be.)
+    // not be. That is what makes this shape possible.)
+    //
+    // `list.expect_at` drops `wdrl_idx` cells to reach the witnessed entry:
+    // O(wdrl_idx), not O(1), but with no credential comparison on the way,
+    // where the former `has_key_or_fail` scan compared at every entry up to the
+    // delegate's position (cost record:
+    // `programmable_logic/wdrl_idx_cost.test.ak`). The check is meaningful only
+    // while the three delegate credentials in the params datum are pairwise
+    // distinct; that distinctness is NOT enforced on-chain (see
+    // `BaseSpendRedeemer`).
     let check = fn(params_idx: Int, wdrl_idx: Int, cred_of) {
       let fields <- params.with_protocol_params_fields(
         self.reference_inputs,
