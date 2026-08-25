@@ -19,15 +19,17 @@
 # and commit the result. RED on step 4 means the artifacts moved out from
 # under the Lean side — most likely a validator's parameter list changed.
 #
-# What this workflow does NOT do yet: discharge any Lean theorem. The
-# PLG-dissolution rebuild (#110) removed the theorem files that named the
-# old four-title surface (PropsBase.lean, PrepGlobal.lean, PropsGlobal.lean,
-# PropsGlobalAuth.lean — see formal-verification/README.md); they are being
-# re-derived against the current five-title surface slice by slice, and
-# `lake build` picks each one up as it lands with no change to this file.
+# `lake build` DOES discharge theorems: the `programmable_logic_base` set in
+# Cip113Spike/PropsBase.lean. The delegates (transfer, third_party,
+# unfracking) and registry_mint are decoded and parameter-checked but carry
+# no theorems yet — they are re-derived slice by slice against the current
+# five-title surface, and `lake build` picks each one up as it lands with no
+# change to this file. formal-verification/README.md carries the live claims
+# table: what is established, at what fuel, and whether its falsification
+# control is green.
 #
-# The harness itself is falsified separately (mutant must flip a theorem to
-# Falsified), once theorems are back:
+# The harness itself is falsified separately — a mutant must flip a theorem —
+# and that is NOT run here; see scripts/falsification-control.sh:
 # formal-verification/scripts/falsification-control.sh. Its two Lean
 # controls are deliberately outside the default build — see the `globs`
 # comment in formal-verification/lakefile.lean.
@@ -89,16 +91,21 @@ jobs:
 
       # --- Lean: decode + prep the artifacts under verification ---
       #
-      # No theorem is discharged yet — the PLG dissolution (#110) removed
-      # the theorem modules and they have not been re-derived. What
-      # `lake build` enforces today is the layer BELOW the theorems, and
-      # that layer is load-bearing: every committed flat decodes on stock
-      # PlutusCoreBlaster, every compile-time parameter application still
-      # typechecks against the current validator signatures, and the one
-      # prepped artifact (`programmable_logic_base`, fuel 1400) still
-      # preps. A parameter change — the pre-#110 PLB took a `Credential`
-      # where it now takes a `PolicyId` — reddens this step instead of
-      # silently producing a script that can never halt.
+      # This discharges the `programmable_logic_base` theorems
+      # (Cip113Spike/PropsBase.lean) AND the layer below them, which is
+      # load-bearing in its own right: every committed flat decodes on stock
+      # PlutusCoreBlaster, and every compile-time parameter application still
+      # typechecks against the current validator signatures. A parameter
+      # change — the pre-#110 PLB took a `Credential` where it now takes a
+      # `PolicyId` — reddens this step instead of silently producing a script
+      # that can never halt.
+      #
+      # Fuel is a CORRECTNESS coordinate, not a performance knob: `#prep_uplc`
+      # returns State.Error when the budget runs out, which is
+      # indistinguishable from a rejection. Too low a value makes acceptance
+      # theorems unprovable and rejection theorems trivially true. The value
+      # in use is measured by scripts/fuel-probe.lean and pinned per artifact
+      # in flats/MANIFEST.md, which extract-flats.sh --check re-derives.
       - name: Install Z3 ${{ env.Z3_VERSION }}
         run: |
           curl -sSfL -o z3.zip "https://github.com/Z3Prover/z3/releases/download/z3-${Z3_VERSION}/${Z3_ASSET}.zip"

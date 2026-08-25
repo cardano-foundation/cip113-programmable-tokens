@@ -21,40 +21,73 @@ verifies.
 
 ## Status (2026-08-25)
 
-The PLG dissolution (#110) split `programmable_logic_global` into three
-standalone validators and removed every theorem module that named it
-(`PropsBase.lean`, `PrepGlobal.lean`, `PropsGlobal.lean`,
-`PropsGlobalAuth.lean`). **No theorem is discharged in this tree right
-now.** What `lake build` establishes today is the layer below them, on
-the current five-title surface:
+The first theorems since the PLG dissolution (#110) are discharged, on
+`programmable_logic_base` only. Everything below names its artifact, its
+prep fuel, and whether a falsification control has been shown to break
+it — a claim missing any of those is not a claim.
 
-| Claim | Label |
+### Live claims
+
+Artifact for every PLB row: `flats/programmable_logic_base.flat`
+(829 B), **prep fuel 1600**, BuiltinSemanticsVariant E, theorems in
+`Cip113Spike/PropsBase.lean`. "Control" is leg 4 of
+`scripts/falsification-control.sh`: a PLB rebuilt through the real Aiken
+pipeline with its witnessed-withdrawal equality gutted to `True`.
+
+| Claim | Label | Control |
+|---|---|---|
+| All 5 committed flats decode on stock upstream PlutusCoreBlaster (`single_cbor_hex`) | ESTABLISHED (`Cip113Spike/Smoke.lean`) | n/a |
+| Each validator's compile-time parameter application is expressible and typechecks against the current signatures (PLB / transfer / third_party / unfracking take a `PolicyId`; registry_mint takes `OutputReference`, `PolicyId`, `Credential`) | ESTABLISHED (`Cip113Spike/Prep*.lean`) | n/a |
+| **The dispatch matrix.** One live protocol (all three delegates withdrawing, in ledger order), nine redeemers: PLB accepts exactly the three where the arm's params-datum field and the witnessed withdrawal agree, and rejects all six mismatches — including a `SpendViaTransfer` that witnesses the THIRD-PARTY delegate | KERNEL-PROVED (`exec_accepts_{transfer,third_party,unfracking}_arm`, `exec_rejects_*_arm_at_*`) | GREEN — all six rejections flip to acceptances on the mutant |
+| PLB rejects a transaction in which no delegate withdraws at all (the sole withdrawal is a foreign credential), and accepts the one-delta twin in which the delegate does | KERNEL-PROVED (`exec_rejects_foreign_withdrawal`, `exec_accepts_sole_delegate_withdrawal`) | GREEN |
+| The compiled credential equality is TAG-sensitive: the delegate's 28 bytes under a verification-key credential are not the delegate | KERNEL-PROVED (`exec_rejects_vkey_tagged_delegate`) | GREEN |
+| `wdrl_idx` is self-validating: an index addressing a real withdrawal of the same transaction that is not the delegate's rejects, while the ledger-ordered twin accepts | KERNEL-PROVED (`exec_rejects_wdrl_idx_at_foreign_withdrawal`, `exec_accepts_four_entry_map`) | GREEN |
+| An out-of-range `wdrl_idx` rejects | KERNEL-PROVED (`exec_rejects_out_of_range_wdrl_idx`) | NONE — guarded by `list.expect_at`, which this mutant leaves standing (mutant still rejects, asserted in the control) |
+| The delegate credentials must come from an AUTHENTICATED params UTxO: a forged datum without the params NFT rejects, a params input without an inline datum rejects, a `params_idx` addressing a decoy reference input rejects, and `params_idx: 1` accepts when the ledger puts the real one there | KERNEL-PROVED (`exec_rejects_unauthenticated_params_input`, `exec_rejects_params_input_without_inline_datum`, `exec_rejects_params_idx_at_non_params_reference_input`, `exec_accepts_params_at_reference_index_one`) | NONE — guarded by the NFT-presence and inline-datum `expect`s in `programmable_logic/params.ak`; their mutants are a later slice |
+| Independence witnesses (R2b witness-set form): two PLB spend inputs accept; a structurally different validity range accepts | KERNEL-PROVED (`exec_accepts_two_plb_inputs`, `exec_accepts_range_variant`) | NONE — witness form, nothing to falsify |
+| A non-spend (rewarding) purpose does not reach Halt — the LEDGER dispatch gate, not an in-body branch | KERNEL-PROVED (`exec_rejects_nonspend_purpose`) | NOT APPLICABLE — a control would have to mutate the harness's `spendingInputs`, not the validator |
+| The accepting halt value is the unit constant (CIP-117) | KERNEL-PROVED (`exec_accepts_unit`) | n/a |
+| Every fixture above is a context a node could actually produce — ascending outrefs, canonical values, ledger-ordered withdrawals, redeemer map agreeing with the purpose, balanced | ESTABLISHED (`spend_fixtures_are_ledger_shaped`, `rewarding_fixture_is_ledger_shaped`, via CardanoLedgerApiBlaster's `validSpendingContext` / `validRewardingContext`) | n/a |
+| The pipeline can tell working code from broken code: mutant rebuilt through the real Aiken pipeline, nine theorems flip, the three acceptances survive (broken, not bricked), the five rejections the mutation does not reach are unchanged | ESTABLISHED (`scripts/falsification-control.sh`, legs 0-5; leg 4b a declared skip) | — |
+| Axiom drift reddens the build: every `#print axioms` is pinned by `#guard_msgs` | ESTABLISHED (claim-integrity gate, CI-enforced) | — |
+
+Prep fuel 1600 is measured, not chosen: the largest accepting step count
+over the eight accepting families prepped is 1314, and
+`scripts/fuel-probe.lean` reproduces the whole table (and re-checks that
+halting is monotone in the fuel, which is what makes the bisection
+sound). Note that the step count is NOT monotone in the withdrawal index
+walked — it runs 1168, 1241, 1222, 1295, 1276, 1349 for indices 0..5 —
+so no other artifact may inherit this number.
+
+### Not established
+
+| Claim | Why not |
 |---|---|
-| All 5 committed flats decode on stock upstream PlutusCoreBlaster (`single_cbor_hex`) | ESTABLISHED (`Cip113Spike/Smoke.lean`) |
-| Each validator's compile-time parameter application is expressible and typechecks against the current signatures (PLB / transfer / third_party / unfracking take a `PolicyId`; registry_mint takes `OutputReference`, `PolicyId`, `Credential`) | ESTABLISHED (`Cip113Spike/Prep*.lean`) |
-| `programmable_logic_base` preps (shaped) at fuel 1400, derived from a measured accepting step count K = 1168 | ESTABLISHED (`Cip113Spike/PrepBase.lean`, `scripts/fuel-probe.lean`) |
-| `transfer`, `third_party`, `unfracking`, `registry_mint` prep | NOT ESTABLISHED — unshaped symbolic prep blows up exponentially in the fuel well below their accepting step counts; each needs a concrete accepting context and a shaped prep first (see `Cip113Spike/PrepTransfer.lean` for the measurements) |
+| `transfer`, `third_party`, `unfracking`, `registry_mint` prep | Each needs a concrete ACCEPTING context first. Unshaped symbolic prep blows up exponentially in the fuel well below their accepting step counts (see `Cip113Spike/PrepTransfer.lean`); the fully concrete families used for PLB show the prep itself is cheap once a context exists |
+| ANY universally-quantified (SMT) claim about PLB | `PropsBase.lean` preps concrete families, so its `.prop` is a single run. The `∀`-quantified forwarding property needs a family with a genuine symbolic leaf, built for it |
+| Controls for the params-authentication, inline-datum and `wdrl_idx`-bounds rejections | Each needs its own seeded bug; listed at the bottom of `controls/MutantControl.lean` |
 
 ### Superseded claim table (pre-#110) — VOID, retained as the re-derivation target list
 
 Every row below cites a theorem module that no longer exists, or the
 dissolved `programmable_logic_global` artifact. They are **all
 COULD-NOT-EVALUATE** until re-derived against the current surface. Do not
-quote any of them.
+quote any of them. The PLB rows that HAVE been re-derived are gone from
+this table and live in the Live claims table above.
 
 | Claim (superseded) | Former label |
 |---|---|
-| All 4 validators decode on stock upstream PlutusCoreBlaster (`single_cbor_hex`) | ESTABLISHED |
-| PLB accepts a withdraw-0 context carrying its parameter credential | KERNEL-PROVED (`exec_accepts`) |
-| PLB rejects a context whose only withdrawal is a foreign credential | KERNEL-PROVED (`exec_rejects_foreign_withdrawal`) |
 | ∀ deployment param, ∀ 1/2/4-entry withdrawal maps (symbolic hashes + amounts): PLB acceptance forces the param to be present — the forwarding guarantee | SMT-VALID, no proof term (`base_forces_plg_withdrawal_{one,two,four}_entries`) |
-| The pipeline can tell working code from broken code (mutant rebuilt through the real Aiken pipeline → theorem Falsified with counterexample, mutant accepts the rejected context) | ESTABLISHED (`scripts/falsification-control.sh`, all 5 legs) |
 | ∀ symbolic output credential + quantities in family T1 (TransferAct, 1 policy, 1 PLB input, 1 output): PLG acceptance forces the output credential to BE the PLB — tokens cannot escape the jail | SMT-VALID, no proof term (`t1_escape`; vacuity probe Expected Falsified) |
 | Same family, output pinned at the PLB: acceptance forces qOut ≥ qIn | SMT-VALID, no proof term (`t1_conservation`; non-vacuity probe Expected Falsified) |
 | Dropping the transfer-logic withdrawal from an otherwise-accepting T1 context rejects — the substandard-invocation guarantee on the compiled PLG | KERNEL-PROVED (`exec_rejects_no_transfer_logic`) |
-| PLB witness/control suite per standing rules R1/R2/R2b: non-spend purpose rejected (dispatch gate), vkey-tagged same-bytes credential rejected (tag sensitivity), 2/4-entry maps accepted with param in last slot, two PLB inputs accepted, three discriminating redeemer shapes accepted, structurally different validity range accepted, accepting halt value is the unit constant | KERNEL-PROVED (`exec_rejects_nonspend_purpose`, `exec_rejects_vkey_tagged_param`, `exec_accepts_{two,four}_entries`, `exec_accepts_two_inputs`, `exec_accepts_redeemer_*`, `exec_accepts_range_variant`, `exec_accepts_unit`) |
-| Axiom drift reddens the build: every `#print axioms` is pinned by `#guard_msgs`, falsified live on both tiers (seeded `sorry` → mismatch; dropped `blasterProven` → mismatch) | ESTABLISHED (claim-integrity gate, CI-enforced) |
 | Two-owner authorization (V4/S-16): with two PLB inputs of distinct owners, an unauthorized second owner rejects on the compiled PLG (vkey and script-staked flavours, accepting twins per R1); a seeded first-input-only auth mutant ACCEPTS the same context (falsification Leg 4b) | KERNEL-PROVED (`PropsGlobalAuth.lean`, 4 controls) + ESTABLISHED (auth mutant leg) |
+
+One pre-#110 row is retired rather than pending: redeemer-shape
+independence (`exec_accepts_redeemer_*`). The pre-#110 PLB ignored its
+redeemer; the current one dispatches on it, so "the redeemer does not
+matter" is no longer a property to re-derive — the dispatch matrix above
+is what replaced it.
 
 Identity for every claim: `flats/MANIFEST.md` (compiler from the
 blueprint's own preamble, sha256s, `BuiltinSemanticsVariant = E` /
@@ -73,26 +106,36 @@ scripts/extract-flats.sh   -- extraction + --check identity gate (now also
 scripts/deployment-manifest-check.sh -- pre-submission trust-root closure
                               checker (V13); the only catch for a
                               misconfigured params datum
-scripts/falsification-control.sh -- 5-leg harness falsification (see below)
+scripts/falsification-control.sh -- harness falsification, legs 0-5
+                              (leg 4b a declared skip; see below)
 examples/deployment-manifest.example.json -- schema example for the closure checker
-scripts/fuel-probe.lean    -- how the #prep_uplc fuel numbers were measured
-                              (binary search for the accepting step count;
-                              NOT part of `lake build`)
-Cip113Spike.lean           -- the default build target: imports the six
+scripts/fuel-probe.lean    -- how the #prep_uplc fuel number was measured
+                              (binary search for the accepting step count,
+                              plus the monotonicity check that makes the
+                              bisection sound; NOT part of `lake build`)
+Cip113Spike.lean           -- the default build target: imports the seven
                               modules below and nothing else
 Cip113Spike/Smoke.lean     -- artifact decode smoke test (all five flats)
-Cip113Spike/PrepBase.lean  -- programmable_logic_base: parameter evidence,
-                              SHAPED #prep_uplc at fuel 1400, identity note
+Cip113Spike/PrepBase.lean  -- programmable_logic_base: #import_uplc +
+                              parameter application, identity note. Per the
+                              PrepX/PropsX convention, no prep and no
+                              theorem lives here
+Cip113Spike/PropsBase.lean -- programmable_logic_base: the fixtures, twenty-two
+                              fully CONCRETE #prep_uplc families at fuel 1600,
+                              and the theorems (dispatch matrix, forwarding,
+                              params authentication, ledger realism)
 Cip113Spike/PrepTransfer.lean     -- transfer: import + parameter application;
                                      carries the unshaped-prep measurements
 Cip113Spike/PrepThirdParty.lean   -- third_party: import + parameter application
 Cip113Spike/PrepUnfracking.lean   -- unfracking: import + parameter application
 Cip113Spike/PrepRegistryMint.lean -- registry_mint: import + its THREE parameters
-controls/MutantControl.lean       -- expect-Falsified control; NEVER in the
-controls/AuthMutantControl.lean      default build (see lakefile globs). Both
-                                     still target the dissolved PLG surface and
-                                     are restored by the slice that re-derives
-                                     the theorems they falsify.
+controls/MutantControl.lean       -- LIVE falsification control for PropsBase;
+                                     NEVER in the default build (see lakefile
+                                     globs) because it needs a mutant flat that
+                                     is gitignored and normally absent
+controls/AuthMutantControl.lean   -- still targets the dissolved PLG surface;
+                                     excluded and untouched until the transfer
+                                     theorems exist for it to falsify
 ```
 
 CI: `.github/workflows/formal-verification.yml` (repo root) enforces the
@@ -124,10 +167,14 @@ lake build                           # decode + prep (theorems as they land)
 
 The falsification control never touches the working tree (temp git
 worktree): it verifies toolchain identity, rebuilds the blueprint
-cleanly (must reproduce committed bytes exactly), rebuilds with the
-base validator's check gutted, and requires the clean-Valid theorem to
-come back **Falsified** on the mutant — then restores and re-verifies
-the baseline.
+cleanly (must reproduce committed bytes exactly), rebuilds with the base
+validator's only acceptance check gutted, and requires nine theorems
+that are green on the clean artifact to come back **false** on the
+mutant — while the three acceptances survive and the five rejections the
+mutation does not reach stay put — then restores and re-verifies the
+baseline. Leg 4b (the `transfer` auth mutant) is a declared skip: a
+control can only falsify a theorem that exists, and `transfer` has none
+yet.
 
 ## Method lineage
 

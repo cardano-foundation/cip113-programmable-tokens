@@ -16,18 +16,22 @@
 #     throwaway git worktree; every tracked `compiledCode` must match
 #     the committed blueprint byte-for-byte.
 #  3. MUTANT leg: in the same worktree, gut the base validator's only
-#     check (withdrawal scan -> True), rebuild through the REAL
-#     pipeline, extract the mutant flat, assert it differs from the
-#     clean flat (the mutation reached the artifact under test).
-#  4. Lean control: `controls/MutantControl.lean` must show the clean
-#     artifact's Valid theorem FALSIFIED on the mutant (solve-result: 1)
-#     and the mutant accepting the context the clean artifact rejects.
-#  4b. AUTH mutant (V4/S-16): in a FRESH worktree, gate transfer.ak's
-#     per-input owner-auth `expect` to fire only for the first tx input
-#     (the "auth-first-input-only" bug that passes every single-input
-#     control), rebuild through the real pipeline, extract the mutant
-#     transfer flat, and require `controls/AuthMutantControl.lean` to show the
-#     clean-rejected TWO-owner context ACCEPTED by the mutant.
+#     acceptance check — the witnessed-withdrawal equality shared by all
+#     three dispatch arms, `(witnessed == cred_of(fields))?` -> `True` —
+#     rebuild through the REAL pipeline, extract the mutant flat, assert
+#     it differs from the clean flat (the mutation reached the artifact
+#     under test).
+#  4. Lean control: `controls/MutantControl.lean` must show NINE theorems
+#     that are green in `Cip113Spike/PropsBase.lean` come back FALSE on
+#     the mutant (the six dispatch mismatches, the foreign withdrawal,
+#     the vkey-tagged delegate, the wrong `wdrl_idx`), the mutant still
+#     ACCEPTING the three contexts the clean artifact accepts, and the
+#     five rejections the mutation does not reach unchanged. All
+#     kernel-checked.
+#  4b. AUTH mutant (V4/S-16): DECLARED SKIP — the theorem it falsified
+#     was removed by the PLG dissolution (#110) and the `transfer`
+#     artifact has no theorems yet. The mutation anchor in transfer.ak is
+#     still checked so drift surfaces now; see the leg for the recipe.
 #  5. Restore + baseline re-verification: worktree removed (main tree
 #     was never touched), `--check` re-run, clean `lake build` green.
 #
@@ -97,67 +101,43 @@ mkdir -p "$(dirname "$MUTANT_FLAT")"
 printf '%s' "$MUTANT_CODE" > "$MUTANT_FLAT"
 echo "   mutant differs from clean ($((${#MUTANT_CODE} / 2)) vs $((${#CLEAN_CODE} / 2)) bytes)"
 
-echo "== Leg 4: Lean control — theorem must be FALSIFIED on the mutant =="
+echo "== Leg 4: Lean control — theorems must be FALSIFIED on the mutant =="
 (cd "$FV" && lake build >/dev/null && lake env lean controls/MutantControl.lean) \
-  || red "MutantControl failed — either the theorem was NOT falsified (harness cannot distinguish broken code) or the control could not evaluate"
-echo "   Falsified as expected + mutant accepts the rejected context (kernel-checked)"
+  || red "MutantControl failed — either the theorems were NOT falsified (harness cannot distinguish broken code) or the control could not evaluate"
+echo "   9 PropsBase rejections flip to acceptances on the mutant; the 3 acceptances survive; the 5 rejections the mutation does not reach are unchanged (all kernel-checked)"
 
-echo "== Leg 4b: AUTH mutant (V4/S-16) — first-input-only owner check =="
+echo "== Leg 4b: AUTH mutant (V4/S-16) — DECLARED SKIP =="
 # A SECOND, independent seeded bug on a DISTINCT invariant: the per-input
-# owner-authorisation `expect` in transfer.ak's `collect_input_assets` is
-# gated so it fires ONLY for the first transaction input — the
+# owner-authorisation `expect` in transfer.ak's `collect_input_assets`
+# gated to fire ONLY for the first transaction input — the
 # "auth-first-input-only" hole Paolo's V4 observation targets, which every
-# SINGLE-input control passes. Built in a FRESH worktree (the leg-2/3
-# worktree carries the base mutation): mutate `transfer.ak`, rebuild
-# through the real pipeline, extract the mutant flat, assert it
-# differs, and require the CLEAN-rejected two-owner context to be ACCEPTED
-# by the mutant (controls/AuthMutantControl.lean, kernel-checked).
+# SINGLE-input control passes.
 #
-# Post-#110 identity note: `validators/programmable_logic/transfer.ak`
-# (the mutation target below) is unchanged — it still holds
-# `collect_input_assets` and the exact `authorised_stake_cred(...)` call
-# this leg mutates. What DID change is which blueprint validator its
-# compiled code now lands in: this logic used to be folded into the
-# dissolved `programmable_logic_global` coordinator; it now compiles into
-# the standalone `transfer` withdraw-0 validator. Title/flat identifiers
-# below are updated accordingly. `controls/AuthMutantControl.lean` itself
-# still imports the old `programmable_logic_global_mutant.flat` path and
-# `Cip113Spike.PropsGlobalAuth` (removed in this step) — Lean files are
-# out of scope here; re-pointing that import is step 3's job when the
-# theorems are re-derived against the current surface.
-AUTH_WORKTREE="$(mktemp -d /tmp/cip113-authmut-XXXXXX)"
-TRANSFER_TITLE="transfer.transfer.withdraw"
-TRANSFER_MUTANT_FLAT="$FV/controls/flats/transfer_mutant.flat"
-CLEAN_TRANSFER_FLAT="$FV/flats/transfer.flat"
-auth_cleanup() {
-  git -C "$REPO" worktree remove --force "$AUTH_WORKTREE" 2>/dev/null || true
-  rm -rf "$AUTH_WORKTREE"
-  rm -f "$TRANSFER_MUTANT_FLAT"
-}
-git -C "$REPO" worktree add --detach "$AUTH_WORKTREE" HEAD >/dev/null
-TRANSFER="$AUTH_WORKTREE/validators/programmable_logic/transfer.ak"
+# THIS LEG IS SKIPPED, and the skip is declared rather than silent. A
+# falsification control can only falsify a theorem that EXISTS, and the
+# theorem this one falsified (`PropsGlobalAuth.lean`, two-owner
+# authorisation on the compiled coordinator) was removed by the PLG
+# dissolution (#110). The logic it targets is unchanged and now compiles
+# into the standalone `transfer` withdraw-0 validator, but that artifact
+# has no accepting context, no `#prep_uplc`, and no theorems yet — see
+# `Cip113Spike/PrepTransfer.lean`. `controls/AuthMutantControl.lean` is
+# preserved verbatim and stays outside the `lean_lib` globs until the
+# `transfer` slice gives it something to falsify; restoring this leg is
+# that slice's job, using the recipe below and the pattern of leg 3/4.
+#
+# What IS still checked here: that the mutation anchor is where the
+# recipe expects it. If `transfer.ak` drifts, that must surface now
+# rather than when the leg is restored.
+TRANSFER="$REPO/validators/programmable_logic/transfer.ak"
 grep -q 'expect _stake_cred = authorised_stake_cred(' "$TRANSFER" \
-  || { auth_cleanup; red "auth mutation anchor not found in $TRANSFER — validator changed; update this control"; }
-# Gate the per-input auth `expect` on "this input is the FIRST tx input",
-# so owners of inputs after index 0 are never checked. Compiles (uses only
-# `list.head`, in scope, and the stdlib `input.output_reference` field).
-perl -0pi -e 's/expect _stake_cred = authorised_stake_cred\(\s*output\.address,\s*has_signatory,\s*has_withdrawal,\s*\)/if input.output_reference == list.head(tx.inputs).output_reference {\n          expect _stake_cred = authorised_stake_cred(\n            output.address,\n            has_signatory,\n            has_withdrawal,\n          )\n        } else {\n          Void\n        }/' "$TRANSFER"
-grep -q 'if input.output_reference == list.head(tx.inputs).output_reference' "$TRANSFER" \
-  || { auth_cleanup; red "auth mutation did not apply"; }
-(cd "$AUTH_WORKTREE" && aiken build 2>/dev/null) \
-  || { auth_cleanup; red "auth mutant 'aiken build' failed"; }
-TRANSFER_MUTANT_CODE="$(jq -er --arg t "$TRANSFER_TITLE" \
-  '.validators[] | select(.title == $t) | .compiledCode' "$AUTH_WORKTREE/plutus.json")"
-CLEAN_TRANSFER_CODE="$(cat "$CLEAN_TRANSFER_FLAT")"
-[ "$TRANSFER_MUTANT_CODE" != "$CLEAN_TRANSFER_CODE" ] \
-  || { auth_cleanup; red "auth mutant transfer compiledCode identical to clean — mutation never reached the artifact under test"; }
-mkdir -p "$(dirname "$TRANSFER_MUTANT_FLAT")"
-printf '%s' "$TRANSFER_MUTANT_CODE" > "$TRANSFER_MUTANT_FLAT"
-echo "   auth mutant transfer differs from clean ($((${#TRANSFER_MUTANT_CODE} / 2)) vs $((${#CLEAN_TRANSFER_CODE} / 2)) bytes)"
-(cd "$FV" && lake build >/dev/null && lake env lean controls/AuthMutantControl.lean) \
-  || { auth_cleanup; red "AuthMutantControl failed — the clean-rejected two-owner context was NOT accepted by the first-input-only mutant (harness cannot distinguish the auth hole) or the control could not evaluate"; }
-auth_cleanup
-echo "   first-input-only mutant ACCEPTS the clean-rejected two-owner context (kernel-checked)"
+  || red "auth mutation anchor not found in $TRANSFER — validator changed; update controls/AuthMutantControl.lean and this recipe"
+# Recipe, for the slice that restores the leg: in a FRESH worktree,
+#   perl -0pi -e 's/expect _stake_cred = authorised_stake_cred\(\s*output\.address,\s*has_signatory,\s*has_withdrawal,\s*\)/if input.output_reference == list.head(tx.inputs).output_reference {\n          expect _stake_cred = authorised_stake_cred(\n            output.address,\n            has_signatory,\n            has_withdrawal,\n          )\n        } else {\n          Void\n        }/'
+# then `aiken build`, extract title `transfer.transfer.withdraw` into
+# `controls/flats/transfer_mutant.flat`, assert it differs from
+# `flats/transfer.flat`, and require the CLEAN-rejected two-owner context
+# to be ACCEPTED by the mutant.
+echo "   SKIPPED — no transfer theorem to falsify yet (see comment); anchor still present"
 
 echo "== Leg 5: restore + baseline re-verification =="
 cleanup

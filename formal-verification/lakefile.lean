@@ -37,10 +37,16 @@ lean_lib «Cip113Spike» where
   -- gitignored and normally absent. Building them here would be red on
   -- a missing artifact even when the tree is healthy.
   --
-  -- They are additionally UNCOMPILABLE right now: they import theorem
-  -- modules removed by the PLG dissolution (#110) and reference the
-  -- `programmable_logic_global` mutant flat, a validator that no longer
-  -- exists. Their content is preserved verbatim; the slice that
-  -- re-derives the theorems they falsify restores them by re-pointing
-  -- imports and mutant flats at the current five-title surface.
+  -- `MutantControl.lean` is LIVE again: it falsifies nine of the
+  -- `Cip113Spike/PropsBase.lean` theorems against a PLB rebuilt with its
+  -- witnessed-withdrawal equality gutted, and leg 4 of the driver runs
+  -- it. It stays outside the globs for the reason above and no other.
+  --
+  -- `AuthMutantControl.lean` is additionally UNCOMPILABLE: it imports a
+  -- theorem module removed by the PLG dissolution (#110) and references
+  -- the `programmable_logic_global` mutant flat, a validator that no
+  -- longer exists. Its content is preserved verbatim, and the driver's
+  -- leg 4b is a DECLARED SKIP, because a control can only falsify a
+  -- theorem that exists and the `transfer` artifact has none yet. The
+  -- slice that gives `transfer` its theorems restores both.
   globs := #[.one `Cip113Spike]

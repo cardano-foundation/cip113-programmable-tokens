@@ -56,7 +56,7 @@ COULD-NOT-EVALUATE.
 
 | flat | blueprint title | bytes | prep fuel | sha256 |
 |---|---|---|---|---|
-| `programmable_logic_base.flat` | `programmable_logic_base.programmable_logic_base.spend` | 829 | 1400 | `2646bf715f54133b6f550a58ea0103c84ac75e76951033c928bab7d5b47fbcec` |
+| `programmable_logic_base.flat` | `programmable_logic_base.programmable_logic_base.spend` | 829 | 1600 | `2646bf715f54133b6f550a58ea0103c84ac75e76951033c928bab7d5b47fbcec` |
 | `transfer.flat` | `transfer.transfer.withdraw` | 2283 | not prepped | `57de6a94a5c1abdf679e5ead212bd33c05111577e67bf2c554d75f8a80aacaa7` |
 | `third_party.flat` | `third_party.third_party.withdraw` | 2025 | not prepped | `f365aa7e20f00a3727aee49fe3c5217256c6372ff2d8c467d5fe52cc53b193b8` |
 | `unfracking.flat` | `unfracking.unfracking.withdraw` | 1956 | not prepped | `25436685e58e70b726017ac445327bebb44ea1efa380518b5773d0641198ead5` |
