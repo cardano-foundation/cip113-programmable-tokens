@@ -11,12 +11,14 @@
 
 use aiken/builtin
 use aiken/collection/list
+use cardano/address.{Script, VerificationKey}
 use programmable_logic/fixture
 use programmable_logic/params.{
   ProgrammableLogicGlobalParams, max_inline_datum_bytes_field,
   prog_logic_cred_field, registry_node_cs_field, third_party_cred_field,
   transfer_cred_field, unfracking_cred_field,
 }
+use registry_node.{RegistryNode}
 use types.{
   BaseSpendRedeemer, MintingRegistryProof, OutputIndex, RefInput,
   SpendViaThirdParty, SpendViaTransfer, SpendViaUnfracking, ThirdPartyRedeemer,
@@ -35,6 +37,29 @@ fn field(fields: List<Data>, i: Int) -> Data {
 fn int_fields(ints: List<Int>) -> List<Data> {
   list.map(ints, builtin.i_data)
 }
+
+// Distinct 28-byte hashes, so a field swap in a layout assertion cannot pass
+// by coincidence.
+const hash_a: ByteArray =
+  #"11111111111111111111111111111111111111111111111111111111"
+
+const hash_b: ByteArray =
+  #"22222222222222222222222222222222222222222222222222222222"
+
+const hash_c: ByteArray =
+  #"33333333333333333333333333333333333333333333333333333333"
+
+const hash_d: ByteArray =
+  #"44444444444444444444444444444444444444444444444444444444"
+
+const node_key: ByteArray =
+  #"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+
+const node_next: ByteArray =
+  #"cccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+
+const node_global_state_cs: ByteArray =
+  #"55555555555555555555555555555555555555555555555555555555"
 
 // ------------------------------------------------------ protocol-params datum
 
@@ -238,5 +263,62 @@ test layout_minting_registry_proof_constructors() {
     o_tag == 1,
     o_fields == int_fields([4]),
     decoded == OutputIndex(4),
+  }
+}
+
+// ------------------------------------------------------ credential encoding
+
+// `Credential` encodes as the Plutus `Credential`: VerificationKey
+// (PubKeyCredential) = constructor 0, Script (ScriptCredential) =
+// constructor 1, one bytestring field each. Every credential the protocol
+// puts on the wire — the six in the params datum, the four logic
+// credentials in a registry node — rides on this encoding, so a flip here
+// would silently repoint authorisation from a key to a script.
+test layout_credential_constructors_and_field() {
+  let (vkey_tag, vkey_fields) = constr(as_data(VerificationKey(hash_a)))
+  let (script_tag, script_fields) = constr(as_data(Script(hash_a)))
+  and {
+    vkey_tag == 0,
+    vkey_fields == [as_data(hash_a)],
+    script_tag == 1,
+    script_fields == [as_data(hash_a)],
+  }
+}
+
+// ------------------------------------------------------ registry-node datum
+
+// `RegistryNode`: constructor 0, seven fields, in this order:
+//   0 key, 1 next, 2 minting_logic_script, 3 transfer_logic_script,
+//   4 third_party_transfer_logic_script, 5 unfracking_logic_script,
+//   6 global_state_cs.
+//
+// Field order is load-bearing (see the `RegistryNode` doc comment): the
+// minting credential sits at index 2, BEFORE the two transfer credentials,
+// keeping the four logic-credential fields contiguous at 2-5 ahead of the
+// scalar `global_state_cs`. Off-chain builders and every reader of a node's
+// inline datum depend on exactly this shape.
+test layout_registry_node_seven_fields_in_order() {
+  let node = RegistryNode {
+    key: node_key,
+    next: node_next,
+    minting_logic_script: Script(hash_a),
+    transfer_logic_script: Script(hash_b),
+    third_party_transfer_logic_script: Script(hash_c),
+    // Unset-hook default is a VerificationKey credential — pinned here so
+    // the default-deny encoding is covered alongside the Script ones.
+    unfracking_logic_script: VerificationKey(hash_d),
+    global_state_cs: node_global_state_cs,
+  }
+  let (tag, fields) = constr(as_data(node))
+  and {
+    tag == 0,
+    list.length(fields) == 7,
+    field(fields, 0) == as_data(node_key),
+    field(fields, 1) == as_data(node_next),
+    field(fields, 2) == as_data(Script(hash_a)),
+    field(fields, 3) == as_data(Script(hash_b)),
+    field(fields, 4) == as_data(Script(hash_c)),
+    field(fields, 5) == as_data(VerificationKey(hash_d)),
+    field(fields, 6) == as_data(node_global_state_cs),
   }
 }

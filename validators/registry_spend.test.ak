@@ -481,6 +481,20 @@ test fails_update_wrong_withdrawal_credential() fail {
   call_update_validator(tx)
 }
 
+// Independent-seed regression (2026-08-06, seed 2): update authorised by
+// ONLY the node's transfer-logic withdrawal. A credential-swap mutation
+// (reading authorisation from transfer_logic_script instead of
+// minting_logic_script) is caught by the positive update tests through
+// over-rejection; this test pins the over-ACCEPTANCE direction of the
+// same mutant, so the swap is killed from both sides.
+test fails_update_authorised_by_transfer_logic_withdrawal() fail {
+  let tx = Transaction {
+    ..update_transaction(),
+    withdrawals: [Pair(Script(test_transfer_old), 0)],
+  }
+  call_update_validator(tx)
+}
+
 // Reject: tampering with an immutable field (minting_logic_script). key/next are
 // untouched so validate_directory_node_output passes, but the record-equality in
 // is_field_updated_registry_node fails.

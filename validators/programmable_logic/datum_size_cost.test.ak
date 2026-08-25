@@ -11,6 +11,29 @@
 //// Fixtures are `const` and so constant-folded — `cost_fixture_*` is flat at
 //// every size, which is what makes the rest pure validator cost.
 ////
+//// MEASUREMENT COORDINATES (re-measured 2026-08-25; aiken v1.1.23). Absolute
+//// figures below are meaningless without these, and their absence is why the
+//// previous set was wrong:
+////
+////   * withdrawal index — the seize harness witnesses `wdrl_idx = 1` and the
+////     transfer harness `wdrl_idx = 1`, the positions the LEDGER presents
+////     these credentials at (`fixture.withdrawals_*` are in ledger order;
+////     every Script credential sorts before every VerificationKey one, then
+////     bytewise). The previous figures were taken at `wdrl_idx = 0`, which no
+////     node would produce for these transactions.
+////   * the harnesses pin `wdrl_idx` as a LITERAL. Deriving it in-harness via
+////     `fixture.wdrl_idx_*()` costs ~8.1M cpu of list traversal and would
+////     land in every figure below; the literals are held honest by
+////     `wdrl_idx_literals_match_ledger_derived_indices` at the foot of the
+////     module instead.
+////
+//// Moving to the ledger-correct index changed only ABSOLUTES, and did so
+//// uniformly across every row: seize -1,009,610 cpu, transfer +3,673,635 cpu.
+//// (Seize gets CHEAPER: PLB pays one more cell drop, but reordering the list
+//// also moves the credentials the delegate itself looks up. The net sign was
+//// measured, not predicted — the per-lookup split has not been isolated.)
+//// Every DELTA, slope and ratio in the tables below is unchanged.
+////
 //// WHERE THE COST COMES FROM. Delete `expect output.datum == input.datum`
 //// (`third_party.ak:183`) and every size below collapses to one identical
 //// figure. That single comparison is 100% of the size-dependent cost.
@@ -18,18 +41,18 @@
 //// SEIZE, flat ByteArray — the CHEAPEST shape per byte:
 ////
 ////   raw B   serialised B            cpu          delta   cpu/ser.B
-////       0              1    106,506,391              —           —
-////     512            530    108,224,968      1,718,577       3,249
-////    2048          2,114    113,462,536      6,956,145       3,292
-////    8192          8,450    134,412,808     27,906,417       3,303
+////       0              1    107,140,317              —           —
+////     512            530    108,858,894      1,718,577       3,249
+////    2048          2,114    114,096,462      6,956,145       3,292
+////    8192          8,450    135,046,734     27,906,417       3,303
 ////
 //// SEIZE, List<Int> of one-byte elements — one Data node per serialised
 //// byte, which is what an adversary actually picks:
 ////
 ////   nodes   serialised B            cpu          delta   cpu/ser.B
-////     128            130    123,937,672     17,458,560     135,338
-////    1024          1,026    246,147,592    139,668,480     136,262
-////    2048          2,050    385,816,072    279,336,960     136,328
+////     128            130    124,571,598     17,458,560     135,338
+////    1024          1,026    246,781,518    139,668,480     136,262
+////    2048          2,050    386,449,998    279,336,960     136,328
 ////
 //// A 41x spread at IDENTICAL serialised length. Cross-checked against four
 //// more shapes (`cost_seize_shape_*`): cost tracks Data NODE COUNT at
@@ -37,17 +60,17 @@
 //// byte-length cap bounds cpu only via that 1-byte-per-node floor — it does
 //// not bound the work directly. Worst case: ~136,400 cpu per serialised byte.
 ////
-//// `mem` does NOT scale with datum size at all (constant 292,586 across
+//// `mem` does NOT scale with datum size at all (constant 299,116 across
 //// every size and shape). Only cpu and transaction size matter.
 ////
 //// TRANSFER — the holder's side — is byte-identical at every size
-//// (105,433,466). Transfer never pairs an input to an output, so the fat
+//// (111,055,130). Transfer never pairs an input to an output, so the fat
 //// datum is never read. The holder creates once, holds free, and may drop
 //// the datum when spending. Only the seizer ever pays.
 ////
 //// WHICH LIMIT BINDS. Mainnet Conway: maxTxSize 16,384, maxTxExUnits
-//// mem 14,000,000 / cpu 10,000,000,000. Baseline seize ~106.5M leaves
-//// ~9,893M cpu = 72,530 worst-case serialised bytes, against only ~15,400
+//// mem 14,000,000 / cpu 10,000,000,000. Baseline seize ~107.1M leaves
+//// ~9,893M cpu = 72,528 worst-case serialised bytes, against only ~15,400
 //// bytes of tx-size room. Both scale as (pairs x datum), so TX SIZE BINDS
 //// FIRST, ALWAYS, by ~5x. The practical consequence is seize batching:
 //// pairs per seize tx ~= 15,400 / (115 + D), i.e. ~130 at the 3-byte unit
@@ -91,7 +114,9 @@ fn seize_logic(self: Transaction, redeemer: ThirdPartyRedeemer) -> Bool {
     programmable_logic_base.programmable_logic_base.spend(
       fixture.policy_protocol_params,
       None,
-      SpendViaThirdParty { params_idx: 0, wdrl_idx: 0 },
+      // wdrl_idx 1: ledger order puts …035d (issuer 3p logic) before …731d3a
+      // (framework third_party). Guarded by the test at the foot of this module.
+      SpendViaThirdParty { params_idx: 0, wdrl_idx: 1 },
       Void,
       self,
     ),
@@ -110,7 +135,9 @@ fn transfer_logic(self: Transaction, redeemer: TransferRedeemer) -> Bool {
     programmable_logic_base.programmable_logic_base.spend(
       fixture.policy_protocol_params,
       None,
-      SpendViaTransfer { params_idx: 0, wdrl_idx: 0 },
+      // wdrl_idx 1: ledger order puts …0b0b (transfer logic) before …1091c
+      // (framework transfer). Guarded by the test at the foot of this module.
+      SpendViaTransfer { params_idx: 0, wdrl_idx: 1 },
       Void,
       self,
     ),
@@ -1604,4 +1631,20 @@ const seize_tx_unit: Transaction = seize_tx(unit_d)
 
 test cost_seize_unit() {
   seize_logic(seize_tx_unit, seize_redeemer)
+}
+
+// The `wdrl_idx` values in the harnesses above are LITERALS on purpose.
+// Calling `fixture.wdrl_idx_*()` inside a measured harness adds ~8.1M cpu of
+// list traversal to every figure in this cost record — the very kind of
+// harness overhead these numbers exist to exclude. This guard keeps the
+// literals honest instead: it fails if the ledger ordering of the fixture
+// withdrawal lists ever stops putting the framework credential where the
+// literals say. Ordering: all entries are Script credentials, so they sort
+// bytewise — …035d < …731d3a (third party) and …0b0b < …1091c (transfer),
+// putting the framework validator at index 1 in both.
+test wdrl_idx_literals_match_ledger_derived_indices() {
+  and {
+    fixture.wdrl_idx_third_party() == 1,
+    fixture.wdrl_idx_transfer() == 1,
+  }
 }

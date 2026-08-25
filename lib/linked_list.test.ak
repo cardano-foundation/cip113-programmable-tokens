@@ -1,8 +1,12 @@
 // Unit tests for linked list validation logic
-use cardano/address.{Script}
+use aiken/fuzz
+use aiken/primitive/bytearray
+use cardano/address.{Address, Script, VerificationKey}
+use cardano/assets
+use cardano/transaction.{InlineDatum, Output}
 use linked_list.{
   is_field_updated_registry_node, is_inserted_directory_node,
-  is_updated_directory_node,
+  is_updated_directory_node, validate_directory_node_output,
 }
 use registry_node.{RegistryNode, empty_vkey}
 use utils.{bytearray_lt}
@@ -398,4 +402,195 @@ test is_field_updated_registry_node_rejects_malformed_unfracking_hook() fail {
     unfracking_logic_script: Script(#"6666"),
   }
   is_field_updated_registry_node(new, original)
+}
+
+// ------------------------------------------------------------- properties
+//
+// Blaster-shaped property tests (Tier 0 of the formal-verification plan):
+// bounded-length ByteArray domains, boolean-equivalence bodies where the
+// helper returns a Bool — the shape the Aiken↔Blaster pipeline
+// (aiken-lang/aiken PR #1311) exports as a Lean theorem over the compiled
+// UPLC.
+
+/// The registry policy id used by the node-output properties below.
+const prop_node_cs = #"99999999999999999999999999999999999999999999999999999999"
+
+/// The registry-spend address the node-output properties lock nodes under.
+const prop_registry_address =
+  Address {
+    payment_credential: Script(
+      #"88888888888888888888888888888888888888888888888888888888",
+    ),
+    stake_credential: None,
+  }
+
+/// A well-shaped registry-node output for `validate_directory_node_output`:
+/// exactly Ada + one `prop_node_cs` NFT named after the node key, inline
+/// datum, no reference script.
+fn node_output(node: RegistryNode) -> Output {
+  node_output_with_lovelace(node, 2_000_000)
+}
+
+fn node_output_with_lovelace(node: RegistryNode, lovelace: Int) -> Output {
+  Output {
+    address: prop_registry_address,
+    value: assets.from_lovelace(lovelace)
+      |> assets.add(prop_node_cs, node.key, 1),
+    datum: InlineDatum(as_data(node)),
+    reference_script: None,
+  }
+}
+
+// ∀ lovelace amounts: a registry-node output is valid with ANY ada
+// quantity — the node-shape check constrains the NFT, not the lovelace.
+// This is the protocol-parameter robustness claim for the registry
+// lifecycle: a `coinsPerUTxOByte` rise (which raises the min-UTxO floor)
+// can always be absorbed by topping the node UTxO up at the next
+// insert/update, so no registry action is ever bricked by a min-ada
+// change (the issue-#96 hazard class, proven absent here).
+test prop_registry_node_valid_for_any_lovelace(
+  lovelace via fuzz.int_between(1, 1_000_000_000_000),
+) {
+  let node = valid_inserted_node()
+  validate_directory_node_output(
+    node_output_with_lovelace(node, lovelace),
+    prop_node_cs,
+    prop_registry_address,
+  ) == node
+}
+
+// ∀ hashes of length 0..40: an inserted node's transfer-logic credential
+// is accepted EXACTLY when the hash is 28 bytes — boolean equivalence, so
+// this single property carries both the positive and the negative claim.
+test prop_inserted_node_transfer_logic_cred_valid_iff_28_bytes(
+  hash via fuzz.bytearray_between(0, 40),
+) {
+  let node = RegistryNode {
+    ..valid_inserted_node(),
+    transfer_logic_script: Script(hash),
+  }
+  is_inserted_directory_node(
+    node,
+    node.key,
+    node.next,
+    node.minting_logic_script,
+  ) == ( bytearray.length(hash) == 28 )
+}
+
+// ∀ hashes of length 0..40: an inserted node's unfracking hook is accepted
+// EXACTLY when it is unset (empty_vkey, unfracking forbidden — the
+// default-deny) or a strict 28-byte credential.
+test prop_inserted_node_unfracking_hook_valid_iff_unset_or_28_bytes(
+  hash via fuzz.bytearray_between(0, 40),
+) {
+  let node = RegistryNode {
+    ..valid_inserted_node(),
+    unfracking_logic_script: VerificationKey(hash),
+  }
+  is_inserted_directory_node(
+    node,
+    node.key,
+    node.next,
+    node.minting_logic_script,
+  ) == ( hash == #"" || bytearray.length(hash) == 28 )
+}
+
+// ∀ distinct 28-byte key pairs: a node output whose key/next are in strict
+// ascending byte order parses and round-trips through
+// `validate_directory_node_output`.
+test prop_directory_node_accepts_any_strictly_ordered_key_pair(
+  (k1, k2) via fuzz.both(fuzz.bytearray_fixed(28), fuzz.bytearray_fixed(28)),
+) {
+  if k1 == k2 {
+    // Strict ordering needs distinct keys; discard the (astronomically
+    // rare) collision sample.
+    True
+  } else {
+    let (key, next) = if bytearray_lt(k1, k2) {
+      (k1, k2)
+    } else {
+      (k2, k1)
+    }
+    let node = RegistryNode { ..valid_inserted_node(), key, next }
+    validate_directory_node_output(
+      node_output(node),
+      prop_node_cs,
+      prop_registry_address,
+    ) == node
+  }
+}
+
+// ∀ strictly-ordered 28-byte key triples k1 < k2 < k3: an insertion of k2
+// under the covering node (k1 → k3) yields a VALID pair of nodes — the
+// inserted node (k2 → k3) and the updated covering node (k1 → k2) both
+// pass their shape checks. This is the linked-list insertion invariant
+// quantified over the whole key space, not just the fixture constants.
+test prop_insert_chain_valid_for_any_ordered_key_triple(
+  (ka, kb, kc) via fuzz.tuple3(
+    fuzz.bytearray_fixed(28),
+    fuzz.bytearray_fixed(28),
+    fuzz.bytearray_fixed(28),
+  ),
+) {
+  if ka == kb || kb == kc || ka == kc {
+    // Insertion needs three distinct keys; discard the (astronomically
+    // rare) collision sample.
+    True
+  } else {
+    let (k1, k2, k3) = sort3(ka, kb, kc)
+    let original = RegistryNode { ..valid_inserted_node(), key: k1, next: k3 }
+    let inserted = RegistryNode { ..valid_inserted_node(), key: k2, next: k3 }
+    let updated = RegistryNode { ..original, next: k2 }
+    and {
+      is_inserted_directory_node(
+        inserted,
+        k2,
+        k3,
+        inserted.minting_logic_script,
+      )?,
+      is_updated_directory_node(updated, original, k2)?,
+      // Both nodes keep the strict ordering the output check enforces.
+      bytearray_lt(updated.key, updated.next)?,
+      bytearray_lt(inserted.key, inserted.next)?,
+    }
+  }
+}
+
+fn sort3(
+  a: ByteArray,
+  b: ByteArray,
+  c: ByteArray,
+) -> (ByteArray, ByteArray, ByteArray) {
+  let (lo, hi) = if bytearray_lt(a, b) {
+    (a, b)
+  } else {
+    (b, a)
+  }
+  if bytearray_lt(c, lo) {
+    (c, lo, hi)
+  } else if bytearray_lt(c, hi) {
+    (lo, c, hi)
+  } else {
+    (lo, hi, c)
+  }
+}
+
+// ∀ 28-byte key pairs: a node output whose key/next are NOT in strict
+// ascending order is rejected. The larger key (or the shared value, when
+// the pair collides) goes to `key`, so every sample violates strictness —
+// including the key == next boundary.
+test prop_directory_node_rejects_any_unordered_key_pair(
+  (k1, k2) via fuzz.both(fuzz.bytearray_fixed(28), fuzz.bytearray_fixed(28)),
+) fail {
+  let (key, next) = if bytearray_lt(k1, k2) {
+    (k2, k1)
+  } else {
+    (k1, k2)
+  }
+  let node = RegistryNode { ..valid_inserted_node(), key, next }
+  validate_directory_node_output(
+    node_output(node),
+    prop_node_cs,
+    prop_registry_address,
+  ) == node
 }

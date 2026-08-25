@@ -10,9 +10,19 @@ use cardano/address.{Address, Credential, Inline}
 use cardano/assets.{AssetName, PolicyId, Value, ada_asset_name, ada_policy_id}
 use cardano/fuzz as cardano
 use cardano/transaction.{InlineDatum, Input, NoDatum, Output, Transaction}
+use programmable_logic/ledger_shape
 use programmable_logic/params.{ProgrammableLogicGlobalParams}
 use registry_node.{RegistryNode, empty_vkey, sentinel_next_key}
 use types.{TokenExists, TransferRedeemer, UnfrackingRedeemer}
+
+/// Shared transaction ids backing rule 4 (`with_sequential_outrefs`): a
+/// transaction's inputs and reference inputs are DISJOINT sets, so each gets
+/// its own id and the outrefs within each stay strictly ascending.
+const fixture_inputs_txid: ByteArray =
+  #"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+
+const fixture_ref_inputs_txid: ByteArray =
+  #"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 
 /// Some script credential for the transfer logic. Could also be a verification
 /// key hash, but the primary use-case is for script.
@@ -72,25 +82,35 @@ pub const policy_tokens_registry: PolicyId =
 
 /// Typical withdrawals found in a transfer transaction; used to artificially
 /// invoke the transfer validator.
+///
+/// Listed in LEDGER order (see `compare_credentials_ledger`): both entries are
+/// Script credentials, so they sort bytewise on the hash and
+/// `credential_transfer_logic` (…0b0b) precedes `credential_validator_transfer`
+/// (…1091c). The framework validator is therefore NOT at index 0 — take a
+/// redeemer's `wdrl_idx` from `wdrl_idx_transfer()`, never from a literal.
 pub const withdrawals_transfer: Pairs<Credential, Int> =
   [
+    // The artificial withdraw-0 to execute the transfer logic
+    Pair(credential_transfer_logic, 0),
     // The artificial withdraw-0 to execute the transfer validator (required
     // by the SpendViaTransfer base spend)
     Pair(credential_validator_transfer, 0),
-    // The artificial withdraw-0 to execute the transfer logic
-    Pair(credential_transfer_logic, 0),
   ]
 
 /// Typical withdrawals found in a 3rd party transaction; used to artificially
 /// invoke the third_party validator.
+///
+/// Listed in LEDGER order: `credential_3rd_party_logic` (…035d) sorts before
+/// `credential_validator_third_party` (…731d3a), so the framework validator is
+/// at index 1. Take a redeemer's `wdrl_idx` from `wdrl_idx_third_party()`.
 pub const withdrawals_3rd_party: Pairs<Credential, Int> =
   [
-    // The framework third_party validator's withdraw-0 (required by the
-    // SpendViaThirdParty base spend) — a third-party tx never loads `transfer`
-    Pair(credential_validator_third_party, 0),
     // The issuer's 3rd-party transfer logic withdraw-0 (required by the
     // third_party validator)
     Pair(credential_3rd_party_logic, 0),
+    // The framework third_party validator's withdraw-0 (required by the
+    // SpendViaThirdParty base spend) — a third-party tx never loads `transfer`
+    Pair(credential_validator_third_party, 0),
   ]
 
 /// Typical withdrawals found in an unfracking transaction (Finding 17).
@@ -99,15 +119,20 @@ pub const withdrawals_3rd_party: Pairs<Credential, Int> =
 /// the transfer-logic script (authorises the script-staked PLB inputs —
 /// same holder-authorisation pattern as a transfer; a vkey-staked holder
 /// signs instead and omits this one), and the issuer's hook.
+///
+/// Listed in LEDGER order: …0b0b (transfer logic) < …0b00c5 (issuer hook) <
+/// …def17a (unfracking validator), so the framework validator is at index 2 —
+/// the deepest of the three canonical shapes. Take a redeemer's `wdrl_idx`
+/// from `wdrl_idx_unfracking()`.
 pub const withdrawals_unfracking: Pairs<Credential, Int> =
   [
-    // The artificial withdraw-0 to execute the unfracking invariants
-    Pair(credential_validator_unfracking, 0),
     // The artificial withdraw-0 authorising the script-staked PLB inputs
     Pair(credential_transfer_logic, 0),
     // The artificial withdraw-0 of the acted-on policy's issuer hook
     // (unfracking v2: the hook is always executed — no script, no party)
     Pair(credential_unfracking_hook, 0),
+    // The artificial withdraw-0 to execute the unfracking invariants
+    Pair(credential_validator_unfracking, 0),
   ]
 
 /// The ledger's ordering of the withdrawal map, which Plutus hands to
@@ -149,6 +174,25 @@ pub fn withdrawal_index_of(
     credential,
   )
   idx
+}
+
+/// `wdrl_idx` for a `SpendViaTransfer` base spend over `withdrawals_transfer`.
+/// DERIVED, not hardcoded: the ledger decides the order of the withdrawal map,
+/// so a literal here silently rots the moment a credential or an entry changes.
+pub fn wdrl_idx_transfer() -> Int {
+  withdrawal_index_of(withdrawals_transfer, credential_validator_transfer)
+}
+
+/// `wdrl_idx` for a `SpendViaThirdParty` base spend over
+/// `withdrawals_3rd_party`. Derived, for the same reason.
+pub fn wdrl_idx_third_party() -> Int {
+  withdrawal_index_of(withdrawals_3rd_party, credential_validator_third_party)
+}
+
+/// `wdrl_idx` for a `SpendViaUnfracking` base spend over
+/// `withdrawals_unfracking`. Derived, for the same reason.
+pub fn wdrl_idx_unfracking() -> Int {
+  withdrawal_index_of(withdrawals_unfracking, credential_validator_unfracking)
 }
 
 /// Arbitrary script credential representing the upgrade-authority
@@ -411,14 +455,27 @@ pub fn some_transfer(
   (
     Transaction {
       ..transaction.placeholder,
-      inputs: [
-        some_input_with_programmable_tokens(tokens, "programmable tokens input"),
-      ],
+      fee: ledger_shape.realistic_fee,
+      inputs: ledger_shape.with_sequential_outrefs(
+        [
+          some_input_with_programmable_tokens(
+            tokens,
+            "programmable tokens input",
+          ),
+        ],
+        fixture_inputs_txid,
+      ),
       outputs: [some_output_with_programmable_tokens(tokens)],
-      reference_inputs: [
-        some_reference_input_protocol_params(protocol_params, "protocol params"),
-        ..nodes
-      ],
+      reference_inputs: ledger_shape.with_sequential_outrefs(
+        [
+          some_reference_input_protocol_params(
+            protocol_params,
+            "protocol params",
+          ),
+          ..nodes
+        ],
+        fixture_ref_inputs_txid,
+      ),
       withdrawals: withdrawals_transfer,
     },
     node_idxs
@@ -488,20 +545,28 @@ pub fn some_unfracking(
   (
     Transaction {
       ..transaction.placeholder,
-      inputs: [
-        some_input_with_programmable_tokens(input_tokens, "unfracking input"),
-      ],
+      fee: ledger_shape.realistic_fee,
+      inputs: ledger_shape.with_sequential_outrefs(
+        [some_input_with_programmable_tokens(input_tokens, "unfracking input")],
+        fixture_inputs_txid,
+      ),
       outputs: [
         some_output_with_programmable_tokens(continuing_tokens),
         some_output_with_programmable_tokens(moved_tokens),
       ],
-      reference_inputs: [
-        some_reference_input_protocol_params(protocol_params, "protocol params"),
-        some_reference_input_unfracking_registry_node(
-          acted_policy_key,
-          "unfracking registry node",
-        ),
-      ],
+      reference_inputs: ledger_shape.with_sequential_outrefs(
+        [
+          some_reference_input_protocol_params(
+            protocol_params,
+            "protocol params",
+          ),
+          some_reference_input_unfracking_registry_node(
+            acted_policy_key,
+            "unfracking registry node",
+          ),
+        ],
+        fixture_ref_inputs_txid,
+      ),
       withdrawals: withdrawals_unfracking,
     },
     UnfrackingRedeemer {
@@ -514,9 +579,16 @@ pub fn some_unfracking(
 
 // --------------------------------------------------------------------- helpers
 
-/// Some value with a non-zero ADA amount. Embodies typical values found on-chain.
+/// Some value with a non-zero ADA amount. Embodies typical values found
+/// on-chain. Pinned to `ledger_shape.min_ada_per_output` (rule 3) so every
+/// fixture output and resolved input clears the min-UTxO floor by construction.
 pub const min_ada_value: Value =
-  assets.zero |> assets.add(ada_policy_id, ada_asset_name, 1000000)
+  assets.zero
+    |> assets.add(
+        ada_policy_id,
+        ada_asset_name,
+        ledger_shape.min_ada_per_output,
+      )
 
 /// Run a 'Fuzzer' in-place, using a label as a seed. This can be used to
 /// deterministically produce a single arbitrary value from a known fuzzer.

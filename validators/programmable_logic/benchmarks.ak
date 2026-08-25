@@ -35,7 +35,10 @@
 //// resolution, comparison — into one function taking the differing field
 //// accessor as an argument, leaving each arm a one-line call. Net: 868 B ->
 //// 829 B and -1.22M cpu per invocation, so cheaper on BOTH axes — no
-//// size-versus-cpu trade to weigh. (The validator runs once per programmable
+//// size-versus-cpu trade to weigh. (That cpu delta was measured at
+//// `wdrl_idx = 0` against a validator revision that no longer exists, so it
+//// has NOT been re-measured at the corrected position; the size figures are
+//// `aiken build` output and are unaffected by fixture shape.) (The validator runs once per programmable
 //// input; these harnesses call `spend` once, so cpu figures are per
 //// invocation and the ledger multiplies them.)
 ////
@@ -47,15 +50,35 @@
 //// which is what makes the shipped shape possible.
 ////
 //// Execution (CPU/mem) on the composed happy paths below is roughly neutral:
-//// the PLB spend gains a 3-arm dispatch (a few M cpu at withdrawal-index 0,
-//// where the old `has_key_or_fail` scan also stopped at the first entry);
-//// the unfracking path additionally drops a whole validator run (the former
-//// PLG gate). The benches here all witness `wdrl_idx = 0`, so they do NOT
-//// measure the off-first-position case; `wdrl_idx_cost.test.ak` does, at
-//// widths 1-16 and positions 0-15. Note `list.expect_at` is O(`wdrl_idx`)
-//// (one cell drop per step), not O(1) — what the witness removes is the
-//// credential COMPARISON at every entry the old scan walked past. The
-//// headline win is the reference-script SIZE reduction, paid on every tx.
+//// the PLB spend gains a 3-arm dispatch, where the old `has_key_or_fail` scan
+//// also stopped at the first entry; the unfracking path additionally drops a
+//// whole validator run (the former PLG gate). Note `list.expect_at` is
+//// O(`wdrl_idx`) (one cell drop per step), not O(1) — what the witness
+//// removes is the credential COMPARISON at every entry the old scan walked
+//// past. The headline win is the reference-script SIZE reduction, paid on
+//// every tx.
+////
+//// WITHDRAWAL POSITION (corrected 2026-08-25). These harnesses used to
+//// witness `wdrl_idx = 0` for every kind. That is not a position a node would
+//// present: `fixture.withdrawals_*` are now in the LEDGER's credential order
+//// (every Script credential before every VerificationKey one, then bytewise),
+//// which puts the framework validator at index 1 on a transfer, 1 on a seize
+//// and 2 on an unfracking. The harnesses now witness those, so the composed
+//// figures below are the off-first-position case; `wdrl_idx_cost.test.ak`
+//// still maps the curve deliberately, at widths 1-16 and positions 0-15.
+//// Effect of the correction on the composed happy paths, cpu, re-measured on
+//// this branch — all uniform, so DELTAS between rows are unaffected:
+////
+////   baseline_3rd_party_1/2/3 ......  -1,009,610  (cheaper at index 1)
+////   plutarch_baseline_transfer ....  +3,673,635
+////   plutarch_baseline_transfer_2 ..  +5,011,131
+////   unfracking_baseline_two_policies +3,333,222  (incl. fixture reshaping)
+////
+//// `plutarch_baseline_transfer_3` is unchanged: it does not run PLB.
+//// The `wdrl_idx` values in the wrappers are LITERALS on purpose — deriving
+//// them in-harness costs ~8M cpu of list traversal and would land in every
+//// figure here. `wdrl_idx_literals_match_ledger_derived_indices` (foot of
+//// this module) is what keeps them honest.
 
 use aiken/collection/list
 use aiken/fuzz
@@ -80,7 +103,9 @@ fn programmable_logic(self: Transaction, redeemer: TransferRedeemer) -> Bool {
     programmable_logic_base.programmable_logic_base.spend(
       fixture.policy_protocol_params,
       None,
-      SpendViaTransfer { params_idx: 0, wdrl_idx: 0 },
+      // wdrl_idx 1: ledger order puts …0b0b (transfer logic) before …1091c
+      // (framework transfer). Guarded by the test at the foot of this module.
+      SpendViaTransfer { params_idx: 0, wdrl_idx: 1 },
       Void,
       self,
     ),
@@ -101,7 +126,9 @@ fn third_party_logic(self: Transaction, redeemer: ThirdPartyRedeemer) -> Bool {
     programmable_logic_base.programmable_logic_base.spend(
       fixture.policy_protocol_params,
       None,
-      SpendViaThirdParty { params_idx: 0, wdrl_idx: 0 },
+      // wdrl_idx 1: ledger order puts …035d (issuer 3p logic) before …731d3a
+      // (framework third_party). Guarded by the test at the foot of this module.
+      SpendViaThirdParty { params_idx: 0, wdrl_idx: 1 },
       Void,
       self,
     ),
@@ -853,7 +880,9 @@ fn programmable_logic_unfracking(
     programmable_logic_base.programmable_logic_base.spend(
       fixture.policy_protocol_params,
       None,
-      SpendViaUnfracking { params_idx: 0, wdrl_idx: 0 },
+      // wdrl_idx 2: ledger order is …0b0b (transfer logic) < …0b00c5 (issuer
+      // hook) < …def17a (framework unfracking). Guarded at the foot of this module.
+      SpendViaUnfracking { params_idx: 0, wdrl_idx: 2 },
       Void,
       self,
     ),
@@ -924,4 +953,17 @@ bench unfracking_many_policies(
   (self, unfracking_redeemer) via sample_unfracking_many_policies,
 ) {
   programmable_logic_unfracking(self, unfracking_redeemer)
+}
+
+// The `wdrl_idx` values in the composition wrappers above are LITERALS on
+// purpose: calling `fixture.wdrl_idx_*()` inside a benched wrapper would add
+// ~8M cpu of list traversal to every figure in this record. This guard keeps
+// them honest — it fails if the ledger ordering of the fixture withdrawal
+// lists ever moves the framework credential off the index the literals name.
+test wdrl_idx_literals_match_ledger_derived_indices() {
+  and {
+    fixture.wdrl_idx_transfer() == 1,
+    fixture.wdrl_idx_third_party() == 1,
+    fixture.wdrl_idx_unfracking() == 2,
+  }
 }

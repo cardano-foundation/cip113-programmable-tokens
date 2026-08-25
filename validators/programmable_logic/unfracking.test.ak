@@ -18,6 +18,7 @@
 ////   * the owner's stake-script withdraw-0 (transfer logic in the
 ////     default fixture) — or a vkey signature instead.
 
+use aiken/fuzz
 use cardano/address.{Credential, VerificationKey}
 use cardano/assets.{
   AssetName, PolicyId, ada_asset_name, ada_policy_id, from_asset, merge,
@@ -160,15 +161,21 @@ fn run_unfracking(tx: Transaction) -> Bool {
 }
 
 /// Dispatch helper — drives `programmable_logic_base.spend` with a
-/// `SpendViaUnfracking` redeemer witnessing the unfracking withdrawal at
-/// index 0 (where `fixture.withdrawals_unfracking` puts it). PLB only
+/// `SpendViaUnfracking` redeemer witnessing the unfracking withdrawal at the
+/// index the LEDGER presents it at. `fixture.withdrawals_unfracking` is in
+/// ledger order, where the framework unfracking credential (…def17a) sorts
+/// last of the three, so the index is 2 — derived via
+/// `fixture.wdrl_idx_unfracking()` rather than written as a literal. PLB only
 /// requires the withdraw-0 of the credential named by the protocol-params
 /// datum's `unfracking_cred` field at that index and checks nothing else.
 fn run_plb_unfracking_dispatch(tx: Transaction) -> Bool {
   programmable_logic_base.programmable_logic_base.spend(
     fixture.policy_protocol_params,
     None,
-    SpendViaUnfracking { params_idx: 0, wdrl_idx: 0 },
+    SpendViaUnfracking {
+      params_idx: 0,
+      wdrl_idx: fixture.wdrl_idx_unfracking(),
+    },
     Void,
     tx,
   )
@@ -869,4 +876,191 @@ test unfracking_full_composition_succeeds() {
     run_plb_unfracking_dispatch(tx),
     run_unfracking(tx),
   }
+}
+
+// ------------------------------------------------------------- properties
+//
+// Blaster-shaped property tests (Tier 0 of the formal-verification plan):
+// each test quantifies an unfracking invariant over ALL bounded integer
+// quantities instead of the canonical 100/100 fixture amounts, using a
+// single (tuple-encoded) fuzzer argument over bounded domains — the shape
+// the Aiken↔Blaster pipeline (aiken-lang/aiken PR #1311) exports as a Lean
+// theorem over the compiled UPLC.
+
+/// A bounded token quantity. The upper bound is arbitrary but keeps the
+/// domain finite for symbolic lowering.
+fn any_quantity() -> Fuzzer<Int> {
+  fuzz.int_between(1, 1_000_000_000)
+}
+
+/// A quantity plus a strict sub-quantity of it (1 <= part < total).
+fn any_quantity_and_proper_part() -> Fuzzer<(Int, Int)> {
+  let total <- fuzz.and_then(fuzz.int_between(2, 1_000_000_000))
+  let part <- fuzz.map(fuzz.int_between(1, total - 1))
+  (total, part)
+}
+
+/// A quantity plus a non-empty sub-quantity of it (1 <= part <= total).
+fn any_quantity_and_part() -> Fuzzer<(Int, Int)> {
+  let total <- fuzz.and_then(any_quantity())
+  let part <- fuzz.map(fuzz.int_between(1, total))
+  (total, part)
+}
+
+/// The canonical happy-path transaction with caller-chosen quantities:
+/// ONE fracked PLB input (`a_qty` A + `b_qty` B), the paired continuing
+/// output keeping B byte-for-byte, `moved_qty` of A regrouping into the
+/// extra output at the owner address.
+fn unfracking_tx_with_quantities(
+  a_qty: Int,
+  b_qty: Int,
+  moved_qty: Int,
+) -> Transaction {
+  let (tx, _) = fixture.some_unfracking(
+    policy_a,
+    [(policy_a, "FOO", a_qty), (policy_b, "BAR", b_qty)],
+    [(policy_b, "BAR", b_qty)],
+    [(policy_a, "FOO", moved_qty)],
+  )
+  tx
+}
+
+// ∀ quantities: the canonical full strip (all of A regrouped, B kept
+// byte-for-byte) is accepted — conservation holds at every scale.
+test prop_unfracking_full_strip_holds_for_any_quantities(
+  (a_qty, b_qty) via fuzz.both(any_quantity(), any_quantity()),
+) {
+  run_unfracking(unfracking_tx_with_quantities(a_qty, b_qty, a_qty))
+}
+
+// ∀ splits: the regrouped acted tokens may spread over SEVERAL owner
+// outputs — conservation is about the total, not the output count.
+test prop_unfracking_regroup_may_split_across_owner_outputs(
+  (a_qty, split) via any_quantity_and_proper_part(),
+) {
+  let tx = Transaction {
+    ..unfracking_tx_with_quantities(a_qty, 100, split),
+    outputs: [
+      fixture.some_output_with_programmable_tokens([(policy_b, "BAR", 100)]),
+      fixture.some_output_with_programmable_tokens([(policy_a, "FOO", split)]),
+      fixture.some_output_with_programmable_tokens(
+        [(policy_a, "FOO", a_qty - split)],
+      ),
+    ],
+  }
+  run_unfracking(tx)
+}
+
+// ∀ quantities: consolidating two fracked UTxOs of the same owner into
+// one regrouped output conserves the acted-policy total additively.
+test prop_unfracking_consolidates_any_two_fracked_utxos(
+  (a1_qty, a2_qty) via fuzz.both(any_quantity(), any_quantity()),
+) {
+  let tx = Transaction {
+    ..valid_unfracking_tx(),
+    inputs: [
+      fixture.some_input_with_programmable_tokens(
+        [(policy_a, "FOO", a1_qty), (policy_b, "BAR", 100)],
+        "unfracking input",
+      ),
+      fixture.some_input_with_programmable_tokens(
+        [(policy_a, "FOO", a2_qty), (policy_b, "BAR", 50)],
+        "unfracking input 2",
+      ),
+    ],
+    outputs: [
+      fixture.some_output_with_programmable_tokens([(policy_b, "BAR", 100)]),
+      fixture.some_output_with_programmable_tokens([(policy_b, "BAR", 50)]),
+      fixture.some_output_with_programmable_tokens(
+        [(policy_a, "FOO", a1_qty + a2_qty)],
+      ),
+    ],
+  }
+  run_unfracking(tx)
+}
+
+// ∀ non-zero leaks: any shortfall of the regrouped acted tokens (up to
+// and including losing all of them) breaks the strict conservation
+// equality — tokens cannot leak out of the owner's PLB holdings.
+test prop_unfracking_rejects_any_leak_of_acted_tokens(
+  (a_qty, leak) via any_quantity_and_part(),
+) fail {
+  run_unfracking(unfracking_tx_with_quantities(a_qty, 100, a_qty - leak))
+}
+
+// ∀ non-zero surpluses: any excess of the regrouped acted tokens breaks
+// the strict conservation equality — mint is zero, so tokens cannot be
+// fabricated either.
+test prop_unfracking_rejects_any_fabrication_of_acted_tokens(
+  (a_qty, surplus) via fuzz.both(any_quantity(), any_quantity()),
+) fail {
+  run_unfracking(unfracking_tx_with_quantities(a_qty, 100, a_qty + surplus))
+}
+
+// ∀ partial strips: a paired continuing output still carrying ANY amount
+// of the acted policy is rejected. Isolation: the regrouped output holds
+// the complement (a_qty - kept), so the conservation total stays balanced
+// and the only invariant firing is the full-strip pair rule.
+test prop_unfracking_rejects_any_partial_strip(
+  (a_qty, kept) via any_quantity_and_part(),
+) fail {
+  let (tx, _) = fixture.some_unfracking(
+    policy_a,
+    [(policy_a, "FOO", a_qty), (policy_b, "BAR", 100)],
+    [(policy_a, "FOO", kept), (policy_b, "BAR", 100)],
+    [(policy_a, "FOO", a_qty - kept)],
+  )
+  run_unfracking(tx)
+}
+
+// ∀ non-zero deltas: any change to a NON-acted policy's quantity in the
+// paired continuing output (including dropping the entry entirely) breaks
+// the lockstep byte-identity — co-resident tokens cannot move.
+test prop_unfracking_rejects_any_non_acted_delta(
+  (b_qty, delta) via any_quantity_and_part(),
+) fail {
+  let (tx, _) = fixture.some_unfracking(
+    policy_a,
+    [(policy_a, "FOO", 100), (policy_b, "BAR", b_qty)],
+    [(policy_b, "BAR", b_qty - delta)],
+    [(policy_a, "FOO", 100)],
+  )
+  run_unfracking(tx)
+}
+
+/// A co-resident policy sorting BEFORE the acted policy (…0900 < …0a00):
+/// exercises the lockstep walk's PAIRWISE branch (entries consumed before
+/// the acted entry is reached), which the policy_b (…0b00) props — where
+/// the acted entry comes first — never touch.
+const policy_pre: ByteArray =
+  #"00000000000000000000000000000000000000000000000000000900"
+
+// ∀ quantities: a co-resident policy sorting BEFORE the acted one is
+// preserved byte-identically through the pairwise branch of the walk.
+test prop_unfracking_preserves_any_pre_acted_co_resident(
+  (a_qty, pre_qty) via fuzz.both(any_quantity(), any_quantity()),
+) {
+  let (tx, _) = fixture.some_unfracking(
+    policy_a,
+    [(policy_pre, "PRE", pre_qty), (policy_a, "FOO", a_qty)],
+    [(policy_pre, "PRE", pre_qty)],
+    [(policy_a, "FOO", a_qty)],
+  )
+  run_unfracking(tx)
+}
+
+// ∀ non-zero deltas: tampering with a co-resident policy that sorts
+// BEFORE the acted one (pairwise branch) is rejected. Isolation: moved
+// carries the full acted quantity, so conservation stays balanced and
+// the pairwise byte-identity is the only invariant firing.
+test prop_unfracking_rejects_any_pre_acted_non_acted_delta(
+  (pre_qty, delta) via any_quantity_and_part(),
+) fail {
+  let (tx, _) = fixture.some_unfracking(
+    policy_a,
+    [(policy_pre, "PRE", pre_qty), (policy_a, "FOO", 100)],
+    [(policy_pre, "PRE", pre_qty - delta)],
+    [(policy_a, "FOO", 100)],
+  )
+  run_unfracking(tx)
 }
