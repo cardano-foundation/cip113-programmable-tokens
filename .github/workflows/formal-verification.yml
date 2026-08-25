@@ -1,0 +1,125 @@
+# Formal verification: identity gates + the Lean decode/prep layer.
+#
+# The Aiken sources, the blueprint, and the extracted flats all live in this
+# repo, so every claim is pinned by the commit being built — no cross-repo
+# attestation. This workflow enforces that chain on every push/PR:
+#
+#   1. installed aiken == the committed blueprint's own preamble
+#      (anything else is COULD-NOT-EVALUATE for the rebuild leg);
+#   2. a clean `aiken build` reproduces the committed `plutus.json`
+#      byte-for-byte (source -> blueprint);
+#   3. `extract-flats.sh --check`: committed flats + MANIFEST match the
+#      blueprint (blueprint -> artifacts under verification);
+#   4. `lake build`: every flat decodes on stock PlutusCoreBlaster, every
+#      compile-time parameter application typechecks against the current
+#      validator signatures, and every `#prep_uplc` completes.
+#
+# RED on step 2 or 3 means a change altered compiled validator bytes
+# without re-attesting: rerun formal-verification/scripts/extract-flats.sh
+# and commit the result. RED on step 4 means the artifacts moved out from
+# under the Lean side — most likely a validator's parameter list changed.
+#
+# What this workflow does NOT do yet: discharge any Lean theorem. The
+# PLG-dissolution rebuild (#110) removed the theorem files that named the
+# old four-title surface (PropsBase.lean, PrepGlobal.lean, PropsGlobal.lean,
+# PropsGlobalAuth.lean — see formal-verification/README.md); they are being
+# re-derived against the current five-title surface slice by slice, and
+# `lake build` picks each one up as it lands with no change to this file.
+#
+# The harness itself is falsified separately (mutant must flip a theorem to
+# Falsified), once theorems are back:
+# formal-verification/scripts/falsification-control.sh. Its two Lean
+# controls are deliberately outside the default build — see the `globs`
+# comment in formal-verification/lakefile.lean.
+
+name: formal-verification
+
+on:
+  push:
+    branches: [main, feat/formal-verification]
+  pull_request:
+    paths:
+      - "validators/**"
+      - "lib/**"
+      - "aiken.toml"
+      - "aiken.lock"
+      - "plutus.json"
+      - "formal-verification/**"
+      - ".github/workflows/formal-verification.yml"
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      Z3_VERSION: 4.15.2
+      Z3_ASSET: z3-4.15.2-x64-glibc-2.39
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aiken-lang/setup-aiken@v1
+        with:
+          version: v1.1.23
+
+      - name: Toolchain must match the committed blueprint's preamble
+        run: |
+          BP="$(jq -er '.preamble.compiler.version' plutus.json)"
+          INSTALLED="$(aiken --version | awk '{print $2}')"
+          [ "$INSTALLED" = "$BP" ] || {
+            echo "COULD-NOT-EVALUATE: installed aiken '$INSTALLED' != blueprint compiler '$BP'" >&2
+            echo "Update this workflow's setup-aiken version alongside the blueprint." >&2
+            exit 1
+          }
+
+      - name: Clean rebuild must reproduce the committed blueprint
+        run: |
+          aiken build
+          git diff --exit-code plutus.json || {
+            echo "" >&2
+            echo "Rebuilt plutus.json differs from the committed one — the" >&2
+            echo "committed blueprint is stale. Rebuild and commit it together" >&2
+            echo "with re-attested flats (formal-verification/scripts/extract-flats.sh)." >&2
+            exit 1
+          }
+          git checkout -- aiken.lock 2>/dev/null || true
+
+      - name: Identity gate (flats + manifest freshness)
+        run: ./formal-verification/scripts/extract-flats.sh --check
+
+      # --- Lean: decode + prep the artifacts under verification ---
+      #
+      # No theorem is discharged yet — the PLG dissolution (#110) removed
+      # the theorem modules and they have not been re-derived. What
+      # `lake build` enforces today is the layer BELOW the theorems, and
+      # that layer is load-bearing: every committed flat decodes on stock
+      # PlutusCoreBlaster, every compile-time parameter application still
+      # typechecks against the current validator signatures, and the one
+      # prepped artifact (`programmable_logic_base`, fuel 1400) still
+      # preps. A parameter change — the pre-#110 PLB took a `Credential`
+      # where it now takes a `PolicyId` — reddens this step instead of
+      # silently producing a script that can never halt.
+      - name: Install Z3 ${{ env.Z3_VERSION }}
+        run: |
+          curl -sSfL -o z3.zip "https://github.com/Z3Prover/z3/releases/download/z3-${Z3_VERSION}/${Z3_ASSET}.zip"
+          unzip -q z3.zip
+          sudo install "${Z3_ASSET}/bin/z3" /usr/local/bin/z3
+          z3 --version
+
+      - name: Install elan (Lean toolchain manager)
+        run: |
+          curl -sSfL https://elan.lean-lang.org/elan-init.sh | sh -s -- -y --default-toolchain none
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+
+      - name: Cache Lean toolchain + build artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.elan/toolchains
+            formal-verification/.lake
+          key: lake-${{ runner.os }}-${{ hashFiles('formal-verification/lean-toolchain', 'formal-verification/lake-manifest.json') }}
+          restore-keys: lake-${{ runner.os }}-
+
+      - name: Build (decode + prep; theorems once step 3's later slices land)
+        working-directory: formal-verification
+        run: lake build

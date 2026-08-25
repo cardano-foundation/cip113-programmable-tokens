@@ -1,0 +1,37 @@
+{
+  "_comment": "Example CIP-113 deployment manifest. Describes an INTENDED deployment so scripts/deployment-manifest-check.sh can verify trust-root closure (V13) BEFORE submission. All hashes are 28-byte blake2b-224 script hashes (56 hex chars) unless noted. The values here are illustrative and internally consistent for the closure checks; they are NOT a real deployment. Regenerate against your real applied hashes before deploying.",
+
+  "params_nft_policy": "61409bcf44c8eec4a805cb7adce17b340b0305df6c50e1bc5298f333",
+
+  "params_datum": {
+    "registry_node_cs": "7777777777777777777777777777777777777777777777777777aaaa",
+    "prog_logic_cred": { "constructor": "Script", "hash": "be1e5967da54825149611a725eddea8664c1898a98bcf54f05f6728a" },
+    "unfracking_cred": { "constructor": "Script", "hash": "0d4dd6bd486a1c361ac631e53529b042d852dcab1551b5838f1d2d2a" }
+  },
+
+  "plb": {
+    "script_hash": "be1e5967da54825149611a725eddea8664c1898a98bcf54f05f6728a",
+    "applied_stake_cred": { "constructor": "Script", "hash": "a8ea72e81ac2542cdcc17a1dbb9805ffc9250eeece8f537bcc6e96af" }
+  },
+
+  "plg": {
+    "script_hash": "a8ea72e81ac2542cdcc17a1dbb9805ffc9250eeece8f537bcc6e96af",
+    "applied_params_policy": "61409bcf44c8eec4a805cb7adce17b340b0305df6c50e1bc5298f333"
+  },
+
+  "unfracking": {
+    "script_hash": "0d4dd6bd486a1c361ac631e53529b042d852dcab1551b5838f1d2d2a",
+    "applied_params_policy": "61409bcf44c8eec4a805cb7adce17b340b0305df6c50e1bc5298f333"
+  },
+
+  "registry_mint": {
+    "script_hash": "7777777777777777777777777777777777777777777777777777aaaa"
+  },
+
+  "params_utxo_value": {
+    "lovelace": 2000000,
+    "assets": [
+      { "policy": "61409bcf44c8eec4a805cb7adce17b340b0305df6c50e1bc5298f333", "asset_name_hex": "50726f746f636f6c506172616d73", "quantity": 1 }
+    ]
+  }
+}
