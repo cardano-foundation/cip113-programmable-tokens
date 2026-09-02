@@ -33,27 +33,55 @@ pub const credential_seized_logic: Credential =
 pub const credential_validator_logic_base: Credential =
   Credential.Script(#"0000000000000000000000000000000000000000000000000000ba5e")
 
-/// Arbitrary script credential representing the `transfer` validator (the
-/// former programmable_logic_global). Carried by the protocol-params datum
-/// (`transfer_cred`); a SpendViaTransfer base spend requires this script's
-/// withdraw-0.
+/// Arbitrary script hash representing the `programmable_logic_global`
+/// dispatcher. PLB dispatches to THIS credential — read from params datum
+/// field 0 — and the dispatcher in turn requires one of the three delegates.
+///
+/// The bytes are chosen so this credential is the STRICT MINIMUM of every
+/// credential appearing in these fixtures: under the ledger's withdrawal-map
+/// order (every Script credential before every VerificationKey one, bytewise
+/// within each) it therefore sits at index 0 of every withdrawal list here, so
+/// `wdrl_idx: 0` is its unambiguous ledger-sorted position.
+///
+/// ⚠ It must also stay clear of the `00..00 || small` filler families in
+/// `wdrl_idx_cost.test.ak` — a collision there would silently corrupt that cost
+/// record without failing a single test.
+pub const hash_validator_plg: ByteArray =
+  #"00000000000000000000000000000000000000000000000000000101"
+
+pub const credential_validator_plg: Credential =
+  Credential.Script(hash_validator_plg)
+
+/// Arbitrary script hash representing the `transfer` validator. The dispatcher
+/// bakes this hash in and requires its withdraw-0 on a `TransferAct`; the
+/// params datum also carries it as `transfer_cred`, read only by
+/// `issuance_mint`.
+pub const hash_validator_transfer: ByteArray =
+  #"0000000000000000000000000000000000000000000000000001091c"
+
 pub const credential_validator_transfer: Credential =
-  Credential.Script(#"0000000000000000000000000000000000000000000000000001091c")
+  Credential.Script(hash_validator_transfer)
 
 /// Arbitrary script credential representing the standalone third-party
 /// (seize/clawback) validator. Carried by the protocol-params datum
-/// (`third_party_cred`); a SpendViaThirdParty base spend requires this
+/// (`third_party_cred`); a BaseSpendRedeemer base spend requires this
 /// script's withdraw-0. Distinct from `credential_3rd_party_logic`, which is
 /// an ISSUER's per-policy third-party-transfer logic script (registry field).
-pub const credential_validator_third_party: Credential =
-  Credential.Script(#"00000000000000000000000000000000000000000000000000731d3a")
+pub const hash_validator_third_party: ByteArray =
+  #"00000000000000000000000000000000000000000000000000731d3a"
 
-/// Arbitrary script credential representing the unfracking
-/// validator (Finding 17). Carried by the protocol-params datum
-/// (`unfracking_cred`); a SpendViaUnfracking base spend requires this
-/// script's withdraw-0.
+pub const credential_validator_third_party: Credential =
+  Credential.Script(hash_validator_third_party)
+
+/// Arbitrary script credential representing the unfracking validator
+/// (Finding 17). The dispatcher requires this script's withdraw-0 on an
+/// `UnfrackingAct`, against the hash baked into it. NOT carried by the
+/// protocol-params datum any more.
+pub const hash_validator_unfracking: ByteArray =
+  #"00000000000000000000000000000000000000000000000000def17a"
+
 pub const credential_validator_unfracking: Credential =
-  Credential.Script(#"00000000000000000000000000000000000000000000000000def17a")
+  Credential.Script(hash_validator_unfracking)
 
 /// Arbitrary script credential representing an ISSUER's unfracking
 /// constraint hook (unfracking v2): the credential registered in a
@@ -74,8 +102,12 @@ pub const policy_tokens_registry: PolicyId =
 /// invoke the transfer validator.
 pub const withdrawals_transfer: Pairs<Credential, Int> =
   [
+    // The dispatcher's withdraw-0 — what the base spend requires. FIRST,
+    // because its hash is the minimum of this set (see `hash_validator_plg`),
+    // so literal index 0 IS its ledger-sorted position.
+    Pair(credential_validator_plg, 0),
     // The artificial withdraw-0 to execute the transfer validator (required
-    // by the SpendViaTransfer base spend)
+    // by the dispatcher's TransferAct)
     Pair(credential_validator_transfer, 0),
     // The artificial withdraw-0 to execute the transfer logic
     Pair(credential_transfer_logic, 0),
@@ -85,8 +117,11 @@ pub const withdrawals_transfer: Pairs<Credential, Int> =
 /// invoke the third_party validator.
 pub const withdrawals_3rd_party: Pairs<Credential, Int> =
   [
+    // The dispatcher's withdraw-0 — required by the base spend. FIRST for the
+    // same ledger-ordering reason as `withdrawals_transfer`.
+    Pair(credential_validator_plg, 0),
     // The framework third_party validator's withdraw-0 (required by the
-    // SpendViaThirdParty base spend) — a third-party tx never loads `transfer`
+    // dispatcher's ThirdPartyAct) — a third-party tx never loads `transfer`
     Pair(credential_validator_third_party, 0),
     // The issuer's 3rd-party transfer logic withdraw-0 (required by the
     // third_party validator)
@@ -94,13 +129,16 @@ pub const withdrawals_3rd_party: Pairs<Credential, Int> =
   ]
 
 /// Typical withdrawals found in an unfracking transaction (Finding 17).
-/// The standalone unfracking validator (required by the SpendViaUnfracking
+/// The standalone unfracking validator (required by the BaseSpendRedeemer
 /// base spend — the `transfer` validator is NOT part of an unfracking tx),
 /// the transfer-logic script (authorises the script-staked PLB inputs —
 /// same holder-authorisation pattern as a transfer; a vkey-staked holder
 /// signs instead and omits this one), and the issuer's hook.
 pub const withdrawals_unfracking: Pairs<Credential, Int> =
   [
+    // The dispatcher's withdraw-0 — required by the base spend. FIRST for the
+    // same ledger-ordering reason as `withdrawals_transfer`.
+    Pair(credential_validator_plg, 0),
     // The artificial withdraw-0 to execute the unfracking invariants
     Pair(credential_validator_unfracking, 0),
     // The artificial withdraw-0 authorising the script-staked PLB inputs
@@ -153,26 +191,24 @@ pub fn withdrawal_index_of(
 
 /// Arbitrary script credential representing the upgrade-authority
 /// withdraw-0 validator (trampoline 2). Carried by the protocol-params
-/// datum (`upgrade_cred`); a coordination-UTxO spend must carry
+/// datum (`upgrade_cred`); a protocol-params UTxO spend must carry
 /// this script's withdraw-0.
 pub const credential_upgrade_authority: Credential =
   Credential.Script(#"000000000000000000000000000000000000000000000000009c6ade")
 
-/// The inline-datum size bound carried by the params datum (issue #106,
-/// vector 3). Named so tests can assert the layout position without
-/// hard-coding the number twice.
+/// The inline-datum size bound (issue #106, vector 3). No longer a params
+/// datum field: it is a compile-time PARAMETER of the three delegates, so
+/// tests pass it where they pass the other two baked values.
 pub const max_inline_datum_bytes: Int = 1024
 
-/// Parameters for a specific instance of the registry.
+/// The live protocol wiring. Four fields, every one with a named on-chain
+/// reader — see `params.ProgrammableLogicGlobalParams`.
 pub const protocol_params: ProgrammableLogicGlobalParams =
   ProgrammableLogicGlobalParams {
-    registry_node_cs: policy_tokens_registry,
-    prog_logic_cred: credential_validator_logic_base,
-    unfracking_cred: credential_validator_unfracking,
+    plg_cred: credential_validator_plg,
     transfer_cred: credential_validator_transfer,
-    upgrade_cred: credential_upgrade_authority,
-    max_inline_datum_bytes,
     third_party_cred: credential_validator_third_party,
+    upgrade_cred: credential_upgrade_authority,
   }
 
 /// Some input to pay for fuel, deterministically determined by the label.
@@ -426,7 +462,7 @@ pub fn some_transfer(
           [],
           fn(_, node_idx, proofs) { [TokenExists { node_idx }, ..proofs] },
         )
-      |> fn(proofs) { TransferRedeemer { params_idx: 0, proofs } },
+      |> fn(proofs) { TransferRedeemer { proofs } },
   )
 }
 
@@ -476,7 +512,7 @@ pub fn some_reference_input_unfracking_registry_node(
 /// Outputs layout: [pair-continuing, extra] with `outputs_start_idx: 0`;
 /// reference inputs: [protocol params, acted policy's registry node]
 /// with `registry_node_idx: 1`. Withdrawals carry the full v2
-/// composition: the unfracking validator (what the SpendViaUnfracking base
+/// composition: the unfracking validator (what the BaseSpendRedeemer base
 /// spends require), the transfer-logic script (owner authorisation for
 /// the script-staked input), and the issuer's unfracking hook.
 pub fn some_unfracking(
@@ -504,11 +540,7 @@ pub fn some_unfracking(
       ],
       withdrawals: withdrawals_unfracking,
     },
-    UnfrackingRedeemer {
-      params_idx: 0,
-      registry_node_idx: 1,
-      outputs_start_idx: 0,
-    },
+    UnfrackingRedeemer { registry_node_idx: 1, outputs_start_idx: 0 },
   )
 }
 

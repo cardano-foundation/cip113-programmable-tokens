@@ -20,15 +20,31 @@
 //// at_adaonly_input` pins that pointing `params_idx` at the token-less input
 //// aborts on the NFT-authentication `expect`.
 
-use cardano/address
-use cardano/transaction.{Input, NoDatum, Output, OutputReference}
+use cardano/address.{Credential, Script}
+use cardano/transaction.{InlineDatum, Input, Output, OutputReference}
 use programmable_logic/fixture
 use programmable_logic/params.{
-  registry_node_cs_field, with_protocol_params_fields,
+  ProgrammableLogicGlobalParams, plg_cred_field, with_protocol_params_fields,
 }
 
-/// A reference-script UTxO as normally deployed on-chain: Ada only (no tokens)
-/// carrying a `reference_script`.
+/// A reference-script UTxO: Ada only (no tokens), carrying a `reference_script`.
+///
+/// Deliberately LESS realistic than its name suggests: a real CIP-33 reference
+/// -script UTxO carries no inline datum, and this one does. The realism was
+/// traded for discrimination — see below — and the trade is the point.
+///
+/// **It carries a well-formed inline params datum on purpose — do not "restore"
+/// it to `NoDatum`.** `with_protocol_params_fields` rejects an addressed input
+/// on TWO independent grounds, in this order: the params NFT is absent
+/// (`params.ak`, the `dict.is_empty` guard) and then the datum is not inline.
+/// A fixture missing both is DOUBLY disqualified, and because `test … fail`
+/// passes on any abort, such a fixture cannot tell the two guards apart: delete
+/// the NFT guard entirely and the InlineDatum guard aborts instead, and the
+/// test still passes while asserting nothing about the NFT.
+///
+/// Giving this output a valid inline datum removes the backstop, so the MISSING
+/// NFT is the only thing left that can reject it — which is precisely the
+/// property `params_lookup_fails_index_points_at_adaonly_input` claims to pin.
 fn ada_only_reference_script_input() -> Input {
   Input {
     output_reference: OutputReference {
@@ -40,10 +56,44 @@ fn ada_only_reference_script_input() -> Input {
         #"0000000000000000000000000000000000000000000000000000ffff",
       ),
       value: fixture.min_ada_value,
-      datum: NoDatum,
+      datum: InlineDatum(as_data(fixture.protocol_params)),
       reference_script: Some(
         #"0000000000000000000000000000000000000000000000000000ffff",
       ),
+    },
+  }
+}
+
+/// An attacker-controlled credential, named in every slot of the decoy datum
+/// below.
+const eve_cred: Credential =
+  Script(#"e4e4e4e4e4e4e4e4e4e4e4e4e4e4e4e4e4e4e4e4e4e4e4e4e4e4e4e4")
+
+/// A reference input an ATTACKER can create at will: no params NFT, but a
+/// perfectly well-formed 4-field params datum naming `eve_cred` in every slot.
+/// Everything about it is valid except the one thing that cannot be forged.
+fn decoy_params_input() -> Input {
+  Input {
+    output_reference: OutputReference {
+      transaction_id: #"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      output_index: 0,
+    },
+    output: Output {
+      address: address.from_script(
+        #"0000000000000000000000000000000000000000000000000000eeee",
+      ),
+      value: fixture.min_ada_value,
+      datum: InlineDatum(
+        as_data(
+          ProgrammableLogicGlobalParams {
+            plg_cred: eve_cred,
+            transfer_cred: eve_cred,
+            third_party_cred: eve_cred,
+            upgrade_cred: eve_cred,
+          },
+        ),
+      ),
+      reference_script: None,
     },
   }
 }
@@ -67,7 +117,7 @@ test params_lookup_finds_params_when_indexed_past_adaonly_refscript() {
     fixture.policy_protocol_params,
     1,
   )
-  registry_node_cs_field(fields) == fixture.policy_tokens_registry
+  plg_cred_field(fields) == fixture.credential_validator_plg
 }
 
 // Pointing `params_idx` at the Ada-only input (index 0) must abort: that output
@@ -80,5 +130,30 @@ test params_lookup_fails_index_points_at_adaonly_input() fail {
     fixture.policy_protocol_params,
     0,
   )
-  registry_node_cs_field(fields) == fixture.policy_tokens_registry
+  plg_cred_field(fields) == fixture.credential_validator_plg
+}
+
+// The params NFT is the ONLY thing authenticating the datum a caller addresses.
+// Here the transaction carries no params UTxO at all — just one input an
+// attacker can mint for the price of min-ADA, whose datum is a well-formed
+// 4-field record naming `eve_cred` in every slot, including `plg_cred`. Nothing
+// about the SHAPE is wrong; only the NFT is missing.
+//
+// This must abort. If it did not, `plg_cred_field` would hand back `eve_cred`
+// and — since that is exactly the credential `programmable_logic_base` requires
+// a withdraw-0 for — an attacker supplying `withdrawals: [Pair(eve_cred, 0)]`
+// would authorise the spend of ANY programmable-token UTxO on the deployment.
+//
+// The body deliberately returns True on the extracted credential rather than
+// asserting a failure: that way, if the NFT guard is ever weakened, this test
+// flips from "aborted" to "returned True" and the `fail` marker catches it.
+// A body that could also abort for its own reasons would be a backstop, and
+// would make this test unable to see the thing it exists to see.
+test params_lookup_fails_when_addressed_input_lacks_the_params_nft() fail {
+  let fields <- with_protocol_params_fields(
+    [decoy_params_input()],
+    fixture.policy_protocol_params,
+    0,
+  )
+  plg_cred_field(fields) == eve_cred
 }

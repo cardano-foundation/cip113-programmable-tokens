@@ -1,6 +1,6 @@
-//// Coordination-UTxO spending validator (in-place upgradability, trampoline 2).
+//// Protocol-params UTxO spending validator (in-place upgradability, trampoline 2).
 ////
-//// The coordination UTxO holds the protocol-params NFT and the
+//// The protocol-params UTxO holds the protocol-params NFT and the
 //// `ProgrammableLogicGlobalParams` datum — the live wiring every programmable
 //// token transaction reads. Replacing the old always-fail lock, this validator
 //// makes that UTxO spendable so the wiring can be UPGRADED in place, while
@@ -9,8 +9,18 @@
 //// Division of labour (deliberate — see the in-place-upgradability design doc):
 ////   * THIS spend validator enforces the STRUCTURAL rails: the NFT continues,
 ////     stays at this address, value is conserved, the datum stays well-formed,
-////     and the permanently-frozen fields (`prog_logic_cred`, `registry_node_cs`)
-////     are unchanged. These can never be delegated away.
+////     and every mutable credential is a well-formed 28-byte hash. These can
+////     never be delegated away. There are no frozen-field rails left to
+////     enforce: `prog_logic_cred` and `registry_node_cs` are no longer datum
+////     fields at all — they are compile-time parameters of the delegates.
+////     Note precisely what that does and does not buy. The FIELDS are
+////     unrepresentable, so no upgrade can edit them in place. The VALUES are
+////     still reachable one hop away: an upgrade that rewrites `plg_cred`
+////     installs a dispatch layer naming delegate hashes of the authority's
+////     choosing, and those delegates carry whatever `prog_logic_cred` and
+////     `registry_node_cs` they were applied with. That is the same authority
+////     acting in the same transaction, not a separate escape — and it is the
+////     pre-existing shape of the upgrade threat model, unchanged here.
 ////   * The AUTHORISATION decision ("may this upgrade happen?") is trampolined to
 ////     the `upgrade_cred` withdraw-0 named in the CURRENT (spent) datum.
 ////     This validator never inspects that authority's internals — no signer
@@ -21,17 +31,17 @@
 //// Cycle note: this validator is parameterised by an arbitrary `nonce`, NOT by
 //// the params NFT policy. The NFT policy is the hash of `protocol_params_mint`,
 //// which is itself parameterised by THIS validator's address — so depending on
-//// the policy here would be circular. Instead the coordination UTxO is
+//// the policy here would be circular. Instead the protocol-params UTxO is
 //// identified structurally (sole input/output at this address) and the NFT is
 //// preserved by strict value conservation. Safety does not rest on naming the
-//// policy: the params NFT is one-shot, so only one genuine coordination UTxO can
+//// policy: the params NFT is one-shot, so only one genuine protocol-params UTxO can
 //// ever exist, and the readers (PLB / delegate) locate it by that policy themselves.
-//// The `nonce` only gives each deployment its own coordination address.
+//// The `nonce` only gives each deployment its own protocol-params address.
 ////
 //// v1 policy choices (both are single-line changes if revisited):
 ////   * value: non-ADA assets STRICTLY equal; ADA ratchets (output >= input),
 ////     so a min-UTxO parameter rise can always be absorbed by topping up and
-////     can never strand the coordination UTxO. The ratchet is one-way:
+////     can never strand the protocol-params UTxO. The ratchet is one-way:
 ////     over-funding is unrecoverable by design.
 ////   * timelock: NONE. The seam is here (validity interval is in `self`) but no
 ////     delay is enforced in v1.
@@ -43,32 +53,32 @@ use linked_list.{is_28_byte_credential}
 use pairs
 use programmable_logic/params.{ProgrammableLogicGlobalParams}
 
-validator coordination_spend(_nonce: ByteArray) {
+validator protocol_params_spend(_nonce: ByteArray) {
   spend(
     datum: Option<ProgrammableLogicGlobalParams>,
     _redeemer: Data,
     own_ref: OutputReference,
     self: Transaction,
   ) {
-    trace @"Starting coordination_spend validation"
+    trace @"Starting protocol_params_spend validation"
 
     // Current wiring, from the UTxO being spent. `upgrade_cred` here is the
     // authority that must approve this spend; the frozen fields anchor the check.
     expect Some(old_params) = datum
 
-    // Own input + own address (the coordination address). All structural checks
+    // Own input + own address (the protocol-params address). All structural checks
     // key on this input so junk UTxOs parked at the address cannot interfere.
     expect Some(own_input) = find_input(self.inputs, own_ref)
     let own_address = own_input.output.address
 
-    // Exactly one input at this address: never spend two coordination-address
+    // Exactly one input at this address: never spend two protocol-params address
     // UTxOs in one tx (removes any multi-input ambiguity / double-satisfaction).
     expect [_] = list.filter(
       self.inputs,
       fn(i) { i.output.address == own_address },
     )
 
-    // Exactly one continuing output, at this address: the coordination UTxO
+    // Exactly one continuing output, at this address: the protocol-params UTxO
     // continues, singular.
     expect [cont] = list.filter(
       self.outputs,
@@ -78,7 +88,7 @@ validator coordination_spend(_nonce: ByteArray) {
     // Value conservation: non-ADA assets must match EXACTLY — preserving the
     // NFT, forbidding junk-token injection and splitting the NFT away — while
     // ADA may only grow (top-up allowed, drain forbidden), so a min-UTxO
-    // parameter rise can never strand the coordination UTxO.
+    // parameter rise can never strand the protocol-params UTxO.
     expect assets.expect_match(cont.value, own_input.output.value, >=)?
 
     // Continuing datum must be inline and a well-formed ProgrammableLogicGlobalParams
@@ -87,12 +97,15 @@ validator coordination_spend(_nonce: ByteArray) {
     expect new_params: ProgrammableLogicGlobalParams = cont_datum
 
     and {
-      // Frozen anchors — an upgrade may never change these.
-      // prog_logic_cred IS every token's payment credential (address); changing
-      // it would strand all tokens. registry_node_cs is the registry, which is
-      // deliberately outside upgrade scope.
-      (new_params.prog_logic_cred == old_params.prog_logic_cred)?,
-      (new_params.registry_node_cs == old_params.registry_node_cs)?,
+      // No frozen-anchor comparison: the datum carries FOUR fields and every
+      // one of them is meant to be upgradable. The PLB payment credential every
+      // token address is built from, and the registry policy, left this datum
+      // when their last on-chain reader did; they are baked into the delegates
+      // now, so there is no field here to compare. They are not thereby
+      // immutable — replacing the dispatch layer replaces the delegates that
+      // carry them — but that takes the same authority and the same
+      // transaction this rail would have gated anyway.
+      //
       // Every MUTABLE credential must be a well-formed 28-byte hash. A reward
       // account is a header byte + 28-byte hash, so a wrong-length hash can
       // never appear in tx.withdrawals. Writing one here is a ONE-WAY BRICK:
@@ -101,15 +114,14 @@ validator coordination_spend(_nonce: ByteArray) {
       // and an unsatisfiable transfer_cred makes every programmable
       // token UTxO unspendable. Same rule linked_list.ak already applies to
       // every registry-node credential.
+      // `plg_cred` first: it is the one credential on the SPEND path, so a
+      // wrong-length hash there makes every programmable token UTxO
+      // unspendable — the widest brick this validator can prevent.
+      is_28_byte_credential(new_params.plg_cred)?,
       is_28_byte_credential(new_params.transfer_cred)?,
-      is_28_byte_credential(new_params.unfracking_cred)?,
-      is_28_byte_credential(new_params.upgrade_cred)?,
-      // Same one-way-brick rule for the third-party validator credential: a
-      // wrong-length hash can never appear in tx.withdrawals, so writing one
-      // would make every SpendViaThirdParty base spend permanently
-      // unsatisfiable (freezing the third-party/seize path for all policies).
       is_28_byte_credential(new_params.third_party_cred)?,
-      // No reference script may be attached to the coordination UTxO.
+      is_28_byte_credential(new_params.upgrade_cred)?,
+      // No reference script may be attached to the protocol-params UTxO.
       (cont.reference_script == None)?,
       // Authorisation (trampoline 2): the CURRENT datum's upgrade authority must
       // approve, via its withdraw-0. Read from the OLD datum on purpose — the

@@ -8,7 +8,7 @@
 //// Script composition: a real unfracking transaction carries up to
 //// THREE withdraw-0s (`fixture.withdrawals_unfracking`):
 ////
-////   * programmable_logic_base.spend (SpendViaUnfracking) — per PLB input;
+////   * programmable_logic_base.spend (BaseSpendRedeemer) — per PLB input;
 ////     requires unfracking's withdraw-0 at the witnessed index. The
 ////     transfer validator is NOT part of an unfracking transaction.
 ////   * unfracking.withdraw — enforces the v2 invariants tested here,
@@ -27,7 +27,7 @@ use programmable_logic/fixture
 use programmable_logic/params.{ProgrammableLogicGlobalParams}
 use programmable_logic_base
 use registry_node.{RegistryNode, empty_vkey, sentinel_next_key}
-use types.{SpendViaUnfracking, UnfrackingRedeemer}
+use types.{BaseSpendRedeemer, UnfrackingRedeemer}
 use unfracking
 
 // --------------------------------------------------------------------- consts
@@ -56,11 +56,7 @@ const eve_vkey_pkh: ByteArray =
   #"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
 
 const unfracking_redeemer =
-  UnfrackingRedeemer {
-    params_idx: 0,
-    registry_node_idx: 1,
-    outputs_start_idx: 0,
-  }
+  UnfrackingRedeemer { registry_node_idx: 1, outputs_start_idx: 0 }
 
 // ----------------------------------------------------------------- fixtures
 
@@ -146,7 +142,9 @@ fn output_with_extra_lovelace(
 /// validator with an explicit redeemer.
 fn run_unfracking_with(tx: Transaction, redeemer: UnfrackingRedeemer) -> Bool {
   unfracking.unfracking.withdraw(
-    fixture.policy_protocol_params,
+    fixture.credential_validator_logic_base,
+    fixture.policy_tokens_registry,
+    fixture.max_inline_datum_bytes,
     redeemer,
     fixture.credential_validator_unfracking,
     tx,
@@ -160,7 +158,7 @@ fn run_unfracking(tx: Transaction) -> Bool {
 }
 
 /// Dispatch helper — drives `programmable_logic_base.spend` with a
-/// `SpendViaUnfracking` redeemer witnessing the unfracking withdrawal at
+/// `BaseSpendRedeemer` redeemer witnessing the unfracking withdrawal at
 /// index 0 (where `fixture.withdrawals_unfracking` puts it). PLB only
 /// requires the withdraw-0 of the credential named by the protocol-params
 /// datum's `unfracking_cred` field at that index and checks nothing else.
@@ -168,7 +166,7 @@ fn run_plb_unfracking_dispatch(tx: Transaction) -> Bool {
   programmable_logic_base.programmable_logic_base.spend(
     fixture.policy_protocol_params,
     None,
-    SpendViaUnfracking { params_idx: 0, wdrl_idx: 0 },
+    BaseSpendRedeemer { params_idx: 0, wdrl_idx: 0 },
     Void,
     tx,
   )
@@ -320,11 +318,7 @@ test unfracking_paired_outputs_skipped_succeeds() {
   }
   run_unfracking_with(
     tx,
-    UnfrackingRedeemer {
-      params_idx: 0,
-      registry_node_idx: 1,
-      outputs_start_idx: 1,
-    },
+    UnfrackingRedeemer { registry_node_idx: 1, outputs_start_idx: 1 },
   )
 }
 
@@ -416,11 +410,7 @@ test unfracking_preserves_unregistered_token_succeeds() {
 test unfracking_negative_outputs_start_idx_behaves_as_zero() {
   run_unfracking_with(
     valid_unfracking_tx(),
-    UnfrackingRedeemer {
-      params_idx: 0,
-      registry_node_idx: 1,
-      outputs_start_idx: -1,
-    },
+    UnfrackingRedeemer { registry_node_idx: 1, outputs_start_idx: -1 },
   )
 }
 
@@ -744,7 +734,7 @@ test unfracking_fails_registry_node_wrong_nft() fail {
 
 // ------------------------------------------------------- PLB dispatch
 //
-// Under SpendViaUnfracking, programmable_logic_base does not validate the
+// Under BaseSpendRedeemer, programmable_logic_base does not validate the
 // unfracking invariants itself — it only requires the unfracking withdraw-0
 // at the witnessed index (its credential read from the params datum).
 
@@ -754,7 +744,7 @@ test plb_unfracking_dispatch_accepts_when_unfracking_script_invoked() {
   run_plb_unfracking_dispatch(valid_unfracking_tx())
 }
 
-// SpendViaUnfracking without the unfracking withdraw-0 must be rejected by
+// BaseSpendRedeemer without the unfracking withdraw-0 must be rejected by
 // PLB — otherwise the redeemer would unlock PLB inputs with NO invariant
 // checks at all. ONE delta: the unfracking withdrawal is removed (the
 // transfer-logic withdrawal now sits at index 0 and fails the equality).
@@ -785,18 +775,19 @@ test plb_unfracking_dispatch_delegates_invariants_to_unfracking_script() {
   run_plb_unfracking_dispatch(tx)
 }
 
-// The dispatch's target credential is READ FROM the protocol-params datum
-// (`unfracking_cred`, field 4) — not baked into the validator. ONE delta:
-// the params datum names Eve's credential as the unfracking script; the
-// genuine withdraw-0 no longer matches and PLB rejects.
-test plb_unfracking_dispatch_sources_cred_from_protocol_params() fail {
+// PLB's dispatch target is READ FROM the protocol-params datum (`plg_cred`,
+// field 0) — not baked into the validator. ONE delta: the params datum names
+// Eve's credential as the dispatcher; the genuine withdraw-0 no longer matches
+// and PLB rejects. (Which DELEGATE runs is no longer PLB's concern at all —
+// that is the dispatcher's job, gated by hashes baked into it.)
+test plb_dispatch_sources_cred_from_protocol_params() fail {
   let tx = Transaction {
     ..valid_unfracking_tx(),
     reference_inputs: [
       fixture.some_reference_input_protocol_params(
         ProgrammableLogicGlobalParams {
           ..fixture.protocol_params,
-          unfracking_cred: VerificationKey(eve_vkey_pkh),
+          plg_cred: VerificationKey(eve_vkey_pkh),
         },
         "protocol params",
       ),
@@ -817,8 +808,12 @@ type LegacyTwoFieldParams {
   prog_logic_cred: Credential,
 }
 
-// A legacy 2-field params datum cannot authorise a SpendViaUnfracking — the
-// arm extracts datum field 4 and crashes when it is absent.
+// A legacy 2-field params datum cannot authorise a BaseSpendRedeemer. The
+// abort is at field 0's TYPE, not at list exhaustion: PLB reads `plg_cred` with
+// `expect _: Credential = head_list(fields)`, and every legacy layout led with
+// `registry_node_cs`, a `ByteArray`. Verified from the trace —
+// `expect plg_cred: Credential = head_list(fields)` — so the short datum
+// never gets far enough for its missing fields to matter.
 test plb_unfracking_dispatch_fails_on_legacy_two_field_params() fail {
   let modern = fixture.some_reference_input_protocol_params(
     fixture.protocol_params,
@@ -856,7 +851,7 @@ test plb_unfracking_dispatch_fails_on_legacy_two_field_params() fail {
 // The full on-chain composition of a v2 unfracking transaction — every
 // framework script that runs on-chain must accept the same tx:
 //
-//   * programmable_logic_base.spend (SpendViaUnfracking) for the fracked
+//   * programmable_logic_base.spend (BaseSpendRedeemer) for the fracked
 //     PLB input — dispatching straight to the unfracking validator,
 //   * unfracking.withdraw (invariants + issuer-hook gating).
 //

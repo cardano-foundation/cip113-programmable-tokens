@@ -1,7 +1,7 @@
 //// Tests for the reference M-of-N upgrade-authority validator.
 //// It authorises iff at least `threshold` of the configured `signers` appear
 //// in `extra_signatories`. Nothing else — structural rails live in
-//// coordination_spend.
+//// protocol_params_spend.
 
 use cardano/transaction.{Transaction}
 use upgrade_multisig

@@ -15,27 +15,34 @@
 //// local reproduction of the pre-split scan over the same params read, so
 //// the two columns share every cost except the lookup itself.
 ////
-//// Representative run (aiken v1.1.23; mem / cpu per test, ABSOLUTE):
+//// Representative run (aiken v1.1.23+8949565, 2026-09-02; mem / cpu per test,
+//// ABSOLUTE):
 ////
 ////   width  position   indexed (PLB as shipped)     scan (pre-split check)
 ////   -----  --------   ------------------------     ----------------------
-////     1       0      297.9k /  93.07M            286.7k /  90.00M
-////     4       0      320.3k / 102.91M            309.1k /  99.83M
-////     4       3      333.0k / 106.78M            323.0k / 107.88M
-////     8       0      350.2k / 116.02M            338.9k / 112.95M
-////     8       4      364.6k / 120.48M            357.4k / 123.68M
-////     8       7      377.3k / 124.35M            371.3k / 131.73M
-////    16       0      409.8k / 142.25M            398.6k / 139.18M
-////    16      15      465.9k / 159.50M            468.0k / 179.42M
+////     1       0      293.3k /  91.89M            286.2k /  89.77M
+////     4       0      315.7k / 101.73M            308.6k /  99.61M
+////     4       3      328.4k / 105.60M            322.5k / 107.65M
+////     8       0      345.5k / 114.85M            338.5k / 112.72M
+////     8       4      360.0k / 119.30M            357.0k / 123.45M
+////     8       7      372.7k / 123.17M            370.8k / 131.50M
+////    16       0      405.2k / 141.08M            398.2k / 138.95M
+////    16      15      461.3k / 158.32M            467.6k / 179.19M
 ////
 //// (Absolute figures include building the fixture transaction, which is why
 //// both columns grow with width; compare rows, not totals.)
 ////
-//// Per position, the indexed path grows ~1.2M cpu (one cell drop) and the
+//// Both columns fell by exactly 464 mem / 227,326 cpu against the previous
+//// record when `plg_cred` moved to datum field 0: both harnesses read that one
+//// credential, so the depth saving is a CONSTANT offset across every row and
+//// changes no conclusion drawn here.
+////
+//// Per position, the indexed path grows ~1.3M cpu (one cell drop) and the
 //// scan ~2.7M cpu (cell drop + credential comparison). The indexed path pays
-//// a fixed ~3.1M cpu at position 0 for decoding its redeemer and the 3-arm
-//// dispatch, so the two cross at position ~2; by width 16 / position 15 the
-//// witness saves ~20M cpu and the memory difference has vanished.
+//// a fixed ~2.1M cpu at position 0 for decoding its redeemer, so the two cross
+//// at position ~2; by width 16 / position 15 the witness saves ~21M cpu and
+//// the memory difference has not merely vanished but reversed — the indexed
+//// path is ~6.3k lower there.
 ////
 //// Read the indexed column down a width: cost rises with `position`, which
 //// is the O(`wdrl_idx`) growth. Read across a row: the gap to the scan is
@@ -51,12 +58,15 @@ use cardano/address.{Credential, Script}
 use cardano/transaction.{Transaction}
 use pairs
 use programmable_logic/fixture
-use programmable_logic/params.{transfer_cred_field, with_protocol_params_fields}
+use programmable_logic/params.{plg_cred_field, with_protocol_params_fields}
 use programmable_logic_base
-use types.{SpendViaTransfer}
+use types.{BaseSpendRedeemer}
 
-/// The delegate under test (params datum field 2, hash `…01091c`).
-const transfer_cred: Credential = fixture.credential_validator_transfer
+/// The delegate under test (params datum field 0, hash `…01091c`).
+/// The credential PLB resolves at the witnessed index. It is the DISPATCHER
+/// now, not a delegate — which changes nothing about what this harness
+/// measures: locating one withdrawal at position p among width w.
+const dispatch_cred: Credential = fixture.credential_validator_plg
 
 /// Filler credential sorting BEFORE the delegate (`00…00 0i`, differs from
 /// the delegate's hash at byte 25).
@@ -88,7 +98,7 @@ fn withdrawals_with_delegate_at(
   list.concat(
     list.map(list.range(1, position), fn(i) { Pair(below(i), 0) }),
     [
-      Pair(transfer_cred, 0),
+      Pair(dispatch_cred, 0),
       ..list.map(
         list.range(1, width - 1 - position),
         fn(i) { Pair(above(i), 0) },
@@ -110,21 +120,22 @@ fn tx_with(width: Int, position: Int) -> Transaction {
   }
 }
 
-/// As shipped: the real validator, SpendViaTransfer witnessing `position`.
+/// As shipped: the real validator, BaseSpendRedeemer witnessing `position`.
 fn indexed(width: Int, position: Int) -> Bool {
   programmable_logic_base.programmable_logic_base.spend(
     fixture.policy_protocol_params,
     None,
-    SpendViaTransfer { params_idx: 0, wdrl_idx: position },
+    BaseSpendRedeemer { params_idx: 0, wdrl_idx: position },
     Void,
     tx_with(width, position),
   )
 }
 
 /// The pre-split check, reproduced over the same params read: locate the
-/// params UTxO, read `transfer_cred`, then scan the withdrawal map for it
-/// (what PLB ran before PR #110; a `pairs.has_key_or_fail` over
-/// `self.withdrawals`).
+/// params UTxO, read the dispatch credential, then SCAN the withdrawal map for
+/// it (what PLB ran before PR #110; a `pairs.has_key_or_fail` over
+/// `self.withdrawals`). The comparison this harness exists to make — indexed
+/// witness vs scan — is unaffected by which credential is being located.
 fn scanned(width: Int, position: Int) -> Bool {
   let tx = tx_with(width, position)
   let fields <- with_protocol_params_fields(
@@ -132,7 +143,7 @@ fn scanned(width: Int, position: Int) -> Bool {
     fixture.policy_protocol_params,
     0,
   )
-  pairs.has_key_or_fail(tx.withdrawals, transfer_cred_field(fields))
+  pairs.has_key_or_fail(tx.withdrawals, plg_cred_field(fields))
 }
 
 // --------------------------------------------------------------- width 1

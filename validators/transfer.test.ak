@@ -6,14 +6,10 @@ use cardano/address.{Address, Credential, Inline, Script, VerificationKey}
 use cardano/assets.{PolicyId, from_asset, merge, negate, zero}
 use cardano/transaction.{Input, NoDatum, Output, OutputReference, Transaction}
 use programmable_logic/fixture
-use programmable_logic/params.{ProgrammableLogicGlobalParams}
 use registry_node.{RegistryNode, empty_vkey}
 use transfer
 use types.{TokenDoesNotExist, TokenExists, TransferRedeemer}
 use utils.{bytearray_lt}
-
-const test_registry_node_cs: PolicyId =
-  #"1112131415161718191a1b1c0d0e0f0102030405060708090a0b0c0d"
 
 const test_prog_logic_cred: Credential = Script(#"70726f67")
 
@@ -24,28 +20,12 @@ const test_third_party_transfer_logic_cred: Credential = Script(#"6973737565")
 const test_token_cs: PolicyId =
   #"2122232425262728292a2b2c2d2e2f303132333435363738393a3b3c"
 
-// Test ProgrammableLogicGlobalParams structure
-test protocol_params_structure() {
-  let params = ProgrammableLogicGlobalParams {
-    prog_logic_cred: test_prog_logic_cred,
-    registry_node_cs: test_registry_node_cs,
-    unfracking_cred: fixture.credential_validator_unfracking,
-    transfer_cred: fixture.credential_validator_transfer,
-    upgrade_cred: fixture.credential_upgrade_authority,
-    max_inline_datum_bytes: 1024,
-    third_party_cred: fixture.credential_validator_third_party,
-  }
-
-  params.prog_logic_cred == test_prog_logic_cred && params.registry_node_cs == test_registry_node_cs
-}
-
 // Test TransferRedeemer shape
 test transfer_redeemer_carries_proofs() {
   let proof1 = TokenExists { node_idx: 0 }
   let proof2 = TokenDoesNotExist { node_idx: 1 }
 
-  let TransferRedeemer { proofs, .. } = TransferRedeemer {
-    params_idx: 0,
+  let TransferRedeemer { proofs } = TransferRedeemer {
     proofs: [proof1, proof2],
   }
 
@@ -212,22 +192,6 @@ test only_one_prog_logic_cred_input_in_seize() {
   ) == 1
 }
 
-// Test protocol params from reference inputs
-test protocol_params_from_reference_inputs() {
-  let params = ProgrammableLogicGlobalParams {
-    prog_logic_cred: test_prog_logic_cred,
-    registry_node_cs: test_registry_node_cs,
-    unfracking_cred: fixture.credential_validator_unfracking,
-    transfer_cred: fixture.credential_validator_transfer,
-    upgrade_cred: fixture.credential_upgrade_authority,
-    max_inline_datum_bytes: 1024,
-    third_party_cred: fixture.credential_validator_third_party,
-  }
-
-  // Protocol params should be loaded from reference input
-  params.registry_node_cs == test_registry_node_cs
-}
-
 // Test invoked scripts via withdrawals
 test invoked_scripts_via_withdrawals() {
   let withdrawals = [
@@ -293,13 +257,12 @@ test transfer_act_partial_burn_with_mint_proofs_succeeds() {
     ],
   }
 
-  let redeemer = TransferRedeemer {
-    params_idx: 0,
-    proofs: [TokenExists { node_idx: 1 }],
-  }
+  let redeemer = TransferRedeemer { proofs: [TokenExists { node_idx: 1 }] }
 
   transfer.transfer.withdraw(
-    fixture.policy_protocol_params,
+    fixture.credential_validator_logic_base,
+    fixture.policy_tokens_registry,
+    fixture.max_inline_datum_bytes,
     redeemer,
     fixture.credential_validator_transfer,
     tx,
@@ -340,13 +303,12 @@ test transfer_act_with_minting_succeeds() {
     ],
   }
 
-  let redeemer = TransferRedeemer {
-    params_idx: 0,
-    proofs: [TokenExists { node_idx: 1 }],
-  }
+  let redeemer = TransferRedeemer { proofs: [TokenExists { node_idx: 1 }] }
 
   transfer.transfer.withdraw(
-    fixture.policy_protocol_params,
+    fixture.credential_validator_logic_base,
+    fixture.policy_tokens_registry,
+    fixture.max_inline_datum_bytes,
     redeemer,
     fixture.credential_validator_transfer,
     tx,
@@ -399,13 +361,12 @@ test transfer_act_transfer_plus_independent_pure_mint_succeeds() {
   }
 
   // No proof for idx 2, necessary for the mint but tx.mint is non-empty — must be rejected
-  let redeemer = TransferRedeemer {
-    params_idx: 0,
-    proofs: [TokenExists { node_idx: 1 }],
-  }
+  let redeemer = TransferRedeemer { proofs: [TokenExists { node_idx: 1 }] }
 
   transfer.transfer.withdraw(
-    fixture.policy_protocol_params,
+    fixture.credential_validator_logic_base,
+    fixture.policy_tokens_registry,
+    fixture.max_inline_datum_bytes,
     redeemer,
     fixture.credential_validator_transfer,
     tx,
@@ -444,10 +405,12 @@ test transfer_act_with_only_minting_succeeds() {
   }
 
   // Finding 02 fix: pure mint requires NO transfer proof.
-  let redeemer = TransferRedeemer { params_idx: 0, proofs: [] }
+  let redeemer = TransferRedeemer { proofs: [] }
 
   transfer.transfer.withdraw(
-    fixture.policy_protocol_params,
+    fixture.credential_validator_logic_base,
+    fixture.policy_tokens_registry,
+    fixture.max_inline_datum_bytes,
     redeemer,
     fixture.credential_validator_transfer,
     tx,
@@ -489,13 +452,12 @@ test transfer_act_pure_mint_with_unnecessary_proof_must_fail() fail {
   }
 
   // ONE delta vs the success case above — surplus proof for the pure-mint policy.
-  let redeemer = TransferRedeemer {
-    params_idx: 0,
-    proofs: [TokenExists { node_idx: 1 }],
-  }
+  let redeemer = TransferRedeemer { proofs: [TokenExists { node_idx: 1 }] }
 
   transfer.transfer.withdraw(
-    fixture.policy_protocol_params,
+    fixture.credential_validator_logic_base,
+    fixture.policy_tokens_registry,
+    fixture.max_inline_datum_bytes,
     redeemer,
     fixture.credential_validator_transfer,
     tx,
@@ -526,10 +488,12 @@ test transfer_act_pure_mint_without_transfer_logic_succeeds() {
     withdrawals: [Pair(fixture.credential_validator_transfer, 0)],
   }
 
-  let redeemer = TransferRedeemer { params_idx: 0, proofs: [] }
+  let redeemer = TransferRedeemer { proofs: [] }
 
   transfer.transfer.withdraw(
-    fixture.policy_protocol_params,
+    fixture.credential_validator_logic_base,
+    fixture.policy_tokens_registry,
+    fixture.max_inline_datum_bytes,
     redeemer,
     fixture.credential_validator_transfer,
     tx,
@@ -564,13 +528,12 @@ test transfer_act_burning_compensate_spending() {
     ],
   }
 
-  let redeemer = TransferRedeemer {
-    params_idx: 0,
-    proofs: [TokenExists { node_idx: 1 }],
-  }
+  let redeemer = TransferRedeemer { proofs: [TokenExists { node_idx: 1 }] }
 
   transfer.transfer.withdraw(
-    fixture.policy_protocol_params,
+    fixture.credential_validator_logic_base,
+    fixture.policy_tokens_registry,
+    fixture.max_inline_datum_bytes,
     redeemer,
     fixture.credential_validator_transfer,
     tx,
@@ -609,13 +572,12 @@ test transfer_act_entirely_burning_one_token() {
     ],
   }
 
-  let redeemer = TransferRedeemer {
-    params_idx: 0,
-    proofs: [TokenExists { node_idx: 1 }],
-  }
+  let redeemer = TransferRedeemer { proofs: [TokenExists { node_idx: 1 }] }
 
   transfer.transfer.withdraw(
-    fixture.policy_protocol_params,
+    fixture.credential_validator_logic_base,
+    fixture.policy_tokens_registry,
+    fixture.max_inline_datum_bytes,
     redeemer,
     fixture.credential_validator_transfer,
     tx,
@@ -650,13 +612,12 @@ test transfer_act_entirely_burning_one_token_fail_if_other_missing() fail {
     ],
   }
 
-  let redeemer = TransferRedeemer {
-    params_idx: 0,
-    proofs: [TokenExists { node_idx: 1 }],
-  }
+  let redeemer = TransferRedeemer { proofs: [TokenExists { node_idx: 1 }] }
 
   transfer.transfer.withdraw(
-    fixture.policy_protocol_params,
+    fixture.credential_validator_logic_base,
+    fixture.policy_tokens_registry,
+    fixture.max_inline_datum_bytes,
     redeemer,
     fixture.credential_validator_transfer,
     tx,
@@ -690,13 +651,12 @@ test transfer_act_unauthorized_burning_compensate_spending_fails() fail {
     withdrawals: [Pair(fixture.credential_validator_transfer, 0)],
   }
 
-  let redeemer = TransferRedeemer {
-    params_idx: 0,
-    proofs: [TokenExists { node_idx: 1 }],
-  }
+  let redeemer = TransferRedeemer { proofs: [TokenExists { node_idx: 1 }] }
 
   transfer.transfer.withdraw(
-    fixture.policy_protocol_params,
+    fixture.credential_validator_logic_base,
+    fixture.policy_tokens_registry,
+    fixture.max_inline_datum_bytes,
     redeemer,
     fixture.credential_validator_transfer,
     tx,
@@ -728,10 +688,12 @@ test transfer_act_burning_compensate_spending_unproven_token_fails() fail {
     ],
   }
 
-  let redeemer = TransferRedeemer { params_idx: 0, proofs: [] }
+  let redeemer = TransferRedeemer { proofs: [] }
 
   transfer.transfer.withdraw(
-    fixture.policy_protocol_params,
+    fixture.credential_validator_logic_base,
+    fixture.policy_tokens_registry,
+    fixture.max_inline_datum_bytes,
     redeemer,
     fixture.credential_validator_transfer,
     tx,
@@ -773,13 +735,12 @@ test transfer_act_mint_insufficient_output_fails() fail {
     ],
   }
 
-  let redeemer = TransferRedeemer {
-    params_idx: 0,
-    proofs: [TokenExists { node_idx: 1 }],
-  }
+  let redeemer = TransferRedeemer { proofs: [TokenExists { node_idx: 1 }] }
 
   transfer.transfer.withdraw(
-    fixture.policy_protocol_params,
+    fixture.credential_validator_logic_base,
+    fixture.policy_tokens_registry,
+    fixture.max_inline_datum_bytes,
     redeemer,
     fixture.credential_validator_transfer,
     tx,
@@ -835,7 +796,9 @@ fn cov_transfer(with_transfer_logic: Bool) -> Bool {
     },
   }
   transfer.transfer.withdraw(
-    fixture.policy_protocol_params,
+    fixture.credential_validator_logic_base,
+    fixture.policy_tokens_registry,
+    fixture.max_inline_datum_bytes,
     redeemer,
     fixture.credential_validator_transfer,
     tx,
@@ -876,11 +839,10 @@ fn cov_absence(node_key: ByteArray, node_next: ByteArray) -> Bool {
     withdrawals: fixture.withdrawals_transfer,
   }
   transfer.transfer.withdraw(
-    fixture.policy_protocol_params,
-    TransferRedeemer {
-      params_idx: 0,
-      proofs: [TokenDoesNotExist { node_idx: 1 }],
-    },
+    fixture.credential_validator_logic_base,
+    fixture.policy_tokens_registry,
+    fixture.max_inline_datum_bytes,
+    TransferRedeemer { proofs: [TokenDoesNotExist { node_idx: 1 }] },
     fixture.credential_validator_transfer,
     tx,
   )

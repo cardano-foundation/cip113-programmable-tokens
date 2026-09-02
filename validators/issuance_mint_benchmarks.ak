@@ -10,10 +10,10 @@
 //// our match (`TokenExists { node_idx: 0 }`) at the END — worst case for
 //// `list.any` short-circuit. Slope tells us cost per non-matching proof
 //// entry. Y-intercept tells us the constant cost of the precise check
-//// (coordination locate + datum field-2 read + redeemer lookup + decode +
+//// (protocol-params locate + datum field-2 read + redeemer lookup + decode +
 //// index compare).
 ////
-//// The no-delegate sampler carries NO coordination ref input, so it also
+//// The no-delegate sampler carries NO protocol-params ref input, so it also
 //// measures the failed-locate fallback (`list.find` misses, delegation
 //// denied, `no_escape` walks the outputs).
 ////
@@ -97,10 +97,10 @@ fn registry_node_ref_input() -> Input {
   }
 }
 
-/// The coordination UTxO as a reference input (mirror of the test file's
-/// helper): protocol-params NFT + datum whose field 2 is the live transfer-validator
+/// The protocol-params UTxO as a reference input (mirror of the test file's
+/// helper): protocol-params NFT + datum whose field 1 is the live transfer-validator
 /// credential. Fields issuance_mint never reads carry placeholders.
-fn coordination_ref_input(transfer_cred: Credential) -> Input {
+fn params_ref_input(transfer_cred: Credential) -> Input {
   Input {
     output_reference: dummy_oref,
     output: Output {
@@ -113,13 +113,10 @@ fn coordination_ref_input(transfer_cred: Credential) -> Input {
       value: min_ada |> assets.add(test_params_policy, "ProtocolParams", 1),
       datum: InlineDatum(
         ProgrammableLogicGlobalParams {
-          registry_node_cs: test_registry_cs,
-          prog_logic_cred: test_plb_cred,
-          unfracking_cred: test_ml_cred,
+          plg_cred: transfer_cred,
           transfer_cred,
-          upgrade_cred: test_ml_cred,
-          max_inline_datum_bytes: 1024,
           third_party_cred: test_ml_cred,
+          upgrade_cred: test_ml_cred,
         },
       ),
       reference_script: None,
@@ -200,17 +197,14 @@ fn sample_delegate_transferact(
     inputs: [plb_input_with_policy()],
     reference_inputs: [
       registry_node_ref_input(),
-      coordination_ref_input(test_transfer_cred),
+      params_ref_input(test_transfer_cred),
     ],
     outputs: [plb_output_with_policy(150)],
     mint: from_asset(test_own_policy, test_token_name, 50),
     withdrawals: [Pair(test_ml_cred, 0), Pair(test_transfer_cred, 0)],
     redeemers: [
       Pair(Mint(test_own_policy), as_data(rdmr)),
-      Pair(
-        Withdraw(test_transfer_cred),
-        as_data(TransferRedeemer { params_idx: 0, proofs }),
-      ),
+      Pair(Withdraw(test_transfer_cred), as_data(TransferRedeemer { proofs })),
     ],
   }
   fuzz.constant((tx, rdmr))

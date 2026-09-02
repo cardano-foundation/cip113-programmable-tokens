@@ -68,18 +68,18 @@ pub fn validate_directory_init(
   node_outputs: List<Output>,
   mint: Value,
   node_cs: PolicyId,
-  registry_spend_cred: Credential,
+  node_address_cred: Credential,
 ) -> Bool {
   // There must be exactly one node output --- checked in validate_directory_init
   expect [node_output] = list.filter(
     node_outputs,
     fn(output) { has_currency_symbol(output.value, node_cs) },
   )
-  // Origin node must be locked under registry_spend
+  // Origin node must be locked under the registry's own spend handler
   let node = validate_directory_node_output(
     node_output,
     node_cs,
-    Address(registry_spend_cred, None),
+    Address(node_address_cred, None),
   )
 
   and {

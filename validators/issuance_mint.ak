@@ -27,11 +27,11 @@ validator issuance_mint(
   // One-shot protocol-params NFT policy — the protocol's permanent anchor,
   // the same parameter PLB and the three delegate validators take. Read ONLY
   // inside the `RefInput` delegation branch, where it locates the
-  // coordination UTxO among `reference_inputs` and reads the LIVE delegate
-  // credentials from its datum (`transfer_cred`, field 2; `third_party_cred`,
-  // field 3). Delegation then keys on THOSE credentials, so an in-place
+  // protocol-params UTxO among `reference_inputs` and reads the LIVE delegate
+  // credentials from its datum (`transfer_cred`, field 1; `third_party_cred`,
+  // field 2). Delegation then keys on THOSE credentials, so an in-place
   // upgrade of either validator automatically retires the old credential as
-  // a mint-custody delegate. Coordination UTxO absent ⇒ no delegation ⇒
+  // a mint-custody delegate. Protocol-params UTxO absent ⇒ no delegation ⇒
   // local `no_escape` custody (fail-safe). The OutputIndex path never reads
   // it.
   params_policy: PolicyId,
@@ -203,8 +203,8 @@ fn verify_registry_node(
 /// custody at runtime and issuance_mint can safely delegate.
 ///
 /// The delegates' credentials are NOT parameters: they are the LIVE ones read
-/// from the coordination UTxO's datum (`transfer_cred`, field 2;
-/// `third_party_cred`, field 3), so delegation trust tracks in-place
+/// from the protocol-params UTxO's datum (`transfer_cred`, field 1;
+/// `third_party_cred`, field 2), so delegation trust tracks in-place
 /// upgrades — a retired credential can no longer act as a mint-custody
 /// delegate.
 ///
@@ -213,11 +213,11 @@ fn verify_registry_node(
 /// has already shown to correspond to `own_policy`. So "same index" ⇒
 /// "same policy" without re-extracting any key.
 ///
-/// Every `None` case — no coordination UTxO among the reference inputs,
+/// Every `None` case — no protocol-params UTxO among the reference inputs,
 /// neither delegate invoked, or a delegate's redeemer naming a different
 /// registry node — returns False, falling back to local custody. The
-/// coordination locate is deliberately non-failing (`list.find` +
-/// `has_nft_strict`) so non-delegating RefInput mints need no coordination
+/// protocol-params locate is deliberately non-failing (`list.find` +
+/// `has_nft_strict`) so non-delegating RefInput mints need no protocol-params
 /// ref input.
 fn delegate_covers_own_registry_node(
   redeemers: Pairs<ScriptPurpose, Data>,
@@ -238,8 +238,8 @@ fn delegate_covers_own_registry_node(
     )
   is {
     None -> False
-    Some(coordination_ref) -> {
-      let fields = unconstr_fields(expect_inline_datum(coordination_ref.output))
+    Some(params_ref) -> {
+      let fields = unconstr_fields(expect_inline_datum(params_ref.output))
       or {
         // (a) the `transfer` validator validates our node's custody: its
         // proof walk resolves our node and `validate_transfer` contains the
@@ -344,7 +344,7 @@ fn transfer_scope_covers(
   transfer_redeemer: TransferRedeemer,
   own_registry_node_idx: Int,
 ) -> Bool {
-  let TransferRedeemer { proofs, .. } = transfer_redeemer
+  let TransferRedeemer { proofs } = transfer_redeemer
   let expected_proof = TokenExists(own_registry_node_idx)
   list.any(proofs, fn(proof: RegistryProof) { expected_proof == proof })
 }

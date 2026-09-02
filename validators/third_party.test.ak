@@ -7,7 +7,8 @@
 //// now hosted in their own script. The transaction always presents the
 //// subject policy's registry node as a reference input and the issuer's
 //// third_party_transfer_logic_script withdrawal; the framework validator's
-//// own presence is enforced by programmable_logic_base (SpendViaThirdParty),
+//// own presence is enforced one hop up — programmable_logic_base requires the
+//// dispatcher, and the dispatcher requires THIS script on a `ThirdPartyAct` —
 //// not here.
 
 use aiken/crypto.{ScriptHash, blake2b_256}
@@ -111,14 +112,12 @@ fn validate_third_party_with_outputs(
     withdrawals: [Pair(test_third_party_cred, 0)],
   }
 
-  let redeemer = ThirdPartyRedeemer {
-    params_idx: 0,
-    registry_node_idx: 1,
-    outputs_start_idx,
-  }
+  let redeemer = ThirdPartyRedeemer { registry_node_idx: 1, outputs_start_idx }
 
   third_party.third_party.withdraw(
-    fixture.policy_protocol_params,
+    fixture.credential_validator_logic_base,
+    fixture.policy_tokens_registry,
+    fixture.max_inline_datum_bytes,
     redeemer,
     fixture.credential_validator_third_party,
     tx,
@@ -219,12 +218,10 @@ test third_party_act_seized_tokens_escape_prog_cred_must_fail() fail {
   }
 
   third_party.third_party.withdraw(
-    fixture.policy_protocol_params,
-    ThirdPartyRedeemer {
-      params_idx: 0,
-      registry_node_idx: 1,
-      outputs_start_idx: 0,
-    },
+    fixture.credential_validator_logic_base,
+    fixture.policy_tokens_registry,
+    fixture.max_inline_datum_bytes,
+    ThirdPartyRedeemer { registry_node_idx: 1, outputs_start_idx: 0 },
     fixture.credential_validator_third_party,
     tx,
   )
@@ -262,12 +259,10 @@ fn valid_seize_tx() -> Transaction {
 
 fn run_seize_tx(tx: Transaction) -> Bool {
   third_party.third_party.withdraw(
-    fixture.policy_protocol_params,
-    ThirdPartyRedeemer {
-      params_idx: 0,
-      registry_node_idx: 1,
-      outputs_start_idx: 0,
-    },
+    fixture.credential_validator_logic_base,
+    fixture.policy_tokens_registry,
+    fixture.max_inline_datum_bytes,
+    ThirdPartyRedeemer { registry_node_idx: 1, outputs_start_idx: 0 },
     fixture.credential_validator_third_party,
     tx,
   )
@@ -417,13 +412,14 @@ test third_party_act_wipe_full_burn_succeeds() {
   }
 
   let redeemer = ThirdPartyRedeemer {
-    params_idx: 0,
     registry_node_idx: 1,
     outputs_start_idx: 0,
   }
 
   third_party.third_party.withdraw(
-    fixture.policy_protocol_params,
+    fixture.credential_validator_logic_base,
+    fixture.policy_tokens_registry,
+    fixture.max_inline_datum_bytes,
     redeemer,
     fixture.credential_validator_third_party,
     tx,
@@ -467,13 +463,14 @@ test third_party_act_wipe_partial_burn_succeeds() {
   }
 
   let redeemer = ThirdPartyRedeemer {
-    params_idx: 0,
     registry_node_idx: 1,
     outputs_start_idx: 0,
   }
 
   third_party.third_party.withdraw(
-    fixture.policy_protocol_params,
+    fixture.credential_validator_logic_base,
+    fixture.policy_tokens_registry,
+    fixture.max_inline_datum_bytes,
     redeemer,
     fixture.credential_validator_third_party,
     tx,
@@ -520,13 +517,14 @@ test third_party_act_wipe_seize_and_partial_burn() {
   }
 
   let redeemer = ThirdPartyRedeemer {
-    params_idx: 0,
     registry_node_idx: 1,
     outputs_start_idx: 0,
   }
 
   third_party.third_party.withdraw(
-    fixture.policy_protocol_params,
+    fixture.credential_validator_logic_base,
+    fixture.policy_tokens_registry,
+    fixture.max_inline_datum_bytes,
     redeemer,
     fixture.credential_validator_third_party,
     tx,
@@ -570,13 +568,14 @@ test third_party_act_wipe_insufficient_after_burn_fails() fail {
   }
 
   let redeemer = ThirdPartyRedeemer {
-    params_idx: 0,
     registry_node_idx: 1,
     outputs_start_idx: 0,
   }
 
   third_party.third_party.withdraw(
-    fixture.policy_protocol_params,
+    fixture.credential_validator_logic_base,
+    fixture.policy_tokens_registry,
+    fixture.max_inline_datum_bytes,
     redeemer,
     fixture.credential_validator_third_party,
     tx,
@@ -613,13 +612,14 @@ test third_party_act_unauthorized_burn_compensate_spend() fail {
   }
 
   let redeemer = ThirdPartyRedeemer {
-    params_idx: 0,
     registry_node_idx: 1,
     outputs_start_idx: 0,
   }
 
   third_party.third_party.withdraw(
-    fixture.policy_protocol_params,
+    fixture.credential_validator_logic_base,
+    fixture.policy_tokens_registry,
+    fixture.max_inline_datum_bytes,
     redeemer,
     fixture.credential_validator_third_party,
     tx,
@@ -659,13 +659,14 @@ test third_party_act_unproven_burn_compensate_spend() fail {
   }
 
   let redeemer = ThirdPartyRedeemer {
-    params_idx: 0,
     registry_node_idx: 1,
     outputs_start_idx: 0,
   }
 
   third_party.third_party.withdraw(
-    fixture.policy_protocol_params,
+    fixture.credential_validator_logic_base,
+    fixture.policy_tokens_registry,
+    fixture.max_inline_datum_bytes,
     redeemer,
     fixture.credential_validator_third_party,
     tx,
@@ -681,7 +682,8 @@ test third_party_act_unproven_burn_compensate_spend() fail {
 // other mints are invisible to it. Each layer handles its own authorization:
 // - issuance_mint → authorizes minting/burning
 // - validate_third_party → tracks balance for the seized policy
-// - programmable_logic_base → authorizes spending from prog_cred
+// - programmable_logic_base → authorizes spending from prog_cred (via the
+//   dispatcher, which is what actually names this validator)
 // ---------------------------------------------------------------------------
 
 /// An unrelated policy used to test minting of tokens other than the seized policy.
@@ -732,13 +734,14 @@ test third_party_act_same_policy_mint_during_seizure_succeeds() {
   }
 
   let redeemer = ThirdPartyRedeemer {
-    params_idx: 0,
     registry_node_idx: 1,
     outputs_start_idx: 0,
   }
 
   third_party.third_party.withdraw(
-    fixture.policy_protocol_params,
+    fixture.credential_validator_logic_base,
+    fixture.policy_tokens_registry,
+    fixture.max_inline_datum_bytes,
     redeemer,
     fixture.credential_validator_third_party,
     tx,
@@ -782,13 +785,14 @@ test third_party_act_same_policy_mint_insufficient_output_fails() fail {
   }
 
   let redeemer = ThirdPartyRedeemer {
-    params_idx: 0,
     registry_node_idx: 1,
     outputs_start_idx: 0,
   }
 
   third_party.third_party.withdraw(
-    fixture.policy_protocol_params,
+    fixture.credential_validator_logic_base,
+    fixture.policy_tokens_registry,
+    fixture.max_inline_datum_bytes,
     redeemer,
     fixture.credential_validator_third_party,
     tx,
@@ -836,13 +840,14 @@ test third_party_act_unrelated_policy_mint_succeeds() {
   }
 
   let redeemer = ThirdPartyRedeemer {
-    params_idx: 0,
     registry_node_idx: 1,
     outputs_start_idx: 0,
   }
 
   third_party.third_party.withdraw(
-    fixture.policy_protocol_params,
+    fixture.credential_validator_logic_base,
+    fixture.policy_tokens_registry,
+    fixture.max_inline_datum_bytes,
     redeemer,
     fixture.credential_validator_third_party,
     tx,
@@ -889,13 +894,14 @@ test third_party_act_wipe_burn_plus_unrelated_mint_succeeds() {
   }
 
   let redeemer = ThirdPartyRedeemer {
-    params_idx: 0,
     registry_node_idx: 1,
     outputs_start_idx: 0,
   }
 
   third_party.third_party.withdraw(
-    fixture.policy_protocol_params,
+    fixture.credential_validator_logic_base,
+    fixture.policy_tokens_registry,
+    fixture.max_inline_datum_bytes,
     redeemer,
     fixture.credential_validator_third_party,
     tx,
@@ -975,13 +981,11 @@ fn validate_third_party_with_inputs_and_outputs(
       Pair(test_third_party_cred, 0),
     ],
   }
-  let redeemer = ThirdPartyRedeemer {
-    params_idx: 0,
-    registry_node_idx: 1,
-    outputs_start_idx,
-  }
+  let redeemer = ThirdPartyRedeemer { registry_node_idx: 1, outputs_start_idx }
   third_party.third_party.withdraw(
-    fixture.policy_protocol_params,
+    fixture.credential_validator_logic_base,
+    fixture.policy_tokens_registry,
+    fixture.max_inline_datum_bytes,
     redeemer,
     fixture.credential_validator_third_party,
     tx,

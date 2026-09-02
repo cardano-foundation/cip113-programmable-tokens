@@ -75,10 +75,7 @@ use programmable_logic/fixture
 use programmable_logic_base
 use third_party
 use transfer
-use types.{
-  SpendViaThirdParty, SpendViaTransfer, ThirdPartyRedeemer, TokenExists,
-  TransferRedeemer,
-}
+use types.{BaseSpendRedeemer, ThirdPartyRedeemer, TokenExists, TransferRedeemer}
 
 const policy_tok: PolicyId =
   #"76658c4afd597ba7524f85bf32ac59d9e58856593a2e8399326f853a"
@@ -91,12 +88,14 @@ fn seize_logic(self: Transaction, redeemer: ThirdPartyRedeemer) -> Bool {
     programmable_logic_base.programmable_logic_base.spend(
       fixture.policy_protocol_params,
       None,
-      SpendViaThirdParty { params_idx: 0, wdrl_idx: 0 },
+      BaseSpendRedeemer { params_idx: 0, wdrl_idx: 0 },
       Void,
       self,
     ),
     third_party.third_party.withdraw(
-      fixture.policy_protocol_params,
+      fixture.credential_validator_logic_base,
+      fixture.policy_tokens_registry,
+      fixture.max_inline_datum_bytes,
       redeemer,
       fixture.credential_validator_third_party,
       self,
@@ -110,12 +109,14 @@ fn transfer_logic(self: Transaction, redeemer: TransferRedeemer) -> Bool {
     programmable_logic_base.programmable_logic_base.spend(
       fixture.policy_protocol_params,
       None,
-      SpendViaTransfer { params_idx: 0, wdrl_idx: 0 },
+      BaseSpendRedeemer { params_idx: 0, wdrl_idx: 0 },
       Void,
       self,
     ),
     transfer.transfer.withdraw(
-      fixture.policy_protocol_params,
+      fixture.credential_validator_logic_base,
+      fixture.policy_tokens_registry,
+      fixture.max_inline_datum_bytes,
       redeemer,
       fixture.credential_validator_transfer,
       self,
@@ -124,14 +125,10 @@ fn transfer_logic(self: Transaction, redeemer: TransferRedeemer) -> Bool {
 }
 
 const seize_redeemer: ThirdPartyRedeemer =
-  ThirdPartyRedeemer {
-    params_idx: 0,
-    registry_node_idx: 1,
-    outputs_start_idx: 2,
-  }
+  ThirdPartyRedeemer { registry_node_idx: 1, outputs_start_idx: 2 }
 
 const transfer_redeemer: TransferRedeemer =
-  TransferRedeemer { params_idx: 0, proofs: [TokenExists { node_idx: 1 }] }
+  TransferRedeemer { proofs: [TokenExists { node_idx: 1 }] }
 
 /// `baseline_3rd_party_1` with the seized input and its paired continuing
 /// output both carrying `datum` — the shape `third_party` must reproduce.

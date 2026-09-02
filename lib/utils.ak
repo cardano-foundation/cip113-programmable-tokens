@@ -87,7 +87,8 @@ pub fn is_programmable_token_id_valid(
 /// True iff `mint_value` contains any entry under `policy`, regardless of
 /// quantity sign.
 ///
-/// Used by `registry_spend.ak` (Re-audit R-01): a registry-node spend must
+/// Used by the `registry` validator's spend handler (Re-audit R-01): a
+/// registry-node spend must
 /// not mint or burn tokens of the spent node's own `key`.
 ///
 /// Cheapest primitive among the candidates benchmarked in

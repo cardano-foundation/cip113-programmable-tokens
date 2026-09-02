@@ -56,7 +56,8 @@ pub type RegistryNode {
   /// The minting logic script credential. The substandard's withdraw-0 minting
   /// logic finds its own registry node by equality on this field — that gives
   /// it the `key` (the policy id) without recomputing the issuance hash.
-  /// `registry_mint` also cryptographically binds this field to the policy id
+  /// The `registry` validator's mint handler also cryptographically binds
+  /// this field to the policy id
   /// via `is_programmable_token_id_valid`, so the field cannot lie.
   minting_logic_script: Credential,
   /// The transfer logic script credential that validates token transfers

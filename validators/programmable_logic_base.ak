@@ -1,38 +1,51 @@
 //// Programmable Logic Base Validator
-//// This validator locks all programmable token UTxOs. It forwards
-//// validation to ONE of three withdraw-0 stake validators — `transfer`,
-//// `third_party`, `unfracking` — chosen by its redeemer.
+//// This validator locks all programmable token UTxOs. It forwards validation
+//// to the `programmable_logic_global` dispatcher, named by the protocol-params
+//// datum.
 //// Migrated from SmartTokens.Contracts.ProgrammableLogicBase
 ////
-//// Upgradability in place: PLB is parameterized by the protocol-params
-//// NFT policy — the protocol's only permanent anchor — instead of a
-//// compile-time credential. On every spend it reads the CURRENT
-//// delegate credential from the protocol-params reference input's datum
-//// (extracted with builtins — no whole-datum deserialisation) and requires
-//// that credential's withdraw-0. Swapping any delegate is therefore a
-//// datum rewrite on the coordination UTxO; PLB's hash — and with it every
-//// programmable token address — never changes.
+//// Upgradability in place: PLB is parameterized by the protocol-params NFT
+//// policy — the protocol's only permanent anchor — instead of a compile-time
+//// credential. On every spend it reads the CURRENT dispatcher credential from
+//// the protocol-params reference input's datum (extracted with builtins — no
+//// whole-datum deserialisation) and requires that credential's withdraw-0.
+//// Swapping the entire dispatch layer is therefore a datum rewrite on the
+//// protocol-params UTxO; PLB's hash — and with it every programmable token
+//// address — never changes.
 ////
-//// Dispatch: the redeemer picks which delegate authorises this spend — the
-//// `transfer` validator (ordinary transfers), the `third_party` validator
-//// (seize / clawback / freeze enforcement) or the `unfracking` validator
-//// (holder-driven same-owner restructuring) — and witnesses the exact index
-//// of that delegate's entry in the ledger-ordered withdrawal map. No
-//// delegate is reached through another: each transaction kind loads exactly
-//// one of the three reference scripts. Because PLB runs once per
-//// programmable input, resolving the withdrawal by index (no per-entry
-//// credential comparison) instead of scanning the map saves cost on every
-//// input. The witness is self-validating: a wrong index or arm resolves to
-//// a credential that fails the equality, so a dishonest witness only
-//// invalidates its own transaction.
+//// **This validator is deliberately the smallest thing in the protocol**, and
+//// it is the one script that can never be replaced, because its hash anchors
+//// every token address. It runs once per programmable INPUT, so every
+//// instruction here is multiplied by the number of tokens a transaction moves.
+//// It therefore does exactly three things: locate the params datum, read ONE
+//// credential out of it — `plg_cred`, FIELD 0, so the read costs a single
+//// `head_list` and no `tail_list` walk at all — and require that credential's
+//// withdraw-0 at the witnessed index. Which ACTION is being performed —
+//// transfer, third-party, unfracking — is none of its business;
+//// `programmable_logic_global` decides that, and the delegate enforces it.
+////
+//// The trust chain, in one line:
+////
+////   PLB --reads--> params[plg_cred] --requires--> PLG --requires--> delegate
+////
+//// The witness is self-validating: a wrong `wdrl_idx` resolves to some other
+//// credential, the equality fails, and a dishonest witness only invalidates its
+//// own transaction. `list.expect_at` drops `wdrl_idx` cells to reach the
+//// witnessed entry: O(`wdrl_idx`), not O(1), but with no credential comparison
+//// on the way, where a scan would compare at every entry up to the dispatcher's
+//// position (cost record: `programmable_logic/wdrl_idx_cost.test.ak`).
+////
+//// Lineage: PLB used to dispatch to one of three delegate credentials itself,
+//// choosing between them on a three-constructor redeemer. That was only sound
+//// while the three credentials were pairwise distinct — an assumption nothing
+//// on-chain enforced. With a single credential on this path there is nothing
+//// left to collide, so the assumption is gone rather than documented.
 
 use aiken/collection/list
 use cardano/assets.{PolicyId}
 use cardano/transaction.{Transaction}
 use programmable_logic/params
-use types.{
-  BaseSpendRedeemer, SpendViaThirdParty, SpendViaTransfer, SpendViaUnfracking,
-}
+use types.{BaseSpendRedeemer}
 
 validator programmable_logic_base(params_policy: PolicyId) {
   spend(
@@ -43,53 +56,22 @@ validator programmable_logic_base(params_policy: PolicyId) {
   ) {
     trace @"Starting programmable_logic_base validation"
 
+    let BaseSpendRedeemer { params_idx, wdrl_idx } = redeemer
+
     // Locate the protocol-params NFT among the reference inputs (addressed by
-    // the redeemer's `params_idx`) and pull the live delegate credentials out
+    // the redeemer's `params_idx`) and pull the live dispatcher credential out
     // of its datum. The params UTxO is already a mandatory reference input on
     // every programmable-token transaction, so this adds no availability
     // requirement.
-    //
-    // The redeemer used to be unwrapped twice — once here for `params_idx`,
-    // once again below to pick the delegate credential. It is now destructured
-    // ONCE, and everything the three arms share is hoisted into a single
-    // function: locate the params datum, resolve the witnessed withdrawal,
-    // compare. The arms differ only in which datum field they read, which is
-    // passed in. That matters on both axes: this validator runs per
-    // programmable input, so work left inside an arm is paid per input, and
-    // work duplicated across arms is paid in reference-script bytes on every
-    // transaction. Cost record and the rejected alternatives:
-    // `programmable_logic/benchmarks.ak`.
-    //
-    // (A function may be passed as an ARGUMENT even though it may not live in
-    // a tuple — tuple inhabitants must be serialisable to Data, arguments need
-    // not be. That is what makes this shape possible.)
-    //
-    // `list.expect_at` drops `wdrl_idx` cells to reach the witnessed entry:
-    // O(wdrl_idx), not O(1), but with no credential comparison on the way,
-    // where the former `has_key_or_fail` scan compared at every entry up to the
-    // delegate's position (cost record:
-    // `programmable_logic/wdrl_idx_cost.test.ak`). The check is meaningful only
-    // while the three delegate credentials in the params datum are pairwise
-    // distinct; that distinctness is NOT enforced on-chain (see
-    // `BaseSpendRedeemer`).
-    let check = fn(params_idx: Int, wdrl_idx: Int, cred_of) {
-      let fields <- params.with_protocol_params_fields(
-        self.reference_inputs,
-        params_policy,
-        params_idx,
-      )
-      let Pair(witnessed, _) = list.expect_at(self.withdrawals, wdrl_idx)
-      (witnessed == cred_of(fields))?
-    }
+    let fields <- params.with_protocol_params_fields(
+      self.reference_inputs,
+      params_policy,
+      params_idx,
+    )
 
-    when redeemer is {
-      SpendViaTransfer { params_idx, wdrl_idx } ->
-        check(params_idx, wdrl_idx, params.transfer_cred_field)
-      SpendViaThirdParty { params_idx, wdrl_idx } ->
-        check(params_idx, wdrl_idx, params.third_party_cred_field)
-      SpendViaUnfracking { params_idx, wdrl_idx } ->
-        check(params_idx, wdrl_idx, params.unfracking_cred_field)
-    }
+    let Pair(witnessed, _) = list.expect_at(self.withdrawals, wdrl_idx)
+
+    (witnessed == params.plg_cred_field(fields))?
   }
 
   else(_) {
