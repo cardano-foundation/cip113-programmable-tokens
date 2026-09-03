@@ -260,6 +260,14 @@ price of the merge; Insert, the only path that ever loaded both scripts, improve
 its reference-script fee. Sizes are measured against this branch's pre-slice working tree, not
 `main@9db7e06` (where `registry_spend` is 1563 B, which would make the Insert row -817 B).
 
+**Update 2026-09-03 (review-round optimisation, no surface change).** Three internal rewrites in
+`registry.ak` — `list.expect_any` for the one-shot `utxo_ref` check, `has_currency_symbol` for the
+issuance-CBOR reference-input predicate, and `pairs.has_key_or_fail` for the substandard withdraw-0
+proof — take the merged script to **2628 B unapplied (-46)**, with the Insert happy path
+-2,489,299 cpu and Init -905,141 cpu. Parameters, redeemers, datums and tx shape are untouched, so
+every row in the tables above still holds; only the byte figures move (the applied column shifts by
+the same -46 B, derived rather than re-measured — flat encoding may differ by a byte of padding).
+
 Execution units: Init +0.49%, Insert unchanged to the unit (the `RegistryInsert` arm is carried
 over byte-for-byte), node spend -41.4% and node update -21.2% as measured — **but those two
 figures overstate the on-chain saving and must not be quoted bare.** `aiken check` reports

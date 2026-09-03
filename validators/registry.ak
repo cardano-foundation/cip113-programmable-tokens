@@ -29,7 +29,7 @@
 
 use aiken/collection/dict
 use aiken/collection/list
-use aiken/collection/pairs
+use aiken/collection/pairs as std_pairs
 use cardano/address.{Script, VerificationKey}
 use cardano/assets.{PolicyId}
 use cardano/transaction.{OutputReference, Transaction, find_input}
@@ -38,6 +38,7 @@ use linked_list.{
   is_updated_directory_node, validate_directory_init,
   validate_directory_node_output, validate_mint,
 }
+use pairs
 use registry_node.{RegistryNode}
 use types.{IssuanceCborHex, RegistryInit, RegistryInsert, RegistryRedeemer}
 use utils.{
@@ -51,7 +52,7 @@ validator registry(utxo_ref: OutputReference, issuance_cbor_hex_cs: PolicyId) {
     when redeemer is {
       RegistryInit -> {
         // Ensure this is a one-shot minting policy by checking that utxo_ref is spent
-        let is_utxo_consumed = list.any(
+        let Void = list.expect_any(
           self.inputs,
           fn(input) { input.output_reference == utxo_ref },
         )
@@ -62,23 +63,19 @@ validator registry(utxo_ref: OutputReference, issuance_cbor_hex_cs: PolicyId) {
         // wearing its spending hat. No parameter is needed to say so: the mint
         // and spend handlers share one hash, so the policy minting the node NFT
         // IS the credential that must lock it.
-        and {
-          is_utxo_consumed?,
-          validate_directory_init(
-            self.outputs,
-            self.mint,
-            policy_id,
-            Script(policy_id),
-          )?,
-        }
+        validate_directory_init(
+          self.outputs,
+          self.mint,
+          policy_id,
+          Script(policy_id),
+        )
       }
       RegistryInsert { key, minting_logic_script } -> {
         // Find the issuance CBOR hex reference input
         let issuance_ref_input = list.expect_find(
           self.reference_inputs,
           fn(input) {
-            let tokens = assets.tokens(input.output.value, issuance_cbor_hex_cs)
-            !dict.is_empty(tokens)
+            has_currency_symbol(input.output.value, issuance_cbor_hex_cs)
           },
         )
 
@@ -109,14 +106,7 @@ validator registry(utxo_ref: OutputReference, issuance_cbor_hex_cs: PolicyId) {
         //
         // Whether a first mint of `key` occurs in the same tx is NOT
         // checked here: if it does, issuance_mint validates it as usual.
-        expect
-          list.any(
-            self.withdrawals,
-            fn(w) {
-              let Pair(cred, _amount) = w
-              cred == minting_logic_script
-            },
-          )
+        expect pairs.has_key_or_fail(self.withdrawals, minting_logic_script)
 
         // Must mint exactly one node token with the new key
         expect validate_mint(self.mint, policy_id) == key
@@ -232,7 +222,10 @@ validator registry(utxo_ref: OutputReference, issuance_cbor_hex_cs: PolicyId) {
           is_field_updated_registry_node(new_node, spent_node),
           when spent_node.minting_logic_script is {
             Script(_) ->
-              pairs.has_key(self.withdrawals, spent_node.minting_logic_script)
+              std_pairs.has_key(
+                self.withdrawals,
+                spent_node.minting_logic_script,
+              )
             VerificationKey(_) -> False
           },
         }
