@@ -8,19 +8,29 @@
 //// the constructor/fields; build the constructor by hand and decode it — so a
 //// reordered field or a shifted constructor index shows up here before it
 //// shows up as an SDK incident.
+////
+//// **These tests are the WHOLE defence of the off-chain wire contract — do not
+//// trim them.** Verified by mutation (2026-09-02): a SELF-CONSISTENT reorder of
+//// `ProgrammableLogicGlobalParams` — the type declaration and its accessors
+//// moved together — is invisible to 483 of the suite's 485 tests, because every
+//// on-chain reader goes through the accessors and so agrees with itself. Only
+//// `layout_params_datum_four_fields_in_order` and
+//// `layout_params_datum_decodes_from_raw_constructor` assert against raw
+//// positions, and they are what stands between a silent reorder and every
+//// off-chain builder in the ecosystem.
 
 use aiken/builtin
 use aiken/collection/list
 use programmable_logic/fixture
 use programmable_logic/params.{
-  ProgrammableLogicGlobalParams, max_inline_datum_bytes_field,
-  prog_logic_cred_field, registry_node_cs_field, third_party_cred_field,
-  transfer_cred_field, unfracking_cred_field,
+  ProgrammableLogicGlobalParams, plg_cred_field, third_party_cred_field,
+  transfer_cred_field,
 }
 use types.{
-  BaseSpendRedeemer, MintingRegistryProof, OutputIndex, RefInput,
-  SpendViaThirdParty, SpendViaTransfer, SpendViaUnfracking, ThirdPartyRedeemer,
-  TokenDoesNotExist, TokenExists, TransferRedeemer, UnfrackingRedeemer,
+  BaseSpendRedeemer, MintingRegistryProof, OutputIndex,
+  ProgrammableLogicGlobalRedeemer, RefInput, ThirdPartyAct, ThirdPartyRedeemer,
+  TokenDoesNotExist, TokenExists, TransferAct, TransferRedeemer, UnfrackingAct,
+  UnfrackingRedeemer,
 }
 
 fn constr(d: Data) -> (Int, List<Data>) {
@@ -38,98 +48,181 @@ fn int_fields(ints: List<Int>) -> List<Data> {
 
 // ------------------------------------------------------ protocol-params datum
 
-// `ProgrammableLogicGlobalParams`: constructor 0, seven fields, in this order:
-//   0 registry_node_cs, 1 prog_logic_cred, 2 transfer_cred,
-//   3 third_party_cred, 4 unfracking_cred, 5 upgrade_cred,
-//   6 max_inline_datum_bytes.
+// `ProgrammableLogicGlobalParams`: constructor 0, FOUR fields, in this order:
+//   0 plg_cred, 1 transfer_cred, 2 third_party_cred, 3 upgrade_cred.
 //
-// Issue #106 vector 3: `max_inline_datum_bytes` is APPENDED last precisely so
-// positions 0-5 are unchanged — this test is what pins that. Field order is
-// load-bearing: every accessor is a `tail_list` walk, and the params NFT
-// policy (hence PLB's hash, hence every token address) is a function of
-// `protocol_params_mint`, which deserialises this exact shape.
-test layout_params_datum_seven_fields_in_order() {
+// Field order is load-bearing on two counts. Every accessor is a `tail_list`
+// walk, so position IS cost — `plg_cred` sits at 0 because PLB reads it once
+// per programmable INPUT, the only per-input read in the protocol, and at
+// index 0 that read walks nothing. And the params NFT policy (hence PLB's
+// hash, hence every token address) is a function of `protocol_params_mint`,
+// which deserialises this exact shape.
+//
+// Every field here has a named on-chain reader: `plg_cred` <-
+// programmable_logic_base, `transfer_cred` / `third_party_cred` <-
+// issuance_mint, `upgrade_cred` <- protocol_params_spend.
+//
+// This shape REPLACED a six-field one — `{ registry_node_cs(0),
+// prog_logic_cred(1), plg_cred(2), transfer_cred(3), third_party_cred(4),
+// upgrade_cred(5) }`. `registry_node_cs` and `prog_logic_cred` were removed
+// because nothing reads them any more: both are compile-time parameters of the
+// delegates now.
+//
+// **SILENT-MISREAD HAZARD for off-chain builders** — the same family as the
+// `BaseSpendRedeemer` warning below, and sharper. Only the FIRST field's
+// removal is loud:
+//
+//   old 0 registry_node_cs (ByteArray) -> plg_cred (Credential) .. LOUD (type)
+//   old 1 prog_logic_cred              -> transfer_cred ........... SILENT
+//   old 2 plg_cred                     -> third_party_cred ........ SILENT  <-- worst
+//   old 3 transfer_cred                -> upgrade_cred ............ SILENT
+//   old 4, 5                           -> absent .................. LOUD
+//
+// The third row is the dangerous one: a builder computing PLB's dispatch
+// target from index 2 silently reads `third_party_cred`. On-chain this is
+// safe — every reader in this repo moved in the same change set — so the whole
+// hazard is off-chain, and it is why `layout_params_retired_six_field_shape_
+// does_not_decode` below pins the decode direction too.
+test layout_params_datum_four_fields_in_order() {
   let (tag, fields) = constr(as_data(fixture.protocol_params))
   and {
     tag == 0,
-    list.length(fields) == 7,
-    field(fields, 0) == as_data(fixture.policy_tokens_registry),
-    field(fields, 1) == as_data(fixture.credential_validator_logic_base),
-    field(fields, 2) == as_data(fixture.credential_validator_transfer),
-    field(fields, 3) == as_data(fixture.credential_validator_third_party),
-    field(fields, 4) == as_data(fixture.credential_validator_unfracking),
-    field(fields, 5) == as_data(fixture.credential_upgrade_authority),
-    field(fields, 6) == as_data(fixture.max_inline_datum_bytes),
+    list.length(fields) == 4,
+    field(fields, 0) == as_data(fixture.credential_validator_plg),
+    field(fields, 1) == as_data(fixture.credential_validator_transfer),
+    field(fields, 2) == as_data(fixture.credential_validator_third_party),
+    field(fields, 3) == as_data(fixture.credential_upgrade_authority),
   }
 }
 
-// The builtin accessors production reads through (PLB, transfer,
-// third_party, unfracking) land on the positions the type declares.
+// The builtin accessors production reads through (PLB for `plg_cred`,
+// `issuance_mint` for the two delegate credentials) land on the positions the
+// type declares. `upgrade_cred` has no accessor: `protocol_params_spend`
+// deserialises the whole record on its cold path.
 test layout_params_accessors_match_raw_positions() {
   let (_, fields) = constr(as_data(fixture.protocol_params))
   and {
-    registry_node_cs_field(fields) == fixture.policy_tokens_registry,
-    prog_logic_cred_field(fields) == fixture.credential_validator_logic_base,
+    plg_cred_field(fields) == fixture.credential_validator_plg,
     transfer_cred_field(fields) == fixture.credential_validator_transfer,
     third_party_cred_field(fields) == fixture.credential_validator_third_party,
-    unfracking_cred_field(fields) == fixture.credential_validator_unfracking,
-    max_inline_datum_bytes_field(fields) == fixture.max_inline_datum_bytes,
   }
 }
 
-// Decode direction: a hand-built constructor 0 with the seven fields in that
+// Decode direction: a hand-built constructor 0 with the four fields in that
 // order is accepted as the params type with every field where expected
 // (what `protocol_params_mint` does at mint time).
 test layout_params_datum_decodes_from_raw_constructor() {
   let raw = builtin.constr_data(
     0,
     [
-      as_data(fixture.policy_tokens_registry),
-      as_data(fixture.credential_validator_logic_base),
+      as_data(fixture.credential_validator_plg),
       as_data(fixture.credential_validator_transfer),
       as_data(fixture.credential_validator_third_party),
-      as_data(fixture.credential_validator_unfracking),
       as_data(fixture.credential_upgrade_authority),
-      as_data(fixture.max_inline_datum_bytes),
     ],
   )
   expect p: ProgrammableLogicGlobalParams = raw
   p == fixture.protocol_params
 }
 
+// The other decode direction: a hand-built SIX-field constructor — the retired
+// shape, exactly as an already-deployed protocol-params UTxO carries it — must
+// NOT decode as the new type. `protocol_params_mint` runs this same
+// whole-record `expect` at mint time, so this is the rail that stops a stale
+// off-chain builder from ever minting the old shape.
+//
+// OBSERVED (aiken v1.1.23+8949565, 2026-09-02) — the rejection is
+// OVER-DETERMINED: Aiken's `expect` rejects BOTH the trailing-field surplus
+// AND field 0's type, independently. Two throwaway probes settled it:
+//
+//   * six slots with a `Credential` at index 0 (all four real fields correct,
+//     two junk fields appended)  -> ABORTS. So arity alone is fatal.
+//   * exactly four slots with a `ByteArray` at index 0                -> ABORTS.
+//     So field 0's type alone is fatal.
+//
+// Which one fires FIRST for the retired shape is visible in the execution
+// units: this test aborts at ~0.6 K mem / 1.4 M cpu, matching the
+// ByteArray-at-zero probe (~0.55 K / 1.2 M) and nowhere near the arity probe
+// (~21 K / 6.0 M, which had to decode four credentials before the field count
+// was checked). So the retired six-field datum trips the FIELD-0 TYPE check
+// first, and the arity check is a second, independent net behind it.
+//
+// The practical reading for an off-chain consumer: emitting the retired shape
+// fails LOUDLY at `protocol_params_mint`, twice over — but that loudness is a
+// property of MINTING the datum, not of READING it. The per-field accessors
+// PLB and `issuance_mint` use never see either net (that is the whole point of
+// the split read), which is exactly why the silent-misread table above is the
+// hazard that matters.
+test layout_params_retired_six_field_shape_does_not_decode() fail {
+  let raw = builtin.constr_data(
+    0,
+    [
+      as_data(fixture.policy_tokens_registry),
+      as_data(fixture.credential_validator_logic_base),
+      as_data(fixture.credential_validator_plg),
+      as_data(fixture.credential_validator_transfer),
+      as_data(fixture.credential_validator_third_party),
+      as_data(fixture.credential_upgrade_authority),
+    ],
+  )
+  expect _p: ProgrammableLogicGlobalParams = raw
+  True
+}
+
 // ------------------------------------------------------ PLB spend redeemer
 
-// `BaseSpendRedeemer`: SpendViaTransfer = constructor 0, SpendViaThirdParty =
-// constructor 1, SpendViaUnfracking = constructor 2; all carry
-// [params_idx, wdrl_idx] in that order.
-test layout_base_spend_redeemer_constructors_and_fields() {
-  let (t_tag, t_fields) = constr(
-    as_data(SpendViaTransfer { params_idx: 7, wdrl_idx: 3 }),
-  )
-  let (p_tag, p_fields) = constr(
-    as_data(SpendViaThirdParty { params_idx: 7, wdrl_idx: 3 }),
-  )
-  let (u_tag, u_fields) = constr(
-    as_data(SpendViaUnfracking { params_idx: 7, wdrl_idx: 3 }),
+// `BaseSpendRedeemer` is now a RECORD — constructor 0, [params_idx, wdrl_idx].
+// It replaced a three-constructor enum (SpendViaTransfer / SpendViaThirdParty /
+// SpendViaUnfracking), each carrying the same two ints. PLB no longer chooses a
+// delegate at all: it requires `plg_cred`, and the dispatcher picks the arm.
+//
+// For off-chain builders this is the sharpest break in the change: the OLD
+// encoding and the NEW one are both "constructor 0 with two ints", so a stale
+// builder emitting `SpendViaTransfer { params_idx, wdrl_idx }` produces bytes
+// that still DECODE here — they just mean something different. The failure
+// shows up as a withdrawal-index mismatch, not as a decode error.
+test layout_base_spend_redeemer_is_a_record_of_two_ints() {
+  let (tag, fields) = constr(
+    as_data(BaseSpendRedeemer { params_idx: 7, wdrl_idx: 3 }),
   )
   and {
-    t_tag == 0,
-    t_fields == int_fields([7, 3]),
-    p_tag == 1,
-    p_fields == int_fields([7, 3]),
-    u_tag == 2,
-    u_fields == int_fields([7, 3]),
+    tag == 0,
+    fields == int_fields([7, 3]),
   }
 }
 
-test layout_base_spend_redeemer_decodes_from_raw_constructors() {
-  expect t: BaseSpendRedeemer = builtin.constr_data(0, int_fields([7, 3]))
-  expect p: BaseSpendRedeemer = builtin.constr_data(1, int_fields([7, 3]))
-  expect u: BaseSpendRedeemer = builtin.constr_data(2, int_fields([7, 3]))
+test layout_base_spend_redeemer_decodes_from_raw_constructor() {
+  expect r: BaseSpendRedeemer = builtin.constr_data(0, int_fields([7, 3]))
+  r == BaseSpendRedeemer { params_idx: 7, wdrl_idx: 3 }
+}
+
+// ------------------------------------------------------ dispatcher redeemer
+
+// `ProgrammableLogicGlobalRedeemer`: three FIELD-LESS constructors —
+// TransferAct = 0, ThirdPartyAct = 1, UnfrackingAct = 2. The payload for each
+// action travels in that delegate's own redeemer, never here.
+test layout_plg_redeemer_constructors_are_field_less() {
+  let (t_tag, t_fields) = constr(as_data(TransferAct))
+  let (p_tag, p_fields) = constr(as_data(ThirdPartyAct))
+  let (u_tag, u_fields) = constr(as_data(UnfrackingAct))
   and {
-    t == SpendViaTransfer { params_idx: 7, wdrl_idx: 3 },
-    p == SpendViaThirdParty { params_idx: 7, wdrl_idx: 3 },
-    u == SpendViaUnfracking { params_idx: 7, wdrl_idx: 3 },
+    t_tag == 0,
+    t_fields == [],
+    p_tag == 1,
+    p_fields == [],
+    u_tag == 2,
+    u_fields == [],
+  }
+}
+
+test layout_plg_redeemer_decodes_from_raw_constructors() {
+  expect t: ProgrammableLogicGlobalRedeemer = builtin.constr_data(0, [])
+  expect p: ProgrammableLogicGlobalRedeemer = builtin.constr_data(1, [])
+  expect u: ProgrammableLogicGlobalRedeemer = builtin.constr_data(2, [])
+  and {
+    t == TransferAct,
+    p == ThirdPartyAct,
+    u == UnfrackingAct,
   }
 }
 
@@ -139,27 +232,17 @@ test layout_base_spend_redeemer_decodes_from_raw_constructors() {
 // outputs_start_idx].
 test layout_third_party_redeemer_fields() {
   let (tag, fields) = constr(
-    as_data(
-      ThirdPartyRedeemer {
-        params_idx: 1,
-        registry_node_idx: 0,
-        outputs_start_idx: 2,
-      },
-    ),
+    as_data(ThirdPartyRedeemer { registry_node_idx: 0, outputs_start_idx: 2 }),
   )
   and {
     tag == 0,
-    fields == int_fields([1, 0, 2]),
+    fields == int_fields([0, 2]),
   }
 }
 
 test layout_third_party_redeemer_decodes_from_raw_constructor() {
-  expect r: ThirdPartyRedeemer = builtin.constr_data(0, int_fields([1, 0, 2]))
-  r == ThirdPartyRedeemer {
-    params_idx: 1,
-    registry_node_idx: 0,
-    outputs_start_idx: 2,
-  }
+  expect r: ThirdPartyRedeemer = builtin.constr_data(0, int_fields([0, 2]))
+  r == ThirdPartyRedeemer { registry_node_idx: 0, outputs_start_idx: 2 }
 }
 
 // ------------------------------------------------------ transfer redeemer
@@ -170,16 +253,13 @@ test layout_third_party_redeemer_decodes_from_raw_constructor() {
 // `RegistryProof`: TokenExists = 0, TokenDoesNotExist = 1, each [node_idx].
 test layout_transfer_redeemer_constructor_and_fields() {
   let proofs = [TokenExists { node_idx: 2 }, TokenDoesNotExist { node_idx: 3 }]
-  let (t_tag, t_fields) = constr(
-    as_data(TransferRedeemer { params_idx: 1, proofs }),
-  )
+  let (t_tag, t_fields) = constr(as_data(TransferRedeemer { proofs }))
   let (e_tag, e_fields) = constr(as_data(TokenExists { node_idx: 2 }))
   let (n_tag, n_fields) = constr(as_data(TokenDoesNotExist { node_idx: 3 }))
   and {
     t_tag == 0,
-    list.length(t_fields) == 2,
-    field(t_fields, 0) == as_data(1),
-    field(t_fields, 1) == as_data(proofs),
+    list.length(t_fields) == 1,
+    field(t_fields, 0) == as_data(proofs),
     e_tag == 0,
     e_fields == int_fields([2]),
     n_tag == 1,
@@ -194,12 +274,8 @@ test layout_transfer_redeemer_decodes_from_raw_constructor() {
       builtin.constr_data(1, int_fields([3])),
     ],
   )
-  expect t: TransferRedeemer = builtin.constr_data(
-    0,
-    [builtin.i_data(1), raw_proofs],
-  )
+  expect t: TransferRedeemer = builtin.constr_data(0, [raw_proofs])
   t == TransferRedeemer {
-    params_idx: 1,
     proofs: [TokenExists { node_idx: 2 }, TokenDoesNotExist { node_idx: 3 }],
   }
 }
@@ -210,17 +286,11 @@ test layout_transfer_redeemer_decodes_from_raw_constructor() {
 // outputs_start_idx] — same shape as ThirdPartyRedeemer.
 test layout_unfracking_redeemer_fields() {
   let (tag, fields) = constr(
-    as_data(
-      UnfrackingRedeemer {
-        params_idx: 1,
-        registry_node_idx: 0,
-        outputs_start_idx: 2,
-      },
-    ),
+    as_data(UnfrackingRedeemer { registry_node_idx: 0, outputs_start_idx: 2 }),
   )
   and {
     tag == 0,
-    fields == int_fields([1, 0, 2]),
+    fields == int_fields([0, 2]),
   }
 }
 

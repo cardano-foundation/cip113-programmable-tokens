@@ -66,11 +66,12 @@ use cardano/fuzz as cardano
 use cardano/transaction.{Input, Output, OutputReference, Transaction}
 use programmable_logic/fixture
 use programmable_logic_base
+use programmable_logic_global
 use third_party
 use transfer
 use types.{
-  SpendViaThirdParty, SpendViaTransfer, SpendViaUnfracking, ThirdPartyRedeemer,
-  TokenDoesNotExist, TokenExists, TransferRedeemer, UnfrackingRedeemer,
+  BaseSpendRedeemer, ThirdPartyAct, ThirdPartyRedeemer, TokenDoesNotExist,
+  TokenExists, TransferAct, TransferRedeemer, UnfrackingAct, UnfrackingRedeemer,
 }
 use unfracking
 
@@ -80,12 +81,22 @@ fn programmable_logic(self: Transaction, redeemer: TransferRedeemer) -> Bool {
     programmable_logic_base.programmable_logic_base.spend(
       fixture.policy_protocol_params,
       None,
-      SpendViaTransfer { params_idx: 0, wdrl_idx: 0 },
+      BaseSpendRedeemer { params_idx: 0, wdrl_idx: 0 },
       Void,
       self,
     ),
+    programmable_logic_global.programmable_logic_global.withdraw(
+      fixture.hash_validator_transfer,
+      fixture.hash_validator_third_party,
+      fixture.hash_validator_unfracking,
+      TransferAct,
+      fixture.credential_validator_plg,
+      self,
+    ),
     transfer.transfer.withdraw(
-      fixture.policy_protocol_params,
+      fixture.credential_validator_logic_base,
+      fixture.policy_tokens_registry,
+      fixture.max_inline_datum_bytes,
       redeemer,
       fixture.credential_validator_transfer,
       self,
@@ -94,19 +105,29 @@ fn programmable_logic(self: Transaction, redeemer: TransferRedeemer) -> Bool {
 }
 
 /// Third-party (seize) composition: the base spend dispatches via
-/// SpendViaThirdParty to the standalone third_party validator — the transfer
+/// BaseSpendRedeemer to the standalone third_party validator — the transfer
 /// validator is not invoked at all on a third-party transaction.
 fn third_party_logic(self: Transaction, redeemer: ThirdPartyRedeemer) -> Bool {
   and {
     programmable_logic_base.programmable_logic_base.spend(
       fixture.policy_protocol_params,
       None,
-      SpendViaThirdParty { params_idx: 0, wdrl_idx: 0 },
+      BaseSpendRedeemer { params_idx: 0, wdrl_idx: 0 },
       Void,
       self,
     ),
+    programmable_logic_global.programmable_logic_global.withdraw(
+      fixture.hash_validator_transfer,
+      fixture.hash_validator_third_party,
+      fixture.hash_validator_unfracking,
+      ThirdPartyAct,
+      fixture.credential_validator_plg,
+      self,
+    ),
     third_party.third_party.withdraw(
-      fixture.policy_protocol_params,
+      fixture.credential_validator_logic_base,
+      fixture.policy_tokens_registry,
+      fixture.max_inline_datum_bytes,
       redeemer,
       fixture.credential_validator_third_party,
       self,
@@ -199,11 +220,7 @@ const fixture_baseline_3rd_party_1: Transaction = {
   }
 
 const fixture_redeemer_baseline_3rd_party_1: ThirdPartyRedeemer =
-  ThirdPartyRedeemer {
-    params_idx: 0,
-    registry_node_idx: 1,
-    outputs_start_idx: 2,
-  }
+  ThirdPartyRedeemer { registry_node_idx: 1, outputs_start_idx: 2 }
 
 test baseline_3rd_party_1() {
   third_party_logic(
@@ -348,11 +365,7 @@ const fixture_baseline_3rd_party_2: Transaction = {
   }
 
 const fixture_redeemer_baseline_3rd_party_2: ThirdPartyRedeemer =
-  ThirdPartyRedeemer {
-    params_idx: 0,
-    registry_node_idx: 1,
-    outputs_start_idx: 2,
-  }
+  ThirdPartyRedeemer { registry_node_idx: 1, outputs_start_idx: 2 }
 
 test baseline_3rd_party_2() {
   third_party_logic(
@@ -428,11 +441,7 @@ const fixture_baseline_3rd_party_3: Transaction = {
   }
 
 const fixture_redeemer_baseline_3rd_party_3: ThirdPartyRedeemer =
-  ThirdPartyRedeemer {
-    params_idx: 0,
-    registry_node_idx: 1,
-    outputs_start_idx: 0,
-  }
+  ThirdPartyRedeemer { registry_node_idx: 1, outputs_start_idx: 0 }
 
 test baseline_3rd_party_3() {
   third_party_logic(
@@ -504,7 +513,7 @@ const fixture_plutarch_baseline_transfer: Transaction = {
 /// Corresponding redeemer with a single proof of a token in the registry,
 /// located at position #2 in reference inputs
 const fixture_redeemer_plutarch_baseline_transfer: TransferRedeemer =
-  TransferRedeemer { params_idx: 0, proofs: [TokenExists { node_idx: 1 }] }
+  TransferRedeemer { proofs: [TokenExists { node_idx: 1 }] }
 
 test plutarch_baseline_transfer() {
   programmable_logic(
@@ -612,7 +621,6 @@ const fixture_plutarch_baseline_transfer_2: Transaction = {
 /// located at position #2 in reference inputs
 const fixture_redeemer_plutarch_baseline_transfer_2: TransferRedeemer =
   TransferRedeemer {
-    params_idx: 0,
     proofs: [
       TokenExists { node_idx: 2 },
       TokenExists { node_idx: 3 },
@@ -707,7 +715,6 @@ const fixture_plutarch_baseline_transfer_3: Transaction = {
 
 const fixture_redeemer_plutarch_baseline_transfer_3: TransferRedeemer =
   TransferRedeemer {
-    params_idx: 0,
     proofs: [
       TokenDoesNotExist { node_idx: 1 },
       TokenExists { node_idx: 2 },
@@ -719,7 +726,9 @@ const fixture_redeemer_plutarch_baseline_transfer_3: TransferRedeemer =
 
 test plutarch_baseline_transfer_3() {
   transfer.transfer.withdraw(
-    fixture.policy_protocol_params,
+    fixture.credential_validator_logic_base,
+    fixture.policy_tokens_registry,
+    fixture.max_inline_datum_bytes,
     fixture_redeemer_plutarch_baseline_transfer_3,
     fixture.credential_validator_transfer,
     fixture_plutarch_baseline_transfer_3,
@@ -841,7 +850,7 @@ bench many_outputs((self, redeemer) via sample_many_outputs) {
 }
 
 /// Unfracking composition (Finding 17): an unfracking tx runs base.spend
-/// (per PLB input) dispatching via SpendViaUnfracking, AND the standalone
+/// (per PLB input) dispatching via BaseSpendRedeemer, AND the standalone
 /// unfracking.withdraw where the invariants live — the transfer validator is
 /// not part of it. Benching both accounts for the full execution cost of the
 /// action.
@@ -853,12 +862,22 @@ fn programmable_logic_unfracking(
     programmable_logic_base.programmable_logic_base.spend(
       fixture.policy_protocol_params,
       None,
-      SpendViaUnfracking { params_idx: 0, wdrl_idx: 0 },
+      BaseSpendRedeemer { params_idx: 0, wdrl_idx: 0 },
       Void,
       self,
     ),
+    programmable_logic_global.programmable_logic_global.withdraw(
+      fixture.hash_validator_transfer,
+      fixture.hash_validator_third_party,
+      fixture.hash_validator_unfracking,
+      UnfrackingAct,
+      fixture.credential_validator_plg,
+      self,
+    ),
     unfracking.unfracking.withdraw(
-      fixture.policy_protocol_params,
+      fixture.credential_validator_logic_base,
+      fixture.policy_tokens_registry,
+      fixture.max_inline_datum_bytes,
       unfracking_redeemer,
       fixture.credential_validator_unfracking,
       self,

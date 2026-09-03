@@ -14,19 +14,18 @@
 //// Hosting it here keeps those bytes off the transfer reference script and
 //// moves their cost onto the only transactions that use them.
 ////
-//// Dispatch: programmable_logic_base dispatches to this validator directly.
-//// A `SpendViaThirdParty` base spend requires THIS validator's withdraw-0
-//// (its credential is the `third_party_cred` field of the protocol-params
-//// datum) — so a third-party transaction never loads the `transfer`
-//// reference script at all. `unfracking` is dispatched the same way.
+//// Dispatch: `programmable_logic_global`, reached from PLB via `plg_cred`,
+//// requires THIS validator's withdraw-0 under a `ThirdPartyAct` redeemer —
+//// against a hash baked into the dispatcher at compile time. A third-party
+//// transaction therefore never loads the `transfer` reference script at all.
+//// `unfracking` is dispatched the same way.
 ////
 //// Security shape: this delegation is purely RESTRICTIVE and self-contained.
-//// programmable_logic_base authorises exactly ONE of `transfer`, this
-//// validator, or `unfracking` per spend; whichever runs enforces its full
-//// invariants over the whole transaction, so authorising any one of them is
-//// sound. This script reads the same protocol-params NFT reference input the
-//// others use; it never needs their hashes, so there is no circular
-//// dependency.
+//// Exactly ONE delegate is required per dispatch; whichever runs enforces its
+//// full invariants over the whole transaction, so authorising any one of them
+//// is sound. This script reads NO datum: `prog_logic_cred`, `registry_node_cs`
+//// and the seizure datum bound are compile-time parameters, and it never needs
+//// the other delegates' hashes, so there is no circular dependency.
 
 use aiken/collection/list as aiken_list
 use assets
@@ -34,14 +33,14 @@ use cardano/address.{Credential}
 use cardano/assets.{PolicyId} as value
 use cardano/certificate.{Certificate, RegisterCredential}
 use cardano/transaction.{InlineDatum, Input, Transaction}
-use programmable_logic/params.{
-  max_inline_datum_bytes_field, prog_logic_cred_field, registry_node_cs_field,
-  with_protocol_params_fields,
-}
 use programmable_logic/third_party as invariants
 use types.{ThirdPartyRedeemer}
 
-validator third_party(params_policy: PolicyId) {
+validator third_party(
+  prog_logic_cred: Credential,
+  registry_node_cs: PolicyId,
+  max_inline_datum_bytes: Int,
+) {
   withdraw(
     redeemer: ThirdPartyRedeemer,
     _account: Credential,
@@ -49,31 +48,28 @@ validator third_party(params_policy: PolicyId) {
   ) {
     trace @"Starting third-party transfer validation"
 
-    let ThirdPartyRedeemer { params_idx, registry_node_idx, outputs_start_idx }
-      = redeemer
+    let ThirdPartyRedeemer { registry_node_idx, outputs_start_idx } = redeemer
 
-    // Extract protocol parameters from reference inputs: the registry NFT
-    // policy (field 0) to authenticate the subject policy's node, and the PLB
-    // payment credential (field 1) — the same first-two-fields span the
-    // transfer hot path reads.
-    let fields <- with_protocol_params_fields(
-      self.reference_inputs,
-      params_policy,
-      params_idx,
-    )
-
+    // The three values below used to be read from the protocol-params datum on
+    // every invocation. Two of them are FROZEN by `protocol_params_spend` and
+    // the third is the seizure datum bound; all three are compile-time
+    // parameters now, so this validator resolves the params reference input
+    // ZERO times. A frozen value never needs to be a datum read — it only needs
+    // baking into whatever artifact is itself the replaceable unit, and this
+    // validator is exactly that: swapping it is a new script plus a new
+    // `programmable_logic_global` plus one datum rewrite.
     let registry_node = locate_registry_node(
       self.reference_inputs,
       registry_node_idx,
-      registry_node_cs_field(fields),
+      registry_node_cs,
     )
 
     invariants.validate_3rd_party(
       self,
-      prog_logic_cred_field(fields),
+      prog_logic_cred,
       registry_node,
       outputs_start_idx,
-      max_inline_datum_bytes_field(fields),
+      max_inline_datum_bytes,
     )
   }
 
@@ -98,7 +94,7 @@ fn locate_registry_node(
   registry_node_idx: Int,
   registry_node_cs: PolicyId,
 ) -> Data {
-  expect Some(node_ref) = aiken_list.at(reference_inputs, registry_node_idx)
+  let node_ref = aiken_list.expect_at(reference_inputs, registry_node_idx)
   // Checking the POLICY ID alone suffices because registry NFTs are
   // mint-gated by `registry_mint`, which binds the NFT asset name to the
   // node's `key` and shape-checks the datum at Insert — so any UTxO carrying

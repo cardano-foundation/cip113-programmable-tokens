@@ -15,17 +15,15 @@ pub type RegistryProof {
 }
 
 /// Redeemer of the `transfer` withdraw-0 validator — the script every
-/// ordinary programmable-token transfer is dispatched to by
-/// programmable_logic_base under `SpendViaTransfer`.
+/// ordinary programmable-token transfer is dispatched to, by
+/// `programmable_logic_global` under a `TransferAct` arm.
 ///
-/// `params_idx` is the index of the protocol-params NFT UTxO in
-/// `reference_inputs`. The validator jumps straight to that reference input
-/// (`list.at`) and authenticates it by the one-shot params NFT, instead of
-/// scanning every reference input to find it — a wrong index simply fails
-/// the NFT check. See `params.with_protocol_params_fields`. The standalone
-/// `third_party` and `unfracking` validators carry the same field.
+/// This redeemer carries NO `params_idx`: the `transfer` validator no longer
+/// reads the protocol-params datum at all. The three values it used to read
+/// there — `prog_logic_cred`, `registry_node_cs` and the seizure datum bound —
+/// are compile-time parameters of the validator now. Same for the standalone
+/// `third_party` and `unfracking` redeemers.
 pub type TransferRedeemer {
-  params_idx: Int,
   /// One registry proof per distinct spent policy, in ascending policy order
   proofs: List<RegistryProof>,
 }
@@ -35,8 +33,6 @@ pub type TransferRedeemer {
 /// is single-policy, names its registry node, and pairs every PLB input
 /// positionally with a continuing output starting at `outputs_start_idx`.
 pub type UnfrackingRedeemer {
-  /// Index of the protocol-params NFT UTxO in reference inputs
-  params_idx: Int,
   /// Index of the acted-on policy's registry node in reference inputs
   registry_node_idx: Int,
   /// Starting index in outputs where the paired continuing outputs begin
@@ -51,8 +47,6 @@ pub type UnfrackingRedeemer {
 /// exact fields the old inline `ThirdPartyAct` arm did — the logic moved
 /// out of the former coordinator into its own script, the redeemer surface is unchanged.
 pub type ThirdPartyRedeemer {
-  /// Index of the protocol-params NFT UTxO in reference inputs
-  params_idx: Int,
   /// Index of the subject policy's registry node in reference inputs
   registry_node_idx: Int,
   /// Starting index in outputs where processed outputs begin
@@ -62,41 +56,55 @@ pub type ThirdPartyRedeemer {
 /// Redeemer of the `programmable_logic_base` spend validator.
 ///
 /// PLB runs once per programmable-token input, so its cost is multiplied by
-/// every such input in the transaction. It dispatches each spend to ONE of
-/// three withdraw-0 validators — `transfer`, `third_party`, `unfracking` — and
-/// witnesses WHERE that validator's credential sits
-/// in the ledger-ordered withdrawal map (Script credentials first, then
-/// VerificationKey, bytewise within each), so the check is a direct
-/// `list.expect_at` — O(`wdrl_idx`) cell drops with no comparison on the way —
-/// plus one equality, instead of a scan that compares at every entry.
+/// every such input in the transaction — which is why it now does the smallest
+/// job in the protocol: locate the params datum, read ONE credential
+/// (`plg_cred`, field 2), and require that credential's withdraw-0 at the
+/// witnessed index. No arm, no `when`, no choice of accessor.
 ///
-/// Self-validating: a wrong `wdrl_idx` resolves to some other credential and a
-/// wrong arm names another validator — either way the equality fails, so a
-/// dishonest witness can only invalidate its own transaction. Whichever
-/// validator it delegates to then enforces its full invariants over the whole
-/// transaction, so authorising any one of them is sound. No delegate is ever
-/// reached through another: a transfer loads only `transfer`, a seize only
-/// `third_party`, an unfracking only `unfracking`.
+/// It witnesses WHERE the dispatcher's credential sits in the ledger-ordered
+/// withdrawal map (Script credentials first, then VerificationKey, bytewise
+/// within each), so the check is a direct `list.expect_at` — O(`wdrl_idx`) cell
+/// drops with no comparison on the way — plus one equality, instead of a scan
+/// that compares at every entry.
 ///
-/// ASSUMPTION (documented, not enforced): "a wrong arm fails" holds only while
-/// the params datum carries pairwise-distinct `transfer_cred`,
-/// `third_party_cred` and `unfracking_cred`. Neither `protocol_params_mint`
-/// nor `coordination_spend` checks distinctness; it is the deployer's and the
-/// upgrade authority's responsibility. With two equal credentials both arms
-/// resolve to the same script, which must then dispatch internally — see
-/// `plb_equal_delegate_creds_collapse_the_arms`.
+/// Self-validating: a wrong `wdrl_idx` resolves to some other credential and
+/// the equality fails, so a dishonest witness can only invalidate its own
+/// transaction.
+///
+/// **The pairwise-distinctness ASSUMPTION is gone.** PLB used to choose between
+/// three credentials by redeemer arm, which was only sound while those three
+/// were distinct — a property nothing on-chain enforced. There is now exactly
+/// one credential on this path, so there is nothing to collide.
 pub type BaseSpendRedeemer {
-  /// Delegate to the `transfer` validator. PLB requires the `transfer_cred`
-  /// (params datum field 2) at `wdrl_idx`.
-  SpendViaTransfer { params_idx: Int, wdrl_idx: Int }
-  /// Delegate to the `third_party` (seize / clawback / freeze-enforcement)
-  /// validator. PLB requires the `third_party_cred` (params datum field 3)
-  /// at `wdrl_idx`.
-  SpendViaThirdParty { params_idx: Int, wdrl_idx: Int }
-  /// Delegate to the `unfracking` validator (Finding 17, holder-driven
-  /// same-owner PLB restructuring). PLB requires the `unfracking_cred`
-  /// (params datum field 4) at `wdrl_idx`.
-  SpendViaUnfracking { params_idx: Int, wdrl_idx: Int }
+  /// Index of the protocol-params NFT UTxO in `reference_inputs`.
+  params_idx: Int,
+  /// Index of `plg_cred`'s entry in the ledger-ordered withdrawal map.
+  wdrl_idx: Int,
+}
+
+/// Redeemer of the `programmable_logic_global` dispatcher.
+///
+/// PLG is reached from PLB (which named it via `plg_cred`) and does exactly one
+/// thing: prove that the delegate for the chosen ACTION was invoked. The three
+/// delegate hashes are compile-time parameters of PLG, so it never reads the
+/// params datum — the trust chain is PLB -> params -> PLG -> delegate, and PLG
+/// is the link that turns "some dispatcher ran" into "the right delegate ran".
+///
+/// The arms carry NO payload on purpose. Everything a delegate needs — registry
+/// proofs, node indices, output offsets — travels in that delegate's OWN
+/// redeemer, where the delegate itself validates it. Duplicating any of it here
+/// would create a second, unchecked claim about the same fact, and forcing the
+/// two to agree would mean PLG decoding the delegate's redeemer — which is
+/// exactly the work this design exists to avoid.
+pub type ProgrammableLogicGlobalRedeemer {
+  /// An ordinary transfer: requires the `transfer` validator's withdraw-0.
+  TransferAct
+  /// A third-party action (seize / clawback / freeze enforcement): requires
+  /// the `third_party` validator's withdraw-0.
+  ThirdPartyAct
+  /// Holder-driven same-owner restructuring (Finding 17): requires the
+  /// `unfracking` validator's withdraw-0.
+  UnfrackingAct
 }
 
 /// Redeemer for the issuance minting policy.
@@ -109,7 +117,8 @@ pub type BaseSpendRedeemer {
 /// directly against the validator's `minting_logic_cred` parameter — no
 /// separate redeemer field needed. The validator parameter is baked into
 /// the policy id at compile time and pinned to `registry.minting_logic_script`
-/// by the cryptographic binding in `registry_mint`, so collision-resistance
+/// by the cryptographic binding in the `registry` validator's mint handler,
+/// so collision-resistance
 /// of blake2b_224 forces credential agreement without a runtime equality
 /// check on the redeemer.
 pub type MintingRegistryProof {
@@ -124,7 +133,7 @@ pub type RegistryRedeemer {
   /// Insert a new programmable token policy into the registry.
   ///
   /// `minting_logic_script` is the credential of the substandard's
-  /// withdraw-0 minting logic. registry_mint enforces that:
+  /// withdraw-0 minting logic. The `registry` mint handler enforces that:
   ///   * the new node's datum field `minting_logic_script` equals this
   ///     value (datum-matches-redeemer check, prevents the registrar
   ///     from writing a different credential into the datum than they
@@ -138,7 +147,7 @@ pub type RegistryRedeemer {
   ///     (`minting_logic_script` in `tx.withdrawals`).
   ///
   /// Whether the registration also carries a first mint of the new
-  /// policy is NOT constrained by registry_mint: a first mint in the
+  /// policy is NOT constrained by the `registry` mint handler: a first mint in the
   /// same tx is validated by `issuance_mint` as usual, and registering
   /// without any mint is equally valid (useful for real-world-asset
   /// issuance or supply-aware substandards that must initialise global

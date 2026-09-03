@@ -1,6 +1,6 @@
 use aiken/builtin.{unconstr_fields}
-use aiken/collection/dict
 use aiken/collection/list
+use aiken/collection/pairs
 use assets as prog_assets
 // Programmable Token Issuance Minting Policy
 // This policy handles minting and burning of registered programmable tokens
@@ -15,7 +15,7 @@ use types.{
   MintingRegistryProof, OutputIndex, RefInput, RegistryProof, ThirdPartyRedeemer,
   TokenExists, TransferRedeemer,
 }
-use utils.{expect_inline_datum}
+use utils.{expect_inline_datum, has_currency_symbol}
 
 validator issuance_mint(
   // Programmable Token Script Hash
@@ -27,11 +27,11 @@ validator issuance_mint(
   // One-shot protocol-params NFT policy — the protocol's permanent anchor,
   // the same parameter PLB and the three delegate validators take. Read ONLY
   // inside the `RefInput` delegation branch, where it locates the
-  // coordination UTxO among `reference_inputs` and reads the LIVE delegate
-  // credentials from its datum (`transfer_cred`, field 2; `third_party_cred`,
-  // field 3). Delegation then keys on THOSE credentials, so an in-place
+  // protocol-params UTxO among `reference_inputs` and reads the LIVE delegate
+  // credentials from its datum (`transfer_cred`, field 1; `third_party_cred`,
+  // field 2). Delegation then keys on THOSE credentials, so an in-place
   // upgrade of either validator automatically retires the old credential as
-  // a mint-custody delegate. Coordination UTxO absent ⇒ no delegation ⇒
+  // a mint-custody delegate. Protocol-params UTxO absent ⇒ no delegation ⇒
   // local `no_escape` custody (fail-safe). The OutputIndex path never reads
   // it.
   params_policy: PolicyId,
@@ -42,12 +42,9 @@ validator issuance_mint(
     // "is the transfer validator invoked"; that signal is now rediscovered
     // for free by the redeemer lookup below — a delegate is invoked iff its
     // withdraw script-purpose has an entry in `tx.redeemers`.)
-    let minting_logic_invoked = list.any(
+    let minting_logic_invoked = pairs.has_key(
       self.withdrawals,
-      fn(wdrl) {
-        let Pair(cred, _amount) = wdrl
-        cred == minting_logic_cred
-      },
+      minting_logic_cred,
     )
 
     // Custody (re-audit R-04): no `own_policy` token may leave the PLB. Both
@@ -98,16 +95,14 @@ validator issuance_mint(
         // supply. `no_escape` sidesteps the case analysis entirely: it forbids
         // `own_policy` at any non-PLB output, so nothing minted can escape
         // regardless of how the node got here.
-        let output_opt = list.at(self.outputs, index)
-        expect Some(output) = output_opt
+        let output = list.expect_at(self.outputs, index)
         expect verify_registry_node(output, registry_node_cs, own_policy)
         custody_ok()?
       }
 
       RefInput { index } -> {
         // ALREADY REGISTERED — verify the node via its reference input.
-        let ref_input_opt = list.at(self.reference_inputs, index)
-        expect Some(ref_input) = ref_input_opt
+        let ref_input = list.expect_at(self.reference_inputs, index)
         expect
           verify_registry_node(ref_input.output, registry_node_cs, own_policy)
 
@@ -169,7 +164,7 @@ fn no_escape(
         // mandatory seizure continuing-output).
         prog_assets.is_seizable_output_shape(output)
       } else {
-        dict.is_empty(assets.tokens(output.value, own_policy))
+        !has_currency_symbol(output.value, own_policy)
       }
     },
   )
@@ -203,8 +198,8 @@ fn verify_registry_node(
 /// custody at runtime and issuance_mint can safely delegate.
 ///
 /// The delegates' credentials are NOT parameters: they are the LIVE ones read
-/// from the coordination UTxO's datum (`transfer_cred`, field 2;
-/// `third_party_cred`, field 3), so delegation trust tracks in-place
+/// from the protocol-params UTxO's datum (`transfer_cred`, field 1;
+/// `third_party_cred`, field 2), so delegation trust tracks in-place
 /// upgrades — a retired credential can no longer act as a mint-custody
 /// delegate.
 ///
@@ -213,11 +208,11 @@ fn verify_registry_node(
 /// has already shown to correspond to `own_policy`. So "same index" ⇒
 /// "same policy" without re-extracting any key.
 ///
-/// Every `None` case — no coordination UTxO among the reference inputs,
+/// Every `None` case — no protocol-params UTxO among the reference inputs,
 /// neither delegate invoked, or a delegate's redeemer naming a different
 /// registry node — returns False, falling back to local custody. The
-/// coordination locate is deliberately non-failing (`list.find` +
-/// `has_nft_strict`) so non-delegating RefInput mints need no coordination
+/// protocol-params locate is deliberately non-failing (`list.find` +
+/// `has_nft_strict`) so non-delegating RefInput mints need no protocol-params
 /// ref input.
 fn delegate_covers_own_registry_node(
   redeemers: Pairs<ScriptPurpose, Data>,
@@ -238,8 +233,8 @@ fn delegate_covers_own_registry_node(
     )
   is {
     None -> False
-    Some(coordination_ref) -> {
-      let fields = unconstr_fields(expect_inline_datum(coordination_ref.output))
+    Some(params_ref) -> {
+      let fields = unconstr_fields(expect_inline_datum(params_ref.output))
       or {
         // (a) the `transfer` validator validates our node's custody: its
         // proof walk resolves our node and `validate_transfer` contains the
@@ -344,7 +339,7 @@ fn transfer_scope_covers(
   transfer_redeemer: TransferRedeemer,
   own_registry_node_idx: Int,
 ) -> Bool {
-  let TransferRedeemer { proofs, .. } = transfer_redeemer
+  let TransferRedeemer { proofs } = transfer_redeemer
   let expected_proof = TokenExists(own_registry_node_idx)
   list.any(proofs, fn(proof: RegistryProof) { expected_proof == proof })
 }

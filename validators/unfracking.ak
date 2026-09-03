@@ -15,13 +15,14 @@
 //// dispatches to this validator directly, so an unfracking transaction
 //// never loads the transfer reference script at all).
 ////
-//// Composition of an unfracking transaction (three withdraw-0s at most):
+//// Composition of an unfracking transaction (four withdraw-0s at most):
 ////
-////   * programmable_logic_base.spend, redeemer SpendViaUnfracking — one
-////     run per PLB input; requires THIS validator's withdraw-0 at the
-////     witnessed index. PLB reads this script's credential from the
-////     `unfracking_cred` field of the protocol-params datum (written at
-////     deployment time, swappable in place).
+////   * programmable_logic_base.spend — one run per PLB input; requires the
+////     dispatcher's withdraw-0, read from `plg_cred` in the protocol-params
+////     datum. PLB does not know this validator exists.
+////   * programmable_logic_global.withdraw, redeemer `UnfrackingAct` —
+////     requires THIS validator's withdraw-0, against the hash baked into it
+////     at compile time.
 ////   * unfracking.withdraw (this validator) — enforces all the
 ////     Unfracking invariants, INCLUDING that the acted-on policy's
 ////     issuer-declared `unfracking_logic_script` withdraw-0 (registry
@@ -31,16 +32,16 @@
 ////     holder authorisation, same pattern as a transfer.
 ////
 //// Security shape: this delegation is purely RESTRICTIVE. This script is
-//// reached only through a `SpendViaUnfracking` base spend, which names it
-//// by the live params-datum credential; bolting this script's withdrawal
+//// reached only through an `UnfrackingAct` dispatch; bolting its withdrawal
 //// onto some other transaction (e.g. a transfer) only ADDS constraints —
 //// every script present must still pass — so no new authority is created
 //// in either direction.
 ////
-//// The protocol parameters are read from the same protocol-params NFT
-//// reference input the other delegates use; this script never needs their
-//// hashes, so there is no circular dependency: compile this validator, then
-//// write its credential into the protocol-params datum at deployment.
+//// This validator reads NO datum. `prog_logic_cred`, `registry_node_cs` and
+//// the seizure datum bound are compile-time parameters, and its own hash is
+//// baked into `programmable_logic_global` — so there is no circular
+//// dependency: compile this validator, then compile the dispatcher against
+//// its hash, then name the dispatcher in the protocol-params datum.
 
 use aiken/collection/list as aiken_list
 use assets
@@ -48,14 +49,14 @@ use cardano/address.{Credential}
 use cardano/assets.{PolicyId} as value
 use cardano/certificate.{Certificate, RegisterCredential}
 use cardano/transaction.{InlineDatum, Input, Transaction}
-use programmable_logic/params.{
-  max_inline_datum_bytes_field, prog_logic_cred_field, registry_node_cs_field,
-  with_protocol_params_fields,
-}
 use programmable_logic/unfracking as invariants
 use types.{UnfrackingRedeemer}
 
-validator unfracking(params_policy: PolicyId) {
+validator unfracking(
+  prog_logic_cred: Credential,
+  registry_node_cs: PolicyId,
+  max_inline_datum_bytes: Int,
+) {
   withdraw(
     redeemer: UnfrackingRedeemer,
     _account: Credential,
@@ -63,31 +64,28 @@ validator unfracking(params_policy: PolicyId) {
   ) {
     trace @"Starting unfracking validation"
 
-    let UnfrackingRedeemer { params_idx, registry_node_idx, outputs_start_idx }
-      = redeemer
+    let UnfrackingRedeemer { registry_node_idx, outputs_start_idx } = redeemer
 
-    // Extract protocol parameters from reference inputs: the registry
-    // NFT policy (field 0) to authenticate the acted-on policy's node,
-    // and the PLB payment credential (field 1) — the same first-two-
-    // fields span the transfer hot path reads.
-    let fields <- with_protocol_params_fields(
-      self.reference_inputs,
-      params_policy,
-      params_idx,
-    )
-
+    // The three values below used to be read from the protocol-params datum on
+    // every invocation. Two of them are FROZEN by `protocol_params_spend` and
+    // the third is the seizure datum bound; all three are compile-time
+    // parameters now, so this validator resolves the params reference input
+    // ZERO times. A frozen value never needs to be a datum read — it only needs
+    // baking into whatever artifact is itself the replaceable unit, and this
+    // validator is exactly that: swapping it is a new script plus a new
+    // `programmable_logic_global` plus one datum rewrite.
     let registry_node = locate_registry_node(
       self.reference_inputs,
       registry_node_idx,
-      registry_node_cs_field(fields),
+      registry_node_cs,
     )
 
     invariants.validate_unfracking(
       self,
-      prog_logic_cred_field(fields),
+      prog_logic_cred,
       registry_node,
       outputs_start_idx,
-      max_inline_datum_bytes_field(fields),
+      max_inline_datum_bytes,
     )
   }
 
@@ -112,7 +110,7 @@ fn locate_registry_node(
   registry_node_idx: Int,
   registry_node_cs: PolicyId,
 ) -> Data {
-  expect Some(node_ref) = aiken_list.at(reference_inputs, registry_node_idx)
+  let node_ref = aiken_list.expect_at(reference_inputs, registry_node_idx)
   // Load-bearing assumption (same as `registry_node.new_registry_node_getter`
   // and the reasoning in params.ak): checking the POLICY ID alone suffices
   // because registry NFTs are mint-gated by `registry_mint`, which binds the
