@@ -24,8 +24,10 @@ validator protocol_params_mint(
   mint(_redeemer: Data, own_policy: PolicyId, self: Transaction) {
     trace @"Starting protocol_params_mint validation"
     // Check 1: This is a one-shot minting policy - must spend the specified UTXO
-    expect
-      list.any(self.inputs, fn(input) { input.output_reference == utxo_ref })
+    list.expect_any(
+      self.inputs,
+      fn(input) { input.output_reference == utxo_ref },
+    )
 
     // Check 2: Get all minted tokens from this policy
     // Token name must be "ProtocolParams"
@@ -34,7 +36,7 @@ validator protocol_params_mint(
     // The protocol-params address where the NFT must be locked
     let expected_address = address.from_script(params_spend_addr_hash)
     // Find the output at the protocol-params address
-    expect Some(nft_output) = list.find(
+    let nft_output = list.expect_find(
       self.outputs,
       fn(output) {
         assets.has_nft_strict(output.value, own_policy, protocol_params_token)

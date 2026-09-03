@@ -110,7 +110,7 @@ fn locate_registry_node(
   registry_node_idx: Int,
   registry_node_cs: PolicyId,
 ) -> Data {
-  expect Some(node_ref) = aiken_list.at(reference_inputs, registry_node_idx)
+  let node_ref = aiken_list.expect_at(reference_inputs, registry_node_idx)
   // Load-bearing assumption (same as `registry_node.new_registry_node_getter`
   // and the reasoning in params.ak): checking the POLICY ID alone suffices
   // because registry NFTs are mint-gated by `registry_mint`, which binds the

@@ -378,6 +378,35 @@ PLB denied quietly; with `plg_cred` at field 0 a legacy datum puts a `ByteArray`
 `Credential` is expected and PLB **crashes**. For an operator pointing PLB at a stale
 protocol-params UTxO, the shape mismatch is now loud.
 
+### Review-round optimisation sweep (2026-09-03) — hashes move, surface does not
+
+A repo-wide pass replacing general helpers with their specialised/fail-fast equivalents
+(`list.expect_at` / `expect_find` / `expect_any`, `dict.expect_get`, `pairs.has_key`,
+`utils.has_currency_symbol`). Purely internal: no parameter, redeemer, datum or transaction-shape
+change, so every row above still holds. **Eight script hashes move, which is a full redeploy** —
+recorded here because the hash cascade is itself the surface event.
+
+| Script | Before | After | Delta |
+|---|---|---|---|
+| `protocol_params_mint` | 1015 | 896 | -119 B |
+| `issuance_cbor_hex_mint` | 909 | 791 | -118 B |
+| `issuance_mint` | 2021 | 1943 | -78 B |
+| `registry` | 2628 | 2573 | -55 B |
+| `protocol_params_spend` | 1087 | 1041 | -46 B |
+| `programmable_logic_base` | 605 | 564 | -41 B |
+| `third_party` | 1803 | 1773 | -30 B |
+| `unfracking` | 1732 | 1702 | -30 B |
+
+cpu: `programmable_logic_base` **-2,116,305 per programmable input** (the params-NFT
+authentication in `params.ak`), transfer -2.12M, seize -3.54M, unfracking -3.43M, registry spend
+-1.56M per transaction.
+
+One equivalence caveat worth carrying into any future use of the helper:
+`utils.has_currency_symbol` SKIPS THE FIRST PAIR of the value, assuming it is ada. That holds for
+any UTxO value (min-UTxO guarantees an ada entry, and `""` sorts first) but NOT for a mint value,
+which has no ada entry — `utils.mint_has_policy` therefore stays on `dict.has_key` and must not be
+"optimised" the same way.
+
 ---
 
 ## Consolidated surface: baseline → `feat/upgradability-in-place` + PR #110

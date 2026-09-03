@@ -1,6 +1,6 @@
 use aiken/builtin.{unconstr_fields}
-use aiken/collection/dict
 use aiken/collection/list
+use aiken/collection/pairs
 use assets as prog_assets
 // Programmable Token Issuance Minting Policy
 // This policy handles minting and burning of registered programmable tokens
@@ -15,7 +15,7 @@ use types.{
   MintingRegistryProof, OutputIndex, RefInput, RegistryProof, ThirdPartyRedeemer,
   TokenExists, TransferRedeemer,
 }
-use utils.{expect_inline_datum}
+use utils.{expect_inline_datum, has_currency_symbol}
 
 validator issuance_mint(
   // Programmable Token Script Hash
@@ -42,12 +42,9 @@ validator issuance_mint(
     // "is the transfer validator invoked"; that signal is now rediscovered
     // for free by the redeemer lookup below — a delegate is invoked iff its
     // withdraw script-purpose has an entry in `tx.redeemers`.)
-    let minting_logic_invoked = list.any(
+    let minting_logic_invoked = pairs.has_key(
       self.withdrawals,
-      fn(wdrl) {
-        let Pair(cred, _amount) = wdrl
-        cred == minting_logic_cred
-      },
+      minting_logic_cred,
     )
 
     // Custody (re-audit R-04): no `own_policy` token may leave the PLB. Both
@@ -98,16 +95,14 @@ validator issuance_mint(
         // supply. `no_escape` sidesteps the case analysis entirely: it forbids
         // `own_policy` at any non-PLB output, so nothing minted can escape
         // regardless of how the node got here.
-        let output_opt = list.at(self.outputs, index)
-        expect Some(output) = output_opt
+        let output = list.expect_at(self.outputs, index)
         expect verify_registry_node(output, registry_node_cs, own_policy)
         custody_ok()?
       }
 
       RefInput { index } -> {
         // ALREADY REGISTERED — verify the node via its reference input.
-        let ref_input_opt = list.at(self.reference_inputs, index)
-        expect Some(ref_input) = ref_input_opt
+        let ref_input = list.expect_at(self.reference_inputs, index)
         expect
           verify_registry_node(ref_input.output, registry_node_cs, own_policy)
 
@@ -169,7 +164,7 @@ fn no_escape(
         // mandatory seizure continuing-output).
         prog_assets.is_seizable_output_shape(output)
       } else {
-        dict.is_empty(assets.tokens(output.value, own_policy))
+        !has_currency_symbol(output.value, own_policy)
       }
     },
   )

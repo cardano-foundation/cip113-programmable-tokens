@@ -32,7 +32,7 @@ use aiken/collection/list
 use aiken/collection/pairs as std_pairs
 use cardano/address.{Script, VerificationKey}
 use cardano/assets.{PolicyId}
-use cardano/transaction.{OutputReference, Transaction, find_input}
+use cardano/transaction.{OutputReference, Transaction}
 use linked_list.{
   is_field_updated_registry_node, is_inserted_directory_node,
   is_updated_directory_node, validate_directory_init,
@@ -194,7 +194,10 @@ validator registry(utxo_ref: OutputReference, issuance_cbor_hex_cs: PolicyId) {
     // transaction author, so neither is a guard — do not add a redundant
     // equality check here, and do not write a test asserting that either one
     // bites.
-    expect Some(own_input) = find_input(self.inputs, own_ref)
+    let own_input = list.expect_find(
+      self.inputs,
+      fn(i) { i.output_reference == own_ref },
+    )
     expect Script(registry_node_cs) = own_input.output.address.payment_credential
 
     when

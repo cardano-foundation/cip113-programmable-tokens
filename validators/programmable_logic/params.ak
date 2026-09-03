@@ -1,9 +1,9 @@
 use aiken/builtin.{head_list, tail_list, unconstr_fields}
-use aiken/collection/dict
 use aiken/collection/list
 use cardano/address.{Credential}
 use cardano/assets.{PolicyId} as value
 use cardano/transaction.{InlineDatum, Input}
+use utils.{has_currency_symbol}
 
 /// Protocol parameters NFT token name
 pub const protocol_params_token = "ProtocolParams"
@@ -94,9 +94,7 @@ pub fn with_protocol_params_fields(
   // policy-presence test (not the stricter name+quantity check) because this
   // runs on the hot path — per delegate withdrawal and per PLB input.
   expect
-    !dict.is_empty(
-      value.tokens(protocol_params_ref.output.value, protocol_params_cs),
-    )
+    has_currency_symbol(protocol_params_ref.output.value, protocol_params_cs)
 
   expect InlineDatum(inline_datum) = protocol_params_ref.output.datum
   return(unconstr_fields(inline_datum))

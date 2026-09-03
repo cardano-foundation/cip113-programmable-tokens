@@ -48,7 +48,7 @@
 
 use aiken/collection/list
 use cardano/assets
-use cardano/transaction.{InlineDatum, OutputReference, Transaction, find_input}
+use cardano/transaction.{InlineDatum, OutputReference, Transaction}
 use linked_list.{is_28_byte_credential}
 use pairs
 use programmable_logic/params.{ProgrammableLogicGlobalParams}
@@ -68,7 +68,10 @@ validator protocol_params_spend(_nonce: ByteArray) {
 
     // Own input + own address (the protocol-params address). All structural checks
     // key on this input so junk UTxOs parked at the address cannot interfere.
-    expect Some(own_input) = find_input(self.inputs, own_ref)
+    let own_input = list.expect_find(
+      self.inputs,
+      fn(i) { i.output_reference == own_ref },
+    )
     let own_address = own_input.output.address
 
     // Exactly one input at this address: never spend two protocol-params address

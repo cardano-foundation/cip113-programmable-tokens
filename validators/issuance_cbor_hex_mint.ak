@@ -17,8 +17,10 @@ validator issuance_cbor_hex_mint(
   mint(_redeemer: Data, own_policy: PolicyId, self: Transaction) {
     trace @"Starting issuance_cbor_hex_mint validation"
     // Must consume the one-shot UTxO
-    expect
-      list.any(self.inputs, fn(input) { input.output_reference == utxo_ref })
+    list.expect_any(
+      self.inputs,
+      fn(input) { input.output_reference == utxo_ref },
+    )
 
     // Exactly one NFT for policy with expected name
     expect
@@ -31,7 +33,7 @@ validator issuance_cbor_hex_mint(
     // The always-fail address where the NFT must be locked
     let expected_address = address.from_script(always_fail_hash)
     // Find the output with address equal to the always-fail address and containing the minted NFT
-    expect Some(nft_output) = list.find(
+    let nft_output = list.expect_find(
       self.outputs,
       fn(output) {
         assets.has_nft_strict(
