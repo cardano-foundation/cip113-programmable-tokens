@@ -53,7 +53,7 @@ pub type ProgrammableLogicGlobalParams {
   /// `transfer_cred`.
   third_party_cred: Credential,
   /// Field 3 — credential of the upgrade-authority withdraw-0 validator
-  /// (trampoline 2). Read ONLY by `protocol_params_spend`, on an upgrade
+  /// (trampoline 2). Read ONLY by `protocol_params`, on an upgrade
   /// transaction, to decide *who* may rewrite this datum. A datum field rather
   /// than a script parameter so the authority itself can be swapped in place.
   upgrade_cred: Credential,
@@ -75,7 +75,7 @@ pub type ProgrammableLogicGlobalParams {
 ///
 /// Skipping whole-datum validation here is safe for the same reason
 /// registry_node.ak skips it for RegistryNode: we only consume this
-/// datum, and protocol_params_mint fully deserialises (and thereby
+/// datum, and the protocol_params mint handler fully deserialises (and thereby
 /// shape-checks) it at mint time, so every instance on-chain is
 /// well-formed by construction.
 pub fn with_protocol_params_fields(
@@ -88,7 +88,7 @@ pub fn with_protocol_params_fields(
 
   // Authenticate: the addressed reference input must carry the params
   // policy. Presence of the policy is sufficient — it is a one-shot NFT
-  // (protocol_params_mint mints exactly one `ProtocolParams` token), so any
+  // (the protocol_params mint handler mints exactly one `ProtocolParams` token), so any
   // UTxO bearing it is the genuine params UTxO. A wrong index fails here
   // rather than silently reading some other UTxO's datum. Kept as a bare
   // policy-presence test (not the stricter name+quantity check) because this
@@ -121,4 +121,5 @@ pub fn third_party_cred_field(fields: List<Data>) -> Credential {
   third_party_cred
 }
 // No accessor for field 3 (`upgrade_cred`): its only reader,
-// protocol_params_spend, deserialises the whole record on its cold path.
+// the protocol_params spend handler, deserialises the whole record on its
+// cold path.

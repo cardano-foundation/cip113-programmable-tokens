@@ -1,4 +1,5 @@
-//// Tests for protocol_params_spend (in-place upgradability, trampoline 2).
+//// Upgrade tests: the `spend` handler of `protocol_params` (in-place
+//// upgradability, trampoline 2).
 ////
 //// The happy path is a legitimate upgrade: spend the protocol-params UTxO,
 //// return the params NFT + ADA to the same address, rewrite a MUTABLE datum
@@ -54,13 +55,13 @@ use cardano/transaction.{
 }
 use programmable_logic/fixture
 use programmable_logic/params.{ProgrammableLogicGlobalParams}
-use protocol_params_spend
+use protocol_params
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
-/// The protocol-params address: payment credential = protocol_params_spend's own
+/// The protocol-params address: payment credential = the protocol_params script's own
 /// script hash (arbitrary here), stake credential fixed.
 const params_utxo_cred: Credential =
   Script(#"c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0")
@@ -82,6 +83,13 @@ const authority_cred: Credential = fixture.credential_upgrade_authority
 /// A replacement transfer-validator credential — the mutable field a legitimate upgrade edits.
 const new_transfer_cred: Credential =
   Script(#"11111111111111111111111111111111111111111111111111111111")
+
+/// The mint handler's one-shot parameter. Never read on the spend path.
+const genesis_utxo_ref: OutputReference =
+  OutputReference {
+    transaction_id: #"cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd0000",
+    output_index: 0,
+  }
 
 const own_ref: OutputReference =
   OutputReference {
@@ -153,8 +161,10 @@ fn valid_upgrade_tx() -> Transaction {
 }
 
 fn call(tx: Transaction) -> Bool {
-  protocol_params_spend.protocol_params_spend.spend(
-    "nonce",
+  protocol_params.protocol_params.spend(
+    // The one-shot parameter belongs to the mint handler; the spend handler
+    // carries it unused, which is the price of merging the pair into one hash.
+    genesis_utxo_ref,
     Some(fixture.protocol_params),
     Void,
     own_ref,
@@ -281,16 +291,20 @@ test params_spend_fails_dropping_nft() fail {
   call(tx)
 }
 
-// Fails if ADA is drained from the protocol-params UTxO (lovelace ratchet:
-// output must carry >= the input's ADA).
-test params_spend_fails_draining_ada() fail {
-  let drained = assets.zero
-    |> assets.add(ada_policy_id, ada_asset_name, 1_000_000)
+// Audit-3 finding 01: ADA may now be REDUCED. Non-ADA assets are still
+// conserved exactly, so the NFT cannot leave; only the input-relative lovelace
+// restriction is gone. The ledger's own min-UTxO rule is the real floor, and
+// the only party who can spend this UTxO is the upgrade authority — which is
+// already trusted to replace every credential in the datum. The old ratchet
+// made over-funding unrecoverable by anyone, forever.
+test params_spend_ada_withdrawal_succeeds() {
+  let reduced = assets.zero
+    |> assets.add(ada_policy_id, ada_asset_name, 1_200_000)
     |> assets.add(fixture.policy_protocol_params, "ProtocolParams", 1)
   let tx = Transaction {
     ..valid_upgrade_tx(),
     outputs: [
-      continuing_output(upgraded_params(), drained, params_spend_address()),
+      continuing_output(upgraded_params(), reduced, params_spend_address()),
     ],
   }
   call(tx)
