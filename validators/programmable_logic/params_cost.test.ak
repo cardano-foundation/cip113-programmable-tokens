@@ -18,7 +18,7 @@
 //// read-frequency: `plg_cred` (0, read by programmable_logic_base once per
 //// programmable INPUT), `transfer_cred` (1) and `third_party_cred` (2) (read
 //// by `issuance_mint` on a delegating mint), `upgrade_cred` (3, read only by
-//// `protocol_params_spend` on an upgrade). The 6-field generation carried
+//// the `protocol_params` spend handler on an upgrade). The 6-field generation carried
 //// `registry_node_cs` (0) and `prog_logic_cred` (1) ahead of all of those;
 //// both lost their last on-chain reader and became compile-time parameters of
 //// the delegates, which is what let `plg_cred` move to depth ZERO. The 2- and
@@ -87,7 +87,7 @@
 //// locate+unwrap to extract its one credential, versus ~+19.6M cpu / ~+55.9k
 //// mem to `expect` the whole record — the split saves the hot path from
 //// validating three fields it never reads. Skipping whole-record validation is
-//// safe because protocol_params_mint fully deserialises the datum at mint time
+//// safe because the protocol_params mint handler fully deserialises the datum at mint time
 //// (see `with_protocol_params_fields` docs).
 ////
 //// Every test shares the same reference-input layout (params NFT input

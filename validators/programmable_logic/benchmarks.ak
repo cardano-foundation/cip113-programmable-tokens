@@ -50,7 +50,17 @@
 //// the PLB spend gains a 3-arm dispatch (a few M cpu at withdrawal-index 0,
 //// where the old `has_key_or_fail` scan also stopped at the first entry);
 //// the unfracking path additionally drops a whole validator run (the former
-//// PLG gate). The benches here all witness `wdrl_idx = 0`, so they do NOT
+//// PLG gate).
+////
+//// **Basis, for anyone turning these into a capacity claim.** These harnesses
+//// call `spend` ONCE while the ledger runs it once per programmable input, so
+//// the per-invocation figures below are the right basis for comparing two
+//// implementations of the validator and the WRONG one for "how many inputs fit
+//// in a transaction". For a ceiling, multiply the spend by the input count
+//// (`list.all(self.inputs, fn(_) { ... })`). Measured 2026-09-03: ~288 inputs
+//// on the single-call basis against 164 on the ledger basis.
+////
+//// The benches here all witness `wdrl_idx = 0`, so they do NOT
 //// measure the off-first-position case; `wdrl_idx_cost.test.ak` does, at
 //// widths 1-16 and positions 0-15. Note `list.expect_at` is O(`wdrl_idx`)
 //// (one cell drop per step), not O(1) — what the witness removes is the

@@ -13,7 +13,13 @@ pub fn expect_inline_datum(output: Output) -> Data {
   d
 }
 
-/// Check if a currency symbol is present in a value. Fail loudly if missing
+/// Is `needle` among the value's policies? Returns `False` when it is not.
+///
+/// ⚠ UTxO VALUES ONLY. The first pair is skipped as ada — true of any input or
+/// output value (min-UTxO guarantees a lovelace entry, and the ada policy `""`
+/// sorts first), but NOT of a `tx.mint` value, which carries no ada entry. On a
+/// mint this would skip the first real policy and report a present policy as
+/// absent. Use `mint_has_policy` there; do not "optimise" it into this.
 pub fn has_currency_symbol(haystack: Value, needle: PolicyId) -> Bool {
   // Fast skip first pair which is always ada
   let haystack = haystack |> assets.to_dict |> dict.to_pairs |> tail_list
@@ -99,6 +105,8 @@ pub fn is_programmable_token_id_valid(
 /// Note on burn-only entries: a `tx.mint` containing only negative
 /// quantities under `policy` returns `True` from this function (the
 /// outer-dict entry still exists).
+/// Stays on `dict.has_key` deliberately: `has_currency_symbol` skips the first
+/// pair as ada and a mint value has none. See its doc comment.
 pub fn mint_has_policy(mint_value: Value, policy: PolicyId) -> Bool {
   assets.to_dict(mint_value) |> dict.has_key(policy)
 }

@@ -55,12 +55,12 @@ fn int_fields(ints: List<Int>) -> List<Data> {
 // walk, so position IS cost — `plg_cred` sits at 0 because PLB reads it once
 // per programmable INPUT, the only per-input read in the protocol, and at
 // index 0 that read walks nothing. And the params NFT policy (hence PLB's
-// hash, hence every token address) is a function of `protocol_params_mint`,
+// hash, hence every token address) is a function of `protocol_params`,
 // which deserialises this exact shape.
 //
 // Every field here has a named on-chain reader: `plg_cred` <-
 // programmable_logic_base, `transfer_cred` / `third_party_cred` <-
-// issuance_mint, `upgrade_cred` <- protocol_params_spend.
+// issuance_mint, `upgrade_cred` <- protocol_params (spend handler).
 //
 // This shape REPLACED a six-field one — `{ registry_node_cs(0),
 // prog_logic_cred(1), plg_cred(2), transfer_cred(3), third_party_cred(4),
@@ -97,7 +97,7 @@ test layout_params_datum_four_fields_in_order() {
 
 // The builtin accessors production reads through (PLB for `plg_cred`,
 // `issuance_mint` for the two delegate credentials) land on the positions the
-// type declares. `upgrade_cred` has no accessor: `protocol_params_spend`
+// type declares. `upgrade_cred` has no accessor: `protocol_params`
 // deserialises the whole record on its cold path.
 test layout_params_accessors_match_raw_positions() {
   let (_, fields) = constr(as_data(fixture.protocol_params))
@@ -110,7 +110,7 @@ test layout_params_accessors_match_raw_positions() {
 
 // Decode direction: a hand-built constructor 0 with the four fields in that
 // order is accepted as the params type with every field where expected
-// (what `protocol_params_mint` does at mint time).
+// (what the `protocol_params` mint handler does).
 test layout_params_datum_decodes_from_raw_constructor() {
   let raw = builtin.constr_data(
     0,
@@ -127,7 +127,7 @@ test layout_params_datum_decodes_from_raw_constructor() {
 
 // The other decode direction: a hand-built SIX-field constructor — the retired
 // shape, exactly as an already-deployed protocol-params UTxO carries it — must
-// NOT decode as the new type. `protocol_params_mint` runs this same
+// NOT decode as the new type. The `protocol_params` mint handler runs this same
 // whole-record `expect` at mint time, so this is the rail that stops a stale
 // off-chain builder from ever minting the old shape.
 //
@@ -148,7 +148,7 @@ test layout_params_datum_decodes_from_raw_constructor() {
 // first, and the arity check is a second, independent net behind it.
 //
 // The practical reading for an off-chain consumer: emitting the retired shape
-// fails LOUDLY at `protocol_params_mint`, twice over — but that loudness is a
+// fails LOUDLY at the `protocol_params` mint handler, twice over — but that loudness is a
 // property of MINTING the datum, not of READING it. The per-field accessors
 // PLB and `issuance_mint` use never see either net (that is the whole point of
 // the split read), which is exactly why the silent-misread table above is the

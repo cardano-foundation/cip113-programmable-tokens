@@ -407,6 +407,38 @@ any UTxO value (min-UTxO guarantees an ada entry, and `""` sorts first) but NOT 
 which has no ada entry — `utils.mint_has_policy` therefore stays on `dict.has_key` and must not be
 "optimised" the same way.
 
+## PROVISIONAL — subject to change: `fix/params-pair-merge-and-init-rails`
+
+Audit-call item M10 plus audit-3 findings 01 and 04, and M4 from the same call. The protocol-params
+pair becomes ONE multi-purpose validator, exactly as the registry pair did in #117.
+
+| Surface | Change | Breaking? |
+|---|---|---|
+| **Validator set** | `protocol_params_mint` + `protocol_params_spend` → **`protocol_params`**. Blueprint titles `protocol_params_mint.protocol_params_mint.mint` and `protocol_params_spend.protocol_params_spend.spend` → **`protocol_params.protocol_params.mint`** and **`protocol_params.protocol_params.spend`** (plus one shared `.else`) | **YES for blueprint lookups** — any `findValidator("protocol_params_mint…" / "protocol_params_spend…")` breaks |
+| `protocol_params` parameters | `protocol_params_mint` was 2 — `(utxo_ref, params_spend_addr_hash)`; `protocol_params_spend` was 1 — `(_nonce)`. Now **1 total**: `(utxo_ref: OutputReference)`. Both `params_spend_addr_hash` and `_nonce` exist as parameters nowhere | **YES** — parameter application arity and order. Deployment tooling that generated or passed a nonce must drop it |
+| **ONE HASH for policy and address** | The protocol-params NFT policy id and the protocol-params address's payment credential are now the SAME VALUE. The mint handler locks the NFT at `Script(own_policy)` — the minting policy naming itself | **YES for address/policy derivation** — an SDK deriving the params ADDRESS from `protocol_params_spend`'s applied hash and the params POLICY from `protocol_params_mint`'s must **collapse to one derivation**. `programmable_logic_base`'s `params_policy` parameter is now that same hash |
+| Deployment ordering | The cycle is dissolved: the mint side no longer depends on the spend side's address, so there is no ordering edge between them and no nonce to choose. The protocol's identity was always the NFT asset class, not the address (audit-3 finding 04) | **YES** — deployment runbook |
+| **Genesis tx shape** (new rejections) | The mint handler now enforces what every later update enforces: all four datum credentials must be 28 bytes; the NFT output may carry **no reference script**; and the datum must decode. Previously the protocol could be BORN in a state the spend handler refuses to move to — including an unsatisfiable `upgrade_cred` with no repair path. (Junk tokens alongside the NFT were ALREADY rejected before this change: `has_nft_strict` matches only a value whose non-ADA half is exactly the one NFT. A rail for it was written, mutation-tested, found to kill no test, and removed) | **YES for init builders** — an initialisation transaction that attached a reference script or wrote a wrong-length credential used to pass and now fails |
+| **Upgrade tx shape** (relaxation) | Lovelace on the continuing output is no longer required to be ≥ the input's. Non-ADA assets are still compared exactly, so the NFT can neither leave nor be joined by junk | **NO** — strictly permissive. A previously impossible transaction (recovering surplus ADA) becomes possible; nothing that worked stops working |
+
+**Reference-script footprint** (bytes of `compiledCode`, unapplied):
+
+| Path | Script loaded | Before | After | Delta |
+|---|---|---|---|---|
+| Genesis (init) | mint only | 1015 | 1414 | **+399** |
+| Upgrade | spend only | 1087 | 1414 | **+327** |
+
+**Both paths regress, and that is expected here.** Unlike the registry merge — where `Insert` loaded
+both scripts and improved by 807 B — **no protocol-params transaction ever loaded both**: genesis only
+mints, an upgrade only spends. The merge buys one hash instead of two, two parameters removed, the
+dissolved cycle, and a genesis that enforces the same rails as an update; it does not buy bytes. Both
+paths are rare (genesis once per deployment, upgrades seldom), so ~350-400 B of reference-script fee on
+each is the accepted price.
+
+cpu: the upgrade path pays **+208,212 (+0.3%)** for carrying the mint handler; genesis pays
+**+10,880,100 (+25.0%)** for the new rails — well under 1% of one transaction's budget, once per
+deployment.
+
 ---
 
 ## Consolidated surface: baseline → `feat/upgradability-in-place` + PR #110

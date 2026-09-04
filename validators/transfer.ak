@@ -43,7 +43,7 @@ validator transfer(
     let TransferRedeemer { proofs } = redeemer
 
     // The three values below used to be read from the protocol-params datum on
-    // every invocation. Two of them are FROZEN by `protocol_params_spend` and
+    // every invocation. Two of them are FROZEN by `protocol_params` and
     // the third is the seizure datum bound; all three are compile-time
     // parameters now, so this validator resolves the params reference input
     // ZERO times. A frozen value never needs to be a datum read — it only needs
