@@ -18,6 +18,13 @@ pub const protocol_params_token = "ProtocolParams"
 /// INPUT — the only per-input read in the protocol — so it pays no `tail_list`
 /// step at all.
 ///
+/// **A new field is APPENDED, never inserted.** The accessors below are
+/// positional `head_list`/`tail_list` chains over raw `unconstr_fields`, so a
+/// field added at the end costs every existing reader exactly nothing, while
+/// one inserted anywhere else silently deepens — or worse, silently
+/// re-points — a hot accessor. `pending_upgrade_cred` went to field 4 for
+/// this reason and not for any semantic one.
+///
 /// What is NOT here, and why:
 ///   * `prog_logic_cred`, `registry_node_cs` and the seizure datum bound are
 ///     compile-time PARAMETERS of the delegates. A frozen value never needs to
@@ -57,6 +64,25 @@ pub type ProgrammableLogicGlobalParams {
   /// transaction, to decide *who* may rewrite this datum. A datum field rather
   /// than a script parameter so the authority itself can be swapped in place.
   upgrade_cred: Credential,
+  /// Field 4 — the INCOMING upgrade authority while a handover is in flight,
+  /// `None` at rest. Read ONLY by `protocol_params`, on the spend path.
+  ///
+  /// Rewriting `upgrade_cred` in one step is forbidden: a hash for a script
+  /// that was never deployed, or a typo, hands the protocol to nobody and
+  /// there is no repair path, because the credential named here is the only
+  /// one that can authorise the next spend. So a handover is two phases —
+  /// the sitting authority NOMINATES here, and the nominee ACTIVATES itself
+  /// by presenting its own withdraw-0, which is what proves it exists, runs
+  /// and consents. Until then the sitting authority can clear this field.
+  ///
+  /// Deliberately NOT the co-signature rule this repo first drafted (issue
+  /// #125), which required the incoming credential's withdraw-0 in the same
+  /// transaction as the nomination. That silently restricts who may become
+  /// the upgrade authority to parties that can be scheduled into someone
+  /// else's transaction — excluding a governance action, or any authority
+  /// that assembles its approval over days. Two phases demand the same
+  /// evidence without the coordination.
+  pending_upgrade_cred: Option<Credential>,
 }
 
 /// Authenticate the protocol-params NFT reference input by its

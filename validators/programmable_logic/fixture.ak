@@ -201,14 +201,17 @@ pub const credential_upgrade_authority: Credential =
 /// tests pass it where they pass the other two baked values.
 pub const max_inline_datum_bytes: Int = 1024
 
-/// The live protocol wiring. Four fields, every one with a named on-chain
-/// reader — see `params.ProgrammableLogicGlobalParams`.
+/// The live protocol wiring. Five fields, every one with a named on-chain
+/// reader — see `params.ProgrammableLogicGlobalParams`. AT REST: no authority
+/// handover in flight, which is the state genesis is required to produce and
+/// the state the protocol spends almost all of its life in.
 pub const protocol_params: ProgrammableLogicGlobalParams =
   ProgrammableLogicGlobalParams {
     plg_cred: credential_validator_plg,
     transfer_cred: credential_validator_transfer,
     third_party_cred: credential_validator_third_party,
     upgrade_cred: credential_upgrade_authority,
+    pending_upgrade_cred: None,
   }
 
 /// Some input to pay for fuel, deterministically determined by the label.
