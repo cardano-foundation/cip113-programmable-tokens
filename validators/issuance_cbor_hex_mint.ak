@@ -1,5 +1,5 @@
 use aiken/collection/list
-use assets.{has_policy_nft_strictly} as local_assets
+use assets.{expect_only_nft_of_policy} as local_assets
 // Issuance CBOR Hex Reference NFT Minting Policy
 // Simple one-shot minting policy to create a reference NFT that marks the UTxO
 // containing the issuance script template bytes (prefix and postfix)
@@ -24,7 +24,7 @@ validator issuance_cbor_hex_mint(
 
     // Exactly one NFT for policy with expected name
     expect
-      has_policy_nft_strictly(
+      expect_only_nft_of_policy(
         self.mint,
         own_policy,
         issuance_cbor_hex_token_name,

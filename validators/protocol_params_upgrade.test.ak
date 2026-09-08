@@ -478,9 +478,11 @@ test params_spend_fails_two_continuing_outputs() fail {
   call(tx)
 }
 
-// Fails if a second input at the protocol-params address is spent in the same tx.
-test params_spend_fails_two_params_utxo_inputs() fail {
-  let second = Input {
+/// An ada-only UTxO someone parked at the protocol-params address. Anyone can
+/// create one at any time; it carries no NFT and whatever datum its sender
+/// chose.
+fn junk_at_params_address() -> Input {
+  Input {
     output_reference: OutputReference {
       transaction_id: #"abababababababababababababababababababababababababababababababffff",
       output_index: 1,
@@ -492,11 +494,36 @@ test params_spend_fails_two_params_utxo_inputs() fail {
       reference_script: None,
     },
   }
-  let tx = Transaction {
-    ..valid_upgrade_tx(),
-    inputs: [params_utxo_input(), second],
-  }
-  call(tx)
+}
+
+// Double satisfaction, the genuine half: spending the params UTxO together with
+// junk parked at its address is fine FOR THE GENUINE INPUT'S RUN — its
+// continuing output matches its own non-ADA value. There is no "exactly one
+// input at this address" rail, and this test is what says so on purpose.
+test params_spend_genuine_run_passes_alongside_junk_input() {
+  call(
+    Transaction {
+      ..valid_upgrade_tx(),
+      inputs: [params_utxo_input(), junk_at_params_address()],
+    },
+  )
+}
+
+// Double satisfaction, the half that matters: the JUNK input's run of this
+// validator, in that same transaction, fails — the one continuing output
+// carries the NFT and the junk input does not, so exact non-ADA conservation
+// rejects it. That is what makes the input-count rail redundant: the value
+// rail already fails any transaction that spends two UTxOs at this address,
+// because at most one of them can hold the one-shot NFT.
+test params_spend_fails_junk_run_alongside_genuine() fail {
+  let junk = junk_at_params_address()
+  protocol_params.protocol_params.spend(
+    genesis_utxo_ref,
+    Some(fixture.protocol_params),
+    ProtocolUpgrade,
+    junk.output_reference,
+    Transaction { ..valid_upgrade_tx(), inputs: [params_utxo_input(), junk] },
+  )
 }
 
 // ---------------------------------------------------------------------------

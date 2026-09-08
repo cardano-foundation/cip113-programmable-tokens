@@ -22,6 +22,7 @@
 use aiken/builtin
 use aiken/collection/list
 use cardano/address.{Credential}
+use multisig
 use programmable_logic/fixture
 use programmable_logic/params.{
   ProgrammableLogicGlobalParams, plg_cred_field, third_party_cred_field,
@@ -410,4 +411,51 @@ test layout_protocol_params_redeemer_decodes_from_raw_constructors() {
     n == NominateAuthority,
     p == PromoteAuthority,
   }
+}
+
+// ------------------------------------------------- upgrade-authority datum
+
+// `MultisigScript` (lib/multisig.ak, Sundae's native-script ADT) is the datum
+// of the upgrade authority's config UTxO — written by the deployer at genesis
+// and by the authority itself on every rotation. Constructor indices follow
+// declaration order: Signature 0, AllOf 1, AnyOf 2, AtLeast 3, Before 4,
+// After 5, Script 6. An off-chain builder emitting the wrong index does not
+// get a decode failure; it gets a DIFFERENT authority (an `AnyOf` written as
+// `AllOf`, say), so these are pinned here.
+const authority_key: ByteArray =
+  #"a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+
+test layout_multisig_script_constructor_indices() {
+  let sig = multisig.Signature { key_hash: authority_key }
+  let cases = [
+    (as_data(sig), 0, 1),
+    (as_data(multisig.AllOf { scripts: [sig] }), 1, 1),
+    (as_data(multisig.AnyOf { scripts: [sig] }), 2, 1),
+    (as_data(multisig.AtLeast { required: 1, scripts: [sig] }), 3, 2),
+    (as_data(multisig.Before { time: 7 }), 4, 1),
+    (as_data(multisig.After { time: 7 }), 5, 1),
+    (as_data(multisig.Script { script_hash: authority_key }), 6, 1),
+  ]
+  list.all(
+    cases,
+    fn(case) {
+      let (raw, expected_tag, expected_arity) = case
+      let (tag, fields) = constr(raw)
+      and {
+        tag == expected_tag,
+        list.length(fields) == expected_arity,
+      }
+    },
+  )
+}
+
+// Decode direction, for the constructor with two fields: `required` comes
+// before `scripts`.
+test layout_multisig_at_least_decodes_from_raw_constructor() {
+  let sig = multisig.Signature { key_hash: authority_key }
+  expect t: multisig.MultisigScript = builtin.constr_data(
+    3,
+    [as_data(2), as_data([sig])],
+  )
+  t == multisig.AtLeast { required: 2, scripts: [sig] }
 }
