@@ -237,6 +237,7 @@ fn params_ref_input(transfer_cred: Credential) -> Input {
             transfer_cred,
             third_party_cred: test_tp_cred,
             upgrade_cred: test_ml_cred,
+            pending_upgrade_cred: None,
           },
         ),
       ),

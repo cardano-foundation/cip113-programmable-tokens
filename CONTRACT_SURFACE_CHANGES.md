@@ -407,7 +407,7 @@ any UTxO value (min-UTxO guarantees an ada entry, and `""` sorts first) but NOT 
 which has no ada entry — `utils.mint_has_policy` therefore stays on `dict.has_key` and must not be
 "optimised" the same way.
 
-## PROVISIONAL — subject to change: `fix/params-pair-merge-and-init-rails`
+## MERGED: `fix/params-pair-merge-and-init-rails` (PR #118, squash `5fd6e9b`, 2026-09-07)
 
 Audit-call item M10 plus audit-3 findings 01 and 04, and M4 from the same call. The protocol-params
 pair becomes ONE multi-purpose validator, exactly as the registry pair did in #117.
@@ -438,6 +438,59 @@ each is the accepted price.
 cpu: the upgrade path pays **+208,212 (+0.3%)** for carrying the mint handler; genesis pays
 **+10,880,100 (+25.0%)** for the new rails — well under 1% of one transaction's budget, once per
 deployment.
+
+---
+
+## PROVISIONAL — subject to change: `feat/125-two-phase-authority-handover`
+
+GitHub issue **#125** (call item M9; corroborated by audit-3 finding 05's Alternative, *"consider
+requiring evidence that the incoming authority is usable"*). Stacked on #118.
+
+**What was rejected, and why it matters to record.** The issue as filed proposed a CO-SIGNATURE:
+when `upgrade_cred` changes, require the incoming credential's withdraw-0 in the SAME transaction.
+That was rejected by Giovanni on 2026-09-07. `required_observers`-style coordination does not exist
+here, so demanding a co-signature silently restricts the set of parties that may become the upgrade
+authority to those that can be scheduled into someone else's transaction — excluding a governance
+action, and any multisig or cold quorum that assembles approval over days. The datum field exists
+precisely to keep that choice open.
+
+**What shipped instead: a two-phase handover.** Phase 1, the sitting authority NOMINATES a successor
+in a new datum field. Phase 2, the nominee ACTIVATES itself by presenting its own withdraw-0. Between
+the two, the sitting authority may revoke. Same evidence as a co-signature — the incoming authority
+exists, runs, consents — with no coordination requirement.
+
+| Surface | Change | Breaking? |
+|---|---|---|
+| **`protocol_params` spend redeemer** | Was ignored `Data` (`_redeemer`); now a required **`ProtocolParamsRedeemer`** enum, field-less: `ProtocolUpgrade` = **0**, `NominateAuthority` = **1**, `PromoteAuthority` = **2`**. Exposed in the blueprint as `types/ProtocolParamsRedeemer` | **YES for upgrade tooling** — a builder that passed `Void` or any placeholder now fails. Worse than a decode failure if the index is merely wrong: index 0 refuses to move the authority, index 1 refuses everything but the nomination, so a wrong index selects a DIFFERENT rule set. Pinned by `layout_protocol_params_redeemer_constructors_are_field_less` |
+| **`ProgrammableLogicGlobalParams`** | 4 → **5 fields**: `pending_upgrade_cred: Option<Credential>` **APPENDED at index 4**. `None` at rest, `Some(c)` while a handover is in flight | **YES for datum builders** — every params datum must now carry field 4. Indices 0-3 are unchanged and unmoved |
+| Wire shape of field 4 | `None` = constructor **1**, no fields. `Some(c)` = constructor **0**, one field (the credential). Pinned by `layout_params_pending_option_wire_shape` | **YES** — new encoding for off-chain builders to emit |
+| **Old 4-field datums do not decode** | The spend handler deserialises the current datum as the 5-field type. A params UTxO written before this change cannot be spent by this validator | **YES, but moot** — the validator's bytes changed, so its hash and address moved anyway. Redeploy-class, like every other validator change (see the systemic note) |
+| **Authority change is no longer one transaction** | `upgrade_cred` can no longer be rewritten directly. Two transactions: nominate (sitting authority), then promote (nominee). Revocation is an ordinary upgrade clearing the field | **YES for upgrade tooling** — the previous one-step rewrite now FAILS. This is the behaviour change; see `params_spend_fails_direct_authority_rewrite` (was `params_spend_authority_handover_succeeds`, which passed) |
+| **Promotion is pure** | The promoting transaction may change NOTHING except `upgrade_cred` taking the nominated value and the nomination clearing. Enforced as one record equality, so a future 6th field is covered automatically | **YES** — a nominee wanting a parameter change needs a second transaction, under the sitting-authority route, after promotion |
+| **Nomination is pure too** | `NominateAuthority` may change ONLY `pending_upgrade_cred`; `ProtocolUpgrade` may not change it at all. So each of the three arms does exactly one job | **YES** — nominating *and* rewriting a parameter in one transaction was possible in an earlier draft of this branch and is not possible now. Two transactions on the protocol's rarest path; in exchange a handover always begins as its own visible transaction |
+| Genesis | The genesis datum must carry `pending_upgrade_cred: None` — the protocol is born at rest, never mid-handover | **YES for init builders** |
+| Nominee well-formedness | A nomination is held to the same 28-byte rail as a sitting credential, at nomination time | **NO** — strictly a new rejection of a shape that was already useless |
+
+**On adding redeemer constructors, given #124.** Audit-3 finding 02 / issue #124 is about the **PLB**
+redeemer carrying action variants, and that constraint is untouched here: PLB's hash is baked into
+every token address, so changing its action set would be a token-address migration, which is exactly
+why it must stay action-agnostic. `protocol_params` is the upgrade path itself — replacing it is a
+redeploy by definition — so no equivalent coupling exists to protect. The three arms are what make
+each rule set closed and mutually exclusive, and they are field-less for the same reason
+`ProgrammableLogicGlobalRedeemer`'s are: every value an arm needs is already in the continuing datum,
+and repeating one here would be a second unchecked claim about the same fact (cf. issue #123, which
+removed redundant fields).
+
+**Footprint.** `protocol_params` 1414 → **1921 B (+507)**; of that, +294 is the two-phase handover
+and +213 the three-arm redeemer. **No other validator changed by a single
+byte** — verified against `origin/main`'s `plutus.json`. That is the append-at-index-4 rule paying
+off: `programmable_logic_base` and `issuance_mint` read the datum through positional
+`head_list`/`tail_list` accessors, so a field added at the END costs them nothing. Both affected
+paths are cold (once per deployment; once per authority change).
+
+**Docs.** The narrative docs still describe a SIX-field datum and a `protocol_params_spend` validator
+— they are already behind #117 and #118, not just this change. Folded into the doc-sweep ticket
+(issue **#131** / T-092) rather than half-fixed here.
 
 ---
 

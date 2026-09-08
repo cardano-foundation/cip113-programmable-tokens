@@ -107,6 +107,43 @@ pub type ProgrammableLogicGlobalRedeemer {
   UnfrackingAct
 }
 
+/// Redeemer of the `protocol_params` SPEND handler — which of the three
+/// upgrade-path transaction shapes this is.
+///
+/// The arms carry NO payload, for the same reason
+/// `ProgrammableLogicGlobalRedeemer`'s do not: every value the branch needs is
+/// already in the continuing datum, which is validated regardless. A
+/// credential repeated here would be a second, unchecked claim about the same
+/// fact, and forcing the two to agree costs a comparison that buys nothing.
+///
+/// The arms exist to make each transaction DECLARE its intent, so that each
+/// branch is one closed rule set rather than a disjunction the reader has to
+/// solve. Note what that buys beyond legibility: because `ProtocolUpgrade`
+/// freezes the nomination and `NominateAuthority` freezes everything else, a
+/// nomination can never ride along inside a parameter change. Anyone watching
+/// the chain sees an authority handover begin as its own transaction.
+///
+/// This does NOT reopen audit-3 finding 02 (issue #124), which is about the
+/// PLB redeemer carrying action variants: PLB must stay action-agnostic
+/// because its hash is baked into every token address, so an action set
+/// change there would be a token-address migration. `protocol_params` is the
+/// upgrade path itself — replacing it is a redeploy by definition — so there
+/// is no such coupling to protect here.
+pub type ProtocolParamsRedeemer {
+  /// Rewrite mutable protocol wiring. May change `plg_cred`, `transfer_cred`
+  /// and `third_party_cred`; may NOT touch `upgrade_cred` or the nomination.
+  /// Authorised by the sitting `upgrade_cred`'s withdraw-0.
+  ProtocolUpgrade
+  /// Phase 1 of a handover: set (or clear) `pending_upgrade_cred` and nothing
+  /// else. `Some(c)` nominates or re-nominates, `None` revokes. Authorised by
+  /// the sitting `upgrade_cred`'s withdraw-0.
+  NominateAuthority
+  /// Phase 2 of a handover: the standing nominee becomes `upgrade_cred` and
+  /// the nomination clears; nothing else moves. Authorised by the NOMINEE's
+  /// own withdraw-0 — the evidence that it exists, runs and consents.
+  PromoteAuthority
+}
+
 /// Redeemer for the issuance minting policy.
 ///
 /// The redeemer is the registry proof itself — a `RefInput` index for a

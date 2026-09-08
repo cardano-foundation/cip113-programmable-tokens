@@ -59,6 +59,7 @@ fn valid_params_datum() -> Data {
       upgrade_cred: Script(
         #"000000000000000000000000000000000000000000000000009c6ade",
       ),
+      pending_upgrade_cred: None,
     },
   )
 }
@@ -313,6 +314,7 @@ fn short_upgrade_cred_datum() -> Data {
       upgrade_cred: Script(
         #"0000000000000000000000000000000000000000000000000000009c6a",
       ),
+      pending_upgrade_cred: None,
     },
   )
 }
@@ -348,6 +350,7 @@ test genesis_fails_wrong_length_plg_cred() fail {
       upgrade_cred: Script(
         #"000000000000000000000000000000000000000000000000009c6ade",
       ),
+      pending_upgrade_cred: None,
     },
   )
   let tx = Transaction {
@@ -408,4 +411,46 @@ test genesis_allows_extra_ada() {
     ],
   }
   call_validator(test_utxo_ref, tx)
+}
+
+// Issue #125: genesis must produce a protocol AT REST — no handover already in
+// flight. A nomination baked into the genesis datum would hand a nominee the
+// power to take the upgrade authority before the deployer had ever exercised
+// it, and nothing legitimate needs it: the sitting authority can nominate in
+// its own transaction, one block later, where the act is visible and
+// revocable.
+test genesis_fails_pending_nomination() fail {
+  let nominated_at_birth = as_data(
+    ProgrammableLogicGlobalParams {
+      plg_cred: Script(
+        #"0000000000000000000000000000000000000000000000000001091c",
+      ),
+      transfer_cred: Script(
+        #"0000000000000000000000000000000000000000000000000001091c",
+      ),
+      third_party_cred: Script(
+        #"00000000000000000000000000000000000000000000000000731d3a",
+      ),
+      upgrade_cred: Script(
+        #"000000000000000000000000000000000000000000000000009c6ade",
+      ),
+      pending_upgrade_cred: Some(
+        Script(#"00000000000000000000000000000000000000000000000000abcdef"),
+      ),
+    },
+  )
+  let tx = Transaction {
+    ..valid_transaction(),
+    outputs: [
+      Output { ..valid_nft_output(), datum: InlineDatum(nominated_at_birth) },
+    ],
+  }
+  call_validator(test_utxo_ref, tx)
+}
+
+// The positive twin: a nomination that is simply absent is the normal genesis
+// shape, and it is what `valid_params_datum` already carries. Stated as its
+// own test so the rail above cannot be "fixed" by banning the field outright.
+test genesis_allows_no_pending_nomination() {
+  call_validator(test_utxo_ref, valid_transaction())
 }

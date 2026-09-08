@@ -90,6 +90,7 @@ fn decoy_params_input() -> Input {
             transfer_cred: eve_cred,
             third_party_cred: eve_cred,
             upgrade_cred: eve_cred,
+            pending_upgrade_cred: None,
           },
         ),
       ),

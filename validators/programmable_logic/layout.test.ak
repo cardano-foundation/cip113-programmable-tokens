@@ -14,21 +14,23 @@
 //// `ProgrammableLogicGlobalParams` — the type declaration and its accessors
 //// moved together — is invisible to 483 of the suite's 485 tests, because every
 //// on-chain reader goes through the accessors and so agrees with itself. Only
-//// `layout_params_datum_four_fields_in_order` and
+//// `layout_params_datum_five_fields_in_order` and
 //// `layout_params_datum_decodes_from_raw_constructor` assert against raw
 //// positions, and they are what stands between a silent reorder and every
 //// off-chain builder in the ecosystem.
 
 use aiken/builtin
 use aiken/collection/list
+use cardano/address.{Credential}
 use programmable_logic/fixture
 use programmable_logic/params.{
   ProgrammableLogicGlobalParams, plg_cred_field, third_party_cred_field,
   transfer_cred_field,
 }
 use types.{
-  BaseSpendRedeemer, MintingRegistryProof, OutputIndex,
-  ProgrammableLogicGlobalRedeemer, RefInput, ThirdPartyAct, ThirdPartyRedeemer,
+  BaseSpendRedeemer, MintingRegistryProof, NominateAuthority, OutputIndex,
+  ProgrammableLogicGlobalRedeemer, PromoteAuthority, ProtocolParamsRedeemer,
+  ProtocolUpgrade, RefInput, ThirdPartyAct, ThirdPartyRedeemer,
   TokenDoesNotExist, TokenExists, TransferAct, TransferRedeemer, UnfrackingAct,
   UnfrackingRedeemer,
 }
@@ -83,15 +85,51 @@ fn int_fields(ints: List<Int>) -> List<Data> {
 // safe — every reader in this repo moved in the same change set — so the whole
 // hazard is off-chain, and it is why `layout_params_retired_six_field_shape_
 // does_not_decode` below pins the decode direction too.
-test layout_params_datum_four_fields_in_order() {
+//
+// Issue #125 added `pending_upgrade_cred`, and it is the CONTRASTING case
+// worth keeping beside that table: appending a field produces NO silent
+// misread in either direction. A stale four-field reader looking at a
+// five-field datum still finds every field it knows at the index it expects
+// and simply never looks at 4; a five-field reader handed a four-field datum
+// aborts on arity, loudly. That asymmetry is the entire argument for the
+// append-only rule stated on the type, and it is why this change needed one
+// new golden rather than a re-audit of every position.
+/// The at-rest nomination, bound with a type so it can be encoded as `Data`
+/// (Aiken takes no inline annotation in expression position).
+const no_pending: Option<Credential> = None
+
+test layout_params_datum_five_fields_in_order() {
   let (tag, fields) = constr(as_data(fixture.protocol_params))
   and {
     tag == 0,
-    list.length(fields) == 4,
+    list.length(fields) == 5,
     field(fields, 0) == as_data(fixture.credential_validator_plg),
     field(fields, 1) == as_data(fixture.credential_validator_transfer),
     field(fields, 2) == as_data(fixture.credential_validator_third_party),
     field(fields, 3) == as_data(fixture.credential_upgrade_authority),
+    // Field 4 at rest. `pending_upgrade_cred` was APPENDED, which is why
+    // positions 0-3 above are byte-identical to the four-field shape and no
+    // accessor moved.
+    field(fields, 4) == as_data(no_pending),
+  }
+}
+
+// The `Option` wire shape itself, pinned in both states, because this is the
+// first optional field in the datum and an off-chain builder has to emit it.
+// `None` is constructor 1 with no fields; `Some(c)` is constructor 0 wrapping
+// the credential. Getting these backwards produces a datum that still decodes
+// as SOMETHING, so nothing else in the suite would catch it.
+test layout_params_pending_option_wire_shape() {
+  let at_rest = as_data(no_pending)
+  let in_flight = as_data(Some(fixture.credential_upgrade_authority))
+  let (rest_tag, rest_fields) = constr(at_rest)
+  let (flight_tag, flight_fields) = constr(in_flight)
+  and {
+    rest_tag == 1,
+    list.length(rest_fields) == 0,
+    flight_tag == 0,
+    list.length(flight_fields) == 1,
+    field(flight_fields, 0) == as_data(fixture.credential_upgrade_authority),
   }
 }
 
@@ -108,7 +146,7 @@ test layout_params_accessors_match_raw_positions() {
   }
 }
 
-// Decode direction: a hand-built constructor 0 with the four fields in that
+// Decode direction: a hand-built constructor 0 with the five fields in that
 // order is accepted as the params type with every field where expected
 // (what the `protocol_params` mint handler does).
 test layout_params_datum_decodes_from_raw_constructor() {
@@ -119,10 +157,36 @@ test layout_params_datum_decodes_from_raw_constructor() {
       as_data(fixture.credential_validator_transfer),
       as_data(fixture.credential_validator_third_party),
       as_data(fixture.credential_upgrade_authority),
+      as_data(no_pending),
     ],
   )
   expect p: ProgrammableLogicGlobalParams = raw
   p == fixture.protocol_params
+}
+
+// Issue #125: the FOUR-field shape — the one every params UTxO deployed before
+// this change carries — must not decode as the new type. Same rail as the
+// six-field test below, one generation on.
+//
+// This is what makes `pending_upgrade_cred` a REDEPLOY, not an in-place
+// upgrade: an existing four-field UTxO cannot be spent into the five-field
+// shape, because the spend handler deserialises the old datum as the new type
+// and aborts. That costs nothing in practice — the validator's bytes changed,
+// so its hash and address moved anyway, and the standing rule is that every
+// validator-byte change is a full-protocol redeploy — but it must be stated
+// rather than discovered.
+test layout_params_retired_four_field_shape_does_not_decode() fail {
+  let raw = builtin.constr_data(
+    0,
+    [
+      as_data(fixture.credential_validator_plg),
+      as_data(fixture.credential_validator_transfer),
+      as_data(fixture.credential_validator_third_party),
+      as_data(fixture.credential_upgrade_authority),
+    ],
+  )
+  expect _p: ProgrammableLogicGlobalParams = raw
+  True
 }
 
 // The other decode direction: a hand-built SIX-field constructor — the retired
@@ -308,5 +372,42 @@ test layout_minting_registry_proof_constructors() {
     o_tag == 1,
     o_fields == int_fields([4]),
     decoded == OutputIndex(4),
+  }
+}
+
+// ------------------------------------------------- protocol-params redeemer
+
+// `ProtocolParamsRedeemer`: three FIELD-LESS constructors — ProtocolUpgrade =
+// 0, NominateAuthority = 1, PromoteAuthority = 2. Every value each arm needs
+// is already in the continuing datum, so nothing travels here (issue #125).
+//
+// The spend handler's redeemer was previously ignored `Data`, so an off-chain
+// builder could pass anything — `Void`, a unit constructor, whatever the SDK
+// happened to emit. It is now a required, meaningful choice, and getting the
+// index wrong selects a DIFFERENT rule set rather than failing to decode:
+// index 0 refuses to move the authority, index 1 refuses everything but the
+// nomination. That is why these indices are pinned here.
+test layout_protocol_params_redeemer_constructors_are_field_less() {
+  let (u_tag, u_fields) = constr(as_data(ProtocolUpgrade))
+  let (n_tag, n_fields) = constr(as_data(NominateAuthority))
+  let (p_tag, p_fields) = constr(as_data(PromoteAuthority))
+  and {
+    u_tag == 0,
+    u_fields == [],
+    n_tag == 1,
+    n_fields == [],
+    p_tag == 2,
+    p_fields == [],
+  }
+}
+
+test layout_protocol_params_redeemer_decodes_from_raw_constructors() {
+  expect u: ProtocolParamsRedeemer = builtin.constr_data(0, [])
+  expect n: ProtocolParamsRedeemer = builtin.constr_data(1, [])
+  expect p: ProtocolParamsRedeemer = builtin.constr_data(2, [])
+  and {
+    u == ProtocolUpgrade,
+    n == NominateAuthority,
+    p == PromoteAuthority,
   }
 }
