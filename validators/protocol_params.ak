@@ -79,7 +79,7 @@
 
 use aiken/collection/list
 use aiken/collection/pairs
-use assets.{has_policy_nft_strictly} as my_assets
+use assets.{expect_only_nft_of_policy} as my_assets
 use cardano/address.{Credential}
 use cardano/assets.{PolicyId}
 use cardano/transaction.{InlineDatum, Output, OutputReference, Transaction}
@@ -241,7 +241,8 @@ validator protocol_params(utxo_ref: OutputReference) {
     )
 
     // Exactly one token, named `ProtocolParams`, under this policy.
-    expect has_policy_nft_strictly(self.mint, own_policy, protocol_params_token)
+    expect
+      expect_only_nft_of_policy(self.mint, own_policy, protocol_params_token)
 
     // `has_nft_strict` is strict about the WHOLE value, not just the policy:
     // it matches only a value whose non-ADA half is exactly this one NFT. So

@@ -52,7 +52,7 @@
 ////     cannot configure itself into a tree it can no longer afford to run.
 
 use aiken/collection/list
-use assets.{has_policy_nft_strictly} as my_assets
+use assets.{expect_only_nft_of_policy} as my_assets
 use cardano/address.{Credential, Script}
 use cardano/assets.{PolicyId}
 use cardano/certificate.{Certificate, RegisterCredential}
@@ -83,7 +83,7 @@ validator upgrade_multisig(utxo_ref: OutputReference) {
 
     // Exactly one token minted, with the config name, under this policy.
     expect
-      has_policy_nft_strictly(self.mint, own_policy, upgrade_multisig_token)
+      expect_only_nft_of_policy(self.mint, own_policy, upgrade_multisig_token)
 
     // `has_nft_strict` is strict about the whole value: an output bundling any
     // other asset with the config NFT is simply not found.

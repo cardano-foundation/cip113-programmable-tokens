@@ -184,17 +184,18 @@ fn do_insert(self: Assets, k1: PolicyId, v1: Tokens) -> Assets {
 /// NFT with this name and nothing else" — no second token, no quantity above 1,
 /// and no burn (a −1 fails the `Pair(_, 1)` match just as a 2 does).
 ///
-/// Mostly a trap, not a predicate, despite the `has_` prefix: an absent policy,
-/// a second token or a wrong quantity all ABORT; only a wrong name returns
-/// `False`. Every caller wraps it in `expect`, so in practice all four fail
-/// the transaction.
+/// A trap, not a predicate — hence `expect_`: an absent policy, a second token
+/// or a wrong quantity all ABORT; only a wrong name returns `False`, and every
+/// caller wraps the call in `expect`, so in practice all four fail the
+/// transaction. `only` is the arity-one / quantity-one part; `of_policy` says
+/// the scope is one policy's slice, not the value.
 ///
 /// Not to be confused with stdlib `assets.has_nft_strict`, which is strict over
 /// the WHOLE value — its non-ADA half must be exactly that one NFT. That is the
 /// right tool for "is this output the NFT output"; this one is the right tool
 /// for "does this policy mint exactly this NFT". `protocol_params.mint` uses
 /// both, three lines apart, for those two different questions.
-pub fn has_policy_nft_strictly(
+pub fn expect_only_nft_of_policy(
   value: Value,
   policy_id: PolicyId,
   asset_name: AssetName,
