@@ -296,13 +296,12 @@ validator protocol_params(utxo_ref: OutputReference) {
     )
     let own_address = own_input.output.address
 
-    // Exactly one input at this address: never spend two protocol-params address
-    // UTxOs in one tx (removes any multi-input ambiguity / double-satisfaction).
-    expect [_] = list.filter(
-      self.inputs,
-      fn(i) { i.output.address == own_address },
-    )
-
+    // No "exactly one input at this address" rail, on purpose. Double
+    // satisfaction is already dead: the continuing output is singular (below),
+    // its non-ADA value must equal THIS input's exactly, and only one UTxO can
+    // ever carry the one-shot params NFT — so a second input at the address
+    // has different non-ADA content, and its own run of this validator fails
+    // the transaction. Proven by `params_spend_fails_junk_run_alongside_genuine`.
     // Exactly one continuing output, at this address: the protocol-params UTxO
     // continues, singular.
     expect [cont] = list.filter(
@@ -316,8 +315,7 @@ validator protocol_params(utxo_ref: OutputReference) {
     // Value: non-ADA assets must match EXACTLY — preserving the NFT, forbidding
     // junk-token injection and splitting the NFT away. Lovelace is deliberately
     // unconstrained relative to the input; see the v1 policy note above.
-    expect
-      assets.expect_match(cont.value, own_input.output.value, fn(_, _) { True })?
+    expect assets.expect_match_assets(cont.value, own_input.output.value)?
 
     // Continuing datum must be inline, well-formed, and carry only well-formed
     // credentials — the rail that stops an upgrade from bricking PLB / delegate

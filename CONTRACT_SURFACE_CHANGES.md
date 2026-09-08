@@ -494,6 +494,60 @@ paths are cold (once per deployment; once per authority change).
 
 ---
 
+## PROVISIONAL — subject to change: `feat/upgrade-multisig-sundae-tree`
+
+GitHub issues **#126** and **#127** (MINR-054, MINR-057, audit-3 finding 05 *Preferred*, call items M7 /
+J2). Stacked on `feat/125-two-phase-authority-handover` (#132).
+
+**What changed.** The reference upgrade authority is no longer a flat M-of-N over compile-time
+parameters. It is a native-script-shaped tree (`MultisigScript`, copied from SundaeSwap's `aicone`
+with attribution, Apache-2.0) held in a config UTxO that the authority itself owns and can rotate.
+
+| Surface | Change | Breaking? |
+|---|---|---|
+| **`upgrade_multisig` parameters** | `(signers: List<VerificationKeyHash>, threshold: Int)` → **`(utxo_ref: OutputReference)`** | **YES** — parameter application arity and types |
+| **`upgrade_multisig` handlers** | `withdraw` only → **`mint` + `spend` + `withdraw` + `publish`** (plus `else`). Blueprint titles `upgrade_multisig.upgrade_multisig.{mint,spend,withdraw,publish,else}` | **YES for blueprint lookups**; `withdraw` title unchanged |
+| **New one-shot NFT** | policy = the validator's hash, name **`UpgradeMultisig`**, locked at `address.from_script(hash)` (NO stake credential) with the tree as inline datum | **YES for deployment** — one more genesis transaction (mint config) before the params genesis can name `upgrade_cred` |
+| **New datum type `MultisigScript`** | 7 constructors, declaration order: `Signature` 0 `{key_hash}`, `AllOf` 1, `AnyOf` 2, `AtLeast` 3 `{required, scripts}`, `Before` 4, `After` 5, `Script` 6. Pinned by `layout_multisig_script_constructor_indices` | **YES** — new type for SDK to emit; a wrong index selects a DIFFERENT authority shape, not a decode error |
+| **Well-formedness at write time** | Enforced on `mint` and `spend`: 28-byte hashes; every list node non-empty and duplicate-free; `1 ≤ required ≤ length`; whole tree ≤ **`max_size = 20`** nodes | **YES** — a config a builder could previously bake into parameters unchecked is now refused on-chain |
+| **Rotation is a config spend** | Authorised by satisfying the OLD tree; NFT continues at the address; new tree well-formed; lovelace unconstrained. `upgrade_cred` in the params datum does NOT move for a rotation | **NO for params** — strictly removes a handover from the rotation path |
+| **Withdraw reads the config by reference input** | The trampoline target finds the config NFT among `reference_inputs` by its own hash | **YES for upgrade tx shape** — every protocol upgrade must now `readFrom` the config UTxO |
+| **Registration** | New `publish` handler accepts `RegisterCredential` only | **YES for deployment** — registration was previously only possible via the legacy no-witness cert, which the era after Conway withdraws (MINR-057) |
+| Redeemers | All three `Data`, ignored | none |
+
+**Limit, deliberate:** the config UTxO cannot be spent and referenced in the same transaction, so a
+rotation and a protocol upgrade are two transactions.
+
+**Two review-round changes on the same branch, both also applied to `protocol_params.spend`:**
+
+| Surface | Change | Breaking? |
+|---|---|---|
+| Value rail helper | `assets.expect_match(a, b, fn(_, _) { True })` → **`assets.expect_match_assets(a, b)`** — identical semantics (non-ADA exact, lovelace ignored), −2.27 M cpu / −6.5 K mem per spend, **+55–57 B** of script | **NO** |
+| **"Exactly one input at this address" rail REMOVED** from both spend handlers | Redundant: the continuing output is singular, its non-ADA value must equal the spent input's exactly, and only one UTxO can carry the one-shot NFT — so a second input at the address fails its own run on the value rail. Proven by `params_spend_fails_junk_run_alongside_genuine` / `update_fails_junk_run_alongside_genuine`, which die when the value rail is neutered and survive the rail's removal. −49 B / −37 B | **NO for the genuine UTxO** — nothing new becomes possible for it. The only newly valid transactions spend two of a parker's own NFT-less junk UTxOs at the address together, which achieves nothing |
+
+`protocol_params` net on this branch: 1,921 → **1,929 B**.
+
+**Footprint.** `upgrade_multisig` 208 → **2,773 B**. Reference-script fee once per upgrade (withdraw)
+and once per rotation (spend). Evaluation is bounded by the cap; measured worst case (flat `AtLeast`
+over cap−1 leaves, every member signing; mainnet 14 M mem / 10 B cpu):
+
+| cap | withdraw (per upgrade) | update (per rotation) |
+|---|---|---|
+| 16 | 0.90 M / 262 M | 1.91 M / 682 M (14% mem) |
+| **20** | **1.23 M / 358 M** | **2.65 M / 970 M (19% mem)** |
+| 24 | 1.61 M / 468 M | 3.51 M / 1.31 B (25%) |
+| 32 | 2.52 M / 733 M | 5.61 M / 2.16 B (40%) |
+
+The cap is in the validator's bytes: changing it is a new authority (handover), not a config update.
+Decide before deployment.
+
+**Tests.** 573 total (36 property). `lib/multisig.ak`: Sundae's `satisfying` verbatim + 16 unit + 8
+property (no-evidence-never-satisfies, all-keys-satisfy, monotonicity, `AtLeast` = counting,
+duplicate rejected, threshold bounds, oversize rejected, generator well-formed). Validator: 42 unit.
+Every rail mutation-verified against the full suite: 7 library rails, 16 validator rails, all kill.
+
+---
+
 ## Consolidated surface: baseline → `feat/upgradability-in-place` + PR #110
 
 "now" = the head of PR #110 (`feat/plg-third-party-split`), i.e. `main`
