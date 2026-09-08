@@ -43,10 +43,11 @@
 ////   * `protocol_params_from_reference_inputs` (was transfer.test.ak:213-225)
 ////     — same: one assertion, on `registry_node_cs`.
 ////
-//// What still guards this validator's mutable surface is the four
-//// `is_28_byte_credential` rails below, the value-conservation ratchet, the
-//// singleton in/out structure, the no-reference-script rail and the
-//// `upgrade_cred` trampoline read from the OLD datum.
+//// What still guards this validator's mutable surface is the five
+//// `is_28_byte_credential` rails below (one per credential, nominee included),
+//// exact non-ADA conservation (lovelace is free since #118), the singleton
+//// in/out structure, the no-reference-script rail and the three-arm
+//// authorisation read from the OLD datum (#125).
 
 use cardano/address.{Address, Credential, Inline, Script, VerificationKey}
 use cardano/assets.{Value, ada_asset_name, ada_policy_id}
@@ -567,8 +568,18 @@ fn upgrade_tx_with(params: ProgrammableLogicGlobalParams) -> Transaction {
   }
 }
 
-// Reject: the upgrade authority itself is set to an unsatisfiable credential.
-// This is the unrecoverable case — no later upgrade could repair it.
+// Reject: the upgrade authority itself is set to an unsatisfiable credential
+// — the unrecoverable case, since no later upgrade could repair it.
+//
+// Since #125 this fails on the DIRECT-REWRITE ban, not on the length rail:
+// `ProtocolUpgrade` refuses to move `upgrade_cred` at all, whatever the value.
+// The length rail on `upgrade_cred` is reachable only at genesis
+// (`genesis_fails_wrong_length_upgrade_cred`), because the one path that can
+// change it — promotion — requires the nominee's withdrawal, and the ledger
+// admits only a real 28-byte credential there. Mutation-verified 2026-09-08:
+// neutering that rail kills the genesis test alone. Kept because the shape —
+// writing an authority nobody can satisfy — is the threat this file exists to
+// document, and this is where a reader looks for it.
 test params_spend_fails_unsatisfiable_upgrade_authority() fail {
   call(
     upgrade_tx_with(
