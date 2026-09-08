@@ -14,7 +14,7 @@
 //// `ProgrammableLogicGlobalParams` — the type declaration and its accessors
 //// moved together — is invisible to 483 of the suite's 485 tests, because every
 //// on-chain reader goes through the accessors and so agrees with itself. Only
-//// `layout_params_datum_five_fields_in_order` and
+//// `layout_params_datum_six_fields_in_order` and
 //// `layout_params_datum_decodes_from_raw_constructor` assert against raw
 //// positions, and they are what stands between a silent reorder and every
 //// off-chain builder in the ecosystem.
@@ -25,8 +25,8 @@ use cardano/address.{Credential}
 use multisig
 use programmable_logic/fixture
 use programmable_logic/params.{
-  ProgrammableLogicGlobalParams, plg_cred_field, third_party_cred_field,
-  transfer_cred_field,
+  ProgrammableLogicGlobalParams, issuance_logic_cred_field, plg_cred_field,
+  third_party_cred_field, transfer_cred_field,
 }
 use types.{
   BaseSpendRedeemer, MintingRegistryProof, NominateAuthority, OutputIndex,
@@ -99,19 +99,21 @@ fn int_fields(ints: List<Int>) -> List<Data> {
 /// (Aiken takes no inline annotation in expression position).
 const no_pending: Option<Credential> = None
 
-test layout_params_datum_five_fields_in_order() {
+test layout_params_datum_six_fields_in_order() {
   let (tag, fields) = constr(as_data(fixture.protocol_params))
   and {
     tag == 0,
-    list.length(fields) == 5,
+    list.length(fields) == 6,
     field(fields, 0) == as_data(fixture.credential_validator_plg),
-    field(fields, 1) == as_data(fixture.credential_validator_transfer),
-    field(fields, 2) == as_data(fixture.credential_validator_third_party),
-    field(fields, 3) == as_data(fixture.credential_upgrade_authority),
-    // Field 4 at rest. `pending_upgrade_cred` was APPENDED, which is why
-    // positions 0-3 above are byte-identical to the four-field shape and no
-    // accessor moved.
-    field(fields, 4) == as_data(no_pending),
+    // Field 1 (#129): read once per issuance transaction, so second-hottest.
+    // Placed here PRE-GENESIS, when no datum exists to be misread — the one
+    // window in which reordering is free. After genesis: append only.
+    field(fields, 1) == as_data(fixture.credential_validator_issuance_logic),
+    field(fields, 2) == as_data(fixture.credential_validator_transfer),
+    field(fields, 3) == as_data(fixture.credential_validator_third_party),
+    field(fields, 4) == as_data(fixture.credential_upgrade_authority),
+    // Field 5 at rest.
+    field(fields, 5) == as_data(no_pending),
   }
 }
 
@@ -144,6 +146,7 @@ test layout_params_accessors_match_raw_positions() {
     plg_cred_field(fields) == fixture.credential_validator_plg,
     transfer_cred_field(fields) == fixture.credential_validator_transfer,
     third_party_cred_field(fields) == fixture.credential_validator_third_party,
+    issuance_logic_cred_field(fields) == fixture.credential_validator_issuance_logic,
   }
 }
 
@@ -155,6 +158,7 @@ test layout_params_datum_decodes_from_raw_constructor() {
     0,
     [
       as_data(fixture.credential_validator_plg),
+      as_data(fixture.credential_validator_issuance_logic),
       as_data(fixture.credential_validator_transfer),
       as_data(fixture.credential_validator_third_party),
       as_data(fixture.credential_upgrade_authority),
@@ -163,6 +167,23 @@ test layout_params_datum_decodes_from_raw_constructor() {
   )
   expect p: ProgrammableLogicGlobalParams = raw
   p == fixture.protocol_params
+}
+
+// Issue #129: the FIVE-field shape (#125's) does not decode as the six-field
+// type either. Same rail, one generation on again.
+test layout_params_retired_five_field_shape_does_not_decode() fail {
+  let raw = builtin.constr_data(
+    0,
+    [
+      as_data(fixture.credential_validator_plg),
+      as_data(fixture.credential_validator_transfer),
+      as_data(fixture.credential_validator_third_party),
+      as_data(fixture.credential_upgrade_authority),
+      as_data(no_pending),
+    ],
+  )
+  expect _p: ProgrammableLogicGlobalParams = raw
+  True
 }
 
 // Issue #125: the FOUR-field shape — the one every params UTxO deployed before

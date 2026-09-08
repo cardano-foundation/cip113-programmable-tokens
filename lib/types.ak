@@ -2,6 +2,7 @@
 // Migrated from SmartTokens.Types.PTokenDirectory and SmartTokens.Types.ProtocolParams
 
 use cardano/address.{Credential}
+use cardano/assets.{PolicyId}
 
 /// Token name for the issuance CBOR hex reference NFT
 pub const issuance_cbor_hex_token_name = "IssuanceCborHex"
@@ -162,6 +163,26 @@ pub type MintingRegistryProof {
   RefInput { index: Int }
   OutputIndex { index: Int }
 }
+
+/// Redeemer of the PERMANENT issuance policy (`issuance_mint`, issue #129):
+/// nothing but an index hint locating the protocol-params UTxO among the
+/// reference inputs. Everything that could ever change — registry proofs,
+/// custody, delegate redeemer shapes — travels in `IssuanceLogicRedeemer`
+/// instead, so this type can stay frozen for as long as any token exists.
+pub type IssuanceRedeemer {
+  params_idx: Int,
+}
+
+/// Redeemer of the REPLACEABLE `issuance_logic` withdraw-0: one registry
+/// proof per policy issued (minted or burned) in this transaction, keyed by
+/// policy id.
+///
+/// The keys are the one frozen interface between the two scripts. The
+/// permanent policy decodes this value only as far as `Pairs<PolicyId, Data>`
+/// and asks whether its own policy is a key; it never looks at a value. So
+/// the proof shape may change with the protocol, and the map shape may not.
+pub type IssuanceLogicRedeemer =
+  Pairs<PolicyId, MintingRegistryProof>
 
 /// Redeemer for registry minting policy (linked list operations)
 pub type RegistryRedeemer {

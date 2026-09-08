@@ -27,7 +27,8 @@ use cardano/transaction.{
   InlineDatum, Input, Mint, NoDatum, Output, OutputReference, Transaction,
   Withdraw,
 }
-use issuance_mint
+use issuance_logic
+use programmable_logic/fixture
 use programmable_logic/params.{ProgrammableLogicGlobalParams}
 use registry_node.{RegistryNode, empty_vkey}
 use types.{MintingRegistryProof, RefInput, TokenExists, TransferRedeemer}
@@ -118,6 +119,7 @@ fn params_ref_input(transfer_cred: Credential) -> Input {
           third_party_cred: test_ml_cred,
           upgrade_cred: test_ml_cred,
           pending_upgrade_cred: None,
+          issuance_logic_cred: Script(test_issuance_logic_hash),
         },
       ),
       reference_script: None,
@@ -160,14 +162,19 @@ fn plb_output_with_policy(qty: Int) -> Output {
   }
 }
 
+const test_issuance_logic_hash: ByteArray =
+  #"15501550155015501550155015501550155015501550155015501550"
+
+/// Since #129 the cost under measurement lives in `issuance_logic`'s
+/// withdraw-0; the permanent policy is a fixed-cost lookup.
 fn invoke_issuance(self: Transaction, redeemer: MintingRegistryProof) -> Bool {
-  issuance_mint.issuance_mint.mint(
+  issuance_logic.issuance_logic.withdraw(
     test_plb_cred,
     test_registry_cs,
-    test_ml_cred,
     test_params_policy,
-    redeemer,
-    test_own_policy,
+    fixture.max_inline_datum_bytes,
+    [Pair(test_own_policy, redeemer)],
+    Script(test_issuance_logic_hash),
     self,
   )
 }

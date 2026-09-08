@@ -110,6 +110,7 @@ fn params_wellformed(
 ) -> Bool {
   and {
     is_28_byte_credential(params.plg_cred)?,
+    is_28_byte_credential(params.issuance_logic_cred)?,
     is_28_byte_credential(params.transfer_cred)?,
     is_28_byte_credential(params.third_party_cred)?,
     is_28_byte_credential(params.upgrade_cred)?,

@@ -256,40 +256,38 @@ pub fn is_seizable_output_shape(output: Output) -> Bool {
 }
 
 /// `is_seizable_output_shape` PLUS the inline-datum size bound (issue #106,
-/// vector 3): the serialised datum must fit in `max_inline_datum_bytes`, the
-/// live `ProgrammableLogicGlobalParams` field.
+/// vector 3): the serialised datum must fit in `max_inline_datum_bytes`, a
+/// compile-time parameter of every script that creates PLB outputs.
 ///
-/// Used at the HOLDER-driven creation sites — the transfer gate, and the fresh
-/// destination outputs of a third-party or unfracking action. Deliberately NOT
-/// used by `issuance_mint`:
+/// Used at EVERY PLB-output creation site: the transfer gate, the fresh
+/// destination outputs of a third-party or unfracking action, and — since
+/// #129 split issuance — `issuance_logic`, for PLB outputs that carry the
+/// policy being minted.
 ///
-///   * Minting is gated by the substandard's minting-logic withdraw-0, so the
-///     party choosing a mint output's datum is the issuing side, not the
-///     holder. An issuer that bloats a datum has only made its own asset
-///     awkward to seize — outside the threat model, which is a HOLDER making
-///     their own holdings unseizable.
-///   * Bloat cannot propagate: any onward holder-driven spend goes through
-///     `transfer`, whose outputs ARE bounded here, so a bloated UTxO can never
-///     produce another one.
-///   * CIP-68 reference tokens are legitimately minted to PLB addresses with
-///     rich metadata datums; bounding the mint path would break them.
-///   * It keeps the protocol-params UTxO OPTIONAL on the mint path, preserving
-///     the "a first mint with zero reference inputs validates" property.
+/// Issuance was exempt until then, and the record of why matters because two
+/// of the reasons have expired and one has not:
 ///
-/// Where the mint-side rule belongs: the SUBSTANDARD's minting-logic
-/// withdraw-0, not `issuance_mint`. That script already gates every mint of
-/// its policy, it knows what its own outputs are supposed to look like, and it
-/// is the only mint-path code that can tell an issuer-driven mint from a
-/// user-driven one. The default it should enforce is NO datum at all: nothing
-/// in the core reads a mint datum, and carrying one only makes that UTxO more
-/// expensive to seize later. Where a datum IS needed — CIP-68 reference-token
-/// metadata being the standing example — the substandard should keep it small
-/// and prefer a URI over embedded bytes.
+///   * (expired) threading the bound into the old single `issuance_mint`
+///     would have forced a params read on the `OutputIndex` path, which was
+///     built to need no reference input. The permanent policy now reads the
+///     params UTxO on every path anyway, and `issuance_logic` is a replaceable
+///     script that can take the bound as a parameter like the other three.
+///   * (expired) "an issuer that bloats a datum has only made its own asset
+///     awkward to seize" — but an unseizable UTxO is exactly what vector 3
+///     exists to prevent, whoever created it, and CIP-68 reference tokens
+///     minted with data-URI logos were the standing example of a kilobyte
+///     datum born at mint.
+///   * (still true) the SUBSTANDARD's minting logic remains the right place
+///     for anything finer than a byte bound — it knows what its outputs
+///     should look like. The core bound is the floor under it, not a
+///     replacement for it.
 ///
-/// The consequence is a real narrowing: "every PLB UTxO is within the size
-/// bound" is NOT a core guarantee — only "every PLB UTxO a holder created is".
-/// A substandard whose minting is permissionless or user-triggered must bound
-/// the datum in its own minting logic.
+/// The bound is now a core guarantee for every PLB UTxO, with one deployment
+/// invariant no script can check: each of the four scripts bounds only the
+/// outputs IT creates, so all four must be deployed with the same value (or,
+/// minimally, every creator's bound ≤ every carrier's). A UTxO born under a
+/// laxer bound than `transfer` or `third_party` must carry it under is frozen
+/// and unseizable. Correct by composition, at deployment.
 pub fn is_seizable_output_shape_bounded(
   output: Output,
   max_inline_datum_bytes: Int,

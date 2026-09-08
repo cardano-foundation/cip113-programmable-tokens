@@ -60,6 +60,9 @@ fn valid_params_datum() -> Data {
         #"000000000000000000000000000000000000000000000000009c6ade",
       ),
       pending_upgrade_cred: None,
+      issuance_logic_cred: Script(
+        #"000000000000000000000000000000000000000000000000001550ab",
+      ),
     },
   )
 }
@@ -315,6 +318,9 @@ fn short_upgrade_cred_datum() -> Data {
         #"0000000000000000000000000000000000000000000000000000009c6a",
       ),
       pending_upgrade_cred: None,
+      issuance_logic_cred: Script(
+        #"000000000000000000000000000000000000000000000000001550ab",
+      ),
     },
   )
 }
@@ -351,6 +357,9 @@ test genesis_fails_wrong_length_plg_cred() fail {
         #"000000000000000000000000000000000000000000000000009c6ade",
       ),
       pending_upgrade_cred: None,
+      issuance_logic_cred: Script(
+        #"000000000000000000000000000000000000000000000000001550ab",
+      ),
     },
   )
   let tx = Transaction {
@@ -437,6 +446,9 @@ test genesis_fails_pending_nomination() fail {
       pending_upgrade_cred: Some(
         Script(#"00000000000000000000000000000000000000000000000000abcdef"),
       ),
+      issuance_logic_cred: Script(
+        #"000000000000000000000000000000000000000000000000001550ab",
+      ),
     },
   )
   let tx = Transaction {
@@ -453,4 +465,33 @@ test genesis_fails_pending_nomination() fail {
 // own test so the rail above cannot be "fixed" by banning the field outright.
 test genesis_allows_no_pending_nomination() {
   call_validator(test_utxo_ref, valid_transaction())
+}
+
+// Issue #129: `issuance_logic_cred` is held to the same 28-byte rail as every
+// other credential. An unsatisfiable one here would halt issuance for every
+// token on the deployment, with no repair path short of a params update.
+test genesis_fails_wrong_length_issuance_logic_cred() fail {
+  let bad_datum = as_data(
+    ProgrammableLogicGlobalParams {
+      plg_cred: Script(
+        #"0000000000000000000000000000000000000000000000000001091c",
+      ),
+      transfer_cred: Script(
+        #"0000000000000000000000000000000000000000000000000001091c",
+      ),
+      third_party_cred: Script(
+        #"00000000000000000000000000000000000000000000000000731d3a",
+      ),
+      upgrade_cred: Script(
+        #"000000000000000000000000000000000000000000000000009c6ade",
+      ),
+      pending_upgrade_cred: None,
+      issuance_logic_cred: Script(#"1550ab"),
+    },
+  )
+  let tx = Transaction {
+    ..valid_transaction(),
+    outputs: [Output { ..valid_nft_output(), datum: InlineDatum(bad_datum) }],
+  }
+  call_validator(test_utxo_ref, tx)
 }

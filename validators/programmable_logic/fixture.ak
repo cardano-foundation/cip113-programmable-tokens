@@ -193,6 +193,10 @@ pub fn withdrawal_index_of(
 /// withdraw-0 validator (trampoline 2). Carried by the protocol-params
 /// datum (`upgrade_cred`); a protocol-params UTxO spend must carry
 /// this script's withdraw-0.
+/// The replaceable issuance-logic withdraw-0 (#129).
+pub const credential_validator_issuance_logic: Credential =
+  Credential.Script(#"15501550155015501550155015501550155015501550155015501550")
+
 pub const credential_upgrade_authority: Credential =
   Credential.Script(#"000000000000000000000000000000000000000000000000009c6ade")
 
@@ -201,13 +205,14 @@ pub const credential_upgrade_authority: Credential =
 /// tests pass it where they pass the other two baked values.
 pub const max_inline_datum_bytes: Int = 1024
 
-/// The live protocol wiring. Five fields, every one with a named on-chain
+/// The live protocol wiring. Six fields, every one with a named on-chain
 /// reader — see `params.ProgrammableLogicGlobalParams`. AT REST: no authority
 /// handover in flight, which is the state genesis is required to produce and
 /// the state the protocol spends almost all of its life in.
 pub const protocol_params: ProgrammableLogicGlobalParams =
   ProgrammableLogicGlobalParams {
     plg_cred: credential_validator_plg,
+    issuance_logic_cred: credential_validator_issuance_logic,
     transfer_cred: credential_validator_transfer,
     third_party_cred: credential_validator_third_party,
     upgrade_cred: credential_upgrade_authority,

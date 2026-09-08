@@ -462,7 +462,7 @@ exists, runs, consents — with no coordination requirement.
 | Surface | Change | Breaking? |
 |---|---|---|
 | **`protocol_params` spend redeemer** | Was ignored `Data` (`_redeemer`); now a required **`ProtocolParamsRedeemer`** enum, field-less: `ProtocolUpgrade` = **0**, `NominateAuthority` = **1**, `PromoteAuthority` = **2`**. Exposed in the blueprint as `types/ProtocolParamsRedeemer` | **YES for upgrade tooling** — a builder that passed `Void` or any placeholder now fails. Worse than a decode failure if the index is merely wrong: index 0 refuses to move the authority, index 1 refuses everything but the nomination, so a wrong index selects a DIFFERENT rule set. Pinned by `layout_protocol_params_redeemer_constructors_are_field_less` |
-| **`ProgrammableLogicGlobalParams`** | 4 → **5 fields**: `pending_upgrade_cred: Option<Credential>` **APPENDED at index 4**. `None` at rest, `Some(c)` while a handover is in flight | **YES for datum builders** — every params datum must now carry field 4. Indices 0-3 are unchanged and unmoved |
+| **`ProgrammableLogicGlobalParams`** | 4 → **5 fields**: `pending_upgrade_cred: Option<Credential>` **APPENDED at index 4** (index **5** after the #129 pre-genesis reorder). `None` at rest, `Some(c)` while a handover is in flight | **YES for datum builders** |
 | Wire shape of field 4 | `None` = constructor **1**, no fields. `Some(c)` = constructor **0**, one field (the credential). Pinned by `layout_params_pending_option_wire_shape` | **YES** — new encoding for off-chain builders to emit |
 | **Old 4-field datums do not decode** | The spend handler deserialises the current datum as the 5-field type. A params UTxO written before this change cannot be spent by this validator | **YES, but moot** — the validator's bytes changed, so its hash and address moved anyway. Redeploy-class, like every other validator change (see the systemic note) |
 | **Authority change is no longer one transaction** | `upgrade_cred` can no longer be rewritten directly. Two transactions: nominate (sitting authority), then promote (nominee). Revocation is an ordinary upgrade clearing the field | **YES for upgrade tooling** — the previous one-step rewrite now FAILS. This is the behaviour change; see `params_spend_fails_direct_authority_rewrite` (was `params_spend_authority_handover_succeeds`, which passed) |
@@ -545,6 +545,73 @@ Decide before deployment.
 property (no-evidence-never-satisfies, all-keys-satisfy, monotonicity, `AtLeast` = counting,
 duplicate rejected, threshold bounds, oversize rejected, generator well-formed). Validator: 42 unit.
 Every rail mutation-verified against the full suite: 7 library rails, 16 validator rails, all kill.
+
+---
+
+## PROVISIONAL — subject to change: `feat/129-issuance-logic-split`
+
+GitHub issue **#129** (audit-3 finding 07). Stacked on `feat/upgrade-multisig-sundae-tree` (#133).
+
+**What changed.** Issuance is split into a PERMANENT per-token policy and a REPLACEABLE protocol
+script. A token's policy id is the hash of its applied `issuance_mint`, so that script now does only
+what will never change; every rule that may change with the protocol lives in a withdraw-0 named by
+a new params field.
+
+| Surface | Change | Breaking? |
+|---|---|---|
+| **`issuance_mint` parameters** | `(programmable_logic_base, registry_node_cs, minting_logic_cred, params_policy)` → **`(minting_logic_cred, params_policy)`** | **YES** — application arity; and the `IssuanceCborHex` prefix/postfix template changes, since the bytes around the `minting_logic_cred` hole are different. Registry validation of policy ids is unchanged (`prefix ++ hash ++ postfix`) |
+| **`issuance_mint` redeemer** | `MintingRegistryProof` (`RefInput`/`OutputIndex`) → **`IssuanceRedeemer { params_idx }`** — an index hint locating the params UTxO among reference inputs, nothing else | **YES** — builders emit a different redeemer for the mint purpose |
+| **New validator `issuance_logic`** | params `(programmable_logic_base, registry_node_cs, params_policy, max_inline_datum_bytes)`; handlers `withdraw` + `publish` (+ `else`). Redeemer **`IssuanceLogicRedeemer = Pairs<PolicyId, MintingRegistryProof>`** — one proof per policy issued in the tx | **YES** — a new script to deploy, register (`publish`) and reference; every mint/burn tx gains its withdraw-0 |
+| **`ProgrammableLogicGlobalParams`** | 5 → **6 fields**, REORDERED pre-genesis by read frequency (Giovanni, 2026-09-08): `plg_cred` 0, **`issuance_logic_cred` 1**, `transfer_cred` 2, `third_party_cred` 3, `upgrade_cred` 4, `pending_upgrade_cred` 5. Accessors: issuance-logic one `tail_list`, transfer two, third-party three. 28-byte rail on genesis and update | **YES for datum builders** — every index but 0 moved. Safe ONLY because no datum exists yet; this is the last free reorder. After genesis: append only |
+| **The frozen interface** | The permanent policy decodes `issuance_logic`'s redeemer as `Pairs<PolicyId, Data>` and requires its own policy id among the KEYS. Values are opaque to it. **The map-keyed-by-policy shape is the one thing about issuance that can never change again** | contract, stated once |
+| **Every issuance tx** | needs TWO withdraw-0s: the token's `minting_logic_cred` and the protocol's `issuance_logic_cred`; plus a `readFrom` of the params UTxO (with `params_idx`) even on the OutputIndex path, which previously needed no params reference | **YES for tx builders** |
+| **Upgrade property gained** | Rewriting `issuance_logic_cred` in the params datum changes the issuance rules for EVERY token, minted or not; no policy id moves. A retired issuance-logic script is refused even if it still runs (`fails_stale_issuance_logic`) | the point of the change |
+| Trust | none added: the upgrade authority could already drain every token via a permissive `plg_cred`; a permissive `issuance_logic_cred` is the same authority, same act | — |
+| **Inline-datum bound on minted outputs** (#106 vector 3, the issuance residual) | `issuance_logic` takes `max_inline_datum_bytes` like `transfer`, `third_party` and `unfracking`, and applies `is_seizable_output_shape_bounded` to every PLB output that CARRIES the minted policy; PLB outputs without it keep the shape check only; non-PLB outputs unchanged. "Every PLB UTxO is within the bound" is a core guarantee now, not only "every holder-created one" | **YES for issuers** — a mint whose PLB output carries a datum over the bound is refused. CIP-68 reference tokens with data-URI logos become unmintable on the core path; URI logos (~150–300 B) fit under a 1,024 bound. +2.45 M cpu per bounded output, once per mint |
+| **⚑ Deployment invariant, not checkable on-chain** | Four scripts now carry `N`, each bounding only the outputs IT creates; nothing compares them. A UTxO born under a laxer `N` than `transfer` or `third_party` must later carry it under is frozen AND unseizable — vector 3 reintroduced by a mismatch between two correct scripts. Rule: **one `N` for all four**, applied by the deployment tooling and read back from the four applied blueprints to assert equality. Correct by composition | **YES for the deploy runbook / SDK** |
+
+**Footprint.** `issuance_mint` 1,943 → **679 B** (the permanent bytes); `issuance_logic` **2,128 B** new (2,018 before the datum bound);
+`protocol_params` 1,929 → 1,993 (+64). PLB, the delegates and the registry byte-identical to HEAD.
+Blueprint rebuilt LAST and built twice (`cmp` equal) — the blueprint is the source.
+Per RefInput mint: single policy 223,752 mem / 75,918,400 cpu → logic + permanent 332,925 / 109,669,254 (+109,173 / +33,750,854).
+The extra is the params lookup and the redeemer walk the permanent policy now does; the logic half
+costs what the old policy did.
+
+**Tests.** 605/605 both environments. The 52-test `issuance_mint.test.ak` moved to
+`issuance_logic.test.ak` (the rules moved, so the tests did — one call-site change, minus the
+minting-logic test); `issuance_mint.test.ak` is new, 15 tests on the permanent policy. Composed
+registry×issuance tests and the issuance benchmarks now drive `issuance_logic`. Mutation, full suite:
+minting-logic required 1 · logic invoked 4 · live credential only 3 · own policy a key 2 · reads
+field 1 5 · per-policy rules gate 15 · registration only 1 · 28-byte rail 1 · **`list.all → list.any`
+3 · first-entry-only 2 · `registry.key == own_policy` 1 · issuance-logic accessor depth 7 ·
+transfer accessor depth 10 · datum bound 1** (the last six added after the audit round below).
+
+**Decision this closes, and its deadline.** Adoptable only before mainnet issuance: every token
+minted before this lands keeps the old single-policy bytes forever.
+
+**Independent audit round (fabbrica commit-auditor, 2026-09-08 — Codex refused the job twice on the
+repository's own vocabulary).** Verdict REJECT on two findings, both fixed on the branch:
+- **F1** the committed blueprint did not match the source for `protocol_params` (built before a
+  later edit). Fixed: rebuilt last, built twice, `cmp` equal.
+- **F2** the per-policy loop — the one genuinely new on-chain behaviour — was undefended: `list.all →
+  list.any` and "validate the first entry only" survived the whole suite, because every test passed
+  a one-entry map. Fixed: six two-policy tests (both clean; second escapes; first escapes; a proof
+  borrowing the other policy's node; delegation covers only its own node; positive twin).
+- F3 no test composed both halves on one transaction — fixed, two composed tests. F4 stale
+  pre-split redeemer shapes in the moved fixtures — fixed; two tests renamed `logic_*`. F5 test
+  count — fixed. F6 (pre-existing, survives at HEAD too) `registry.key == own_policy` was
+  decorative because its test also changed the NFT name — fixed with a one-delta test.
+
+**Two nuances the auditor established, stated for the record:**
+- *Trust (I3), more precisely than the paragraph above:* a permissive `issuance_logic_cred` hands
+  ISSUERS the ability to mint their own registered policy outside custody (the token's
+  `minting_logic_cred` withdraw-0 is still required); a permissive `plg_cred` hands ANYONE every
+  PLB input, minted or not. The second dominates, and the pre-#129 policy already trusted the
+  datum's delegate credentials for mint custody on the RefInput path. No new trust.
+- *What is now frozen (I4):* the permanent policy pins the params NFT policy, an inline datum with
+  a `Credential` at field 1, and a `Withdraw`-purpose redeemer decoding as `Pairs<PolicyId, Data>`.
+  Field 1's position and the withdraw-0 shape of every future `issuance_logic` are as immovable as
+  PLB's field 0 — which is why the field was moved to 1 now, before genesis freezes it.
 
 ---
 
