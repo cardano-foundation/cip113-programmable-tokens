@@ -122,10 +122,10 @@
 use cardano/address.{Address, Credential, Inline, Script, VerificationKey}
 use cardano/assets.{PolicyId, ada_asset_name, ada_policy_id, from_asset}
 use cardano/transaction.{
-  InlineDatum, Input, Mint, NoDatum, Output, OutputReference, Transaction,
+  InlineDatum, Input, NoDatum, Output, OutputReference, Transaction, Withdraw,
   find_input,
 }
-use issuance_mint
+use issuance_logic
 use registry
 use registry_node.{RegistryNode, empty_vkey, origin_node, origin_node_tn}
 use types.{
@@ -1634,14 +1634,20 @@ fn ism_plb_output(value: assets.Value) -> Output {
   }
 }
 
+const ism_max_inline_datum_bytes: Int = 1024
+
+const ism_issuance_logic_hash: ByteArray =
+  #"15501550155015501550155015501550155015501550155015501550"
+
+/// Since #129 the issuance rules run in `issuance_logic`'s withdraw-0.
 fn call_issuance_validator(rdmr: MintingRegistryProof, tx: Transaction) -> Bool {
-  issuance_mint.issuance_mint.mint(
+  issuance_logic.issuance_logic.withdraw(
     ism_plb_cred,
     ism_registry_cs,
-    ism_ml_cred,
     ism_params_policy,
-    rdmr,
-    ism_own_policy,
+    ism_max_inline_datum_bytes,
+    [Pair(ism_own_policy, rdmr)],
+    Script(ism_issuance_logic_hash),
     tx,
   )
 }
@@ -1658,8 +1664,16 @@ test cip68_subsequent_mint_ref_input() {
     ],
     mint: from_asset(ism_own_policy, cip68_ft_name, 500)
       |> assets.add(ism_own_policy, cip68_ref_name, 1),
-    withdrawals: [Pair(ism_ml_cred, 0)],
-    redeemers: [Pair(Mint(ism_own_policy), as_data(rdmr))],
+    withdrawals: [
+      Pair(ism_ml_cred, 0),
+      Pair(Script(ism_issuance_logic_hash), 0),
+    ],
+    redeemers: [
+      Pair(
+        Withdraw(Script(ism_issuance_logic_hash)),
+        as_data([Pair(ism_own_policy, rdmr)]),
+      ),
+    ],
   }
   call_issuance_validator(rdmr, tx)
 }
