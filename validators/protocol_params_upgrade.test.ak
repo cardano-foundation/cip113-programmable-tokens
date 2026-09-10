@@ -341,11 +341,13 @@ test params_spend_fails_with_wrong_authority() fail {
   call(tx)
 }
 
-// An incoming credential cannot install itself under an ORDINARY upgrade: it
-// presents its own withdraw-0 and writes itself in as the authority, but
-// `ProtocolUpgrade` is authorised by the sitting credential and refuses to
-// move `upgrade_cred` at all. The same attempt declared as `PromoteAuthority`
-// is covered by `params_spend_fails_promotion_declared_without_nomination`.
+// An incoming credential cannot install itself under an ORDINARY upgrade.
+// The sitting authority's withdraw-0 IS present, so authorisation passes and
+// the only remaining delta is the `upgrade_cred` rewrite, which
+// `ProtocolUpgrade` refuses. Carrying only the incoming credential's
+// withdrawal would make this a two-delta test that no single rail decides.
+// The same attempt declared as `PromoteAuthority` is covered by
+// `params_spend_fails_promotion_declared_without_nomination`.
 test params_spend_fails_self_installation_under_ordinary_upgrade() fail {
   let tx = Transaction {
     ..valid_upgrade_tx(),
@@ -359,7 +361,7 @@ test params_spend_fails_self_installation_under_ordinary_upgrade() fail {
         params_spend_address(),
       ),
     ],
-    withdrawals: [Pair(new_transfer_cred, 0)],
+    withdrawals: [Pair(authority_cred, 0), Pair(new_transfer_cred, 0)],
   }
   call(tx)
 }
@@ -678,6 +680,33 @@ test params_spend_nomination_succeeds() {
       fixture.protocol_params,
       params_in_flight(),
       [Pair(authority_cred, 0)],
+    ),
+  )
+}
+
+// The sitting authority must approve a nomination. `NominateAuthority` reads
+// `sitting_authority_approves` from the OLD datum exactly as `ProtocolUpgrade`
+// does; without it, leg 2 needs only the nominee's own withdraw-0, so an
+// unapproved nomination followed by a promotion is a two-transaction,
+// permissionless seizure of `upgrade_cred`.
+test params_spend_fails_nomination_without_authority_withdrawal() fail {
+  call_from(
+    NominateAuthority,
+    fixture.protocol_params,
+    handover_tx(fixture.protocol_params, params_in_flight(), []),
+  )
+}
+
+// Some OTHER credential's withdraw-0 does not authorise a nomination either.
+// The twin of `params_spend_fails_with_wrong_authority` on the nomination arm.
+test params_spend_fails_nomination_with_wrong_authority() fail {
+  call_from(
+    NominateAuthority,
+    fixture.protocol_params,
+    handover_tx(
+      fixture.protocol_params,
+      params_in_flight(),
+      [Pair(new_transfer_cred, 0)],
     ),
   )
 }
