@@ -8,7 +8,7 @@
 ////
 //// Under the old scan model, an Ada-only reference-script UTxO (Ada +
 //// `reference_script`, no tokens — the canonical CIP-33 shape) ordered BEFORE
-//// the params NFT would be `peek_first`-probed and abort the script (Finding
+//// the params NFT would be `expect_first_policy`-probed and abort the script (Finding
 //// 082). With the index model that failure is structurally impossible: an
 //// input the caller does not point `params_idx` at is never inspected. A
 //// token-less reference input at index 0 is simply never touched when the
@@ -24,7 +24,8 @@ use cardano/address.{Credential, Script}
 use cardano/transaction.{InlineDatum, Input, Output, OutputReference}
 use programmable_logic/fixture
 use programmable_logic/params.{
-  ProgrammableLogicGlobalParams, plg_cred_field, with_protocol_params_fields,
+  ProtocolParams, programmable_logic_global_cred_field,
+  with_protocol_params_fields,
 }
 
 /// A reference-script UTxO: Ada only (no tokens), carrying a `reference_script`.
@@ -55,7 +56,7 @@ fn ada_only_reference_script_input() -> Input {
       address: address.from_script(
         #"0000000000000000000000000000000000000000000000000000ffff",
       ),
-      value: fixture.min_ada_value,
+      value: fixture.some_ada_value,
       datum: InlineDatum(as_data(fixture.protocol_params)),
       reference_script: Some(
         #"0000000000000000000000000000000000000000000000000000ffff",
@@ -82,11 +83,11 @@ fn decoy_params_input() -> Input {
       address: address.from_script(
         #"0000000000000000000000000000000000000000000000000000eeee",
       ),
-      value: fixture.min_ada_value,
+      value: fixture.some_ada_value,
       datum: InlineDatum(
         as_data(
-          ProgrammableLogicGlobalParams {
-            plg_cred: eve_cred,
+          ProtocolParams {
+            programmable_logic_global_cred: eve_cred,
             transfer_cred: eve_cred,
             third_party_cred: eve_cred,
             upgrade_cred: eve_cred,
@@ -119,7 +120,7 @@ test params_lookup_finds_params_when_indexed_past_adaonly_refscript() {
     fixture.policy_protocol_params,
     1,
   )
-  plg_cred_field(fields) == fixture.credential_validator_plg
+  programmable_logic_global_cred_field(fields) == fixture.credential_validator_programmable_logic_global
 }
 
 // Pointing `params_idx` at the Ada-only input (index 0) must abort: that output
@@ -132,16 +133,16 @@ test params_lookup_fails_index_points_at_adaonly_input() fail {
     fixture.policy_protocol_params,
     0,
   )
-  plg_cred_field(fields) == fixture.credential_validator_plg
+  programmable_logic_global_cred_field(fields) == fixture.credential_validator_programmable_logic_global
 }
 
 // The params NFT is the ONLY thing authenticating the datum a caller addresses.
 // Here the transaction carries no params UTxO at all — just one input an
 // attacker can mint for the price of min-ADA, whose datum is a well-formed
-// 4-field record naming `eve_cred` in every slot, including `plg_cred`. Nothing
+// 4-field record naming `eve_cred` in every slot, including `programmable_logic_global_cred`. Nothing
 // about the SHAPE is wrong; only the NFT is missing.
 //
-// This must abort. If it did not, `plg_cred_field` would hand back `eve_cred`
+// This must abort. If it did not, `programmable_logic_global_cred_field` would hand back `eve_cred`
 // and — since that is exactly the credential `programmable_logic_base` requires
 // a withdraw-0 for — an attacker supplying `withdrawals: [Pair(eve_cred, 0)]`
 // would authorise the spend of ANY programmable-token UTxO on the deployment.
@@ -157,5 +158,5 @@ test params_lookup_fails_when_addressed_input_lacks_the_params_nft() fail {
     fixture.policy_protocol_params,
     0,
   )
-  plg_cred_field(fields) == eve_cred
+  programmable_logic_global_cred_field(fields) == eve_cred
 }

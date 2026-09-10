@@ -21,7 +21,7 @@ const test_token_cs: PolicyId =
   #"2122232425262728292a2b2c2d2e2f303132333435363738393a3b3c"
 
 // Test TransferRedeemer shape
-test transfer_redeemer_carries_proofs() {
+test redeemer_destructure_preserves_proof_list_length() {
   let proof1 = TokenExists { node_idx: 0 }
   let proof2 = TokenDoesNotExist { node_idx: 1 }
 
@@ -33,7 +33,7 @@ test transfer_redeemer_carries_proofs() {
 }
 
 // Test TokenDoesNotExist proof
-test token_does_not_exist_proof() {
+test token_does_not_exist_pattern_match_extracts_node_idx() {
   let proof = TokenDoesNotExist { node_idx: 3 }
 
   when proof is {
@@ -43,12 +43,12 @@ test token_does_not_exist_proof() {
 }
 
 // Test registry node validation for transfer
-test registry_node_validation_for_transfer() {
+test registry_node_record_literal_field_roundtrip() {
   let node = RegistryNode {
     key: test_token_cs,
     next: #"ffff",
     transfer_logic_script: test_transfer_logic_cred,
-    third_party_transfer_logic_script: test_third_party_transfer_logic_cred,
+    third_party_logic_script: test_third_party_transfer_logic_cred,
     minting_logic_script: empty_vkey,
     unfracking_logic_script: empty_vkey,
     global_state_cs: #"",
@@ -60,7 +60,7 @@ test registry_node_validation_for_transfer() {
 }
 
 // Test covering node logic for non-existent token
-test covering_node_logic_for_non_existent_token() {
+test bytearray_lt_range_check_on_literal_bounds() {
   let covering_key = #"aa"
   let token_cs = #"bb"
   let next_key = #"cc"
@@ -69,7 +69,7 @@ test covering_node_logic_for_non_existent_token() {
     key: covering_key,
     next: next_key,
     transfer_logic_script: test_transfer_logic_cred,
-    third_party_transfer_logic_script: test_third_party_transfer_logic_cred,
+    third_party_logic_script: test_third_party_transfer_logic_cred,
     minting_logic_script: empty_vkey,
     unfracking_logic_script: empty_vkey,
     global_state_cs: #"",
@@ -83,7 +83,7 @@ test covering_node_logic_for_non_existent_token() {
 }
 
 // Test seize validation structure
-test seize_validation_structure() {
+test value_inequality_on_hand_built_seize_delta() {
   let seized_cs = test_token_cs
   let input_value = from_asset(seized_cs, #"746f6b656e", 100)
   let expected_output_value = zero
@@ -93,7 +93,7 @@ test seize_validation_structure() {
 }
 
 // Test programmable tokens go to prog_logic_cred
-test programmable_tokens_go_to_prog_logic_cred() {
+test output_record_literal_payment_credential_roundtrip() {
   let output = Output {
     address: Address {
       payment_credential: test_prog_logic_cred,
@@ -108,14 +108,14 @@ test programmable_tokens_go_to_prog_logic_cred() {
 }
 
 // Test transfer logic script must be invoked
-test transfer_logic_script_must_be_invoked() {
+test list_has_true_for_hardcoded_transfer_cred() {
   let invoked_scripts = [test_transfer_logic_cred, Script(#"6f74686572")]
 
   list.has(invoked_scripts, test_transfer_logic_cred)
 }
 
 // Test third party transfer logic script must be invoked for third party actions
-test third_party_transfer_logic_script_must_be_invoked_for_third_party_actions() {
+test list_has_true_for_hardcoded_third_party_cred() {
   let invoked_scripts = [
     test_third_party_transfer_logic_cred,
     Script(#"6f74686572"),
@@ -125,7 +125,7 @@ test third_party_transfer_logic_script_must_be_invoked_for_third_party_actions()
 }
 
 // Test signed prog inputs validation
-test signed_prog_inputs_validation() {
+test input_record_literal_stake_credential_roundtrip() {
   let stake_pkh = #"aabbccdd"
   let input = Input {
     output_reference: OutputReference { transaction_id: #"00", output_index: 0 },
@@ -150,7 +150,7 @@ test signed_prog_inputs_validation() {
 }
 
 // Test seize prevents DDOS by requiring value change
-test seize_prevents_ddos_by_requiring_value_change() {
+test value_inequality_on_hand_built_before_after_pair() {
   let input_value = from_asset(test_token_cs, #"746f6b656e", 100)
   // let output_value = from_asset(test_token_cs, #"746f6b656e", 100)
   let expected_output = merge(
@@ -163,7 +163,7 @@ test seize_prevents_ddos_by_requiring_value_change() {
 }
 
 // Test only one prog_logic_cred input allowed in seize
-test only_one_prog_logic_cred_input_in_seize() {
+test list_filter_length_on_single_element_list() {
   let inputs = [
     Input {
       output_reference: OutputReference {
@@ -193,7 +193,7 @@ test only_one_prog_logic_cred_input_in_seize() {
 }
 
 // Test invoked scripts via withdrawals
-test invoked_scripts_via_withdrawals() {
+test list_map_extracts_withdrawal_credentials() {
   let withdrawals = [
     Pair(test_transfer_logic_cred, 0),
     Pair(test_third_party_transfer_logic_cred, 0),
@@ -755,9 +755,10 @@ test transfer_act_mint_insufficient_output_fails() fail {
 // token's transfer logic governs every transfer, and that a token can only be
 // declared UNREGISTERED by a covering node that genuinely covers it. Deleting
 // either broke no test in the suite. The tests named for them
-// (`transfer_logic_script_must_be_invoked`, `covering_node_logic_for_non_
-// existent_token`) never invoke a validator; they assert `list.has` on a
-// hand-built list and re-implement the range check inside the test.
+// (`list_has_true_for_hardcoded_transfer_cred`,
+// `bytearray_lt_range_check_on_literal_bounds`) never invoke a validator;
+// they assert `list.has` on a hand-built list and re-implement the range
+// check inside the test.
 // ===========================================================================
 
 const cov_owner_pkh: ByteArray =

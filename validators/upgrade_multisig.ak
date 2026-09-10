@@ -52,19 +52,19 @@
 ////     cannot configure itself into a tree it can no longer afford to run.
 
 use aiken/collection/list
-use assets.{expect_only_nft_of_policy} as my_assets
 use cardano/address.{Credential, Script}
 use cardano/assets.{PolicyId}
 use cardano/certificate.{Certificate, RegisterCredential}
 use cardano/transaction.{InlineDatum, Output, OutputReference, Transaction}
 use multisig.{MultisigScript, satisfied, well_formed}
+use prog_assets.{expect_only_nft_of_policy}
 use utils.{has_currency_symbol}
 
 /// Token name of the one-shot config NFT.
 pub const upgrade_multisig_token: ByteArray = "UpgradeMultisig"
 
 /// The datum rail: inline, and decodes as a tree. Shared by all three handlers.
-fn output_tree(output: Output) -> MultisigScript {
+fn expect_output_tree(output: Output) -> MultisigScript {
   expect InlineDatum(datum) = output.datum
   expect tree: MultisigScript = datum
   tree
@@ -96,7 +96,7 @@ validator upgrade_multisig(utxo_ref: OutputReference) {
 
     and {
       // Born well-formed — the same rail every later update satisfies.
-      well_formed(output_tree(nft_output))?,
+      well_formed(expect_output_tree(nft_output))?,
       // Paid for by every upgrade that references this UTxO otherwise.
       (nft_output.reference_script == None)?,
       // Locked at THIS script, wearing its spending hat.
@@ -140,7 +140,7 @@ validator upgrade_multisig(utxo_ref: OutputReference) {
     expect assets.expect_match_assets(cont.value, own_input.output.value)?
 
     // The replacement tree is held to the same standard as the first one.
-    expect well_formed(output_tree(cont))?
+    expect well_formed(expect_output_tree(cont))?
 
     // Authorisation: the CURRENT tree, against the whole transaction.
     satisfied(
@@ -152,7 +152,7 @@ validator upgrade_multisig(utxo_ref: OutputReference) {
   }
 
   withdraw(_redeemer: Data, account: Credential, self: Transaction) {
-    trace @"Starting upgrade_multisig authorisation"
+    trace @"Starting upgrade_multisig withdraw validation"
 
     // The reward account IS this script; its hash is the config NFT's policy.
     expect Script(own_hash) = account
@@ -166,7 +166,7 @@ validator upgrade_multisig(utxo_ref: OutputReference) {
     )
 
     satisfied(
-      output_tree(config.output),
+      expect_output_tree(config.output),
       self.extra_signatories,
       self.validity_range,
       self.withdrawals,

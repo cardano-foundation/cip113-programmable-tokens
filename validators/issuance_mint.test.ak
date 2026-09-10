@@ -14,8 +14,8 @@ use cardano/transaction.{
   InlineDatum, Input, NoDatum, Output, OutputReference, Transaction, Withdraw,
 }
 use issuance_mint
-use programmable_logic/params.{ProgrammableLogicGlobalParams}
-use types.{IssuanceRedeemer, MintingRegistryProof, RefInput}
+use programmable_logic/params.{ProtocolParams}
+use types.{IssuanceMintRedeemer, MintingRegistryProof, RefInput}
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -74,8 +74,8 @@ fn params_ref_input() -> Input {
         |> assets.add(params_policy, "ProtocolParams", 1),
       datum: InlineDatum(
         as_data(
-          ProgrammableLogicGlobalParams {
-            plg_cred: placeholder,
+          ProtocolParams {
+            programmable_logic_global_cred: placeholder,
             transfer_cred: placeholder,
             third_party_cred: placeholder,
             upgrade_cred: placeholder,
@@ -130,7 +130,7 @@ fn call_at(params_idx: Int, tx: Transaction) -> Bool {
   issuance_mint.issuance_mint.mint(
     ml_cred,
     params_policy,
-    IssuanceRedeemer { params_idx },
+    IssuanceMintRedeemer { params_idx },
     own_policy,
     tx,
   )
@@ -287,8 +287,8 @@ test fails_datum_names_other_logic() fail {
       ..params_ref_input().output,
       datum: InlineDatum(
         as_data(
-          ProgrammableLogicGlobalParams {
-            plg_cred: placeholder,
+          ProtocolParams {
+            programmable_logic_global_cred: placeholder,
             transfer_cred: placeholder,
             third_party_cred: placeholder,
             upgrade_cred: placeholder,

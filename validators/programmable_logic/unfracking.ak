@@ -42,7 +42,7 @@
 ////     falls out: an unset hook is `empty_vkey`, and no ledger tx can
 ////     carry a withdrawal keyed by an empty hash.
 ////   * SINGLE OWNER: every PLB input carries the same full address —
-////     payment `prog_logic_cred` + the stake credential pinned by the
+////     payment `programmable_logic_base_cred` + the stake credential pinned by the
 ////     first PLB input. The owner authorises once: a vkey stake
 ////     credential signs (`extra_signatories`), a script stake
 ////     credential's withdraw-0 must be invoked (same pattern as
@@ -78,15 +78,15 @@
 
 use aiken/collection/dict
 use aiken/collection/list.{foldl} as aiken_list
-use assets.{Assets}
 use cardano/address.{Address, Credential}
 use cardano/assets.{PolicyId} as value
 use cardano/transaction.{Input, Output, Transaction}
-use list
-use pairs
+use prog_assets.{Assets}
 use programmable_logic/owner.{authorised_stake_cred}
 use registry_node.{with_key_and_unfracking_logic}
 use tokens.{Tokens}
+use unsafe_list
+use unsafe_pairs
 
 /// Validate an Unfracking action. See module docstring for the full
 /// invariant list. `registry_node` is the acted-on policy's registry
@@ -95,7 +95,7 @@ use tokens.{Tokens}
 /// begin, same discipline as ThirdPartyAct.
 pub fn validate_unfracking(
   self: Transaction,
-  prog_logic_cred: Credential,
+  programmable_logic_base_cred: Credential,
   registry_node: Data,
   outputs_start_idx: Int,
   max_inline_datum_bytes: Int,
@@ -117,13 +117,13 @@ pub fn validate_unfracking(
   // unfracking for this policy. No script, no party. Same ledger
   // impossibility the transfer / third-party invocations already rely
   // on for the origin node's empty credentials.
-  expect pairs.has_key_or_fail(self.withdrawals, unfracking_logic)
+  expect unsafe_pairs.has_key_or_fail(self.withdrawals, unfracking_logic)
 
   // Pin the single owner from the first PLB input and authorise it once
   // (signature for a vkey stake credential, withdraw-0 for a script one).
   let owner_address = pin_and_authorise_owner(
     self.inputs,
-    prog_logic_cred,
+    programmable_logic_base_cred,
     self.extra_signatories,
     self.withdrawals,
   )
@@ -141,7 +141,7 @@ pub fn validate_unfracking(
   )
 
   validate_pairs_and_conservation(
-    prog_logic_cred,
+    programmable_logic_base_cred,
     owner_address,
     policy_id,
     max_inline_datum_bytes,
@@ -157,7 +157,7 @@ pub fn validate_unfracking(
 /// exists — unfracking with zero PLB inputs is meaningless.
 fn pin_and_authorise_owner(
   inputs: List<Input>,
-  prog_logic_cred: Credential,
+  programmable_logic_base_cred: Credential,
   extra_signatories: List<ByteArray>,
   withdrawals: Pairs<Credential, Int>,
 ) -> Address {
@@ -165,17 +165,17 @@ fn pin_and_authorise_owner(
     [] -> fail
     [input, ..tail] -> {
       let output = input.output
-      if output.address.payment_credential == prog_logic_cred {
+      if output.address.payment_credential == programmable_logic_base_cred {
         expect _stake_cred = authorised_stake_cred(
           output.address,
-          list.has_or_fail(extra_signatories, _),
-          pairs.has_key_or_fail(withdrawals, _),
+          unsafe_list.has_or_fail(extra_signatories, _),
+          unsafe_pairs.has_key_or_fail(withdrawals, _),
         )
         output.address
       } else {
         pin_and_authorise_owner(
           tail,
-          prog_logic_cred,
+          programmable_logic_base_cred,
           extra_signatories,
           withdrawals,
         )
@@ -217,7 +217,10 @@ fn drop_accum_owner_tokens(
       // Destination outputs are freshly created PLB UTxOs; keep them seizable
       // (no datum hash, no reference script).
       expect
-        assets.is_seizable_output_shape_bounded(output, max_inline_datum_bytes)?
+        prog_assets.is_seizable_output_shape_bounded(
+          output,
+          max_inline_datum_bytes,
+        )?
       loop(tokens.union(acc, output.value |> value.tokens(policy_id)))
     } else {
       loop(acc)
@@ -229,7 +232,7 @@ fn drop_accum_owner_tokens(
 /// ThirdPartyAct walk, single-owner flavoured), then settle the
 /// conservation equality once inputs are exhausted.
 fn validate_pairs_and_conservation(
-  prog_logic_cred: Credential,
+  programmable_logic_base_cred: Credential,
   owner_address: Address,
   policy_id: PolicyId,
   max_inline_datum_bytes: Int,
@@ -253,7 +256,7 @@ fn validate_pairs_and_conservation(
             // Destination outputs are freshly created PLB UTxOs; keep them
             // seizable (no datum hash, no reference script).
             expect
-              assets.is_seizable_output_shape_bounded(
+              prog_assets.is_seizable_output_shape_bounded(
                 output,
                 max_inline_datum_bytes,
               )?
@@ -268,7 +271,7 @@ fn validate_pairs_and_conservation(
     }
 
     [Input { output: input, .. }, ..tail_inputs] ->
-      if input.address.payment_credential == prog_logic_cred {
+      if input.address.payment_credential == programmable_logic_base_cred {
         // Single-owner invariant: every PLB input carries the pinned
         // owner address (payment + stake). A second stake credential in
         // the input set would make this a cross-owner transfer in
@@ -277,20 +280,22 @@ fn validate_pairs_and_conservation(
 
         // The paired continuing output preserves address, datum AND
         // reference script (Finding 13 applies to unfracking too).
-        let output = list.head(outputs)
+        let output = unsafe_list.expect_head(outputs)
         expect (output.address == input.address)?
         expect (output.datum == input.datum)?
         expect (output.reference_script == input.reference_script)?
 
         // Drop ada from both sides (guaranteed present and always first
-        // in a ledger Value — same idiom as `assets.collect`); ada is
+        // in a ledger Value — same idiom as `prog_assets.collect`); ada is
         // deliberately unconstrained in unfracking pairs (module docs;
         // issue-#96 hazard class), so unlike the ThirdPartyAct ratchet
         // the lovelace is not even read. One lockstep walk then enforces
         // the FULL-STRIP pair rule: byte-identical asset lists except
         // the acted entry, present on the input side only.
-        let input_assets = assets.from_value(input.value) |> list.tail
-        let output_assets = assets.from_value(output.value) |> list.tail
+        let input_assets = prog_assets.from_value(input.value)
+          |> unsafe_list.expect_tail
+        let output_assets = prog_assets.from_value(output.value)
+          |> unsafe_list.expect_tail
 
         let acted_tokens = strip_acted_entry(
           input_assets,
@@ -299,18 +304,18 @@ fn validate_pairs_and_conservation(
         )
 
         validate_pairs_and_conservation(
-          prog_logic_cred,
+          programmable_logic_base_cred,
           owner_address,
           policy_id,
           max_inline_datum_bytes,
           tail_inputs,
-          list.tail(outputs),
+          unsafe_list.expect_tail(outputs),
           tokens.union(input_tokens, acted_tokens),
           output_tokens,
         )
       } else {
         validate_pairs_and_conservation(
-          prog_logic_cred,
+          programmable_logic_base_cred,
           owner_address,
           policy_id,
           max_inline_datum_bytes,

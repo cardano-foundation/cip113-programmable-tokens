@@ -15,7 +15,7 @@
 //// skip the params datum entirely: it does not need to look up who the delegates
 //// are, it already is the statement of who they are. Upgrading the dispatch
 //// layer means deploying a new instance of this validator and rewriting
-//// `plg_cred` — PLB's hash, and therefore every token address, never moves.
+//// `programmable_logic_global_cred` — PLB's hash, and therefore every token address, never moves.
 ////
 //// Why the delegates stay separate scripts rather than being inlined here:
 //// reference scripts are paid for, as a size-proportional fee, by every
@@ -40,10 +40,10 @@ use aiken/crypto.{ScriptHash}
 use cardano/address.{Credential, Script}
 use cardano/certificate.{Certificate, RegisterCredential}
 use cardano/transaction.{Transaction}
-use pairs
 use types.{
   ProgrammableLogicGlobalRedeemer, ThirdPartyAct, TransferAct, UnfrackingAct,
 }
+use unsafe_pairs
 
 validator programmable_logic_global(
   transfer_hash: ScriptHash,
@@ -66,7 +66,7 @@ validator programmable_logic_global(
       UnfrackingAct -> unfracking_hash
     }
 
-    self.withdrawals |> pairs.has_key_or_fail(Script(required))
+    self.withdrawals |> unsafe_pairs.has_key_or_fail(Script(required))
   }
 
   publish(_r: Data, c: Certificate, _s: Transaction) {

@@ -5,8 +5,8 @@ use cardano/address.{Credential, Inline}
 use cardano/assets.{AssetName, PolicyId, Value}
 use cardano/transaction.{DatumHash, InlineDatum, NoDatum, Output}
 use env
-use list
 use tokens.{Tokens}
+use unsafe_list
 
 pub type Assets =
   Pairs<PolicyId, Tokens>
@@ -31,7 +31,7 @@ pub fn split_lovelace(self: Value, return: fn(Int, Assets) -> result) -> result 
 
 /// Split an dictionnary at the given key. Returning the elements before (in reverse key order), the
 /// value at the key, and the elements after (in same key order).
-pub fn split_at(
+pub fn value_split_at(
   self: Value,
   at: PolicyId,
   return: fn(Assets, Tokens, Assets) -> result,
@@ -72,8 +72,8 @@ fn do_split_at(
 }
 
 /// Lookup the first asset policy from an output, or fails loudly if the output holds no tokens (beyond Ada).
-pub fn peek_first(self: Output) -> PolicyId {
-  list.head(list.tail(from_value(self.value))).1st
+pub fn expect_first_policy(self: Output) -> PolicyId {
+  unsafe_list.expect_head(unsafe_list.expect_tail(from_value(self.value))).1st
 }
 
 /// A faster version of assets.merge that preserves empty maps. This allows to
@@ -128,7 +128,7 @@ fn do_collect(elems: List<i>, strategy: SumStrategy<i>, sum: Assets) -> Assets {
             output.value
               |> from_value
               // Drop ADA, guaranteed to be present in outputs.
-              |> list.tail
+              |> unsafe_list.expect_tail
               // NOTE: left-optimised union
               // The `union` consumes the left argument into the right argument. So it is
               // generally better to provide the smallest argument as left value. The `sum`
@@ -207,14 +207,14 @@ pub fn expect_only_nft_of_policy(
 
 pub fn collect_output_assets(
   outputs: List<Output>,
-  prog_logic_cred: Credential,
+  programmable_logic_base_cred: Credential,
   max_inline_datum_bytes: Int,
 ) -> Assets {
   collect(
     outputs,
     [],
     fn(output, select, discard) {
-      if output.address.payment_credential == prog_logic_cred {
+      if output.address.payment_credential == programmable_logic_base_cred {
         expect Some(Inline(..)) = output.address.stake_credential
         expect is_seizable_output_shape_bounded(output, max_inline_datum_bytes)?
         select(output)
@@ -241,7 +241,7 @@ pub fn collect_output_assets(
 ///     seizure must reproduce it byte-for-byte too, so an unbounded one pushes
 ///     the seizure past `maxTxSize` — or, short of that, collapses how many
 ///     UTxOs an issuer can seize per transaction. The bound is a live datum
-///     field (`ProgrammableLogicGlobalParams.max_inline_datum_bytes`), not a constant,
+///     field (`ProtocolParams.max_inline_datum_bytes`), not a constant,
 ///     so it can be retuned as DeFi order/loan state grows without
 ///     re-deploying the delegates.
 ///

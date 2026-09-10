@@ -7,8 +7,8 @@ use cardano/fuzz as cardano
 use cardano/transaction.{InlineDatum, Input, Output}
 use registry_node.{
   RegistryNode, new_registry_node_getter, sentinel_next_key,
-  with_key_and_3rd_party_logic, with_key_and_minting_logic,
-  with_key_and_next_key, with_key_and_transfer_logic,
+  with_key_and_minting_logic, with_key_and_next_key,
+  with_key_and_third_party_logic, with_key_and_transfer_logic,
   with_key_and_unfracking_logic,
 }
 use utils.{bytearray_lt}
@@ -102,7 +102,7 @@ fn any_registry_node() -> Fuzzer<RegistryNode> {
   let key <- fuzz.and_then(fuzz.bytearray_between(0, 32))
   let next <- fuzz.and_then(fuzz.bytearray_between(0, 32))
   let transfer_logic_script <- fuzz.and_then(cardano.credential())
-  let third_party_transfer_logic_script <- fuzz.and_then(cardano.credential())
+  let third_party_logic_script <- fuzz.and_then(cardano.credential())
   let minting_logic_script <- fuzz.and_then(cardano.credential())
   let global_state_cs <- fuzz.and_then(cardano.policy_id())
   let unfracking_logic_script <- fuzz.and_then(cardano.credential())
@@ -112,7 +112,7 @@ fn any_registry_node() -> Fuzzer<RegistryNode> {
       next,
       minting_logic_script,
       transfer_logic_script,
-      third_party_transfer_logic_script,
+      third_party_logic_script,
       unfracking_logic_script,
       global_state_cs,
     },
@@ -135,13 +135,11 @@ test prop_with_key_and_next_key_roundtrip(node via any_registry_node()) {
   }
 }
 
-test prop_with_key_and_3rd_party_roundtrip(node via any_registry_node()) {
-  let key, third_party_transfer_logic_script <- with_key_and_3rd_party_logic(
-    node,
-  )
+test prop_with_key_and_third_party_roundtrip(node via any_registry_node()) {
+  let key, third_party_logic_script <- with_key_and_third_party_logic(node)
   and {
     (key == node.key)?,
-    (third_party_transfer_logic_script == node.third_party_transfer_logic_script)?,
+    (third_party_logic_script == node.third_party_logic_script)?,
   }
 }
 
@@ -170,7 +168,7 @@ test with_key_and_unfracking_logic_extracts_exact_fields() {
     next: #"a1",
     minting_logic_script: VerificationKey(#"a2"),
     transfer_logic_script: VerificationKey(#"a3"),
-    third_party_transfer_logic_script: Script(#"a4"),
+    third_party_logic_script: Script(#"a4"),
     unfracking_logic_script: Script(#"a6"),
     global_state_cs: #"a5",
   }
@@ -188,7 +186,7 @@ test with_key_and_unfracking_logic_extracts_exact_fields() {
 // any 28-byte value in Plutus byte order. If anyone ever shortens it to 28
 // bytes — or to anything that doesn't strictly exceed every plausible policy
 // id — the linked-list ordering invariant breaks and the `expect bytearray_lt(
-// node.key, node.next)` check in `validate_directory_node_output` can fail
+// node.key, node.next)` check in `validate_registry_node_output` can fail
 // on legitimate last-node configurations.
 //
 // These tests pin the property to the actual constant (not a copy of the

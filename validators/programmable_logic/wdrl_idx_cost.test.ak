@@ -5,7 +5,7 @@
 //// `list.expect_at(self.withdrawals, wdrl_idx)`. That is NOT O(1): stdlib
 //// drops one list cell per step, so the lookup is O(`wdrl_idx`) cell drops
 //// — but with NO credential comparison on the way. The pre-split check,
-//// `pairs.has_key_or_fail(self.withdrawals, cred)`, walked the same cells
+//// `unsafe_pairs.has_key_or_fail(self.withdrawals, cred)`, walked the same cells
 //// AND compared a credential at each one. The saving per PLB input is
 //// therefore the comparisons skipped, and it grows with the delegate's
 //// position; at position 0 the two are equivalent and the indexed path pays
@@ -33,7 +33,7 @@
 //// both columns grow with width; compare rows, not totals.)
 ////
 //// Both columns fell by exactly 464 mem / 227,326 cpu against the previous
-//// record when `plg_cred` moved to datum field 0: both harnesses read that one
+//// record when `programmable_logic_global_cred` moved to datum field 0: both harnesses read that one
 //// credential, so the depth saving is a CONSTANT offset across every row and
 //// changes no conclusion drawn here.
 ////
@@ -56,17 +56,20 @@ use aiken/collection/list
 use aiken/primitive/bytearray
 use cardano/address.{Credential, Script}
 use cardano/transaction.{Transaction}
-use pairs
 use programmable_logic/fixture
-use programmable_logic/params.{plg_cred_field, with_protocol_params_fields}
+use programmable_logic/params.{
+  programmable_logic_global_cred_field, with_protocol_params_fields,
+}
 use programmable_logic_base
 use types.{BaseSpendRedeemer}
+use unsafe_pairs
 
 /// The delegate under test (params datum field 0, hash `…01091c`).
 /// The credential PLB resolves at the witnessed index. It is the DISPATCHER
 /// now, not a delegate — which changes nothing about what this harness
 /// measures: locating one withdrawal at position p among width w.
-const dispatch_cred: Credential = fixture.credential_validator_plg
+const dispatch_cred: Credential =
+  fixture.credential_validator_programmable_logic_global
 
 /// Filler credential sorting BEFORE the delegate (`00…00 0i`, differs from
 /// the delegate's hash at byte 25).
@@ -133,7 +136,7 @@ fn indexed(width: Int, position: Int) -> Bool {
 
 /// The pre-split check, reproduced over the same params read: locate the
 /// params UTxO, read the dispatch credential, then SCAN the withdrawal map for
-/// it (what PLB ran before PR #110; a `pairs.has_key_or_fail` over
+/// it (what PLB ran before PR #110; a `unsafe_pairs.has_key_or_fail` over
 /// `self.withdrawals`). The comparison this harness exists to make — indexed
 /// witness vs scan — is unaffected by which credential is being located.
 fn scanned(width: Int, position: Int) -> Bool {
@@ -143,7 +146,10 @@ fn scanned(width: Int, position: Int) -> Bool {
     fixture.policy_protocol_params,
     0,
   )
-  pairs.has_key_or_fail(tx.withdrawals, plg_cred_field(fields))
+  unsafe_pairs.has_key_or_fail(
+    tx.withdrawals,
+    programmable_logic_global_cred_field(fields),
+  )
 }
 
 // --------------------------------------------------------------- width 1

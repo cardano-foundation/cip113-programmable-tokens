@@ -1,11 +1,11 @@
 use aiken/collection/dict
 use aiken/collection/list
 use aiken/fuzz
-use assets.{Assets}
 use cardano/address
 use cardano/assets.{AssetName, Value, ada_asset_name, ada_policy_id} as value
 use cardano/fuzz as cardano
 use cardano/transaction.{NoDatum, Output}
+use prog_assets.{Assets}
 
 // ------------------------------------------------------------ Assets generator
 
@@ -136,14 +136,14 @@ test collect_many_assets() {
     |> value.add("bar", "foo", 1)
     |> value.add("baz", "", 1)
     |> value.add("foo", "bar", 2)
-    |> assets.from_value
+    |> prog_assets.from_value
 
-  assets.collect([out1, out2, out3], [], all) == expected
+  prog_assets.collect([out1, out2, out3], [], all) == expected
 }
 
 test collect_mixed_mint_and_output() {
   let mint = value.from_asset("foo", "bar", 1)
-    |> assets.from_value
+    |> prog_assets.from_value
 
   let output_value = Output {
     ..output_placeholder,
@@ -152,9 +152,9 @@ test collect_mixed_mint_and_output() {
   }
 
   let expected = value.from_asset("foo", "bar", 2)
-    |> assets.from_value
+    |> prog_assets.from_value
 
-  assets.collect([output_value], mint, all) == expected
+  prog_assets.collect([output_value], mint, all) == expected
 }
 
 test collect_and_filter() {
@@ -181,9 +181,9 @@ test collect_and_filter() {
   }
 
   let expected = value.from_asset("foo", "bar", 2)
-    |> assets.from_value
+    |> prog_assets.from_value
 
-  expected == assets.collect(
+  expected == prog_assets.collect(
     [out1, out2, out3],
     [],
     fn(o, keep, discard) {
@@ -202,11 +202,11 @@ test collect_keeps_null_policies() {
     value: value.from_lovelace(42) |> value.add("foo", "bar", 1),
   }
 
-  let mint = value.from_asset("foo", "bar", -1) |> assets.from_value
+  let mint = value.from_asset("foo", "bar", -1) |> prog_assets.from_value
 
   let expected = [Pair("foo", dict.empty)]
 
-  expected == assets.collect([out], mint, all)
+  expected == prog_assets.collect([out], mint, all)
 }
 
 test prop_collect_never_contains_ada(
@@ -215,7 +215,7 @@ test prop_collect_never_contains_ada(
     fuzz.list_between(any_assets(True), 0, 3),
   ),
 ) {
-  assets.collect(
+  prog_assets.collect(
     list.map(
       values,
       fn(value) {
@@ -236,17 +236,17 @@ test prop_union_preserve_ordering(
   (left, right) via fuzz.both(any_assets(False), any_assets(True)),
 ) {
   // 'from_pairs' explodes if the keys are no longer in ascending order.
-  dict.from_pairs(assets.union(left, right)) != dict.empty
+  dict.from_pairs(prog_assets.union(left, right)) != dict.empty
 }
 
 test prop_union_is_monoid(left_or_right via any_assets(True)) {
-  assets.union(left_or_right, []) == assets.union([], left_or_right)
+  prog_assets.union(left_or_right, []) == prog_assets.union([], left_or_right)
 }
 
 test prop_union_is_symmetric(
   (left, right) via fuzz.both(any_assets(False), any_assets(True)),
 ) {
-  assets.union(left, right) == assets.union(right, left)
+  prog_assets.union(left, right) == prog_assets.union(right, left)
 }
 
 // ------------------------------------------------------------------ peek_first
@@ -263,12 +263,12 @@ test prop_peek_first(assets via any_assets(True)) {
 
     expect [head, ..] = value |> value.without_lovelace |> value.policies
 
-    assets.peek_first(output) == head
+    prog_assets.expect_first_policy(output) == head
   }
 }
 
 test peek_first_no_tokens() fail {
-  assets.peek_first(
+  prog_assets.expect_first_policy(
     Output { ..output_placeholder, value: value.from_lovelace(42) },
   ) != ""
 }
@@ -283,7 +283,7 @@ test prop_split_at_reify(
   let policies = value.policies(value)
   expect Some(pivot) = list.at(policies, ix % list.length(policies))
 
-  let before, at, after <- assets.split_at(value, pivot)
+  let before, at, after <- prog_assets.value_split_at(value, pivot)
   let reified = assets_to_value(before)
     |> value.merge(value.from_asset_list([Pair(pivot, dict.to_pairs(at))]))
     |> value.merge(assets_to_value(after))
@@ -305,7 +305,7 @@ test prop_split_at_after_still_ordered(
   let policies = value.policies(value)
   expect Some(pivot) = list.at(policies, ix % list.length(policies))
 
-  let _, _, after <- assets.split_at(value, pivot)
+  let _, _, after <- prog_assets.value_split_at(value, pivot)
 
   // ensures key are still ordered
   dict.from_pairs(after) == dict.empty || True
@@ -316,10 +316,10 @@ test prop_split_at_after_still_ordered(
 test split_lovelace_extracts_lovelace_and_remaining_assets() {
   let v = value.from_asset(ada_policy_id, ada_asset_name, 2_000_000)
     |> value.add("policy", "TOK", 7)
-  let lovelace, rest <- assets.split_lovelace(v)
+  let lovelace, rest <- prog_assets.split_lovelace(v)
   and {
     (lovelace == 2_000_000)?,
-    (rest == assets.from_value(value.from_asset("policy", "TOK", 7)))?,
+    (rest == prog_assets.from_value(value.from_asset("policy", "TOK", 7)))?,
   }
 }
 
@@ -327,7 +327,7 @@ test split_lovelace_extracts_lovelace_and_remaining_assets() {
 // loudly rather than mistaking the first asset policy for lovelace.
 test split_lovelace_fails_without_ada() fail {
   let v = value.from_asset("policy", "TOK", 7)
-  let lovelace, _rest <- assets.split_lovelace(v)
+  let lovelace, _rest <- prog_assets.split_lovelace(v)
   lovelace >= 0
 }
 

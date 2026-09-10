@@ -85,7 +85,7 @@ use types.{
 }
 use unfracking
 
-fn programmable_logic(self: Transaction, redeemer: TransferRedeemer) -> Bool {
+fn transfer_logic(self: Transaction, redeemer: TransferRedeemer) -> Bool {
   // Include both the base and global in the benchmark
   and {
     programmable_logic_base.programmable_logic_base.spend(
@@ -100,7 +100,7 @@ fn programmable_logic(self: Transaction, redeemer: TransferRedeemer) -> Bool {
       fixture.hash_validator_third_party,
       fixture.hash_validator_unfracking,
       TransferAct,
-      fixture.credential_validator_plg,
+      fixture.credential_validator_programmable_logic_global,
       self,
     ),
     transfer.transfer.withdraw(
@@ -131,7 +131,7 @@ fn third_party_logic(self: Transaction, redeemer: ThirdPartyRedeemer) -> Bool {
       fixture.hash_validator_third_party,
       fixture.hash_validator_unfracking,
       ThirdPartyAct,
-      fixture.credential_validator_plg,
+      fixture.credential_validator_programmable_logic_global,
       self,
     ),
     third_party.third_party.withdraw(
@@ -158,7 +158,7 @@ fn third_party_logic(self: Transaction, redeemer: ThirdPartyRedeemer) -> Bool {
 /// - no other tokens
 ///
 /// Source: https://preview.cexplorer.io/tx/d29a977a55ed54ef0f5c9d5c15f85a63e915349890f1952934809070430ef33a
-const fixture_baseline_3rd_party_1: Transaction = {
+const fixture_baseline_third_party_1: Transaction = {
     let policy_programmable_token: PolicyId = #"76658c4afd597ba7524f85bf32ac59d9e58856593a2e8399326f853a"
 
     let asset_name_programmable_token: AssetName = "tUSDT"
@@ -225,17 +225,17 @@ const fixture_baseline_3rd_party_1: Transaction = {
           "current",
         ),
       ],
-      withdrawals: fixture.withdrawals_3rd_party,
+      withdrawals: fixture.withdrawals_third_party,
     }
   }
 
-const fixture_redeemer_baseline_3rd_party_1: ThirdPartyRedeemer =
+const fixture_redeemer_baseline_third_party_1: ThirdPartyRedeemer =
   ThirdPartyRedeemer { registry_node_idx: 1, outputs_start_idx: 2 }
 
-test baseline_3rd_party_1() {
+test baseline_third_party_1() {
   third_party_logic(
-    fixture_baseline_3rd_party_1,
-    fixture_redeemer_baseline_3rd_party_1,
+    fixture_baseline_third_party_1,
+    fixture_redeemer_baseline_third_party_1,
   )
 }
 
@@ -248,7 +248,7 @@ test baseline_3rd_party_1() {
 /// - one partial and one total seizing
 /// - burning tokens
 ///
-const fixture_baseline_3rd_party_2: Transaction = {
+const fixture_baseline_third_party_2: Transaction = {
     let policy_programmable_token: PolicyId = #"76658c4afd597ba7524f85bf32ac59d9e58856593a2e8399326f853a"
 
     let asset_name_programmable_token: AssetName = "tUSDT"
@@ -370,30 +370,30 @@ const fixture_baseline_3rd_party_2: Transaction = {
           "current",
         ),
       ],
-      withdrawals: fixture.withdrawals_3rd_party,
+      withdrawals: fixture.withdrawals_third_party,
     }
   }
 
-const fixture_redeemer_baseline_3rd_party_2: ThirdPartyRedeemer =
+const fixture_redeemer_baseline_third_party_2: ThirdPartyRedeemer =
   ThirdPartyRedeemer { registry_node_idx: 1, outputs_start_idx: 2 }
 
-test baseline_3rd_party_2() {
+test baseline_third_party_2() {
   third_party_logic(
-    fixture_baseline_3rd_party_2,
-    fixture_redeemer_baseline_3rd_party_2,
+    fixture_baseline_third_party_2,
+    fixture_redeemer_baseline_third_party_2,
   )
 }
 
 /// --- Baseline 3 (3rd party) -------------------------------------------------------------
 ///
 /// A scenario with MANY seized programmable inputs
-const length_baseline_3rd_party_3: Int = 150
+const length_baseline_third_party_3: Int = 150
 
-const fixture_baseline_3rd_party_3: Transaction = {
+const fixture_baseline_third_party_3: Transaction = {
     let policy_programmable_token = #"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     let asset_name_programmable_token = "programmable"
 
-    let inputs = list.range(0, length_baseline_3rd_party_3 - 1)
+    let inputs = list.range(0, length_baseline_third_party_3 - 1)
       |> list.map(
           fn(output_index) {
             Input {
@@ -411,7 +411,7 @@ const fixture_baseline_3rd_party_3: Transaction = {
 
     let outputs = list.repeat(
       fixture.some_output_with_programmable_tokens([]),
-      length_baseline_3rd_party_3,
+      length_baseline_third_party_3,
     )
 
     Transaction {
@@ -426,7 +426,7 @@ const fixture_baseline_3rd_party_3: Transaction = {
               (
                 policy_programmable_token,
                 asset_name_programmable_token,
-                length_baseline_3rd_party_3,
+                length_baseline_third_party_3,
               ),
             ],
           ),
@@ -446,17 +446,17 @@ const fixture_baseline_3rd_party_3: Transaction = {
           "current",
         ),
       ],
-      withdrawals: fixture.withdrawals_3rd_party,
+      withdrawals: fixture.withdrawals_third_party,
     }
   }
 
-const fixture_redeemer_baseline_3rd_party_3: ThirdPartyRedeemer =
+const fixture_redeemer_baseline_third_party_3: ThirdPartyRedeemer =
   ThirdPartyRedeemer { registry_node_idx: 1, outputs_start_idx: 0 }
 
-test baseline_3rd_party_3() {
+test baseline_third_party_3() {
   third_party_logic(
-    fixture_baseline_3rd_party_3,
-    fixture_redeemer_baseline_3rd_party_3,
+    fixture_baseline_third_party_3,
+    fixture_redeemer_baseline_third_party_3,
   )
 }
 
@@ -526,7 +526,7 @@ const fixture_redeemer_plutarch_baseline_transfer: TransferRedeemer =
   TransferRedeemer { proofs: [TokenExists { node_idx: 1 }] }
 
 test plutarch_baseline_transfer() {
-  programmable_logic(
+  transfer_logic(
     fixture_plutarch_baseline_transfer,
     fixture_redeemer_plutarch_baseline_transfer,
   )
@@ -581,7 +581,7 @@ const fixture_plutarch_baseline_transfer_2: Transaction = {
         // Unregistered programmable tokens moved out of a programmable output
         Output {
           ..fixture.some_output_change("fake prog tokens"),
-          value: fixture.min_ada_value
+          value: fixture.some_ada_value
             |> assets.add(
                 policy_unexisting_token,
                 asset_name_unexisting_token,
@@ -639,7 +639,7 @@ const fixture_redeemer_plutarch_baseline_transfer_2: TransferRedeemer =
   }
 
 test plutarch_baseline_transfer_2() {
-  programmable_logic(
+  transfer_logic(
     fixture_plutarch_baseline_transfer_2,
     fixture_redeemer_plutarch_baseline_transfer_2,
   )
@@ -686,7 +686,7 @@ const fixture_plutarch_baseline_transfer_3: Transaction = {
         ),
         Output {
           ..fixture.some_output_change("change"),
-          value: fixture.min_ada_value
+          value: fixture.some_ada_value
             |> assets.add(policy_unexisting_token_1, "np1", 4)
             |> assets.add(policy_unexisting_token_2, "np2", 6),
         },
@@ -770,7 +770,7 @@ fn sample_many_tokens(size: Int) -> Fuzzer<(Transaction, TransferRedeemer)> {
 }
 
 bench many_tokens((self, redeemer) via sample_many_tokens) {
-  programmable_logic(self, redeemer)
+  transfer_logic(self, redeemer)
 }
 
 /// --- Bench: inputs ------------------------------------------------------------------------------
@@ -805,7 +805,7 @@ fn sample_many_inputs(size: Int) -> Fuzzer<(Transaction, TransferRedeemer)> {
 }
 
 bench many_inputs((self, redeemer) via sample_many_inputs) {
-  programmable_logic(self, redeemer)
+  transfer_logic(self, redeemer)
 }
 
 /// --- Bench: policies ----------------------------------------------------------------------------
@@ -828,7 +828,7 @@ fn sample_many_policies(size: Int) -> Fuzzer<(Transaction, TransferRedeemer)> {
 }
 
 bench many_policies((self, redeemer) via sample_many_policies) {
-  programmable_logic(self, redeemer)
+  transfer_logic(self, redeemer)
 }
 
 /// --- Bench: outputs ----------------------------------------------------------------------------
@@ -856,7 +856,7 @@ fn sample_many_outputs(size: Int) -> Fuzzer<(Transaction, TransferRedeemer)> {
 }
 
 bench many_outputs((self, redeemer) via sample_many_outputs) {
-  programmable_logic(self, redeemer)
+  transfer_logic(self, redeemer)
 }
 
 /// Unfracking composition (Finding 17): an unfracking tx runs base.spend
@@ -864,7 +864,7 @@ bench many_outputs((self, redeemer) via sample_many_outputs) {
 /// unfracking.withdraw where the invariants live — the transfer validator is
 /// not part of it. Benching both accounts for the full execution cost of the
 /// action.
-fn programmable_logic_unfracking(
+fn unfracking_logic(
   self: Transaction,
   unfracking_redeemer: UnfrackingRedeemer,
 ) -> Bool {
@@ -881,7 +881,7 @@ fn programmable_logic_unfracking(
       fixture.hash_validator_third_party,
       fixture.hash_validator_unfracking,
       UnfrackingAct,
-      fixture.credential_validator_plg,
+      fixture.credential_validator_programmable_logic_global,
       self,
     ),
     unfracking.unfracking.withdraw(
@@ -903,7 +903,7 @@ fn programmable_logic_unfracking(
 /// regroups into its own UTxO at the same owner address. The acted
 /// policy's registry hook withdraw-0 is part of the composition.
 ///
-/// Calls the `programmable_logic_unfracking` wrapper so the base.spend
+/// Calls the `unfracking_logic` wrapper so the base.spend
 /// dispatch cost is also accounted for.
 /// ------------------------------------------------------------------------------------------------
 test unfracking_baseline_two_policies() {
@@ -917,7 +917,7 @@ test unfracking_baseline_two_policies() {
     [(policy_a, "FOO", 100)],
   )
 
-  programmable_logic_unfracking(self, unfracking_redeemer)
+  unfracking_logic(self, unfracking_redeemer)
 }
 
 /// --- Bench: unfracking — policies axis (v2) -------------------------------------------------------
@@ -952,5 +952,5 @@ fn sample_unfracking_many_policies(
 bench unfracking_many_policies(
   (self, unfracking_redeemer) via sample_unfracking_many_policies,
 ) {
-  programmable_logic_unfracking(self, unfracking_redeemer)
+  unfracking_logic(self, unfracking_redeemer)
 }

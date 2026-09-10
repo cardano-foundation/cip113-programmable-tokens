@@ -16,7 +16,7 @@
 //// Note on `fail` vs `!call_…`: the withdrawal lookup is
 //// `pairs.has_key_or_fail`, which ABORTS when the key is absent, so every
 //// withdraw-side rejection is a `test … fail`. `publish` returns a Bool, so its
-//// rejection is `!plg_publish(…)`.
+//// rejection is `!programmable_logic_global_publish(…)`.
 
 use aiken/collection/list
 use cardano/address.{Credential, Script, VerificationKey}
@@ -34,19 +34,22 @@ use types.{
 
 /// PLG parameterised with the three fixture delegate hashes, invoked at the
 /// dispatcher's own credential (the value the params datum carries as
-/// `plg_cred`, and the account programmable_logic_base witnesses).
-fn call_plg(redeemer: ProgrammableLogicGlobalRedeemer, tx: Transaction) -> Bool {
+/// `programmable_logic_global_cred`, and the account programmable_logic_base witnesses).
+fn call_programmable_logic_global(
+  redeemer: ProgrammableLogicGlobalRedeemer,
+  tx: Transaction,
+) -> Bool {
   programmable_logic_global.programmable_logic_global.withdraw(
     fixture.hash_validator_transfer,
     fixture.hash_validator_third_party,
     fixture.hash_validator_unfracking,
     redeemer,
-    fixture.credential_validator_plg,
+    fixture.credential_validator_programmable_logic_global,
     tx,
   )
 }
 
-fn plg_publish(certificate: Certificate) -> Bool {
+fn programmable_logic_global_publish(certificate: Certificate) -> Bool {
   programmable_logic_global.programmable_logic_global.publish(
     fixture.hash_validator_transfer,
     fixture.hash_validator_third_party,
@@ -59,7 +62,9 @@ fn plg_publish(certificate: Certificate) -> Bool {
 
 /// A transaction carrying exactly the given withdrawal set — the only field
 /// PLG looks at.
-fn plg_tx(withdrawals: Pairs<Credential, Int>) -> Transaction {
+fn programmable_logic_global_tx(
+  withdrawals: Pairs<Credential, Int>,
+) -> Transaction {
   Transaction { ..transaction.placeholder, withdrawals }
 }
 
@@ -76,51 +81,60 @@ fn without(
 // Each arm is satisfied by its own delegate
 // ---------------------------------------------------------------------------
 
-test plg_transfer_act_passes_when_transfer_delegate_invoked() {
-  call_plg(TransferAct, plg_tx(fixture.withdrawals_transfer))
+test programmable_logic_global_transfer_act_passes_when_transfer_delegate_invoked() {
+  call_programmable_logic_global(
+    TransferAct,
+    programmable_logic_global_tx(fixture.withdrawals_transfer),
+  )
 }
 
-test plg_third_party_act_passes_when_third_party_delegate_invoked() {
-  call_plg(ThirdPartyAct, plg_tx(fixture.withdrawals_3rd_party))
+test programmable_logic_global_third_party_act_passes_when_third_party_delegate_invoked() {
+  call_programmable_logic_global(
+    ThirdPartyAct,
+    programmable_logic_global_tx(fixture.withdrawals_third_party),
+  )
 }
 
-test plg_unfracking_act_passes_when_unfracking_delegate_invoked() {
-  call_plg(UnfrackingAct, plg_tx(fixture.withdrawals_unfracking))
+test programmable_logic_global_unfracking_act_passes_when_unfracking_delegate_invoked() {
+  call_programmable_logic_global(
+    UnfrackingAct,
+    programmable_logic_global_tx(fixture.withdrawals_unfracking),
+  )
 }
 
 // ---------------------------------------------------------------------------
 // Each arm rejects when its own delegate is absent
 // ---------------------------------------------------------------------------
 
-test plg_transfer_act_fails_when_transfer_delegate_absent() fail {
-  let tx = plg_tx(
+test programmable_logic_global_transfer_act_fails_when_transfer_delegate_absent() fail {
+  let tx = programmable_logic_global_tx(
     without(fixture.withdrawals_transfer, fixture.credential_validator_transfer),
   )
-  call_plg(TransferAct, tx)
+  call_programmable_logic_global(TransferAct, tx)
 }
 
-test plg_third_party_act_fails_when_third_party_delegate_absent() fail {
-  let tx = plg_tx(
+test programmable_logic_global_third_party_act_fails_when_third_party_delegate_absent() fail {
+  let tx = programmable_logic_global_tx(
     without(
-      fixture.withdrawals_3rd_party,
+      fixture.withdrawals_third_party,
       fixture.credential_validator_third_party,
     ),
   )
-  call_plg(ThirdPartyAct, tx)
+  call_programmable_logic_global(ThirdPartyAct, tx)
 }
 
-test plg_unfracking_act_fails_when_unfracking_delegate_absent() fail {
-  let tx = plg_tx(
+test programmable_logic_global_unfracking_act_fails_when_unfracking_delegate_absent() fail {
+  let tx = programmable_logic_global_tx(
     without(
       fixture.withdrawals_unfracking,
       fixture.credential_validator_unfracking,
     ),
   )
-  call_plg(UnfrackingAct, tx)
+  call_programmable_logic_global(UnfrackingAct, tx)
 }
 
-test plg_fails_with_empty_withdrawals() fail {
-  call_plg(TransferAct, plg_tx([]))
+test programmable_logic_global_fails_with_empty_withdrawals() fail {
+  call_programmable_logic_global(TransferAct, programmable_logic_global_tx([]))
 }
 
 // ---------------------------------------------------------------------------
@@ -132,45 +146,57 @@ test plg_fails_with_empty_withdrawals() fail {
 // so cannot be composed with `!`.
 // ---------------------------------------------------------------------------
 
-test plg_transfer_act_fails_when_only_third_party_delegate_present() fail {
-  call_plg(
+test programmable_logic_global_transfer_act_fails_when_only_third_party_delegate_present() fail {
+  call_programmable_logic_global(
     TransferAct,
-    plg_tx([Pair(fixture.credential_validator_third_party, 0)]),
+    programmable_logic_global_tx(
+      [Pair(fixture.credential_validator_third_party, 0)],
+    ),
   )
 }
 
-test plg_transfer_act_fails_when_only_unfracking_delegate_present() fail {
-  call_plg(
+test programmable_logic_global_transfer_act_fails_when_only_unfracking_delegate_present() fail {
+  call_programmable_logic_global(
     TransferAct,
-    plg_tx([Pair(fixture.credential_validator_unfracking, 0)]),
+    programmable_logic_global_tx(
+      [Pair(fixture.credential_validator_unfracking, 0)],
+    ),
   )
 }
 
-test plg_third_party_act_fails_when_only_transfer_delegate_present() fail {
-  call_plg(
+test programmable_logic_global_third_party_act_fails_when_only_transfer_delegate_present() fail {
+  call_programmable_logic_global(
     ThirdPartyAct,
-    plg_tx([Pair(fixture.credential_validator_transfer, 0)]),
+    programmable_logic_global_tx(
+      [Pair(fixture.credential_validator_transfer, 0)],
+    ),
   )
 }
 
-test plg_third_party_act_fails_when_only_unfracking_delegate_present() fail {
-  call_plg(
+test programmable_logic_global_third_party_act_fails_when_only_unfracking_delegate_present() fail {
+  call_programmable_logic_global(
     ThirdPartyAct,
-    plg_tx([Pair(fixture.credential_validator_unfracking, 0)]),
+    programmable_logic_global_tx(
+      [Pair(fixture.credential_validator_unfracking, 0)],
+    ),
   )
 }
 
-test plg_unfracking_act_fails_when_only_transfer_delegate_present() fail {
-  call_plg(
+test programmable_logic_global_unfracking_act_fails_when_only_transfer_delegate_present() fail {
+  call_programmable_logic_global(
     UnfrackingAct,
-    plg_tx([Pair(fixture.credential_validator_transfer, 0)]),
+    programmable_logic_global_tx(
+      [Pair(fixture.credential_validator_transfer, 0)],
+    ),
   )
 }
 
-test plg_unfracking_act_fails_when_only_third_party_delegate_present() fail {
-  call_plg(
+test programmable_logic_global_unfracking_act_fails_when_only_third_party_delegate_present() fail {
+  call_programmable_logic_global(
     UnfrackingAct,
-    plg_tx([Pair(fixture.credential_validator_third_party, 0)]),
+    programmable_logic_global_tx(
+      [Pair(fixture.credential_validator_third_party, 0)],
+    ),
   )
 }
 
@@ -181,9 +207,12 @@ test plg_unfracking_act_fails_when_only_third_party_delegate_present() fail {
 // A verification key carrying the transfer delegate's hash is a different
 // credential, and a withdrawal at it does not satisfy the arm — the delegate's
 // script must actually run.
-test plg_transfer_act_fails_on_vkey_credential_with_the_delegate_hash() fail {
+test programmable_logic_global_transfer_act_fails_on_vkey_credential_with_the_delegate_hash() fail {
   let impostor: Credential = VerificationKey(fixture.hash_validator_transfer)
-  call_plg(TransferAct, plg_tx([Pair(impostor, 0)]))
+  call_programmable_logic_global(
+    TransferAct,
+    programmable_logic_global_tx([Pair(impostor, 0)]),
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -192,10 +221,10 @@ test plg_transfer_act_fails_on_vkey_credential_with_the_delegate_hash() fail {
 
 // The dispatcher's credential must be registrable as a stake credential —
 // without this, its withdraw-0 could never be invoked at all.
-test plg_publish_accepts_register_credential() {
-  plg_publish(
+test programmable_logic_global_publish_accepts_register_credential() {
+  programmable_logic_global_publish(
     RegisterCredential {
-      credential: Script(fixture.hash_validator_plg),
+      credential: Script(fixture.hash_validator_programmable_logic_global),
       deposit: Never,
     },
   )
@@ -203,10 +232,10 @@ test plg_publish_accepts_register_credential() {
 
 // Every other certificate kind is refused: the credential exists to be
 // withdrawn from, never to delegate, retire or vote.
-test plg_publish_rejects_other_certificates() {
-  !plg_publish(
+test programmable_logic_global_publish_rejects_other_certificates() {
+  !programmable_logic_global_publish(
     UnregisterCredential {
-      credential: Script(fixture.hash_validator_plg),
+      credential: Script(fixture.hash_validator_programmable_logic_global),
       refund: Never,
     },
   )

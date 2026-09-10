@@ -1,4 +1,4 @@
-use list.{has_or_fail, skip_assert_or_fail}
+use unsafe_list.{has_or_fail, skip_assert_or_fail}
 
 // ----------------------------------------------------------------- has_or_fail
 

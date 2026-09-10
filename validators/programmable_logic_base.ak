@@ -18,7 +18,7 @@
 //// every token address. It runs once per programmable INPUT, so every
 //// instruction here is multiplied by the number of tokens a transaction moves.
 //// It therefore does exactly three things: locate the params datum, read ONE
-//// credential out of it — `plg_cred`, FIELD 0, so the read costs a single
+//// credential out of it — `programmable_logic_global_cred`, FIELD 0, so the read costs a single
 //// `head_list` and no `tail_list` walk at all — and require that credential's
 //// withdraw-0 at the witnessed index. Which ACTION is being performed —
 //// transfer, third-party, unfracking — is none of its business;
@@ -71,7 +71,7 @@ validator programmable_logic_base(params_policy: PolicyId) {
 
     let Pair(witnessed, _) = list.expect_at(self.withdrawals, wdrl_idx)
 
-    (witnessed == params.plg_cred_field(fields))?
+    (witnessed == params.programmable_logic_global_cred_field(fields))?
   }
 
   else(_) {

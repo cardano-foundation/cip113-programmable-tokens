@@ -3,7 +3,7 @@
 ////
 //// These exercise `third_party.withdraw` with a `ThirdPartyRedeemer` — the
 //// same invariants the inline `ThirdPartyAct` arm of the former programmable_logic_global coordinator
-//// used to enforce (`validate_3rd_party` in programmable_logic/third_party),
+//// used to enforce (`validate_third_party` in programmable_logic/third_party),
 //// now hosted in their own script. The transaction always presents the
 //// subject policy's registry node as a reference input and the issuer's
 //// third_party_transfer_logic_script withdrawal; the framework validator's
@@ -64,7 +64,7 @@ fn third_party_registry_node_ref_input(
             key,
             next: #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
             transfer_logic_script: fixture.credential_transfer_logic,
-            third_party_transfer_logic_script: issuer_third_party_cred,
+            third_party_logic_script: issuer_third_party_cred,
             minting_logic_script: empty_vkey,
             unfracking_logic_script: empty_vkey,
             global_state_cs: "",
@@ -1080,7 +1080,7 @@ test third_party_act_reference_script_swapped_fails() fail {
 
 // ---------------------------------------------------------------------------
 // [AL] issue #96: per-pair lovelace must RATCHET (output >= input), not be
-// strictly equal. `split_at` runs on the full Value, so the ada entry (empty
+// strictly equal. `value_split_at` runs on the full Value, so the ada entry (empty
 // policy id, sorts first) lands in the `before` half and its byte-equality
 // forces the paired output to carry EXACTLY the input's lovelace. If a
 // protocol-parameter update raises the min-ADA calculation above an existing

@@ -18,10 +18,10 @@
 //// to 66 and a 128-byte one to 134. The tests below pin that arithmetic.
 
 use aiken/builtin
-use assets
 use cardano/address.{Address, Credential, Inline, Script}
 use cardano/assets.{ada_asset_name, ada_policy_id} as value
 use cardano/transaction.{Datum, DatumHash, InlineDatum, NoDatum, Output}
+use prog_assets
 
 const prog_cred: Credential =
   Script(#"a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1")
@@ -42,7 +42,10 @@ const payload_64: ByteArray =
 
 /// A PLB output (payment credential = prog_cred, inline stake credential) with
 /// the given datum and reference script.
-fn plb_output(datum: Datum, reference_script: Option<ByteArray>) -> Output {
+fn programmable_logic_base_output(
+  datum: Datum,
+  reference_script: Option<ByteArray>,
+) -> Output {
   Output {
     address: Address {
       payment_credential: prog_cred,
@@ -61,18 +64,22 @@ fn plb_output(datum: Datum, reference_script: Option<ByteArray>) -> Output {
 // -------------------------------------------------------- predicate: accepts
 
 test seizable_accepts_no_datum() {
-  assets.is_seizable_output_shape(plb_output(NoDatum, None))
+  prog_assets.is_seizable_output_shape(
+    programmable_logic_base_output(NoDatum, None),
+  )
 }
 
 test seizable_accepts_inline_datum() {
-  assets.is_seizable_output_shape(plb_output(InlineDatum(as_data(0)), None))
+  prog_assets.is_seizable_output_shape(
+    programmable_logic_base_output(InlineDatum(as_data(0)), None),
+  )
 }
 
 // Issue #106 vector 3: an inline datum exactly ON the bound is accepted —
 // `<=`, not `<`. 64 raw bytes serialise to 66, so 66 is the tight bound.
 test seizable_accepts_inline_datum_at_the_bound() {
-  assets.is_seizable_output_shape_bounded(
-    plb_output(InlineDatum(as_data(payload_64)), None),
+  prog_assets.is_seizable_output_shape_bounded(
+    programmable_logic_base_output(InlineDatum(as_data(payload_64)), None),
     66,
   )
 }
@@ -80,15 +87,21 @@ test seizable_accepts_inline_datum_at_the_bound() {
 // A NoDatum output is unaffected by the bound, even at zero — there is no
 // datum to reproduce, so nothing to charge a seizure for.
 test seizable_accepts_no_datum_under_zero_bound() {
-  assets.is_seizable_output_shape_bounded(plb_output(NoDatum, None), 0)
+  prog_assets.is_seizable_output_shape_bounded(
+    programmable_logic_base_output(NoDatum, None),
+    0,
+  )
 }
 
 // The unit datum every off-chain builder writes (`Constr(0, [])`, 3 bytes
 // serialised) survives a tight bound — the bound must never break the
 // universal case.
 test seizable_accepts_unit_datum_under_tight_bound() {
-  assets.is_seizable_output_shape_bounded(
-    plb_output(InlineDatum(builtin.constr_data(0, [])), None),
+  prog_assets.is_seizable_output_shape_bounded(
+    programmable_logic_base_output(
+      InlineDatum(builtin.constr_data(0, [])),
+      None,
+    ),
     8,
   )
 }
@@ -96,19 +109,23 @@ test seizable_accepts_unit_datum_under_tight_bound() {
 // -------------------------------------------------------- predicate: rejects
 
 test seizable_rejects_datum_hash() {
-  !assets.is_seizable_output_shape(plb_output(DatumHash(datum_hash_32), None))
+  !prog_assets.is_seizable_output_shape(
+    programmable_logic_base_output(DatumHash(datum_hash_32), None),
+  )
 }
 
 test seizable_rejects_reference_script() {
-  !assets.is_seizable_output_shape(plb_output(NoDatum, Some(ref_script_28)))
+  !prog_assets.is_seizable_output_shape(
+    programmable_logic_base_output(NoDatum, Some(ref_script_28)),
+  )
 }
 
 // Issue #106 vector 3: one byte over the bound is rejected. Same payload as
 // `seizable_accepts_inline_datum_at_the_bound`, bound lowered by one — the
 // single delta between the two tests is the bound itself.
 test seizable_rejects_inline_datum_over_the_bound() {
-  !assets.is_seizable_output_shape_bounded(
-    plb_output(InlineDatum(as_data(payload_64)), None),
+  !prog_assets.is_seizable_output_shape_bounded(
+    programmable_logic_base_output(InlineDatum(as_data(payload_64)), None),
     65,
   )
 }
@@ -119,8 +136,8 @@ test seizable_rejects_inline_datum_over_the_bound() {
 // result forces the collect call to run — a discarded pure result would be
 // optimized away, and the abort with it.)
 test collect_output_assets_rejects_datum_hash() fail {
-  assets.collect_output_assets(
-    [plb_output(DatumHash(datum_hash_32), None)],
+  prog_assets.collect_output_assets(
+    [programmable_logic_base_output(DatumHash(datum_hash_32), None)],
     prog_cred,
     unbounded,
   ) == []
@@ -128,8 +145,8 @@ test collect_output_assets_rejects_datum_hash() fail {
 
 // ... and on a reference-script PLB output.
 test collect_output_assets_rejects_reference_script() fail {
-  assets.collect_output_assets(
-    [plb_output(NoDatum, Some(ref_script_28))],
+  prog_assets.collect_output_assets(
+    [programmable_logic_base_output(NoDatum, Some(ref_script_28))],
     prog_cred,
     unbounded,
   ) == []
@@ -138,8 +155,11 @@ test collect_output_assets_rejects_reference_script() fail {
 // Control: inline-datum and no-datum PLB outputs pass the gate (ada-only, so
 // the collected token set is empty).
 test collect_output_assets_accepts_clean_outputs() {
-  assets.collect_output_assets(
-    [plb_output(NoDatum, None), plb_output(InlineDatum(as_data(1)), None)],
+  prog_assets.collect_output_assets(
+    [
+      programmable_logic_base_output(NoDatum, None),
+      programmable_logic_base_output(InlineDatum(as_data(1)), None),
+    ],
     prog_cred,
     unbounded,
   ) == []
@@ -150,8 +170,8 @@ test collect_output_assets_accepts_clean_outputs() {
 // The transfer creation gate aborts on an over-sized inline datum, so an
 // unseizable UTxO can never be created in the first place.
 test collect_output_assets_rejects_oversized_inline_datum() fail {
-  assets.collect_output_assets(
-    [plb_output(InlineDatum(as_data(payload_64)), None)],
+  prog_assets.collect_output_assets(
+    [programmable_logic_base_output(InlineDatum(as_data(payload_64)), None)],
     prog_cred,
     65,
   ) == []
@@ -160,8 +180,8 @@ test collect_output_assets_rejects_oversized_inline_datum() fail {
 // Control for the above: the same output passes once the bound admits it.
 // The only delta against the failure case is the bound.
 test collect_output_assets_accepts_inline_datum_within_bound() {
-  assets.collect_output_assets(
-    [plb_output(InlineDatum(as_data(payload_64)), None)],
+  prog_assets.collect_output_assets(
+    [programmable_logic_base_output(InlineDatum(as_data(payload_64)), None)],
     prog_cred,
     66,
   ) == []
@@ -176,8 +196,8 @@ test collect_output_assets_accepts_inline_datum_within_bound() {
 // reject it. Same output as `seizable_rejects_inline_datum_over_the_bound`;
 // the delta is only WHICH predicate the creation site calls.
 test seizable_unbounded_accepts_large_inline_datum() {
-  assets.is_seizable_output_shape(
-    plb_output(InlineDatum(as_data(payload_64)), None),
+  prog_assets.is_seizable_output_shape(
+    programmable_logic_base_output(InlineDatum(as_data(payload_64)), None),
   )
 }
 // (`seizable_rejects_datum_hash` / `seizable_rejects_reference_script` above

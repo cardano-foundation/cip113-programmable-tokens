@@ -130,7 +130,7 @@ const seize_redeemer: ThirdPartyRedeemer =
 const transfer_redeemer: TransferRedeemer =
   TransferRedeemer { proofs: [TokenExists { node_idx: 1 }] }
 
-/// `baseline_3rd_party_1` with the seized input and its paired continuing
+/// `baseline_third_party_1` with the seized input and its paired continuing
 /// output both carrying `datum` — the shape `third_party` must reproduce.
 fn seize_tx(datum: Data) -> Transaction {
   let paired_address = Address {
@@ -185,7 +185,7 @@ fn seize_tx(datum: Data) -> Transaction {
         "current",
       ),
     ],
-    withdrawals: fixture.withdrawals_3rd_party,
+    withdrawals: fixture.withdrawals_third_party,
   }
 }
 

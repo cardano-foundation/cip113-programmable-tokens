@@ -320,7 +320,7 @@ predates it.
 `plg_cred` at index 0 is load-bearing, not cosmetic: it is the only per-programmable-input
 datum read in the protocol, and at index 0 its accessor is a bare `head_list` with no
 `tail_list` walk. Measured saving, PLB's whole per-input datum-read cost
-(`cost_v6_split_plg_only`): **483,167 → 482,703 mem (-464) and 152,393,931 → 152,166,605 cpu
+(`cost_six_field_params_split_programmable_logic_global_only`): **483,167 → 482,703 mem (-464) and 152,393,931 → 152,166,605 cpu
 (-227,326, -0.149%)**, multiplied by every programmable input a transaction spends.
 
 | Surface | Change | Breaking? |
@@ -612,6 +612,24 @@ repository's own vocabulary).** Verdict REJECT on two findings, both fixed on th
   a `Credential` at field 1, and a `Withdraw`-purpose redeemer decoding as `Pairs<PolicyId, Data>`.
   Field 1's position and the withdraw-0 shape of every future `issuance_logic` are as immovable as
   PLB's field 0 — which is why the field was moved to 1 now, before genesis freezes it.
+
+---
+
+## PROVISIONAL — subject to change: `rc/documentation-pass` — release-candidate naming pass (T-121)
+
+Names only. Every validator's `compiledCode` and `hash` identical to `9545680`; no redeploy implied.
+Positional CBOR of every datum/redeemer unchanged; what breaks is anything generated from blueprint
+titles or keyed by field/parameter NAME.
+
+| Surface | Change | Breaking? |
+|---|---|---|
+| Params datum type | `definitions` key `programmable_logic/params/ProgrammableLogicGlobalParams` → `programmable_logic/params/ProtocolParams`; `$ref` in `protocol_params.protocol_params.spend` datum | YES for generated types / by-name lookups; CBOR unchanged |
+| Params datum field 0 | title `plg_cred` → `programmable_logic_global_cred` (accessor `programmable_logic_global_cred_field`) | YES for named-field builders/parsers; index 0 unchanged |
+| `issuance_mint` redeemer | `types/IssuanceRedeemer` → `types/IssuanceMintRedeemer` (`$ref` in `issuance_mint.issuance_mint.mint`) | YES for generated types; shape `{ params_idx }` unchanged |
+| `issuance_logic` parameter 0 | title `programmable_logic_base` → `programmable_logic_base_cred` (withdraw/publish/else) | YES for by-name parameter application; position unchanged |
+| `transfer`, `third_party`, `unfracking` parameter 0 | title `prog_logic_cred` → `programmable_logic_base_cred` (9 titles) | same |
+| `RegistryNode` field 4 | title `third_party_transfer_logic_script` → `third_party_logic_script` | YES for named-field builders/parsers; index 4 unchanged |
+| Blueprint `description` strings | change wherever a doc comment cross-referenced a renamed identifier (6 definitions in this slice) | no schema effect |
 
 ---
 

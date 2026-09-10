@@ -1,8 +1,8 @@
 // Unit tests for linked list validation logic
 use cardano/address.{Script}
 use linked_list.{
-  is_field_updated_registry_node, is_inserted_directory_node,
-  is_updated_directory_node,
+  is_field_updated_registry_node, is_inserted_registry_node,
+  is_updated_registry_node,
 }
 use registry_node.{RegistryNode, empty_vkey}
 use utils.{bytearray_lt}
@@ -25,7 +25,7 @@ test is_updated_directory_node_works() {
     key: original_key,
     next: #"cc",
     transfer_logic_script: Script(#"11"),
-    third_party_transfer_logic_script: Script(#"22"),
+    third_party_logic_script: Script(#"22"),
     minting_logic_script: Script(#"33"),
     unfracking_logic_script: empty_vkey,
     global_state_cs: #"",
@@ -35,13 +35,13 @@ test is_updated_directory_node_works() {
     key: original_key,
     next: insert_key,
     transfer_logic_script: Script(#"11"),
-    third_party_transfer_logic_script: Script(#"22"),
+    third_party_logic_script: Script(#"22"),
     minting_logic_script: Script(#"33"),
     unfracking_logic_script: empty_vkey,
     global_state_cs: #"",
   }
 
-  is_updated_directory_node(updated_node, original, insert_key)
+  is_updated_registry_node(updated_node, original, insert_key)
 }
 
 // Test is_updated_directory_node negative — wrong next key
@@ -54,7 +54,7 @@ test is_updated_directory_node_negative() {
     key: original_key,
     next: #"cc",
     transfer_logic_script: Script(#"11"),
-    third_party_transfer_logic_script: Script(#"22"),
+    third_party_logic_script: Script(#"22"),
     minting_logic_script: Script(#"33"),
     unfracking_logic_script: empty_vkey,
     global_state_cs: #"",
@@ -64,13 +64,13 @@ test is_updated_directory_node_negative() {
     key: original_key,
     next: wrong_key,
     transfer_logic_script: Script(#"11"),
-    third_party_transfer_logic_script: Script(#"22"),
+    third_party_logic_script: Script(#"22"),
     minting_logic_script: Script(#"33"),
     unfracking_logic_script: empty_vkey,
     global_state_cs: #"",
   }
 
-  !is_updated_directory_node(node, original, insert_key)
+  !is_updated_registry_node(node, original, insert_key)
 }
 
 // Test is_inserted_directory_node
@@ -94,17 +94,17 @@ test is_inserted_directory_node_works() {
     key: insert_key,
     next: next_key,
     transfer_logic_script: transfer_logic,
-    third_party_transfer_logic_script: third_party_transfer_logic,
+    third_party_logic_script: third_party_transfer_logic,
     minting_logic_script: minting_logic,
     unfracking_logic_script: empty_vkey,
     global_state_cs: global_state,
   }
 
-  is_inserted_directory_node(node, insert_key, next_key, minting_logic)
+  is_inserted_registry_node(node, insert_key, next_key, minting_logic)
 }
 
 // Test directory node ordering
-test directory_node_ordering() {
+test bytearray_lt_orders_three_28_byte_keys() {
   let key1 = #"0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c"
   let key2 = #"1112131415161718191a1b1c0d0e0f0102030405060708090a0b0c0d"
   let key3 = #"2122232425262728292a2b2c2d2e2f303132333435363738393a3b3c"
@@ -122,7 +122,7 @@ test origin_node_empty_keys() {
     key: empty,
     next: empty,
     transfer_logic_script: Script(#"11"),
-    third_party_transfer_logic_script: Script(#"22"),
+    third_party_logic_script: Script(#"22"),
     minting_logic_script: Script(#"33"),
     unfracking_logic_script: empty_vkey,
     global_state_cs: #"",
@@ -147,7 +147,7 @@ test is_updated_directory_node_rejects_transfer_logic_swap() fail {
     key: #"aa",
     next: #"cc",
     transfer_logic_script: Script(#"11"),
-    third_party_transfer_logic_script: Script(#"22"),
+    third_party_logic_script: Script(#"22"),
     minting_logic_script: Script(#"33"),
     unfracking_logic_script: empty_vkey,
     global_state_cs: #"",
@@ -158,13 +158,13 @@ test is_updated_directory_node_rejects_transfer_logic_swap() fail {
     next: #"bb",
     transfer_logic_script: Script(#"deadbeef"),
     // ^^^ ATTACKER'S SCRIPT — original was Script(#"11")
-    third_party_transfer_logic_script: Script(#"22"),
+    third_party_logic_script: Script(#"22"),
     minting_logic_script: Script(#"33"),
     unfracking_logic_script: empty_vkey,
     global_state_cs: #"",
   }
 
-  is_updated_directory_node(tampered_node, original, #"bb")
+  is_updated_registry_node(tampered_node, original, #"bb")
 }
 
 /// third_party_transfer_logic_script swap is now REJECTED.
@@ -174,7 +174,7 @@ test is_updated_directory_node_rejects_third_party_logic_swap() fail {
     key: #"aa",
     next: #"cc",
     transfer_logic_script: Script(#"11"),
-    third_party_transfer_logic_script: Script(#"22"),
+    third_party_logic_script: Script(#"22"),
     minting_logic_script: Script(#"33"),
     unfracking_logic_script: empty_vkey,
     global_state_cs: #"",
@@ -184,14 +184,14 @@ test is_updated_directory_node_rejects_third_party_logic_swap() fail {
     key: #"aa",
     next: #"bb",
     transfer_logic_script: Script(#"11"),
-    third_party_transfer_logic_script: Script(#"deadbeef"),
+    third_party_logic_script: Script(#"deadbeef"),
     // ^^^ ATTACKER'S SCRIPT — original was Script(#"22")
     minting_logic_script: Script(#"33"),
     unfracking_logic_script: empty_vkey,
     global_state_cs: #"",
   }
 
-  is_updated_directory_node(tampered_node, original, #"bb")
+  is_updated_registry_node(tampered_node, original, #"bb")
 }
 
 /// global_state_cs tampering is now REJECTED.
@@ -201,7 +201,7 @@ test is_updated_directory_node_rejects_global_state_swap() fail {
     key: #"aa",
     next: #"cc",
     transfer_logic_script: Script(#"11"),
-    third_party_transfer_logic_script: Script(#"22"),
+    third_party_logic_script: Script(#"22"),
     minting_logic_script: Script(#"33"),
     unfracking_logic_script: empty_vkey,
     global_state_cs: #"",
@@ -211,14 +211,14 @@ test is_updated_directory_node_rejects_global_state_swap() fail {
     key: #"aa",
     next: #"bb",
     transfer_logic_script: Script(#"11"),
-    third_party_transfer_logic_script: Script(#"22"),
+    third_party_logic_script: Script(#"22"),
     minting_logic_script: Script(#"33"),
     unfracking_logic_script: empty_vkey,
     global_state_cs: #"deaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddead",
   }
 
   // ^^^ TAMPERED — original was #""
-  is_updated_directory_node(tampered_node, original, #"bb")
+  is_updated_registry_node(tampered_node, original, #"bb")
 }
 
 test is_field_updated_registry_node_rejects_registry_nodes_differ() fail {
@@ -228,7 +228,7 @@ test is_field_updated_registry_node_rejects_registry_nodes_differ() fail {
     transfer_logic_script: Script(
       #"11111111111111111111111111111111111111111111111111111111",
     ),
-    third_party_transfer_logic_script: Script(
+    third_party_logic_script: Script(
       #"11111111111111111111111111111111111111111111111111111111",
     ),
     minting_logic_script: Script(
@@ -244,7 +244,7 @@ test is_field_updated_registry_node_rejects_registry_nodes_differ() fail {
     transfer_logic_script: Script(
       #"11111111111111111111111111111111111111111111111111111111",
     ),
-    third_party_transfer_logic_script: Script(
+    third_party_logic_script: Script(
       #"11111111111111111111111111111111111111111111111111111111",
     ),
     minting_logic_script: Script(
@@ -264,7 +264,7 @@ test is_field_updated_registry_node_update_true() {
     transfer_logic_script: Script(
       #"11111111111111111111111111111111111111111111111111111111",
     ),
-    third_party_transfer_logic_script: Script(
+    third_party_logic_script: Script(
       #"22222222222222222222222222222222222222222222222222222222",
     ),
     minting_logic_script: Script(#"33"),
@@ -277,7 +277,7 @@ test is_field_updated_registry_node_update_true() {
     transfer_logic_script: Script(
       #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
     ),
-    third_party_transfer_logic_script: Script(
+    third_party_logic_script: Script(
       #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
     ),
     minting_logic_script: Script(#"33"),
@@ -304,7 +304,7 @@ fn valid_inserted_node() -> RegistryNode {
     transfer_logic_script: Script(
       #"11111111111111111111111111111111111111111111111111111111",
     ),
-    third_party_transfer_logic_script: Script(
+    third_party_logic_script: Script(
       #"22222222222222222222222222222222222222222222222222222222",
     ),
     minting_logic_script: Script(
@@ -324,7 +324,7 @@ test is_inserted_directory_node_accepts_set_unfracking_hook() {
       #"55555555555555555555555555555555555555555555555555555555",
     ),
   }
-  is_inserted_directory_node(
+  is_inserted_registry_node(
     node,
     node.key,
     node.next,
@@ -338,7 +338,7 @@ test is_inserted_directory_node_rejects_malformed_unfracking_hook() fail {
     ..valid_inserted_node(),
     unfracking_logic_script: Script(#"5555"),
   }
-  is_inserted_directory_node(
+  is_inserted_registry_node(
     node,
     node.key,
     node.next,
@@ -355,7 +355,7 @@ fn updatable_node() -> RegistryNode {
     transfer_logic_script: Script(
       #"11111111111111111111111111111111111111111111111111111111",
     ),
-    third_party_transfer_logic_script: Script(
+    third_party_logic_script: Script(
       #"22222222222222222222222222222222222222222222222222222222",
     ),
     minting_logic_script: Script(#"33"),

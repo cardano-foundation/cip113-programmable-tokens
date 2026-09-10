@@ -18,7 +18,7 @@
 //// Composition of an unfracking transaction (four withdraw-0s at most):
 ////
 ////   * programmable_logic_base.spend — one run per PLB input; requires the
-////     dispatcher's withdraw-0, read from `plg_cred` in the protocol-params
+////     dispatcher's withdraw-0, read from `programmable_logic_global_cred` in the protocol-params
 ////     datum. PLB does not know this validator exists.
 ////   * programmable_logic_global.withdraw, redeemer `UnfrackingAct` —
 ////     requires THIS validator's withdraw-0, against the hash baked into it
@@ -37,23 +37,23 @@
 //// every script present must still pass — so no new authority is created
 //// in either direction.
 ////
-//// This validator reads NO datum. `prog_logic_cred`, `registry_node_cs` and
+//// This validator reads NO datum. `programmable_logic_base_cred`, `registry_node_cs` and
 //// the seizure datum bound are compile-time parameters, and its own hash is
 //// baked into `programmable_logic_global` — so there is no circular
 //// dependency: compile this validator, then compile the dispatcher against
 //// its hash, then name the dispatcher in the protocol-params datum.
 
 use aiken/collection/list as aiken_list
-use assets
 use cardano/address.{Credential}
 use cardano/assets.{PolicyId} as value
 use cardano/certificate.{Certificate, RegisterCredential}
 use cardano/transaction.{InlineDatum, Input, Transaction}
+use prog_assets
 use programmable_logic/unfracking as invariants
 use types.{UnfrackingRedeemer}
 
 validator unfracking(
-  prog_logic_cred: Credential,
+  programmable_logic_base_cred: Credential,
   registry_node_cs: PolicyId,
   max_inline_datum_bytes: Int,
 ) {
@@ -82,7 +82,7 @@ validator unfracking(
 
     invariants.validate_unfracking(
       self,
-      prog_logic_cred,
+      programmable_logic_base_cred,
       registry_node,
       outputs_start_idx,
       max_inline_datum_bytes,
@@ -117,7 +117,7 @@ fn locate_registry_node(
   // NFT asset name to the node's `key` and shape-checks the datum at Insert —
   // so any UTxO carrying this policy is a genuine node whose datum fields
   // (key, unfracking_logic_script) cannot lie.
-  expect assets.peek_first(node_ref.output) == registry_node_cs
+  expect prog_assets.expect_first_policy(node_ref.output) == registry_node_cs
   expect InlineDatum(data) = node_ref.output.datum
   data
 }

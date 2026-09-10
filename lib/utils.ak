@@ -80,7 +80,7 @@ pub fn apply_hashed_parameter(
 /// `prefix` by the off-chain bootstrap, so this on-chain code only needs
 /// to sandwich the inner hash bytes — the policy id derivation
 /// indirectly enforces variant agreement.
-pub fn is_programmable_token_id_valid(
+pub fn expect_programmable_token_id_valid(
   cs_to_insert: ByteArray,
   prefix: ByteArray,
   postfix: ByteArray,
