@@ -100,13 +100,18 @@ pub fn satisfied(
 ///
 ///   cap   withdraw (per upgrade)   update (per rotation)
 ///    16     0.90 M /  262 M         1.91 M /  682 M   (14% of mem budget)
-///    20     1.23 M /  358 M         2.65 M /  970 M   (19%)
+///    20     1.23 M /  358 M         2.84 M / 1.02 B   (20%)
 ///    24     1.61 M /  468 M         3.51 M / 1.31 B   (25%)
 ///    32     2.52 M /  733 M         5.61 M / 2.16 B   (40%)
 ///
+/// The update row is the one that carries the distinct-party rule, and the
+/// flat shape measured here takes its fast path — a nested `AtLeast` costs
+/// more. `withdraw` never runs `well_formed` at all, so authorising an upgrade
+/// is unaffected by any of it.
+///
 /// 20 leaves room for a 7-signer hot set, a dated cold pair and a governance
-/// `Script` leaf (about 18 nodes) while keeping the worst case under a fifth
-/// of one transaction's memory. A realistic federation — 2-of-3 hot, dated
+/// `Script` leaf (about 18 nodes) while keeping the worst case at a fifth of
+/// one transaction's memory. A realistic federation — 2-of-3 hot, dated
 /// 2-of-2 cold, one governance leaf — is 11 nodes and costs a fraction of
 /// this. The cap is baked into the validator's bytes, so changing it later is
 /// an authority handover, not a config update: decide it before deployment.
@@ -198,10 +203,31 @@ fn evidence(script: MultisigScript) -> List<ByteArray> {
 /// ambiguous to read, and a rule that can be checked by looking at one node is
 /// worth more here than the shapes it costs.
 fn counts_distinct_parties(scripts: List<MultisigScript>) -> Bool {
-  let all = list.flat_map(scripts, evidence)
-  and {
-    list.all(scripts, fn(child) { !evidence_free(child) }),
-    list.length(list.unique(all)) == list.length(all),
+  if list.all(scripts, names_one_party) {
+    True
+  } else {
+    let all = list.flat_map(scripts, evidence)
+    and {
+      list.all(scripts, fn(child) { !evidence_free(child) }),
+      list.length(list.unique(all)) == list.length(all),
+    }
+  }
+}
+
+/// A child that IS a credential — one leaf, one party, nothing nested.
+///
+/// When every member of an `AtLeast` is one of these the rule above is already
+/// settled and costs nothing to settle: `children_ok` has just established
+/// that the children are structurally distinct, two distinct credential leaves
+/// name two different credentials, and no credential leaf is evidence-free.
+/// So the whole evidence walk is skipped for the shape an authority actually
+/// writes — a flat n-of-m over named parties, which is also the shape
+/// `max_size` was measured against. Only genuinely nested members pay.
+fn names_one_party(script: MultisigScript) -> Bool {
+  when script is {
+    Signature { .. } -> True
+    Script { .. } -> True
+    _ -> False
   }
 }
 
@@ -488,6 +514,21 @@ test well_formed_rejects_empty_at_least() {
 // MINR-054 / finding 05, defect 1: `[A, A, B]` at threshold 2 is met by A alone.
 test well_formed_rejects_duplicate_children() {
   !well_formed(AtLeast { required: 2, scripts: [s1, s1, s2] })
+}
+
+// The flat n-of-m an authority actually writes takes the fast path in
+// `counts_distinct_parties`, and that path is sound only because the rule
+// above has already refused repeats. This pins the pair together: identical
+// members are refused, and two members that differ only in their KIND are
+// two parties, not one. A signature and a withdrawal are met by different
+// things even when the hash is the same byte for byte.
+test well_formed_accepts_same_hash_as_key_and_script() {
+  well_formed(
+    AtLeast {
+      required: 2,
+      scripts: [Signature { key_hash: k1 }, Script { script_hash: k1 }],
+    },
+  )
 }
 
 // Defect 2a: a non-positive threshold authorises with no signatures.
