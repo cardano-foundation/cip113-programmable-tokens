@@ -730,7 +730,7 @@ so that an `AtLeast` count means what it says and no installable tree is
 satisfiable without a credential.
 
 **Hash change, and its blast radius.** `upgrade_multisig` is the only validator
-whose bytes move: 2,791 B → 3,354 B (+563 B), hash `5364abcd…` → `0f540ff6…`.
+whose bytes move: 2,791 B → 3,395 B (+604 B), hash `5364abcd…` → `69cc0110…`.
 The other 29 validators are byte-identical to `cb776d0`, verified per validator.
 `upgrade_multisig` is not parameterised by any other script and none is
 parameterised by it, so nothing cascades. What a live deployment would need is a
@@ -739,10 +739,19 @@ credential, so it must be rewritten to the new hash under `ProtocolUpgrade`.
 There is no live deployment yet, so for the release candidate this is a fresh
 deploy, not a migration.
 
-**Runtime cost is unchanged on the hot path.** `well_formed` is called only from
-`upgrade_multisig.ak:99` (mint) and `:143` (spend) — the two config-write paths.
-The `withdraw` handler, which authorises every upgrade, calls `satisfied` alone
-and is unaffected.
+**Runtime cost.** `well_formed` is called only from `upgrade_multisig.ak:99`
+(mint) and `:143` (spend) — the two config-write paths. The `withdraw` handler,
+which authorises every upgrade, calls `satisfied` alone and is unchanged,
+measured at 1.23 M mem / 358 M cpu on both sides of this change.
+
+The update path at the `max_size` worst case moves 2.63 M → 2.84 M mem
+(+7.9%) and 963 M → 1.02 B cpu (+6.2%), which is 20% of the mainnet memory
+budget against 19% before. The first draft of this rule cost +54% / +41% and
+would have made the cost table's justification for `max_size = 20` false; a
+fast path for the flat n-of-m shape recovered it. `list.unique` on the children
+already proves the members of a flat `AtLeast` distinct, so when every member is
+a credential leaf the evidence walk is skipped entirely. Only genuinely nested
+members pay for it.
 
 **New rules.**
 
