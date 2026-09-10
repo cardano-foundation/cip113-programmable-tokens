@@ -722,3 +722,58 @@ section here. The extraction script used for this document is kept at
 `python3 .claude/scripts/blueprint-surface.py <commit-or-ref>`); it
 normalises a blueprint into comparable per-validator signatures —
 diff two outputs to see the surface delta.
+
+## PROVISIONAL — subject to change: `fix/multisig-evidence-property`
+
+Branched from `main` at `cb776d0`. Tightens `well_formed` in `lib/multisig.ak`
+so that an `AtLeast` count means what it says and no installable tree is
+satisfiable without a credential.
+
+**Hash change, and its blast radius.** `upgrade_multisig` is the only validator
+whose bytes move: 2,791 B → 3,395 B (+604 B), hash `5364abcd…` → `69cc0110…`.
+The other 29 validators are byte-identical to `cb776d0`, verified per validator.
+`upgrade_multisig` is not parameterised by any other script and none is
+parameterised by it, so nothing cascades. What a live deployment would need is a
+protocol-params datum edit: `upgrade_cred` names the multisig's withdraw
+credential, so it must be rewritten to the new hash under `ProtocolUpgrade`.
+There is no live deployment yet, so for the release candidate this is a fresh
+deploy, not a migration.
+
+**Runtime cost.** `well_formed` is called only from `upgrade_multisig.ak:99`
+(mint) and `:143` (spend) — the two config-write paths. The `withdraw` handler,
+which authorises every upgrade, calls `satisfied` alone and is unchanged,
+measured at 1.23 M mem / 358 M cpu on both sides of this change.
+
+The update path at the `max_size` worst case moves 2.63 M → 2.84 M mem
+(+7.9%) and 963 M → 1.02 B cpu (+6.2%), which is 20% of the mainnet memory
+budget against 19% before. The first draft of this rule cost +54% / +41% and
+would have made the cost table's justification for `max_size = 20` false; a
+fast path for the flat n-of-m shape recovered it. `list.unique` on the children
+already proves the members of a flat `AtLeast` distinct, so when every member is
+a credential leaf the evidence walk is skipped entirely. Only genuinely nested
+members pay for it.
+
+**New rules.**
+
+1. **No permissionless authority.** A tree satisfiable with no credential at all
+   is refused. A validity range is evidence of when, never of who, so a tree
+   built only from time leaves names nobody and any transaction inside the range
+   satisfies it. Previously `well_formed(After { time: 0 })` was true and the
+   tree was installable.
+2. **`AtLeast` counts distinct parties.** Every child of an `AtLeast` must cost a
+   credential of its own, and no credential may appear under two children.
+   Structural de-duplication did not give this: `AllOf [alice]` and `alice` are
+   different values that survive `list.unique`, and one signature satisfies both.
+
+**Off-chain impact.** A builder that constructs a multisig tree must satisfy both
+rules or `mint`/`spend` will refuse the transaction. Two shapes that used to be
+accepted are now rejected: an `AtLeast` member wrapped in a single-child list
+node, and an `AtLeast` padded with a time leaf. Time leaves remain legal where
+they constrain a party rather than stand in for one, e.g. the dated cold branch
+`AllOf [After { .. }, AllOf [alice, bob] ]`.
+
+**Deliberately conservative.** The rule is sufficient, not necessary: it also
+refuses overlapping-but-sound trees such as
+`AtLeast { 2, [AllOf [a, b], AllOf [b, c]] }`, which does need three signatures.
+Overlapping members in an n-of-m are ambiguous to read, and a rule decidable at
+one node was judged worth the shapes it costs.

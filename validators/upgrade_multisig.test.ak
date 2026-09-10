@@ -316,6 +316,44 @@ test update_valid() {
   call_spend(two_of_three(), update_tx())
 }
 
+// The shapes `well_formed` refuses cannot be INSTALLED, which is what makes it
+// an authority boundary rather than a lint. Both trees below read as two
+// parties and are satisfied by alice alone: the first wraps her in a
+// single-child `AllOf` so structural de-duplication does not see the repeat,
+// the second pads the count with a time leaf that everyone satisfies.
+test update_fails_installing_masked_duplicate() fail {
+  let masked = AtLeast {
+    required: 2,
+    scripts: [
+      AllOf { scripts: [Signature { key_hash: alice }] },
+      Signature { key_hash: alice },
+    ],
+  }
+  call_spend(
+    two_of_three(),
+    Transaction { ..update_tx(), outputs: [config_output(masked)] },
+  )
+}
+
+test update_fails_installing_time_padded_at_least() fail {
+  let padded = AtLeast {
+    required: 2,
+    scripts: [Signature { key_hash: alice }, After { time: 0 }],
+  }
+  call_spend(
+    two_of_three(),
+    Transaction { ..update_tx(), outputs: [config_output(padded)] },
+  )
+}
+
+// And a tree that names nobody at all cannot be installed either.
+test update_fails_installing_time_only_tree() fail {
+  call_spend(
+    two_of_three(),
+    Transaction { ..update_tx(), outputs: [config_output(After { time: 0 })] },
+  )
+}
+
 // Lovelace is unconstrained relative to the input, as on `protocol_params`.
 test update_allows_ada_change() {
   let leaner = Output {

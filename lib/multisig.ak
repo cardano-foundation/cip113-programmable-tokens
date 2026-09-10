@@ -100,13 +100,18 @@ pub fn satisfied(
 ///
 ///   cap   withdraw (per upgrade)   update (per rotation)
 ///    16     0.90 M /  262 M         1.91 M /  682 M   (14% of mem budget)
-///    20     1.23 M /  358 M         2.65 M /  970 M   (19%)
+///    20     1.23 M /  358 M         2.84 M / 1.02 B   (20%)
 ///    24     1.61 M /  468 M         3.51 M / 1.31 B   (25%)
 ///    32     2.52 M /  733 M         5.61 M / 2.16 B   (40%)
 ///
+/// The update row is the one that carries the distinct-party rule, and the
+/// flat shape measured here takes its fast path — a nested `AtLeast` costs
+/// more. `withdraw` never runs `well_formed` at all, so authorising an upgrade
+/// is unaffected by any of it.
+///
 /// 20 leaves room for a 7-signer hot set, a dated cold pair and a governance
-/// `Script` leaf (about 18 nodes) while keeping the worst case under a fifth
-/// of one transaction's memory. A realistic federation — 2-of-3 hot, dated
+/// `Script` leaf (about 18 nodes) while keeping the worst case at a fifth of
+/// one transaction's memory. A realistic federation — 2-of-3 hot, dated
 /// 2-of-2 cold, one governance leaf — is 11 nodes and costs a fraction of
 /// this. The cap is baked into the validator's bytes, so changing it later is
 /// an authority handover, not a config update: decide it before deployment.
@@ -122,14 +127,107 @@ pub const max_size: Int = 20
 ///     authority, and `AnyOf []` is always false. Duplicates only distort
 ///     `AtLeast`, but one rule for all three nodes is simpler to state, test
 ///     and read than a rule with an exception;
-///   * every `AtLeast` has `1 <= required <= length(scripts)`;
+///   * every `AtLeast` has `1 <= required <= length(scripts)`, and its count
+///     means what it says: see `counts_distinct_parties`;
+///   * no tree is satisfiable without producing a credential — see
+///     `evidence_free`;
 ///   * the whole tree fits under `max_size`.
 ///
-/// Time leaves carry no constraint: any `Int` is a valid POSIX time bound.
+/// Time leaves carry no constraint on their bound: any `Int` is a valid POSIX
+/// time. What they may not do is stand in for a party, which is what the last
+/// two rules are about.
 pub fn well_formed(script: MultisigScript) -> Bool {
   and {
     size(script) <= max_size,
     shape_ok(script),
+    !evidence_free(script),
+  }
+}
+
+/// True when the tree can be satisfied without producing a single credential —
+/// no signature, no withdrawal — leaving only a validity range, which anyone
+/// can build a transaction inside. Such a tree is a permissionless authority.
+///
+/// A validity range is evidence of WHEN, never of WHO. So a time leaf is
+/// evidence-free, and a node is evidence-free exactly when its own rule can be
+/// met by evidence-free children alone.
+fn evidence_free(script: MultisigScript) -> Bool {
+  when script is {
+    Signature { .. } -> False
+    Script { .. } -> False
+    Before { .. } -> True
+    After { .. } -> True
+    AllOf { scripts } -> list.all(scripts, evidence_free)
+    AnyOf { scripts } -> list.any(scripts, evidence_free)
+    AtLeast { required, scripts } ->
+      required <= list.count(scripts, evidence_free)
+  }
+}
+
+/// Every credential a satisfying transaction could have to produce for this
+/// tree, in tree order.
+///
+/// A key hash and a script hash are different credentials even when the bytes
+/// are equal: one is met by a signature, the other by a withdrawal. They are
+/// tagged apart here so that a tree naming both is not read as naming one
+/// party twice.
+fn evidence(script: MultisigScript) -> List<ByteArray> {
+  when script is {
+    Signature { key_hash } -> [bytearray.push(key_hash, 0)]
+    Script { script_hash } -> [bytearray.push(script_hash, 1)]
+    Before { .. } -> []
+    After { .. } -> []
+    AllOf { scripts } -> list.flat_map(scripts, evidence)
+    AnyOf { scripts } -> list.flat_map(scripts, evidence)
+    AtLeast { scripts, .. } -> list.flat_map(scripts, evidence)
+  }
+}
+
+/// `AtLeast { required: n, .. }` is read as "n distinct parties", but
+/// `satisfied` counts satisfied CHILDREN. The two agree only when each child
+/// costs its own credential and no two children can be paid for at once, so
+/// this requires both:
+///
+///   * no child is evidence-free — otherwise it is satisfied by everyone and
+///     raises the count for free;
+///   * no credential appears under two children — otherwise one signature
+///     satisfies both and raises the count twice.
+///
+/// Structural de-duplication alone does not give this. `AllOf [alice]` and
+/// `alice` are different values and survive `list.unique`, yet the same
+/// signature satisfies both.
+///
+/// The rule is sufficient, not necessary: it also refuses trees that overlap
+/// but are still sound, such as `AtLeast { 2, [AllOf [a, b], AllOf [b, c]] }`,
+/// which does need three signatures. Overlapping members in an n-of-m are
+/// ambiguous to read, and a rule that can be checked by looking at one node is
+/// worth more here than the shapes it costs.
+fn counts_distinct_parties(scripts: List<MultisigScript>) -> Bool {
+  if list.all(scripts, names_one_party) {
+    True
+  } else {
+    let all = list.flat_map(scripts, evidence)
+    and {
+      list.all(scripts, fn(child) { !evidence_free(child) }),
+      list.length(list.unique(all)) == list.length(all),
+    }
+  }
+}
+
+/// A child that IS a credential — one leaf, one party, nothing nested.
+///
+/// When every member of an `AtLeast` is one of these the rule above is already
+/// settled and costs nothing to settle: `children_ok` has just established
+/// that the children are structurally distinct, two distinct credential leaves
+/// name two different credentials, and no credential leaf is evidence-free.
+/// So the whole evidence walk is skipped for the shape an authority actually
+/// writes — a flat n-of-m over named parties, which is also the shape
+/// `max_size` was measured against. Only genuinely nested members pay.
+fn names_one_party(script: MultisigScript) -> Bool {
+  when script is {
+    Signature { .. } -> True
+    Script { .. } -> True
+    _ -> False
   }
 }
 
@@ -145,6 +243,7 @@ fn shape_ok(script: MultisigScript) -> Bool {
         required >= 1,
         required <= list.length(scripts),
         children_ok(scripts),
+        counts_distinct_parties(scripts),
       }
   }
 }
@@ -297,6 +396,9 @@ const k2: ByteArray =
 const k3: ByteArray =
   #"c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3"
 
+const k4: ByteArray =
+  #"d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4"
+
 const s1: MultisigScript = Signature { key_hash: k1 }
 
 const s2: MultisigScript = Signature { key_hash: k2 }
@@ -324,13 +426,67 @@ test well_formed_accepts_federation_shape() {
   well_formed(federation())
 }
 
-test well_formed_accepts_every_leaf_kind() {
+test well_formed_accepts_every_evidence_leaf() {
   and {
     well_formed(s1),
     well_formed(Script { script_hash: k1 }),
-    well_formed(Before { time: 0 }),
-    well_formed(After { time: -1 }),
   }
+}
+
+// A tree of time leaves alone names nobody: any transaction inside the range
+// satisfies it, so it is a permissionless authority wearing a schedule.
+test well_formed_rejects_time_only_tree() {
+  and {
+    !well_formed(Before { time: 0 }),
+    !well_formed(After { time: -1 }),
+    !well_formed(AllOf { scripts: [After { time: 0 }, Before { time: 9 }] }),
+    !well_formed(AnyOf { scripts: [s1, After { time: 0 }] }),
+  }
+}
+
+// A time leaf is still legitimate where it CONSTRAINS a party rather than
+// standing in for one: the dated cold branch of the federation shape.
+test well_formed_accepts_time_leaf_guarding_a_party() {
+  and {
+    well_formed(AllOf { scripts: [After { time: 1_000 }, s1] }),
+    well_formed(federation()),
+  }
+}
+
+// The two shapes that defeat structural de-duplication. Both are `AtLeast`
+// counts that read as two parties and are satisfied by one.
+test well_formed_rejects_masked_duplicate_child() {
+  !well_formed(AtLeast { required: 2, scripts: [AllOf { scripts: [s1] }, s1] })
+}
+
+test well_formed_rejects_time_leaf_inflating_at_least() {
+  !well_formed(AtLeast { required: 2, scripts: [s1, After { time: 0 }] })
+}
+
+// A credential shared between two children of one `AtLeast`, without any
+// wrapper: `s1` alone satisfies both members.
+test well_formed_rejects_shared_credential_across_children() {
+  !well_formed(
+    AtLeast {
+      required: 2,
+      scripts: [AnyOf { scripts: [s1, s2] }, AnyOf { scripts: [s1, s3] }],
+    },
+  )
+}
+
+// Nesting under `AtLeast` stays legal when the members are genuinely
+// disjoint — "two of: the hot pair, the cold pair, the governance script".
+test well_formed_accepts_disjoint_groups_under_at_least() {
+  well_formed(
+    AtLeast {
+      required: 2,
+      scripts: [
+        AllOf { scripts: [s1, s2] },
+        AllOf { scripts: [s3, Signature { key_hash: k4 }] },
+        Script { script_hash: k3 },
+      ],
+    },
+  )
 }
 
 test well_formed_rejects_short_signature_hash() {
@@ -358,6 +514,21 @@ test well_formed_rejects_empty_at_least() {
 // MINR-054 / finding 05, defect 1: `[A, A, B]` at threshold 2 is met by A alone.
 test well_formed_rejects_duplicate_children() {
   !well_formed(AtLeast { required: 2, scripts: [s1, s1, s2] })
+}
+
+// The flat n-of-m an authority actually writes takes the fast path in
+// `counts_distinct_parties`, and that path is sound only because the rule
+// above has already refused repeats. This pins the pair together: identical
+// members are refused, and two members that differ only in their KIND are
+// two parties, not one. A signature and a withdrawal are met by different
+// things even when the hash is the same byte for byte.
+test well_formed_accepts_same_hash_as_key_and_script() {
+  well_formed(
+    AtLeast {
+      required: 2,
+      scripts: [Signature { key_hash: k1 }, Script { script_hash: k1 }],
+    },
+  )
 }
 
 // Defect 2a: a non-positive threshold authorises with no signatures.
@@ -428,7 +599,7 @@ fn well_formed_tree(depth: Int) -> Fuzzer<MultisigScript> {
       fuzz.map(children(depth), fn(cs) { AllOf { scripts: cs } }),
       fuzz.map(children(depth), fn(cs) { AnyOf { scripts: cs } }),
       fuzz.and_then(
-        children(depth),
+        at_least_members(),
         fn(cs) {
           fuzz.map(
             fuzz.int_between(1, list.length(cs)),
@@ -440,12 +611,67 @@ fn well_formed_tree(depth: Int) -> Fuzzer<MultisigScript> {
   }
 }
 
+/// `AtLeast` members are drawn as a SET OF LEAVES, so every member is one
+/// distinct party — which is what `counts_distinct_parties` requires and what
+/// an authority configuring an n-of-m actually writes. Nesting under `AllOf`
+/// and `AnyOf` is still generated by `children`; nesting under `AtLeast` is
+/// covered by `well_formed_accepts_disjoint_groups_under_at_least`, where the
+/// members can be held disjoint by construction rather than by luck.
+fn at_least_members() -> Fuzzer<List<MultisigScript>> {
+  fuzz.set_between(signature_leaf(), 1, 3)
+}
+
 fn children(depth: Int) -> Fuzzer<List<MultisigScript>> {
   fuzz.set_between(well_formed_tree(depth - 1), 1, 2)
 }
 
 fn any_tree() -> Fuzzer<MultisigScript> {
   well_formed_tree(3)
+}
+
+/// Arbitrary trees, INCLUDING ill-formed ones: time leaves stand where a party
+/// should, `AtLeast` thresholds run outside their bounds, and children repeat.
+/// `any_tree` builds only good trees by construction, which is right for the
+/// properties about `satisfied` but useless for a property about
+/// `well_formed` — the rail would never be on the execution path.
+fn any_shape() -> Fuzzer<MultisigScript> {
+  any_shape_of_depth(2)
+}
+
+fn any_shape_of_depth(depth: Int) -> Fuzzer<MultisigScript> {
+  if depth <= 0 {
+    any_shape_leaf()
+  } else {
+    fuzz.either4(
+      any_shape_leaf(),
+      fuzz.map(any_shape_children(depth), fn(cs) { AllOf { scripts: cs } }),
+      fuzz.map(any_shape_children(depth), fn(cs) { AnyOf { scripts: cs } }),
+      fuzz.and_then(
+        any_shape_children(depth),
+        fn(cs) {
+          fuzz.map(
+            fuzz.int_between(1, 2),
+            fn(k) { AtLeast { required: k, scripts: cs } },
+          )
+        },
+      ),
+    )
+  }
+}
+
+/// Half the leaves carry evidence, half do not, so both branches of the
+/// implication below are reached often enough to be worth running.
+fn any_shape_leaf() -> Fuzzer<MultisigScript> {
+  fuzz.either4(
+    signature_leaf(),
+    fuzz.map(any_key(), fn(h) { Script { script_hash: h } }),
+    fuzz.map(fuzz.int_between(0, 4), fn(t) { After { time: t } }),
+    fuzz.map(fuzz.int_between(0, 4), fn(t) { Before { time: t } }),
+  )
+}
+
+fn any_shape_children(depth: Int) -> Fuzzer<List<MultisigScript>> {
+  fuzz.list_between(any_shape_of_depth(depth - 1), 1, 2)
 }
 
 /// Every signature key hash in the tree, in order.
@@ -466,12 +692,20 @@ test prop_generated_trees_are_well_formed(t via any_tree()) {
   well_formed(t)
 }
 
-// THE property the rail exists for: a well-formed, time-free tree can never be
-// satisfied with no evidence at all. This is what "no permissionless
-// authority" means, and it is exactly what `AllOf []` and `AtLeast { 0, .. }`
-// would violate.
-test prop_no_evidence_never_satisfies(t via any_tree()) {
-  !satisfied(t, [], valid_range(0, 1), no_w)
+// THE property the rail exists for: a tree the authority is allowed to install
+// can never be satisfied with no evidence at all. This is what "no
+// permissionless authority" means.
+//
+// `well_formed` is inside the property on purpose. Asserting it over the
+// generator alone would prove a fact about the generator — the rail would not
+// be on the execution path, and no mutation of it could fail this test.
+test prop_no_evidence_never_satisfies(t via any_shape()) {
+  fuzz.label_when(
+    well_formed(t),
+    @"installable tree",
+    @"refused by well_formed",
+  )
+  !well_formed(t) || !satisfied(t, [], valid_range(0, 1), no_w)
 }
 
 // The complement: with every key present, a time-free tree is satisfied.
