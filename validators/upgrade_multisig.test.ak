@@ -41,9 +41,13 @@ const mallory: ByteArray =
 const own_hash: ByteArray =
   #"5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e"
 
-/// A different withdraw-0 script, for the `Script` leaf.
+/// A different withdraw-0 script, for the `Script` leaf. Exactly 28 bytes:
+/// `shape_ok` rejects any other length, so a longer hash makes every tree
+/// built from this constant unwritable through `mint` or `spend`, and the
+/// tests below would pass only because `withdraw` does not re-check
+/// `well_formed`.
 const governance_hash: ByteArray =
-  #"6060606060606060606060606060606060606060606060606060606060"
+  #"60606060606060606060606060606060606060606060606060606060"
 
 const seed_ref: OutputReference =
   OutputReference {
@@ -578,6 +582,18 @@ test withdraw_honours_script_leaf() {
 test withdraw_fails_script_leaf_without_withdrawal() fail {
   let tree = multisig.Script { script_hash: governance_hash }
   call_withdraw(withdraw_tx(tree, [alice, bob, carol]))
+}
+
+// The `Script`-leaf tree the two tests above authorise against is one a real
+// deployment could install. `withdraw` never re-checks `well_formed`, so
+// without this control those tests would still pass if the constant were the
+// wrong length and no `spend` or `mint` could ever have written the tree.
+test update_installs_script_leaf_tree() {
+  let tree = multisig.Script { script_hash: governance_hash }
+  call_spend(
+    two_of_three(),
+    Transaction { ..update_tx(), outputs: [config_output(tree)] },
+  )
 }
 
 // `After` leaf: approve now, execute only once the validity range starts at or
