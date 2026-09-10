@@ -1,30 +1,30 @@
 use aiken/builtin.{equals_bytearray, less_than_bytearray}
 use aiken/collection/dict.{Dict}
-use assets.{Assets}
 use cardano/address.{Credential}
 use cardano/assets.{AssetName, PolicyId} as value
 use cardano/transaction.{Input, Output, Transaction}
-use list
-use pairs
+use prog_assets.{Assets}
 use programmable_logic/owner.{authorised_stake_cred}
 use registry_node.{with_key_and_next_key, with_key_and_transfer_logic}
 use tokens
 use types.{RegistryProof, TokenDoesNotExist, TokenExists}
+use unsafe_list
+use unsafe_pairs
 
 /// Validate a transfer action
 pub fn validate_transfer(
   self: Transaction,
-  prog_logic_cred: Credential,
+  programmable_logic_base_cred: Credential,
   get_registry_node: fn(Int) -> Data,
   proofs: List<RegistryProof>,
   max_inline_datum_bytes: Int,
 ) -> Bool {
   // NOTE: The transfer validator is always invoked via a withdrawal, so
   // we know there's AT LEAST ONE withdrawal.
-  let first_withdrawal = list.head(self.withdrawals).1st
+  let first_withdrawal = unsafe_list.expect_head(self.withdrawals).1st
   let has_withdrawal = new_withdrawal_checker(
     fn(script_hash) { script_hash == first_withdrawal },
-    list.tail(self.withdrawals),
+    unsafe_list.expect_tail(self.withdrawals),
   )
 
   // Collect all programmable tokens across inputs and minted/burned values.
@@ -32,13 +32,17 @@ pub fn validate_transfer(
   // pure minting, i.e. policy does not appear in input, no further validation
   // is due. Finding 02: this invariant is now enforced (see
   // `collect_input_assets` for the fix).
-  let input_assets = collect_input_assets(self, has_withdrawal, prog_logic_cred)
+  let input_assets = collect_input_assets(
+    self,
+    has_withdrawal,
+    programmable_logic_base_cred,
+  )
 
   // Collect all outputs that carry programmable tokens. We use them to ensure that
   // prog tokens cannot escape their fate.
-  let output_assets = assets.collect_output_assets(
+  let output_assets = prog_assets.collect_output_assets(
     self.outputs,
-    prog_logic_cred,
+    programmable_logic_base_cred,
     max_inline_datum_bytes,
   )
 
@@ -68,11 +72,11 @@ fn new_withdrawal_checker(
 fn collect_input_assets(
   tx: Transaction,
   has_withdrawal: fn(Credential) -> Bool,
-  prog_logic_cred: Credential,
+  programmable_logic_base_cred: Credential,
 ) -> Assets {
-  let has_signatory = list.has_or_fail(tx.extra_signatories, _)
+  let has_signatory = unsafe_list.has_or_fail(tx.extra_signatories, _)
 
-  // Finding 02 fix: seed with EMPTY assets (was: `assets.from_value(tx.mint)`).
+  // Finding 02 fix: seed with EMPTY assets (was: `prog_assets.from_value(tx.mint)`).
   // Mint contributions are folded in AFTER the input scan via
   // `apply_mint_to_known_policies`, which keeps mint deltas ONLY for policies
   // that appear in PLB inputs. Mint-only ("purely minted") policies are
@@ -85,12 +89,12 @@ fn collect_input_assets(
   // and this transfer + mint variant: it delegates only to a validator whose
   // redeemer names the minted policy's node, and otherwise enforces
   // `no_escape` itself.
-  let plb_inputs = assets.collect(
+  let programmable_logic_base_inputs = prog_assets.collect(
     tx.inputs,
     [],
     fn(input, select, discard) {
       let output = input.output
-      if output.address.payment_credential == prog_logic_cred {
+      if output.address.payment_credential == programmable_logic_base_cred {
         expect _stake_cred = authorised_stake_cred(
           output.address,
           has_signatory,
@@ -103,14 +107,17 @@ fn collect_input_assets(
     },
   )
 
-  apply_mint_to_known_policies(plb_inputs, assets.from_value(tx.mint))
+  apply_mint_to_known_policies(
+    programmable_logic_base_inputs,
+    prog_assets.from_value(tx.mint),
+  )
 }
 
 /// Apply mint deltas onto known input policies. Mint-only policies are
 /// dropped — issuance_mint owns their custody (Finding 02 fix).
 ///
 /// Outer recursion walks `inputs`; for each input policy we call
-/// `assets.assets_split_at` on the remaining `mint`. The split_at trichotomy
+/// `prog_assets.assets_split_at` on the remaining `mint`. The split_at trichotomy
 /// maps 1:1 onto what the contract needs:
 ///
 ///   * `before`         = mint policies with id < `i_policy`. Pure mints by
@@ -132,7 +139,7 @@ fn collect_input_assets(
 /// of the `[] -> []` base case — the rest of the pure-mint pile.
 ///
 /// Pre-condition (held at every call site): both arguments are sorted
-/// ascending by policy id. `assets.collect` and `assets.from_value` both
+/// ascending by policy id. `prog_assets.collect` and `prog_assets.from_value` both
 /// produce canonically-sorted Assets.
 ///
 /// Cost: O(|inputs| + |mint|); `tokens.union` paid only at exact matches.
@@ -148,7 +155,7 @@ fn apply_mint_to_known_policies(inputs: Assets, mint: Assets) -> Assets {
       when inputs is {
         [] -> []
         [Pair(i_policy, i_tokens) as head, ..i_rest] -> {
-          let _before, mint_at_policy, mint_after <- assets.assets_split_at(
+          let _before, mint_at_policy, mint_after <- prog_assets.assets_split_at(
             mint,
             i_policy,
           )
@@ -188,7 +195,7 @@ fn verify_proofs(
       // We expect one proof per policy, if not, this blows up and halts the validation.
       choose_registered_token(
         policy,
-        list.head(proofs),
+        unsafe_list.expect_head(proofs),
         fn() {
           let tail_output_assets = if head_input_tokens == dict.empty {
             // Tokens have been entirely consumed (a.k.a burned) so they won't appear in outputs.
@@ -199,12 +206,12 @@ fn verify_proofs(
             // Outputs must be a superset of inputs, so they may contain extra
             // policies not found in validated inputs. Yet, both input assets and
             // output assets are in ascending policy order.
-            let head_output_tokens, tail_output_assets <- pairs.pop_until(
+            let head_output_tokens, tail_output_assets <- unsafe_pairs.expect_pop_until_and_then(
               output_assets,
               equals_bytearray(policy, _),
             )
             expect
-              tokens.contains(
+              tokens.expect_contains(
                 dict.to_pairs(head_output_tokens),
                 dict.to_pairs(head_input_tokens),
               )
@@ -213,7 +220,7 @@ fn verify_proofs(
           }
 
           verify_proofs(
-            list.tail(proofs),
+            unsafe_list.expect_tail(proofs),
             choose_registered_token,
             tail_input_assets,
             tail_output_assets,
@@ -222,7 +229,7 @@ fn verify_proofs(
         fn() {
           // Not a programmable token, skip it
           verify_proofs(
-            list.tail(proofs),
+            unsafe_list.expect_tail(proofs),
             choose_registered_token,
             tail_input_assets,
             output_assets,

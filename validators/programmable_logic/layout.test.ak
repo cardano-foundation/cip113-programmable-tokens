@@ -11,7 +11,7 @@
 ////
 //// **These tests are the WHOLE defence of the off-chain wire contract — do not
 //// trim them.** Verified by mutation (2026-09-02): a SELF-CONSISTENT reorder of
-//// `ProgrammableLogicGlobalParams` — the type declaration and its accessors
+//// `ProtocolParams` — the type declaration and its accessors
 //// moved together — is invisible to 483 of the suite's 485 tests, because every
 //// on-chain reader goes through the accessors and so agrees with itself. Only
 //// `layout_params_datum_six_fields_in_order` and
@@ -25,8 +25,9 @@ use cardano/address.{Credential}
 use multisig
 use programmable_logic/fixture
 use programmable_logic/params.{
-  ProgrammableLogicGlobalParams, issuance_logic_cred_field, plg_cred_field,
-  third_party_cred_field, transfer_cred_field,
+  ProtocolParams, issuance_logic_cred_field,
+  programmable_logic_global_cred_field, third_party_cred_field,
+  transfer_cred_field,
 }
 use types.{
   BaseSpendRedeemer, MintingRegistryProof, NominateAuthority, OutputIndex,
@@ -51,17 +52,17 @@ fn int_fields(ints: List<Int>) -> List<Data> {
 
 // ------------------------------------------------------ protocol-params datum
 
-// `ProgrammableLogicGlobalParams`: constructor 0, FOUR fields, in this order:
+// `ProtocolParams`: constructor 0, FOUR fields, in this order:
 //   0 plg_cred, 1 transfer_cred, 2 third_party_cred, 3 upgrade_cred.
 //
 // Field order is load-bearing on two counts. Every accessor is a `tail_list`
-// walk, so position IS cost — `plg_cred` sits at 0 because PLB reads it once
+// walk, so position IS cost — `programmable_logic_global_cred` sits at 0 because PLB reads it once
 // per programmable INPUT, the only per-input read in the protocol, and at
 // index 0 that read walks nothing. And the params NFT policy (hence PLB's
 // hash, hence every token address) is a function of `protocol_params`,
 // which deserialises this exact shape.
 //
-// Every field here has a named on-chain reader: `plg_cred` <-
+// Every field here has a named on-chain reader: `programmable_logic_global_cred` <-
 // programmable_logic_base, `transfer_cred` / `third_party_cred` <-
 // issuance_mint, `upgrade_cred` <- protocol_params (spend handler).
 //
@@ -84,8 +85,9 @@ fn int_fields(ints: List<Int>) -> List<Data> {
 // The third row is the dangerous one: a builder computing PLB's dispatch
 // target from index 2 silently reads `third_party_cred`. On-chain this is
 // safe — every reader in this repo moved in the same change set — so the whole
-// hazard is off-chain, and it is why `layout_params_retired_six_field_shape_
-// does_not_decode` below pins the decode direction too.
+// hazard is off-chain, and it is why
+// `layout_params_six_field_shape_does_not_decode` below pins the decode
+// direction too.
 //
 // Issue #125 added `pending_upgrade_cred`, and it is the CONTRASTING case
 // worth keeping beside that table: appending a field produces NO silent
@@ -104,7 +106,9 @@ test layout_params_datum_six_fields_in_order() {
   and {
     tag == 0,
     list.length(fields) == 6,
-    field(fields, 0) == as_data(fixture.credential_validator_plg),
+    field(fields, 0) == as_data(
+      fixture.credential_validator_programmable_logic_global,
+    ),
     // Field 1 (#129): read once per issuance transaction, so second-hottest.
     // Placed here PRE-GENESIS, when no datum exists to be misread — the one
     // window in which reordering is free. After genesis: append only.
@@ -136,14 +140,14 @@ test layout_params_pending_option_wire_shape() {
   }
 }
 
-// The builtin accessors production reads through (PLB for `plg_cred`,
+// The builtin accessors production reads through (PLB for `programmable_logic_global_cred`,
 // `issuance_mint` for the two delegate credentials) land on the positions the
 // type declares. `upgrade_cred` has no accessor: `protocol_params`
 // deserialises the whole record on its cold path.
 test layout_params_accessors_match_raw_positions() {
   let (_, fields) = constr(as_data(fixture.protocol_params))
   and {
-    plg_cred_field(fields) == fixture.credential_validator_plg,
+    programmable_logic_global_cred_field(fields) == fixture.credential_validator_programmable_logic_global,
     transfer_cred_field(fields) == fixture.credential_validator_transfer,
     third_party_cred_field(fields) == fixture.credential_validator_third_party,
     issuance_logic_cred_field(fields) == fixture.credential_validator_issuance_logic,
@@ -157,7 +161,7 @@ test layout_params_datum_decodes_from_raw_constructor() {
   let raw = builtin.constr_data(
     0,
     [
-      as_data(fixture.credential_validator_plg),
+      as_data(fixture.credential_validator_programmable_logic_global),
       as_data(fixture.credential_validator_issuance_logic),
       as_data(fixture.credential_validator_transfer),
       as_data(fixture.credential_validator_third_party),
@@ -165,24 +169,24 @@ test layout_params_datum_decodes_from_raw_constructor() {
       as_data(no_pending),
     ],
   )
-  expect p: ProgrammableLogicGlobalParams = raw
+  expect p: ProtocolParams = raw
   p == fixture.protocol_params
 }
 
 // Issue #129: the FIVE-field shape (#125's) does not decode as the six-field
 // type either. Same rail, one generation on again.
-test layout_params_retired_five_field_shape_does_not_decode() fail {
+test layout_params_five_field_shape_does_not_decode() fail {
   let raw = builtin.constr_data(
     0,
     [
-      as_data(fixture.credential_validator_plg),
+      as_data(fixture.credential_validator_programmable_logic_global),
       as_data(fixture.credential_validator_transfer),
       as_data(fixture.credential_validator_third_party),
       as_data(fixture.credential_upgrade_authority),
       as_data(no_pending),
     ],
   )
-  expect _p: ProgrammableLogicGlobalParams = raw
+  expect _p: ProtocolParams = raw
   True
 }
 
@@ -197,17 +201,17 @@ test layout_params_retired_five_field_shape_does_not_decode() fail {
 // so its hash and address moved anyway, and the standing rule is that every
 // validator-byte change is a full-protocol redeploy — but it must be stated
 // rather than discovered.
-test layout_params_retired_four_field_shape_does_not_decode() fail {
+test layout_params_four_field_shape_does_not_decode() fail {
   let raw = builtin.constr_data(
     0,
     [
-      as_data(fixture.credential_validator_plg),
+      as_data(fixture.credential_validator_programmable_logic_global),
       as_data(fixture.credential_validator_transfer),
       as_data(fixture.credential_validator_third_party),
       as_data(fixture.credential_upgrade_authority),
     ],
   )
-  expect _p: ProgrammableLogicGlobalParams = raw
+  expect _p: ProtocolParams = raw
   True
 }
 
@@ -239,19 +243,19 @@ test layout_params_retired_four_field_shape_does_not_decode() fail {
 // PLB and `issuance_mint` use never see either net (that is the whole point of
 // the split read), which is exactly why the silent-misread table above is the
 // hazard that matters.
-test layout_params_retired_six_field_shape_does_not_decode() fail {
+test layout_params_six_field_shape_does_not_decode() fail {
   let raw = builtin.constr_data(
     0,
     [
       as_data(fixture.policy_tokens_registry),
       as_data(fixture.credential_validator_logic_base),
-      as_data(fixture.credential_validator_plg),
+      as_data(fixture.credential_validator_programmable_logic_global),
       as_data(fixture.credential_validator_transfer),
       as_data(fixture.credential_validator_third_party),
       as_data(fixture.credential_upgrade_authority),
     ],
   )
-  expect _p: ProgrammableLogicGlobalParams = raw
+  expect _p: ProtocolParams = raw
   True
 }
 
@@ -260,7 +264,7 @@ test layout_params_retired_six_field_shape_does_not_decode() fail {
 // `BaseSpendRedeemer` is now a RECORD — constructor 0, [params_idx, wdrl_idx].
 // It replaced a three-constructor enum (SpendViaTransfer / SpendViaThirdParty /
 // SpendViaUnfracking), each carrying the same two ints. PLB no longer chooses a
-// delegate at all: it requires `plg_cred`, and the dispatcher picks the arm.
+// delegate at all: it requires `programmable_logic_global_cred`, and the dispatcher picks the arm.
 //
 // For off-chain builders this is the sharpest break in the change: the OLD
 // encoding and the NEW one are both "constructor 0 with two ints", so a stale
@@ -287,7 +291,7 @@ test layout_base_spend_redeemer_decodes_from_raw_constructor() {
 // `ProgrammableLogicGlobalRedeemer`: three FIELD-LESS constructors —
 // TransferAct = 0, ThirdPartyAct = 1, UnfrackingAct = 2. The payload for each
 // action travels in that delegate's own redeemer, never here.
-test layout_plg_redeemer_constructors_are_field_less() {
+test layout_programmable_logic_global_redeemer_constructors_are_field_less() {
   let (t_tag, t_fields) = constr(as_data(TransferAct))
   let (p_tag, p_fields) = constr(as_data(ThirdPartyAct))
   let (u_tag, u_fields) = constr(as_data(UnfrackingAct))
@@ -301,7 +305,7 @@ test layout_plg_redeemer_constructors_are_field_less() {
   }
 }
 
-test layout_plg_redeemer_decodes_from_raw_constructors() {
+test layout_programmable_logic_global_redeemer_decodes_from_raw_constructors() {
   expect t: ProgrammableLogicGlobalRedeemer = builtin.constr_data(0, [])
   expect p: ProgrammableLogicGlobalRedeemer = builtin.constr_data(1, [])
   expect u: ProgrammableLogicGlobalRedeemer = builtin.constr_data(2, [])

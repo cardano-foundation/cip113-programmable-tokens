@@ -28,13 +28,13 @@ use cardano/transaction.{
 use issuance_logic
 use issuance_mint
 use programmable_logic/fixture
-use programmable_logic/params.{ProgrammableLogicGlobalParams}
+use programmable_logic/params.{ProtocolParams}
 use programmable_logic_base
 use programmable_logic_global
 use registry_node.{RegistryNode, empty_vkey}
 use third_party
 use types.{
-  BaseSpendRedeemer, IssuanceRedeemer, MintingRegistryProof, OutputIndex,
+  BaseSpendRedeemer, IssuanceMintRedeemer, MintingRegistryProof, OutputIndex,
   RefInput, ThirdPartyAct, ThirdPartyRedeemer, TokenExists, TransferRedeemer,
 }
 
@@ -42,7 +42,7 @@ use types.{
 // Test constants
 // ---------------------------------------------------------------------------
 
-const test_plb_cred: Credential =
+const test_programmable_logic_base_cred: Credential =
   Script(#"11111111111111111111111111111111111111111111111111111111")
 
 const test_registry_cs: PolicyId =
@@ -63,10 +63,11 @@ const test_tp_cred: Credential =
 /// The dispatcher `programmable_logic_global`: PLB requires THIS credential
 /// (params datum field 0) on every programmable input, and it in turn requires
 /// the delegate for the chosen action.
-const test_plg_hash: ByteArray =
+const test_programmable_logic_global_hash: ByteArray =
   #"9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e"
 
-const test_plg_cred: Credential = Script(test_plg_hash)
+const test_programmable_logic_global_cred: Credential =
+  Script(test_programmable_logic_global_hash)
 
 /// The three delegate hashes the dispatcher bakes in. `test_tp_hash` is the
 /// seize delegate this composed scenario actually dispatches to.
@@ -81,7 +82,7 @@ const test_unfracking_hash: ByteArray =
 
 /// The live transfer-validator credential AFTER a simulated in-place upgrade — what the
 /// protocol-params datum carries once `test_transfer_cred` has been retired.
-const test_transfer_cred_v2: Credential =
+const test_upgraded_transfer_cred: Credential =
   Script(#"b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2")
 
 /// One-shot protocol-params NFT policy — the validator's 4th parameter.
@@ -102,7 +103,7 @@ const min_ada =
 // ---------------------------------------------------------------------------
 
 /// The ISSUER's third-party transfer logic credential registered in our node
-/// (`third_party_transfer_logic_script`). Its withdraw-0 is what the
+/// (`third_party_logic_script`). Its withdraw-0 is what the
 /// `third_party` validator requires on a seize of our policy.
 const test_issuer_3p_cred: Credential =
   Script(#"66666666666666666666666666666666666666666666666666666666")
@@ -135,7 +136,7 @@ fn registry_node_output_with_3p(
           transfer_logic_script: Script(
             #"55555555555555555555555555555555555555555555555555555555",
           ),
-          third_party_transfer_logic_script: issuer_3p_cred,
+          third_party_logic_script: issuer_3p_cred,
           // Must match the validator's `minting_logic_cred` parameter
           // (= `test_ml_cred` via `call_validator`). Defense-in-depth #3.
           minting_logic_script: test_ml_cred,
@@ -151,7 +152,7 @@ fn registry_node_output_with_3p(
 fn mint_output(qty: Int) -> Output {
   Output {
     address: Address {
-      payment_credential: test_plb_cred,
+      payment_credential: test_programmable_logic_base_cred,
       stake_credential: Some(
         Inline(
           Script(#"77777777777777777777777777777777777777777777777777777777"),
@@ -168,7 +169,7 @@ fn mint_output(qty: Int) -> Output {
 fn mint_output_named(token_name: ByteArray, qty: Int) -> Output {
   Output {
     address: Address {
-      payment_credential: test_plb_cred,
+      payment_credential: test_programmable_logic_base_cred,
       stake_credential: Some(
         Inline(
           Script(#"77777777777777777777777777777777777777777777777777777777"),
@@ -185,7 +186,10 @@ fn mint_output_named(token_name: ByteArray, qty: Int) -> Output {
 /// An output holding `qty` of `(test_own_policy, token_name)` at a NON-PLB
 /// address — used by tests that exercise the "tokens escape programmable
 /// custody" failure paths.
-fn non_plb_output_named(token_name: ByteArray, qty: Int) -> Output {
+fn non_programmable_logic_base_output_named(
+  token_name: ByteArray,
+  qty: Int,
+) -> Output {
   Output {
     address: Address {
       payment_credential: Script(
@@ -229,7 +233,7 @@ fn some_input(output: Output) -> Input {
 /// The protocol-params UTxO as a reference input: carries the protocol-params
 /// NFT (under `test_params_policy`) and the protocol-params datum whose
 /// field 1 (`transfer_cred`) is the LIVE transfer-validator credential the
-/// validator must resolve. `plg_cred` / `upgrade_cred` are never read by
+/// validator must resolve. `programmable_logic_global_cred` / `upgrade_cred` are never read by
 /// issuance_mint, so any placeholder credential is fine.
 fn params_ref_input(transfer_cred: Credential) -> Input {
   some_ref_input(
@@ -244,8 +248,8 @@ fn params_ref_input(transfer_cred: Credential) -> Input {
         |> assets.add(test_params_policy, "ProtocolParams", 1),
       datum: InlineDatum(
         as_data(
-          ProgrammableLogicGlobalParams {
-            plg_cred: test_plg_cred,
+          ProtocolParams {
+            programmable_logic_global_cred: test_programmable_logic_global_cred,
             transfer_cred,
             third_party_cred: test_tp_cred,
             upgrade_cred: test_ml_cred,
@@ -283,7 +287,10 @@ fn valid_mint_tx() -> Transaction {
         Withdraw(Script(test_issuance_logic_hash)),
         as_data([Pair(test_own_policy, rdmr)]),
       ),
-      Pair(Mint(test_own_policy), as_data(IssuanceRedeemer { params_idx: 0 })),
+      Pair(
+        Mint(test_own_policy),
+        as_data(IssuanceMintRedeemer { params_idx: 0 }),
+      ),
     ],
   }
 }
@@ -296,7 +303,7 @@ const test_issuance_logic_hash: ByteArray =
 /// test had, where `own_policy` arrived as the mint purpose.
 fn call_validator(rdmr: MintingRegistryProof, tx: Transaction) -> Bool {
   issuance_logic.issuance_logic.withdraw(
-    test_plb_cred,
+    test_programmable_logic_base_cred,
     test_registry_cs,
     test_params_policy,
     fixture.max_inline_datum_bytes,
@@ -434,7 +441,7 @@ test registry_nft_missing_fails() fail {
           transfer_logic_script: Script(
             #"55555555555555555555555555555555555555555555555555555555",
           ),
-          third_party_transfer_logic_script: Script(
+          third_party_logic_script: Script(
             #"66666666666666666666666666666666666666666666666666666666",
           ),
           minting_logic_script: test_ml_cred,
@@ -477,7 +484,7 @@ test wrong_registry_cs_nft_fails() fail {
           transfer_logic_script: Script(
             #"55555555555555555555555555555555555555555555555555555555",
           ),
-          third_party_transfer_logic_script: Script(
+          third_party_logic_script: Script(
             #"66666666666666666666666666666666666666666666666666666666",
           ),
           minting_logic_script: test_ml_cred,
@@ -549,7 +556,7 @@ test ref_input_out_of_bounds_fails() fail {
 // ========================================================================
 
 // First output not at programmable_logic_base address
-test output_not_at_plb_fails() fail {
+test output_not_at_programmable_logic_base_fails() fail {
   let wrong_output = Output {
     address: Address {
       payment_credential: Script(
@@ -582,7 +589,7 @@ test output_not_at_plb_fails() fail {
 test output_missing_stake_cred_fails() fail {
   let no_stake_output = Output {
     address: Address {
-      payment_credential: test_plb_cred,
+      payment_credential: test_programmable_logic_base_cred,
       stake_credential: None,
     },
     value: min_ada
@@ -609,12 +616,15 @@ test output_missing_stake_cred_fails() fail {
 // under-quantity case (mint 100, only 50 in outputs) is now the ledger's job;
 // here we mint 100, keep 50 at PLB and route the other 50 to a non-PLB
 // address — a ledger-valid tx that no_escape must reject.
-test output_partial_escape_to_non_plb_fails() fail {
+test output_partial_escape_to_non_programmable_logic_base_fails() fail {
   let rdmr = valid_redeemer()
   let tx = Transaction {
     ..transaction.placeholder,
     reference_inputs: [some_ref_input(registry_node_output(test_own_policy))],
-    outputs: [mint_output(50), non_plb_output_named(test_token_name, 50)],
+    outputs: [
+      mint_output(50),
+      non_programmable_logic_base_output_named(test_token_name, 50),
+    ],
     mint: from_asset(test_own_policy, test_token_name, 100),
     withdrawals: [Pair(test_ml_cred, 0)],
     redeemers: [Pair(Mint(test_own_policy), as_data(rdmr))],
@@ -635,7 +645,7 @@ const test_token_name_2 = #"746f6b656e32"
 fn multi_mint_output(qty1: Int, qty2: Int) -> Output {
   Output {
     address: Address {
-      payment_credential: test_plb_cred,
+      payment_credential: test_programmable_logic_base_cred,
       stake_credential: Some(
         Inline(
           Script(#"77777777777777777777777777777777777777777777777777777777"),
@@ -697,7 +707,7 @@ test multi_token_mint_split_outputs() {
 // Multi-token mint: one token escapes to non-PLB — must fail
 test multi_token_mint_partial_escape_fails() fail {
   let rdmr = valid_redeemer()
-  let non_plb_output = Output {
+  let non_programmable_logic_base_output = Output {
     address: Address {
       payment_credential: Script(
         #"99999999999999999999999999999999999999999999999999999999",
@@ -717,7 +727,7 @@ test multi_token_mint_partial_escape_fails() fail {
     ..transaction.placeholder,
     reference_inputs: [some_ref_input(registry_node_output(test_own_policy))],
     // tokenA goes to PLB, tokenB escapes to non-PLB
-    outputs: [mint_output(100), non_plb_output],
+    outputs: [mint_output(100), non_programmable_logic_base_output],
     mint: from_asset(test_own_policy, test_token_name, 100)
       |> assets.add(test_own_policy, test_token_name_2, 50),
     withdrawals: [Pair(test_ml_cred, 0)],
@@ -919,9 +929,9 @@ test case1_first_mint_multiple_outputs() {
 }
 
 // First mint: tokens sent to non-PLB address — must fail
-test case1_first_mint_tokens_to_non_plb_fails() fail {
+test case1_first_mint_tokens_to_non_programmable_logic_base_fails() fail {
   let rdmr = OutputIndex(1)
-  let non_plb_output = Output {
+  let non_programmable_logic_base_output = Output {
     address: Address {
       payment_credential: Script(
         #"99999999999999999999999999999999999999999999999999999999",
@@ -942,7 +952,7 @@ test case1_first_mint_tokens_to_non_plb_fails() fail {
     outputs: [
       mint_output(75),
       registry_node_output(test_own_policy),
-      non_plb_output,
+      non_programmable_logic_base_output,
     ],
     mint: from_asset(test_own_policy, test_token_name, 100),
     withdrawals: [Pair(test_ml_cred, 0)],
@@ -974,7 +984,7 @@ test case1_first_mint_with_shared_transfer_logic() {
           key: test_own_policy,
           next: #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
           transfer_logic_script: shared_cred,
-          third_party_transfer_logic_script: Script(
+          third_party_logic_script: Script(
             #"66666666666666666666666666666666666666666666666666666666",
           ),
           minting_logic_script: test_ml_cred,
@@ -1034,8 +1044,8 @@ test case2_subsequent_mint_multiple_outputs() {
 }
 
 // Subsequent mint: tokens sent to non-PLB — must fail
-test case2_subsequent_mint_tokens_to_non_plb_fails() fail {
-  let non_plb_output = Output {
+test case2_subsequent_mint_tokens_to_non_programmable_logic_base_fails() fail {
+  let non_programmable_logic_base_output = Output {
     address: Address {
       payment_credential: Script(
         #"99999999999999999999999999999999999999999999999999999999",
@@ -1053,7 +1063,7 @@ test case2_subsequent_mint_tokens_to_non_plb_fails() fail {
   }
   let tx = Transaction {
     ..valid_mint_tx(),
-    outputs: [mint_output(75), non_plb_output],
+    outputs: [mint_output(75), non_programmable_logic_base_output],
   }
   call_validator(valid_redeemer(), tx)
 }
@@ -1062,9 +1072,9 @@ test case2_subsequent_mint_tokens_to_non_plb_fails() fail {
 // the transfer validator doesn't know the new token → issuance_mint must validate outputs
 
 // First mint with PLB input present: tokens to non-PLB must still fail
-test case3_first_mint_with_plb_spend_tokens_escape_fails() fail {
+test case3_first_mint_with_programmable_logic_base_spend_tokens_escape_fails() fail {
   let rdmr = OutputIndex(1)
-  let non_plb_output = Output {
+  let non_programmable_logic_base_output = Output {
     address: Address {
       payment_credential: Script(
         #"99999999999999999999999999999999999999999999999999999999",
@@ -1095,7 +1105,7 @@ test case3_first_mint_with_plb_spend_tokens_escape_fails() fail {
     outputs: [
       mint_output(75),
       registry_node_output(test_own_policy),
-      non_plb_output,
+      non_programmable_logic_base_output,
     ],
     mint: from_asset(test_own_policy, test_token_name, 100),
     withdrawals: [Pair(test_ml_cred, 0)],
@@ -1167,7 +1177,10 @@ fn case4_defers_tx_with(transfer_cred: Credential) -> Transaction {
       some_ref_input(registry_node_output(test_own_policy)),
       params_ref_input(transfer_cred),
     ],
-    outputs: [mint_output(75), non_plb_output_named(test_token_name, 25)],
+    outputs: [
+      mint_output(75),
+      non_programmable_logic_base_output_named(test_token_name, 25),
+    ],
     mint: from_asset(test_own_policy, test_token_name, 50),
     withdrawals: [Pair(test_ml_cred, 0), Pair(transfer_cred, 0)],
     redeemers: [Pair(Mint(test_own_policy), as_data(valid_redeemer()))],
@@ -1182,7 +1195,7 @@ fn case4_defers_tx() -> Transaction {
 // issuance_mint allows it because the transfer validator (invoked via the transfer cred in
 // withdrawals) will reject it on-chain. This test documents that
 // issuance_mint trusts the transfer validator in this case.
-test case4_spend_and_mint_defers_to_plglobal() {
+test case4_spend_and_mint_defers_to_transfer() {
   // Spread `case4_defers_tx()` and override `redeemers` to include the
   // the transfer validator Withdraw redeemer. This is the single delta from the helper —
   // we add the transfer validator redeemer entry so `find_plgl_redeemer` returns
@@ -1214,7 +1227,7 @@ test case4_spend_and_mint_defers_to_plglobal() {
 // is "transfer-validator stake credential in `tx.withdrawals`" — and since that's absent
 // here, delegation does NOT trigger, `validate_mint_outputs` runs, and the
 // escape to non-PLB is correctly rejected.
-test case4_plb_input_without_transfer_cred_does_not_delegate_fails() fail {
+test case4_programmable_logic_base_input_without_transfer_cred_does_not_delegate_fails() fail {
   let tx = Transaction {
     ..case4_defers_tx(),
     withdrawals: [Pair(test_ml_cred, 0)],
@@ -1272,16 +1285,16 @@ test delegation_uses_live_transfer_cred_from_params_datum() {
 
 // In-place upgradability follow-up (2026-08-13 naming review, finding 2):
 // after an in-place transfer-validator upgrade (protocol-params datum rewritten to carry
-// `test_transfer_cred_v2`), the NEW credential delegates — no issuance_mint
+// `test_upgraded_transfer_cred`), the NEW credential delegates — no issuance_mint
 // redeploy needed. Same shape as the test above with the v2 credential in
 // both the datum and the invocation.
 test delegation_survives_in_place_transfer_validator_upgrade() {
   let tx = Transaction {
-    ..case4_defers_tx_with(test_transfer_cred_v2),
+    ..case4_defers_tx_with(test_upgraded_transfer_cred),
     redeemers: [
       Pair(Mint(test_own_policy), as_data(valid_redeemer())),
       Pair(
-        Withdraw(test_transfer_cred_v2),
+        Withdraw(test_upgraded_transfer_cred),
         as_data(TransferRedeemer { proofs: [TokenExists { node_idx: 0 }] }),
       ),
     ],
@@ -1290,7 +1303,7 @@ test delegation_survives_in_place_transfer_validator_upgrade() {
 }
 
 // In-place upgradability follow-up (2026-08-13 naming review, finding 2):
-// THE falsification test. The protocol-params datum names `test_transfer_cred_v2`
+// THE falsification test. The protocol-params datum names `test_upgraded_transfer_cred`
 // as the live the transfer validator, but the tx invokes only the launch-era
 // `test_transfer_cred` (withdrawal + covering `TokenExists { node_idx: 0 }`),
 // with custody violated. The retired credential must NOT delegate: the
@@ -1310,7 +1323,7 @@ test delegation_survives_in_place_transfer_validator_upgrade() {
 // disagreement — datum says v2, tx invokes v1.
 test launch_era_transfer_cred_cannot_delegate_after_upgrade_fails() fail {
   let tx = Transaction {
-    ..case4_defers_tx_with(test_transfer_cred_v2),
+    ..case4_defers_tx_with(test_upgraded_transfer_cred),
     withdrawals: [Pair(test_ml_cred, 0), Pair(test_transfer_cred, 0)],
     redeemers: [
       Pair(Mint(test_own_policy), as_data(valid_redeemer())),
@@ -1330,7 +1343,7 @@ test launch_era_transfer_cred_cannot_delegate_after_upgrade_fails() fail {
 // a stale delegate makes the mint self-custodied, not invalid.
 test stale_transfer_cred_delegation_denied_falls_back_to_custody() {
   let tx = Transaction {
-    ..case4_defers_tx_with(test_transfer_cred_v2),
+    ..case4_defers_tx_with(test_upgraded_transfer_cred),
     outputs: [mint_output(150)],
     withdrawals: [Pair(test_ml_cred, 0), Pair(test_transfer_cred, 0)],
     redeemers: [
@@ -1482,7 +1495,7 @@ const cip68_ref_name = #"000643b04d79546f6b656e"
 fn cip68_ft_output(qty: Int) -> Output {
   Output {
     address: Address {
-      payment_credential: test_plb_cred,
+      payment_credential: test_programmable_logic_base_cred,
       stake_credential: Some(
         Inline(
           Script(#"77777777777777777777777777777777777777777777777777777777"),
@@ -1500,7 +1513,7 @@ fn cip68_ft_output(qty: Int) -> Output {
 fn cip68_ref_output() -> Output {
   Output {
     address: Address {
-      payment_credential: test_plb_cred,
+      payment_credential: test_programmable_logic_base_cred,
       stake_credential: Some(
         Inline(
           Script(#"77777777777777777777777777777777777777777777777777777777"),
@@ -1563,7 +1576,7 @@ test cip68_first_mint_split_outputs() {
 test cip68_first_mint_combined_output() {
   let combined_output = Output {
     address: Address {
-      payment_credential: test_plb_cred,
+      payment_credential: test_programmable_logic_base_cred,
       stake_credential: Some(
         Inline(
           Script(#"77777777777777777777777777777777777777777777777777777777"),
@@ -1589,8 +1602,8 @@ test cip68_first_mint_combined_output() {
 }
 
 // CIP-68: ref token escapes to non-PLB — must fail
-test cip68_ref_token_escapes_non_plb_fails() fail {
-  let non_plb_ref = Output {
+test cip68_ref_token_escapes_non_programmable_logic_base_fails() fail {
+  let non_programmable_logic_base_ref = Output {
     address: Address {
       payment_credential: Script(
         #"99999999999999999999999999999999999999999999999999999999",
@@ -1611,7 +1624,7 @@ test cip68_ref_token_escapes_non_plb_fails() fail {
     ..transaction.placeholder,
     outputs: [
       cip68_ft_output(500),
-      non_plb_ref,
+      non_programmable_logic_base_ref,
       registry_node_output(test_own_policy),
     ],
     mint: from_asset(test_own_policy, cip68_ft_name, 500)
@@ -1650,7 +1663,7 @@ test outputindex_covering_node_mint_escape_fails() fail {
       // 100 P preserved at the PLB.
       mint_output(100),
       // 100 freshly minted P escaping to a non-PLB address.
-      non_plb_output_named(test_token_name, 100),
+      non_programmable_logic_base_output_named(test_token_name, 100),
       // The re-emitted covering node carrying P's registry NFT (index 2).
       registry_node_output(test_own_policy),
     ],
@@ -1671,14 +1684,14 @@ test outputindex_covering_node_mint_escape_fails() fail {
 // params_idx, registry_node_idx, wdrl_idx) derived from the same layout, and
 // show that a one-token escape is caught by `third_party` specifically:
 // issuance_mint has delegated, PLB has dispatched, and the conservation check
-// in `validate_3rd_party` is what says no.
+// in `validate_third_party` is what says no.
 
 /// A PLB output in the seizing authority's custody (stake credential of the
 /// substandard's escrow logic) holding `qty` subject tokens.
 fn seized_output(qty: Int) -> Output {
   Output {
     address: Address {
-      payment_credential: test_plb_cred,
+      payment_credential: test_programmable_logic_base_cred,
       stake_credential: Some(
         Inline(
           Script(#"adadadadadadadadadadadadadadadadadadadadadadadadadadadad"),
@@ -1693,7 +1706,7 @@ fn seized_output(qty: Int) -> Output {
 
 /// ONE subject-policy token at a non-PLB address — the escape.
 fn escaped_token_output() -> Output {
-  non_plb_output_named(test_token_name, 1)
+  non_programmable_logic_base_output_named(test_token_name, 1)
 }
 
 /// An issuer third-party logic credential that sorts AFTER the framework
@@ -1743,12 +1756,15 @@ fn composed_seize_mint(
   let withdrawals = fixture.ledger_sorted_withdrawals(
     [
       Pair(test_ml_cred, 0), Pair(issuer_3p_cred, 0), Pair(test_tp_cred, 0),
-      Pair(test_plg_cred, 0),
+      Pair(test_programmable_logic_global_cred, 0),
     ],
   )
   // PLB witnesses the DISPATCHER's position, not the delegate's — computed from
   // the ledger order, as an off-chain builder must.
-  let wdrl_idx = fixture.withdrawal_index_of(withdrawals, test_plg_cred)
+  let wdrl_idx = fixture.withdrawal_index_of(
+    withdrawals,
+    test_programmable_logic_global_cred,
+  )
   let holder_input = some_input(mint_output(held))
   let mint_redeemer = RefInput(node_idx)
   let base_redeemer = BaseSpendRedeemer { params_idx, wdrl_idx }
@@ -1767,7 +1783,10 @@ fn composed_seize_mint(
       Pair(Spend(holder_input.output_reference), as_data(base_redeemer)),
       Pair(Mint(test_own_policy), as_data(mint_redeemer)),
       Pair(Withdraw(test_tp_cred), as_data(tp_redeemer)),
-      Pair(Withdraw(test_plg_cred), as_data(ThirdPartyAct)),
+      Pair(
+        Withdraw(test_programmable_logic_global_cred),
+        as_data(ThirdPartyAct),
+      ),
     ],
   }
   Composed { tx, mint_redeemer, base_redeemer, tp_redeemer }
@@ -1787,20 +1806,20 @@ fn base_ok(c: Composed) -> Bool {
   )
 }
 
-fn plg_ok(c: Composed) -> Bool {
+fn programmable_logic_global_ok(c: Composed) -> Bool {
   programmable_logic_global.programmable_logic_global.withdraw(
     test_transfer_hash,
     test_tp_hash,
     test_unfracking_hash,
     ThirdPartyAct,
-    test_plg_cred,
+    test_programmable_logic_global_cred,
     c.tx,
   )
 }
 
 fn third_party_ok(c: Composed) -> Bool {
   third_party.third_party.withdraw(
-    test_plb_cred,
+    test_programmable_logic_base_cred,
     test_registry_cs,
     fixture.max_inline_datum_bytes,
     c.tp_redeemer,
@@ -1821,7 +1840,7 @@ test composed_seize_mint_all_three_validators_pass() {
   and {
     mint_ok(c),
     base_ok(c),
-    plg_ok(c),
+    programmable_logic_global_ok(c),
     third_party_ok(c),
   }
 }
@@ -1882,7 +1901,7 @@ test composed_seize_mint_holds_for_any_quantities_and_placement(
   and {
     mint_ok(c),
     base_ok(c),
-    plg_ok(c),
+    programmable_logic_global_ok(c),
     third_party_ok(c),
   }
 }
@@ -1915,7 +1934,7 @@ test composed_seize_mint_escape_rejected_for_any_quantities_and_placement(
 // issuance for every token, so only registration is allowed.
 test publish_allows_registration() {
   issuance_logic.issuance_logic.publish(
-    test_plb_cred,
+    test_programmable_logic_base_cred,
     test_registry_cs,
     test_params_policy,
     fixture.max_inline_datum_bytes,
@@ -1930,7 +1949,7 @@ test publish_allows_registration() {
 
 test publish_rejects_deregistration() {
   !issuance_logic.issuance_logic.publish(
-    test_plb_cred,
+    test_programmable_logic_base_cred,
     test_registry_cs,
     test_params_policy,
     fixture.max_inline_datum_bytes,
@@ -1956,16 +1975,16 @@ test publish_rejects_deregistration() {
 const test_own_policy_2: PolicyId =
   #"22222222222222222222222222222222222222222222222222222222"
 
-fn plb_output_for(policy: PolicyId, qty: Int) -> Output {
+fn programmable_logic_base_output_for(policy: PolicyId, qty: Int) -> Output {
   Output {
     ..mint_output(0),
     value: min_ada |> assets.add(policy, test_token_name, qty),
   }
 }
 
-fn non_plb_output_for(policy: PolicyId, qty: Int) -> Output {
+fn non_programmable_logic_base_output_for(policy: PolicyId, qty: Int) -> Output {
   Output {
-    ..non_plb_output_named(test_token_name, 0),
+    ..non_programmable_logic_base_output_named(test_token_name, 0),
     value: min_ada |> assets.add(policy, test_token_name, qty),
   }
 }
@@ -1990,7 +2009,7 @@ fn two_policies_tx(out_1: Output, out_2: Output) -> Transaction {
 
 fn call_two(tx: Transaction) -> Bool {
   issuance_logic.issuance_logic.withdraw(
-    test_plb_cred,
+    test_programmable_logic_base_cred,
     test_registry_cs,
     test_params_policy,
     fixture.max_inline_datum_bytes,
@@ -2000,11 +2019,11 @@ fn call_two(tx: Transaction) -> Bool {
   )
 }
 
-test two_policies_both_at_plb_pass() {
+test two_policies_both_at_programmable_logic_base_pass() {
   call_two(
     two_policies_tx(
-      plb_output_for(test_own_policy, 100),
-      plb_output_for(test_own_policy_2, 100),
+      programmable_logic_base_output_for(test_own_policy, 100),
+      programmable_logic_base_output_for(test_own_policy_2, 100),
     ),
   )
 }
@@ -2013,8 +2032,8 @@ test two_policies_both_at_plb_pass() {
 test two_policies_second_escapes_fails() fail {
   call_two(
     two_policies_tx(
-      plb_output_for(test_own_policy, 100),
-      non_plb_output_for(test_own_policy_2, 100),
+      programmable_logic_base_output_for(test_own_policy, 100),
+      non_programmable_logic_base_output_for(test_own_policy_2, 100),
     ),
   )
 }
@@ -2023,8 +2042,8 @@ test two_policies_second_escapes_fails() fail {
 test two_policies_first_escapes_fails() fail {
   call_two(
     two_policies_tx(
-      non_plb_output_for(test_own_policy, 100),
-      plb_output_for(test_own_policy_2, 100),
+      non_programmable_logic_base_output_for(test_own_policy, 100),
+      programmable_logic_base_output_for(test_own_policy_2, 100),
     ),
   )
 }
@@ -2034,15 +2053,15 @@ test two_policies_first_escapes_fails() fail {
 // another's.
 test two_policies_cannot_borrow_each_others_node() fail {
   issuance_logic.issuance_logic.withdraw(
-    test_plb_cred,
+    test_programmable_logic_base_cred,
     test_registry_cs,
     test_params_policy,
     fixture.max_inline_datum_bytes,
     [Pair(test_own_policy, RefInput(1)), Pair(test_own_policy_2, RefInput(0))],
     Script(test_issuance_logic_hash),
     two_policies_tx(
-      plb_output_for(test_own_policy, 100),
-      plb_output_for(test_own_policy_2, 100),
+      programmable_logic_base_output_for(test_own_policy, 100),
+      programmable_logic_base_output_for(test_own_policy_2, 100),
     ),
   )
 }
@@ -2074,8 +2093,8 @@ fn two_policies_with_transfer_delegation(
 test two_policies_delegation_covers_only_its_own_node() fail {
   call_two(
     two_policies_with_transfer_delegation(
-      plb_output_for(test_own_policy, 100),
-      non_plb_output_for(test_own_policy_2, 100),
+      programmable_logic_base_output_for(test_own_policy, 100),
+      non_programmable_logic_base_output_for(test_own_policy_2, 100),
     ),
   )
 }
@@ -2085,8 +2104,8 @@ test two_policies_delegation_covers_only_its_own_node() fail {
 test two_policies_delegated_first_may_be_left_to_delegate() {
   call_two(
     two_policies_with_transfer_delegation(
-      non_plb_output_for(test_own_policy, 100),
-      plb_output_for(test_own_policy_2, 100),
+      non_programmable_logic_base_output_for(test_own_policy, 100),
+      programmable_logic_base_output_for(test_own_policy_2, 100),
     ),
   )
 }
@@ -2114,7 +2133,7 @@ fn call_permanent(tx: Transaction) -> Bool {
   issuance_mint.issuance_mint.mint(
     test_ml_cred,
     test_params_policy,
-    IssuanceRedeemer { params_idx: 1 },
+    IssuanceMintRedeemer { params_idx: 1 },
     test_own_policy,
     tx,
   )
@@ -2231,7 +2250,7 @@ test mint_small_inline_datum_passes() {
 
 // A PLB output WITHOUT the minted policy — ada only, say — is not this
 // script's datum to bound. It still gets the shape check.
-test plb_output_without_minted_policy_is_not_bounded() {
+test programmable_logic_base_output_without_minted_policy_is_not_bounded() {
   let oversized_ada_only = Output {
     ..mint_output(100),
     value: min_ada,
@@ -2248,7 +2267,7 @@ test plb_output_without_minted_policy_is_not_bounded() {
 
 // ...but a datum HASH on that same output is still refused: the shape check
 // applies to every PLB output, the size bound only to ours.
-test plb_output_without_minted_policy_still_shape_checked() fail {
+test programmable_logic_base_output_without_minted_policy_still_shape_checked() fail {
   let hashed_ada_only = Output {
     ..mint_output(100),
     value: min_ada,

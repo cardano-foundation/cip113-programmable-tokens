@@ -109,7 +109,7 @@
       },
       "parameters": [
         {
-          "title": "programmable_logic_base",
+          "title": "programmable_logic_base_cred",
           "schema": {
             "$ref": "#/definitions/cardano~1address~1Credential"
           }
@@ -146,7 +146,7 @@
       },
       "parameters": [
         {
-          "title": "programmable_logic_base",
+          "title": "programmable_logic_base_cred",
           "schema": {
             "$ref": "#/definitions/cardano~1address~1Credential"
           }
@@ -180,7 +180,7 @@
       },
       "parameters": [
         {
-          "title": "programmable_logic_base",
+          "title": "programmable_logic_base_cred",
           "schema": {
             "$ref": "#/definitions/cardano~1address~1Credential"
           }
@@ -212,7 +212,7 @@
       "redeemer": {
         "title": "redeemer",
         "schema": {
-          "$ref": "#/definitions/types~1IssuanceRedeemer"
+          "$ref": "#/definitions/types~1IssuanceMintRedeemer"
         }
       },
       "parameters": [
@@ -409,7 +409,7 @@
       "datum": {
         "title": "datum",
         "schema": {
-          "$ref": "#/definitions/programmable_logic~1params~1ProgrammableLogicGlobalParams"
+          "$ref": "#/definitions/programmable_logic~1params~1ProtocolParams"
         }
       },
       "redeemer": {
@@ -533,7 +533,7 @@
       },
       "parameters": [
         {
-          "title": "prog_logic_cred",
+          "title": "programmable_logic_base_cred",
           "schema": {
             "$ref": "#/definitions/cardano~1address~1Credential"
           }
@@ -564,7 +564,7 @@
       },
       "parameters": [
         {
-          "title": "prog_logic_cred",
+          "title": "programmable_logic_base_cred",
           "schema": {
             "$ref": "#/definitions/cardano~1address~1Credential"
           }
@@ -592,7 +592,7 @@
       },
       "parameters": [
         {
-          "title": "prog_logic_cred",
+          "title": "programmable_logic_base_cred",
           "schema": {
             "$ref": "#/definitions/cardano~1address~1Credential"
           }
@@ -623,7 +623,7 @@
       },
       "parameters": [
         {
-          "title": "prog_logic_cred",
+          "title": "programmable_logic_base_cred",
           "schema": {
             "$ref": "#/definitions/cardano~1address~1Credential"
           }
@@ -654,7 +654,7 @@
       },
       "parameters": [
         {
-          "title": "prog_logic_cred",
+          "title": "programmable_logic_base_cred",
           "schema": {
             "$ref": "#/definitions/cardano~1address~1Credential"
           }
@@ -682,7 +682,7 @@
       },
       "parameters": [
         {
-          "title": "prog_logic_cred",
+          "title": "programmable_logic_base_cred",
           "schema": {
             "$ref": "#/definitions/cardano~1address~1Credential"
           }
@@ -713,7 +713,7 @@
       },
       "parameters": [
         {
-          "title": "prog_logic_cred",
+          "title": "programmable_logic_base_cred",
           "schema": {
             "$ref": "#/definitions/cardano~1address~1Credential"
           }
@@ -744,7 +744,7 @@
       },
       "parameters": [
         {
-          "title": "prog_logic_cred",
+          "title": "programmable_logic_base_cred",
           "schema": {
             "$ref": "#/definitions/cardano~1address~1Credential"
           }
@@ -772,7 +772,7 @@
       },
       "parameters": [
         {
-          "title": "prog_logic_cred",
+          "title": "programmable_logic_base_cred",
           "schema": {
             "$ref": "#/definitions/cardano~1address~1Credential"
           }
@@ -1084,17 +1084,17 @@
         }
       ]
     },
-    "programmable_logic/params/ProgrammableLogicGlobalParams": {
-      "title": "ProgrammableLogicGlobalParams",
-      "description": "Protocol parameters stored on-chain, referenced by every programmable-token\n transaction. **Every field here has a named on-chain reader** — that is the\n rule this record is kept to. A writable field nothing reads is a trap: an\n operator rewrites it, the transaction succeeds, and nothing changes.\n\n Fields are ordered by read-frequency / hot-path depth. `plg_cred` sits at\n field 0 because `programmable_logic_base` reads it once per programmable\n INPUT — the only per-input read in the protocol — so it pays no `tail_list`\n step at all.\n\n **Two phases for field order.** BEFORE genesis, order by read frequency\n and nothing else — no datum exists yet, so nothing can be misread, and\n this is the last moment the layout is free. AFTER genesis, a new field is\n APPENDED, never inserted: the accessors below are positional\n `head_list`/`tail_list` chains over raw `unconstr_fields`, so a field added\n at the end costs every deployed reader exactly nothing, while one inserted\n anywhere else silently deepens — or worse, silently re-points — a hot\n accessor. `issuance_logic_cred` was moved to field 1 under the first rule\n (2026-09-08, pre-genesis); `pending_upgrade_cred` sits last under the\n second.\n\n What is NOT here, and why:\n   * `prog_logic_cred`, `registry_node_cs` and the seizure datum bound are\n     compile-time PARAMETERS of the delegates. A frozen value never needs to\n     be a datum read — it only needs baking into whatever artifact is itself\n     the replaceable unit, and the delegates are exactly that. Both were\n     still declared here while they had a reader left; they have none now, so\n     they are gone. Removing a field is stronger than freezing it, but only\n     over that field: no upgrade can edit these in place, while the VALUES\n     stay reachable one hop away, through a dispatch-layer swap that installs\n     delegates applied with the values of the authority's choosing.\n   * the three delegate HASHES are baked into `programmable_logic_global`,\n     which is why it never reads this datum. The trust chain is\n     PLB -> params -> PLG -> delegate.\n   * `transfer_cred` / `third_party_cred` remain because `issuance_logic`\n     sits on a DIFFERENT chain: it must locate a delegate's REDEEMER to prove\n     that delegate covered a minting policy's registry node (Finding 04\n     precise delegation). Reading them at runtime is what stops a delegate\n     upgrade stranding issuance.\n   * `issuance_logic_cred` is the replaceable half of issuance (#129). The\n     per-token `issuance_mint` policy is permanent by construction — its\n     hash IS the token's policy id — so every rule that may change lives\n     behind this credential instead.",
+    "programmable_logic/params/ProtocolParams": {
+      "title": "ProtocolParams",
+      "description": "Protocol parameters stored on-chain, referenced by every programmable-token\n transaction. **Every field here has a named on-chain reader** — that is the\n rule this record is kept to. A writable field nothing reads is a trap: an\n operator rewrites it, the transaction succeeds, and nothing changes.\n\n Fields are ordered by read-frequency / hot-path depth. `programmable_logic_global_cred` sits at\n field 0 because `programmable_logic_base` reads it once per programmable\n INPUT — the only per-input read in the protocol — so it pays no `tail_list`\n step at all.\n\n **Two phases for field order.** BEFORE genesis, order by read frequency\n and nothing else — no datum exists yet, so nothing can be misread, and\n this is the last moment the layout is free. AFTER genesis, a new field is\n APPENDED, never inserted: the accessors below are positional\n `head_list`/`tail_list` chains over raw `unconstr_fields`, so a field added\n at the end costs every deployed reader exactly nothing, while one inserted\n anywhere else silently deepens — or worse, silently re-points — a hot\n accessor. `issuance_logic_cred` was moved to field 1 under the first rule\n (2026-09-08, pre-genesis); `pending_upgrade_cred` sits last under the\n second.\n\n What is NOT here, and why:\n   * `programmable_logic_base_cred`, `registry_node_cs` and the seizure datum bound are\n     compile-time PARAMETERS of the delegates. A frozen value never needs to\n     be a datum read — it only needs baking into whatever artifact is itself\n     the replaceable unit, and the delegates are exactly that. Both were\n     still declared here while they had a reader left; they have none now, so\n     they are gone. Removing a field is stronger than freezing it, but only\n     over that field: no upgrade can edit these in place, while the VALUES\n     stay reachable one hop away, through a dispatch-layer swap that installs\n     delegates applied with the values of the authority's choosing.\n   * the three delegate HASHES are baked into `programmable_logic_global`,\n     which is why it never reads this datum. The trust chain is\n     PLB -> params -> PLG -> delegate.\n   * `transfer_cred` / `third_party_cred` remain because `issuance_logic`\n     sits on a DIFFERENT chain: it must locate a delegate's REDEEMER to prove\n     that delegate covered a minting policy's registry node (Finding 04\n     precise delegation). Reading them at runtime is what stops a delegate\n     upgrade stranding issuance.\n   * `issuance_logic_cred` is the replaceable half of issuance (#129). The\n     per-token `issuance_mint` policy is permanent by construction — its\n     hash IS the token's policy id — so every rule that may change lives\n     behind this credential instead.",
       "anyOf": [
         {
-          "title": "ProgrammableLogicGlobalParams",
+          "title": "ProtocolParams",
           "dataType": "constructor",
           "index": 0,
           "fields": [
             {
-              "title": "plg_cred",
+              "title": "programmable_logic_global_cred",
               "description": "Field 0 — credential of the `programmable_logic_global` dispatcher.\n **The hot field**: `programmable_logic_base` reads it on every\n programmable input and requires its withdraw-0. This one field IS the\n upgrade mechanism — rewriting it swaps the entire dispatch layer without\n moving PLB's hash, and therefore without moving a single token address.\n First because it is the only per-input read: its accessor walks nothing.",
               "$ref": "#/definitions/cardano~1address~1Credential"
             },
@@ -1129,7 +1129,7 @@
     },
     "registry_node/RegistryNode": {
       "title": "RegistryNode",
-      "description": "Registry node in the linked list of registered programmable token policies\n This represents an entry in the CIP-113 registry.\n\n Field order is load-bearing: it determines the CBOR layout consumed by both\n on-chain and off-chain code. The three script-credential fields are ordered\n by the natural lifecycle of a programmable token — `minting_logic_script`\n (mint), `transfer_logic_script` (transfer), `third_party_transfer_logic_script`\n (admin) — with `minting_logic_script` first because registration is the\n earliest event in a token's lifetime.",
+      "description": "Registry node in the linked list of registered programmable token policies\n This represents an entry in the CIP-113 registry.\n\n Field order is load-bearing: it determines the CBOR layout consumed by both\n on-chain and off-chain code. The three script-credential fields are ordered\n by the natural lifecycle of a programmable token — `minting_logic_script`\n (mint), `transfer_logic_script` (transfer), `third_party_logic_script`\n (admin) — with `minting_logic_script` first because registration is the\n earliest event in a token's lifetime.",
       "anyOf": [
         {
           "title": "RegistryNode",
@@ -1148,7 +1148,7 @@
             },
             {
               "title": "minting_logic_script",
-              "description": "The minting logic script credential. The substandard's withdraw-0 minting\n logic finds its own registry node by equality on this field — that gives\n it the `key` (the policy id) without recomputing the issuance hash.\n The `registry` validator's mint handler also cryptographically binds\n this field to the policy id\n via `is_programmable_token_id_valid`, so the field cannot lie.",
+              "description": "The minting logic script credential. The substandard's withdraw-0 minting\n logic finds its own registry node by equality on this field — that gives\n it the `key` (the policy id) without recomputing the issuance hash.\n The `registry` validator's mint handler also cryptographically binds\n this field to the policy id\n via `expect_programmable_token_id_valid`, so the field cannot lie.",
               "$ref": "#/definitions/cardano~1address~1Credential"
             },
             {
@@ -1157,7 +1157,7 @@
               "$ref": "#/definitions/cardano~1address~1Credential"
             },
             {
-              "title": "third_party_transfer_logic_script",
+              "title": "third_party_logic_script",
               "description": "The third party transfer logic script credential that handles admin actions (seizure, etc.)",
               "$ref": "#/definitions/cardano~1address~1Credential"
             },
@@ -1177,7 +1177,7 @@
     },
     "types/BaseSpendRedeemer": {
       "title": "BaseSpendRedeemer",
-      "description": "Redeemer of the `programmable_logic_base` spend validator.\n\n PLB runs once per programmable-token input, so its cost is multiplied by\n every such input in the transaction — which is why it now does the smallest\n job in the protocol: locate the params datum, read ONE credential\n (`plg_cred`, field 2), and require that credential's withdraw-0 at the\n witnessed index. No arm, no `when`, no choice of accessor.\n\n It witnesses WHERE the dispatcher's credential sits in the ledger-ordered\n withdrawal map (Script credentials first, then VerificationKey, bytewise\n within each), so the check is a direct `list.expect_at` — O(`wdrl_idx`) cell\n drops with no comparison on the way — plus one equality, instead of a scan\n that compares at every entry.\n\n Self-validating: a wrong `wdrl_idx` resolves to some other credential and\n the equality fails, so a dishonest witness can only invalidate its own\n transaction.\n\n **The pairwise-distinctness ASSUMPTION is gone.** PLB used to choose between\n three credentials by redeemer arm, which was only sound while those three\n were distinct — a property nothing on-chain enforced. There is now exactly\n one credential on this path, so there is nothing to collide.",
+      "description": "Redeemer of the `programmable_logic_base` spend validator.\n\n PLB runs once per programmable-token input, so its cost is multiplied by\n every such input in the transaction — which is why it now does the smallest\n job in the protocol: locate the params datum, read ONE credential\n (`programmable_logic_global_cred`, field 2), and require that credential's withdraw-0 at the\n witnessed index. No arm, no `when`, no choice of accessor.\n\n It witnesses WHERE the dispatcher's credential sits in the ledger-ordered\n withdrawal map (Script credentials first, then VerificationKey, bytewise\n within each), so the check is a direct `list.expect_at` — O(`wdrl_idx`) cell\n drops with no comparison on the way — plus one equality, instead of a scan\n that compares at every entry.\n\n Self-validating: a wrong `wdrl_idx` resolves to some other credential and\n the equality fails, so a dishonest witness can only invalidate its own\n transaction.\n\n **The pairwise-distinctness ASSUMPTION is gone.** PLB used to choose between\n three credentials by redeemer arm, which was only sound while those three\n were distinct — a property nothing on-chain enforced. There is now exactly\n one credential on this path, so there is nothing to collide.",
       "anyOf": [
         {
           "title": "BaseSpendRedeemer",
@@ -1191,7 +1191,7 @@
             },
             {
               "title": "wdrl_idx",
-              "description": "Index of `plg_cred`'s entry in the ledger-ordered withdrawal map.",
+              "description": "Index of `programmable_logic_global_cred`'s entry in the ledger-ordered withdrawal map.",
               "$ref": "#/definitions/Int"
             }
           ]
@@ -1208,12 +1208,12 @@
         "$ref": "#/definitions/types~1MintingRegistryProof"
       }
     },
-    "types/IssuanceRedeemer": {
-      "title": "IssuanceRedeemer",
+    "types/IssuanceMintRedeemer": {
+      "title": "IssuanceMintRedeemer",
       "description": "Redeemer of the PERMANENT issuance policy (`issuance_mint`, issue #129):\n nothing but an index hint locating the protocol-params UTxO among the\n reference inputs. Everything that could ever change — registry proofs,\n custody, delegate redeemer shapes — travels in `IssuanceLogicRedeemer`\n instead, so this type can stay frozen for as long as any token exists.",
       "anyOf": [
         {
-          "title": "IssuanceRedeemer",
+          "title": "IssuanceMintRedeemer",
           "dataType": "constructor",
           "index": 0,
           "fields": [
@@ -1255,7 +1255,7 @@
     },
     "types/ProgrammableLogicGlobalRedeemer": {
       "title": "ProgrammableLogicGlobalRedeemer",
-      "description": "Redeemer of the `programmable_logic_global` dispatcher.\n\n PLG is reached from PLB (which named it via `plg_cred`) and does exactly one\n thing: prove that the delegate for the chosen ACTION was invoked. The three\n delegate hashes are compile-time parameters of PLG, so it never reads the\n params datum — the trust chain is PLB -> params -> PLG -> delegate, and PLG\n is the link that turns \"some dispatcher ran\" into \"the right delegate ran\".\n\n The arms carry NO payload on purpose. Everything a delegate needs — registry\n proofs, node indices, output offsets — travels in that delegate's OWN\n redeemer, where the delegate itself validates it. Duplicating any of it here\n would create a second, unchecked claim about the same fact, and forcing the\n two to agree would mean PLG decoding the delegate's redeemer — which is\n exactly the work this design exists to avoid.",
+      "description": "Redeemer of the `programmable_logic_global` dispatcher.\n\n PLG is reached from PLB (which named it via `programmable_logic_global_cred`) and does exactly one\n thing: prove that the delegate for the chosen ACTION was invoked. The three\n delegate hashes are compile-time parameters of PLG, so it never reads the\n params datum — the trust chain is PLB -> params -> PLG -> delegate, and PLG\n is the link that turns \"some dispatcher ran\" into \"the right delegate ran\".\n\n The arms carry NO payload on purpose. Everything a delegate needs — registry\n proofs, node indices, output offsets — travels in that delegate's OWN\n redeemer, where the delegate itself validates it. Duplicating any of it here\n would create a second, unchecked claim about the same fact, and forcing the\n two to agree would mean PLG decoding the delegate's redeemer — which is\n exactly the work this design exists to avoid.",
       "anyOf": [
         {
           "title": "TransferAct",
@@ -1286,7 +1286,7 @@
       "anyOf": [
         {
           "title": "ProtocolUpgrade",
-          "description": "Rewrite mutable protocol wiring. May change `plg_cred`, `transfer_cred`\n and `third_party_cred`; may NOT touch `upgrade_cred` or the nomination.\n Authorised by the sitting `upgrade_cred`'s withdraw-0.",
+          "description": "Rewrite mutable protocol wiring. May change `programmable_logic_global_cred`, `transfer_cred`\n and `third_party_cred`; may NOT touch `upgrade_cred` or the nomination.\n Authorised by the sitting `upgrade_cred`'s withdraw-0.",
           "dataType": "constructor",
           "index": 0,
           "fields": []
@@ -1391,7 +1391,7 @@
     },
     "types/TransferRedeemer": {
       "title": "TransferRedeemer",
-      "description": "Redeemer of the `transfer` withdraw-0 validator — the script every\n ordinary programmable-token transfer is dispatched to, by\n `programmable_logic_global` under a `TransferAct` arm.\n\n This redeemer carries NO `params_idx`: the `transfer` validator no longer\n reads the protocol-params datum at all. The three values it used to read\n there — `prog_logic_cred`, `registry_node_cs` and the seizure datum bound —\n are compile-time parameters of the validator now. Same for the standalone\n `third_party` and `unfracking` redeemers.",
+      "description": "Redeemer of the `transfer` withdraw-0 validator — the script every\n ordinary programmable-token transfer is dispatched to, by\n `programmable_logic_global` under a `TransferAct` arm.\n\n This redeemer carries NO `params_idx`: the `transfer` validator no longer\n reads the protocol-params datum at all. The three values it used to read\n there — `programmable_logic_base_cred`, `registry_node_cs` and the seizure datum bound —\n are compile-time parameters of the validator now. Same for the standalone\n `third_party` and `unfracking` redeemers.",
       "anyOf": [
         {
           "title": "TransferRedeemer",

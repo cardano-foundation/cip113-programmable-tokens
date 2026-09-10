@@ -83,26 +83,26 @@ const fixture_superset_with_ada: Pairs<AssetName, Int> =
 const fixture_subset: Pairs<AssetName, Int> = [Pair(fixture_asset_name, 50)]
 
 test tokens_exact_match() {
-  tokens.contains(fixture_superset, fixture_superset)
+  tokens.expect_contains(fixture_superset, fixture_superset)
 }
 
 test tokens_subset() {
   and {
-    tokens.contains(fixture_superset, fixture_subset)?,
-    tokens.contains(fixture_superset_with_ada, fixture_subset)?,
+    tokens.expect_contains(fixture_superset, fixture_subset)?,
+    tokens.expect_contains(fixture_superset_with_ada, fixture_subset)?,
   }
 }
 
 test tokens_insufficient() {
-  !tokens.contains(fixture_subset, fixture_superset)
+  !tokens.expect_contains(fixture_subset, fixture_superset)
 }
 
 test prop_contains_reflexive(tokens via any_tokens()) {
-  tokens.contains(dict.to_pairs(tokens), dict.to_pairs(tokens))
+  tokens.expect_contains(dict.to_pairs(tokens), dict.to_pairs(tokens))
 }
 
 test prop_contains_monoid(tokens via any_tokens()) {
-  tokens.contains(dict.to_pairs(tokens), [])
+  tokens.expect_contains(dict.to_pairs(tokens), [])
 }
 
 test prop_contains_subset_mutation(
@@ -114,19 +114,19 @@ test prop_contains_subset_mutation(
     when mutation is {
       IncreaseQuantity(..) -> {
         fuzz.label(@"non-empty superset, increase quantity")
-        tokens.contains(superset, subset)
+        tokens.expect_contains(superset, subset)
       }
       InsertAsset(..) -> {
         fuzz.label(@"non-empty superset, insert new asset")
-        tokens.contains(superset, subset)
+        tokens.expect_contains(superset, subset)
       }
       ReduceQuantity(..) -> {
         fuzz.label(@"non-empty superset, reduce quantity")
-        !tokens.contains(superset, subset)
+        !tokens.expect_contains(superset, subset)
       }
       DeleteAsset(..) -> {
         fuzz.label(@"non-empty superset, remove asset")
-        !tokens.contains(superset, subset)
+        !tokens.expect_contains(superset, subset)
       }
     }
   } else {
@@ -144,19 +144,19 @@ test prop_contains_superset_mutation(
     when mutation is {
       IncreaseQuantity(..) -> {
         fuzz.label(@"non-empty subset, increase quantity")
-        !tokens.contains(superset, subset)
+        !tokens.expect_contains(superset, subset)
       }
       InsertAsset(..) -> {
         fuzz.label(@"non-empty subset, insert new asset")
-        !tokens.contains(superset, subset)
+        !tokens.expect_contains(superset, subset)
       }
       ReduceQuantity(..) -> {
         fuzz.label(@"non-empty subset, reduce quantity")
-        tokens.contains(superset, subset)
+        tokens.expect_contains(superset, subset)
       }
       DeleteAsset(..) -> {
         fuzz.label(@"non-empty subset, remove asset")
-        tokens.contains(superset, subset)
+        tokens.expect_contains(superset, subset)
       }
     }
   } else {

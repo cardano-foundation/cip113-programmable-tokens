@@ -46,7 +46,7 @@
 ////    THE RAW COLUMN OVERSTATES THE SPEND ROWS. `aiken check` reports
 ////    execution units for the WHOLE test expression, fixture construction
 ////    included, and the pre-merge spend fixtures had to build a protocol-params
-////    reference input carrying an inline `ProgrammableLogicGlobalParams` datum
+////    reference input carrying an inline `ProtocolParams` datum
 ////    — a fixture that does not exist after the merge because the validator no
 ////    longer demands one. Constructing it costs a MEASURED 5,667,325 cpu
 ////    (probe: the merged `spend_transaction()` with and without such a
@@ -68,7 +68,7 @@
 ////    NOT come from any committed artefact: the pre-slice
 ////    `registry_spend.test.ak` was an UNCOMMITTED working-tree modification
 ////    that this slice deleted, and `HEAD`'s copy does not even compile against
-////    this branch (its `ProgrammableLogicGlobalParams` literal still carries
+////    this branch (its `ProtocolParams` literal still carries
 ////    `unfracking_cred` and `max_inline_datum_bytes`, which the dispatcher work
 ////    removed). To reproduce them: take `HEAD:validators/registry_spend.ak`
 ////    unchanged, rebuild the test fixture with the branch's 6-field params
@@ -185,7 +185,7 @@ const test_hashed_param =
 /// Substandard minting-logic credential placed in the new RegistryNode's
 /// `minting_logic_script` field AND in the matching `RegistryInsert`
 /// redeemer. Its inner 28-byte hash equals `test_hashed_param`, so the
-/// `is_programmable_token_id_valid` check passes.
+/// `expect_programmable_token_id_valid` check passes.
 const test_inserted_minting_logic_cred: Credential = Script(test_hashed_param)
 
 // CIP-67 label 333 (FT) prefix + "MyToken" hex
@@ -198,7 +198,7 @@ const cip68_ref_name = #"000643b04d79546f6b656e"
 // Mint-side helpers
 // ---------------------------------------------------------------------------
 
-/// Build the 28-byte key that `is_programmable_token_id_valid` expects.
+/// Build the 28-byte key that `expect_programmable_token_id_valid` expects.
 fn computed_key() -> ByteArray {
   apply_hashed_parameter(test_prefix, test_postfix, test_hashed_param)
 }
@@ -215,7 +215,7 @@ fn origin_node_output() -> Output {
           key: #"",
           next: #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
           transfer_logic_script: empty_vkey,
-          third_party_transfer_logic_script: empty_vkey,
+          third_party_logic_script: empty_vkey,
           minting_logic_script: empty_vkey,
           unfracking_logic_script: empty_vkey,
           global_state_cs: #"",
@@ -240,7 +240,7 @@ fn covering_node_input() -> Input {
             key: #"",
             next: #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
             transfer_logic_script: empty_vkey,
-            third_party_transfer_logic_script: empty_vkey,
+            third_party_logic_script: empty_vkey,
             minting_logic_script: empty_vkey,
             unfracking_logic_script: empty_vkey,
             global_state_cs: #"",
@@ -265,7 +265,7 @@ fn updated_covering_node_output() -> Output {
           key: #"",
           next: key,
           transfer_logic_script: empty_vkey,
-          third_party_transfer_logic_script: empty_vkey,
+          third_party_logic_script: empty_vkey,
           minting_logic_script: empty_vkey,
           unfracking_logic_script: empty_vkey,
           global_state_cs: #"",
@@ -291,7 +291,7 @@ fn inserted_node_output() -> Output {
           transfer_logic_script: Script(
             #"55555555555555555555555555555555555555555555555555555555",
           ),
-          third_party_transfer_logic_script: Script(
+          third_party_logic_script: Script(
             #"66666666666666666666666666666666666666666666666666666666",
           ),
           minting_logic_script: test_inserted_minting_logic_cred,
@@ -479,7 +479,7 @@ fn old_registry_node() -> RegistryNode {
     next: test_node_next,
     minting_logic_script: Script(test_minting_logic_hash),
     transfer_logic_script: Script(test_transfer_old),
-    third_party_transfer_logic_script: Script(test_third_party_old),
+    third_party_logic_script: Script(test_third_party_old),
     unfracking_logic_script: empty_vkey,
     global_state_cs: #"",
   }
@@ -490,7 +490,7 @@ fn new_registry_node() -> RegistryNode {
   RegistryNode {
     ..old_registry_node(),
     transfer_logic_script: Script(test_transfer_new),
-    third_party_transfer_logic_script: Script(test_third_party_new),
+    third_party_logic_script: Script(test_third_party_new),
     unfracking_logic_script: empty_vkey,
     global_state_cs: test_global_new,
   }
@@ -605,7 +605,7 @@ test registry_init_fails_wrong_origin_key() fail {
           key: #"aa",
           next: #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
           transfer_logic_script: empty_vkey,
-          third_party_transfer_logic_script: empty_vkey,
+          third_party_logic_script: empty_vkey,
           minting_logic_script: empty_vkey,
           unfracking_logic_script: empty_vkey,
           global_state_cs: #"",
@@ -695,7 +695,7 @@ test registry_insert_fails_key_not_covered() fail {
             transfer_logic_script: Script(
               #"55555555555555555555555555555555555555555555555555555555",
             ),
-            third_party_transfer_logic_script: Script(
+            third_party_logic_script: Script(
               #"66666666666666666666666666666666666666666666666666666666",
             ),
             minting_logic_script: test_inserted_minting_logic_cred,
@@ -736,7 +736,7 @@ test registry_insert_fails_updated_node_modified() fail {
           transfer_logic_script: Script(
             #"99999999999999999999999999999999999999999999999999999999",
           ),
-          third_party_transfer_logic_script: empty_vkey,
+          third_party_logic_script: empty_vkey,
           minting_logic_script: empty_vkey,
           unfracking_logic_script: empty_vkey,
           global_state_cs: #"",
@@ -771,7 +771,7 @@ test registry_insert_fails_single_output() fail {
 // Finding 03 regression (Insert side): one of the new node outputs sits at
 // a different address than the covering input. Pre-fix the address binding
 // only kicked in at Init; the Insert path's inductive chain was undocumented
-// and untested. Post-fix `validate_directory_node_output` asserts
+// and untested. Post-fix `validate_registry_node_output` asserts
 // `output.address == covering_input.output.address`, so any drift fails.
 test registry_insert_fails_wrong_output_address() fail {
   let wrong_inserted = Output {
@@ -870,7 +870,7 @@ test registry_insert_fails_datum_minting_logic_mismatch() fail {
           transfer_logic_script: Script(
             #"55555555555555555555555555555555555555555555555555555555",
           ),
-          third_party_transfer_logic_script: Script(
+          third_party_logic_script: Script(
             #"66666666666666666666666666666666666666666666666666666666",
           ),
           unfracking_logic_script: empty_vkey,
@@ -889,7 +889,7 @@ test registry_insert_fails_datum_minting_logic_mismatch() fail {
 // Cryptographic binding: the redeemer's `minting_logic_script`'s inner
 // hash MUST be the value `apply_hashed_parameter` produces the policy id
 // from. Here we supply a credential whose hash ≠ `test_hashed_param`;
-// `is_programmable_token_id_valid` rejects.
+// `expect_programmable_token_id_valid` rejects.
 //
 // Both the redeemer AND the datum carry the wrong credential — that
 // keeps defense-in-depth #2 satisfied so this test isolates the binding
@@ -909,7 +909,7 @@ test registry_insert_fails_wrong_minting_logic_for_key() fail {
           transfer_logic_script: Script(
             #"55555555555555555555555555555555555555555555555555555555",
           ),
-          third_party_transfer_logic_script: Script(
+          third_party_logic_script: Script(
             #"66666666666666666666666666666666666666666666666666666666",
           ),
           unfracking_logic_script: empty_vkey,
@@ -975,13 +975,13 @@ test registry_insert_succeeds_substandard_among_other_withdrawals() {
 
 // Finding 07 + post-fix tightening: substandards MUST be `Script`
 // credentials. A `VerificationKey`-credentialed redeemer is rejected
-// by `is_programmable_token_id_valid` (lib/utils.ak) even when all
+// by `expect_programmable_token_id_valid` (lib/utils.ak) even when all
 // structural invariants are otherwise satisfied — datum/redeemer
 // equality holds (both carry the same VK), the credential appears in
 // `tx.withdrawals`, the inner hash equals `test_hashed_param` so the
 // hash-derivation would compute the correct policy id. The only
 // failure point is the `expect Script(_)` in
-// `is_programmable_token_id_valid`.
+// `expect_programmable_token_id_valid`.
 test registry_insert_fails_verification_key_substandard() fail {
   let vk_cred: Credential = VerificationKey(test_hashed_param)
   let inserted_with_vk = Output {
@@ -995,7 +995,7 @@ test registry_insert_fails_verification_key_substandard() fail {
           transfer_logic_script: Script(
             #"55555555555555555555555555555555555555555555555555555555",
           ),
-          third_party_transfer_logic_script: Script(
+          third_party_logic_script: Script(
             #"66666666666666666666666666666666666666666666666666666666",
           ),
           unfracking_logic_script: empty_vkey,
@@ -1070,11 +1070,11 @@ test registry_insert_mixed_mint_and_burn() {
 // covering_node.next)?` checks in the mint handler redundant. Each test
 // builds a scenario where the only violation is the targeted ordering
 // inequality, and confirms the validator rejects via
-// `validate_directory_node_output`'s `bytearray_lt(node.key, node.next)`
+// `validate_registry_node_output`'s `bytearray_lt(node.key, node.next)`
 // check on the relevant output.
 //
 // If we ever drop the upstream `node.key < node.next` check in
-// `validate_directory_node_output`, these tests will start passing
+// `validate_registry_node_output`, these tests will start passing
 // (failing their `fail` assertion) — that's the alarm.
 // =========================================================================
 
@@ -1089,7 +1089,7 @@ test registry_insert_mixed_mint_and_burn() {
 // Uses bad_covering.key = 28 bytes of 0xff (the max 28-byte value,
 // strictly greater than any blake2b_224 output). The updated covering
 // output therefore has key = 0xff..ff (28B) and next = computed_key
-// (28B hash output, < 0xff..ff). `validate_directory_node_output`
+// (28B hash output, < 0xff..ff). `validate_registry_node_output`
 // rejects the updated output via bytearray_lt(0xff..ff, computed_key)
 // = False.
 test registry_insert_fails_covering_key_ge_insert_key() fail {
@@ -1106,7 +1106,7 @@ test registry_insert_fails_covering_key_ge_insert_key() fail {
             key: bad_covering_key,
             next: #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
             transfer_logic_script: empty_vkey,
-            third_party_transfer_logic_script: empty_vkey,
+            third_party_logic_script: empty_vkey,
             minting_logic_script: empty_vkey,
             unfracking_logic_script: empty_vkey,
             global_state_cs: #"",
@@ -1126,7 +1126,7 @@ test registry_insert_fails_covering_key_ge_insert_key() fail {
           key: bad_covering_key,
           next: computed_key(),
           transfer_logic_script: empty_vkey,
-          third_party_transfer_logic_script: empty_vkey,
+          third_party_logic_script: empty_vkey,
           minting_logic_script: empty_vkey,
           unfracking_logic_script: empty_vkey,
           global_state_cs: #"",
@@ -1155,7 +1155,7 @@ test registry_insert_fails_covering_key_ge_insert_key() fail {
 // strictly less than any blake2b_224 output for the computed key, which
 // starts with a non-zero byte). The inserted output therefore has
 // key = computed_key (28B hash) and next = 0x00..00 (28B), and
-// `validate_directory_node_output` rejects via
+// `validate_registry_node_output` rejects via
 // bytearray_lt(computed_key, 0x00..00) = False.
 test registry_insert_fails_insert_key_ge_covering_next() fail {
   let bad_covering_next = #"0000000000000000000000000000000000000000000000000000000000"
@@ -1171,7 +1171,7 @@ test registry_insert_fails_insert_key_ge_covering_next() fail {
             key: #"",
             next: bad_covering_next,
             transfer_logic_script: empty_vkey,
-            third_party_transfer_logic_script: empty_vkey,
+            third_party_logic_script: empty_vkey,
             minting_logic_script: empty_vkey,
             unfracking_logic_script: empty_vkey,
             global_state_cs: #"",
@@ -1190,7 +1190,7 @@ test registry_insert_fails_insert_key_ge_covering_next() fail {
           transfer_logic_script: Script(
             #"55555555555555555555555555555555555555555555555555555555",
           ),
-          third_party_transfer_logic_script: Script(
+          third_party_logic_script: Script(
             #"66666666666666666666666666666666666666666666666666666666",
           ),
           minting_logic_script: test_inserted_minting_logic_cred,
@@ -1328,7 +1328,7 @@ test registry_spend_fails_node_mint_under_a_policy_that_is_not_its_address() fai
 // continuing node output there is nothing to update, so it is rejected. A node
 // can never be spent into a transaction that neither extends the list nor
 // preserves the node.
-test fails_no_registry_node_minted() fail {
+test registry_spend_fails_no_registry_node_minted() fail {
   let other_cs: PolicyId = #"99999999999999999999999999999999999999999999999999999999"
   let tx = Transaction {
     ..spend_transaction(),
@@ -1339,7 +1339,7 @@ test fails_no_registry_node_minted() fail {
 
 // Registry nodes are permanent: the Some branch requires amount > 0, so a burn
 // of the node NFT is rejected.
-test fails_registry_node_burned() fail {
+test registry_spend_fails_registry_node_burned() fail {
   let tx = Transaction {
     ..spend_transaction(),
     mint: from_asset(registry_script_hash, "OriginNode", -1),
@@ -1349,7 +1349,7 @@ test fails_registry_node_burned() fail {
 
 // One registry operation per transaction: `expect [Pair(_, amount)]` rejects
 // two asset names minted under the node policy.
-test fails_multiple_token_names_under_registry_cs() fail {
+test registry_spend_fails_multiple_token_names_under_registry_cs() fail {
   let tx = Transaction {
     ..spend_transaction(),
     mint: from_asset(registry_script_hash, "NodeA", 1)
@@ -1360,7 +1360,7 @@ test fails_multiple_token_names_under_registry_cs() fail {
 
 // Nothing minted at all → the update (None) branch, which needs a continuing
 // node output. There is none, so the spend is rejected.
-test fails_empty_mint() fail {
+test registry_spend_fails_empty_mint() fail {
   let tx = Transaction { ..spend_transaction(), mint: assets.zero }
   call_spend(Some(origin_node), spend_own_ref(), tx)
 }
@@ -1381,13 +1381,13 @@ test registry_spend_update_node() {
 
 // Reject: minting_logic_script is NOT invoked (no withdrawal) → unauthorised.
 // pairs.has_key returns False → validator returns False.
-test fails_update_without_minting_logic_withdrawal() fail {
+test registry_spend_fails_update_without_minting_logic_withdrawal() fail {
   let tx = Transaction { ..update_transaction(), withdrawals: [] }
   call_spend(Some(old_registry_node()), spend_own_ref(), tx)
 }
 
 // Reject: a different credential is invoked, not the node's minting_logic_script.
-test fails_update_wrong_withdrawal_credential() fail {
+test registry_spend_fails_update_wrong_withdrawal_credential() fail {
   let tx = Transaction {
     ..update_transaction(),
     withdrawals: [Pair(Script(test_other_minting_hash), 0)],
@@ -1398,7 +1398,7 @@ test fails_update_wrong_withdrawal_credential() fail {
 // Reject: tampering with an immutable field (minting_logic_script). key/next are
 // untouched so validate_directory_node_output passes, but the record-equality in
 // is_field_updated_registry_node fails.
-test fails_update_changes_minting_logic() fail {
+test registry_spend_fails_update_changes_minting_logic() fail {
   let tampered = RegistryNode {
     ..new_registry_node(),
     minting_logic_script: Script(test_other_minting_hash),
@@ -1412,7 +1412,7 @@ test fails_update_changes_minting_logic() fail {
 
 // Reject: relocating the node NFT to a different address (theft). The continuing
 // output's address must equal the spent input's address.
-test fails_update_relocates_nft() fail {
+test registry_spend_fails_update_relocates_nft() fail {
   let relocated = Output {
     ..registry_node_output(new_registry_node()),
     address: Address {
@@ -1426,7 +1426,7 @@ test fails_update_relocates_nft() fail {
 
 // Reject: two continuing node outputs (batching / double-satisfaction). The
 // single-output filter `expect [cont]` rejects more than one.
-test fails_update_two_node_outputs() fail {
+test registry_spend_fails_update_two_node_outputs() fail {
   let tx = Transaction {
     ..update_transaction(),
     outputs: [
@@ -1448,7 +1448,7 @@ test fails_update_two_node_outputs() fail {
 // update, because a vkey credential can never appear in `tx.withdrawals` as
 // the node's minting logic. Flip that arm to `True` and a transaction that
 // spends the origin node, rewrites `transfer_logic_script`,
-// `third_party_transfer_logic_script` and `global_state_cs` to attacker values
+// `third_party_logic_script` and `global_state_cs` to attacker values
 // and carries NO withdrawals at all is accepted — the origin node becomes
 // freely rewritable by anyone who can build the transaction.
 //
@@ -1465,7 +1465,7 @@ test registry_spend_fails_origin_node_update() fail {
   let attacker_rewrite = RegistryNode {
     ..origin_node,
     transfer_logic_script: Script(test_transfer_new),
-    third_party_transfer_logic_script: Script(test_third_party_new),
+    third_party_logic_script: Script(test_third_party_new),
     global_state_cs: test_global_new,
   }
   let origin_input = registry_node_input(origin_node)
@@ -1484,7 +1484,7 @@ test registry_spend_fails_origin_node_update() fail {
 }
 
 // Reject: malformed mutable value — a non-28-byte transfer_logic_script.
-test fails_update_malformed_transfer_logic() fail {
+test registry_spend_fails_update_malformed_transfer_logic() fail {
   let bad = RegistryNode {
     ..new_registry_node(),
     transfer_logic_script: Script(#"1234"),
@@ -1510,7 +1510,7 @@ test fails_update_malformed_transfer_logic() fail {
 // UPDATE path (None branch): update the node AND mint its own key → rejected.
 // Single delta from the happy-path `update_transaction()`: a mint under
 // `test_node_key`.
-test fails_update_mints_own_programmable_token() fail {
+test registry_spend_fails_update_mints_own_programmable_token() fail {
   let tx = Transaction {
     ..update_transaction(),
     mint: from_asset(test_node_key, #"746f6b656e", 100),
@@ -1521,7 +1521,7 @@ test fails_update_mints_own_programmable_token() fail {
 // UPDATE positive companion: the guard is scoped to the node's OWN `key`, not
 // a blanket no-mint rule. An update MAY coexist with minting an UNRELATED
 // policy (e.g. batching), so this must still pass.
-test update_node_with_unrelated_mint_ok() {
+test registry_spend_update_scoped_to_own_key() {
   let unrelated_policy = #"cccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
   let tx = Transaction {
     ..update_transaction(),
@@ -1533,7 +1533,7 @@ test update_node_with_unrelated_mint_ok() {
 // INSERT path (Some branch): the covering node is spent while its own key is
 // minted → rejected by the SAME guard, with no change to the mint handler.
 // Single delta from `insert_covering_spend_tx()`: a mint under the covering key.
-test fails_insert_covering_node_token_minted() fail {
+test registry_spend_fails_insert_covering_node_token_minted() fail {
   let tx = Transaction {
     ..insert_covering_spend_tx(),
     mint: from_asset(registry_script_hash, "InsertedNode", 1)
@@ -1545,7 +1545,7 @@ test fails_insert_covering_node_token_minted() fail {
 // INSERT positive companion: a covering-node spend during an insert with NO
 // mint of the covering's own key passes (guard scoped to `key`; the new node's
 // key is legitimately minted elsewhere in a real insert).
-test insert_covering_spend_valid() {
+test registry_spend_valid_insert_covering_node() {
   call_spend(Some(covering_node()), spend_own_ref(), insert_covering_spend_tx())
 }
 
@@ -1559,7 +1559,7 @@ test insert_covering_spend_valid() {
 // =========================================================================
 
 // issuance_mint validator params
-const ism_plb_cred: Credential =
+const ism_programmable_logic_base_cred: Credential =
   Script(#"aa11111111111111111111111111111111111111111111111111111111")
 
 const ism_registry_cs: PolicyId =
@@ -1592,7 +1592,7 @@ fn ism_registry_node_output() -> Output {
           transfer_logic_script: Script(
             #"aa66666666666666666666666666666666666666666666666666666666",
           ),
-          third_party_transfer_logic_script: Script(
+          third_party_logic_script: Script(
             #"aa77777777777777777777777777777777777777777777777777777777",
           ),
           // Must match the `ism_ml_cred` parameter passed to call_issuance_validator
@@ -1618,10 +1618,10 @@ fn ism_ref_input() -> Input {
   }
 }
 
-fn ism_plb_output(value: assets.Value) -> Output {
+fn ism_programmable_logic_base_output(value: assets.Value) -> Output {
   Output {
     address: Address {
-      payment_credential: ism_plb_cred,
+      payment_credential: ism_programmable_logic_base_cred,
       stake_credential: Some(
         Inline(
           Script(#"aa99999999999999999999999999999999999999999999999999999999"),
@@ -1642,7 +1642,7 @@ const ism_issuance_logic_hash: ByteArray =
 /// Since #129 the issuance rules run in `issuance_logic`'s withdraw-0.
 fn call_issuance_validator(rdmr: MintingRegistryProof, tx: Transaction) -> Bool {
   issuance_logic.issuance_logic.withdraw(
-    ism_plb_cred,
+    ism_programmable_logic_base_cred,
     ism_registry_cs,
     ism_params_policy,
     ism_max_inline_datum_bytes,
@@ -1659,8 +1659,12 @@ test cip68_subsequent_mint_ref_input() {
     ..transaction.placeholder,
     reference_inputs: [ism_ref_input()],
     outputs: [
-      ism_plb_output(min_ada |> assets.add(ism_own_policy, cip68_ft_name, 500)),
-      ism_plb_output(min_ada |> assets.add(ism_own_policy, cip68_ref_name, 1)),
+      ism_programmable_logic_base_output(
+        min_ada |> assets.add(ism_own_policy, cip68_ft_name, 500),
+      ),
+      ism_programmable_logic_base_output(
+        min_ada |> assets.add(ism_own_policy, cip68_ref_name, 1),
+      ),
     ],
     mint: from_asset(ism_own_policy, cip68_ft_name, 500)
       |> assets.add(ism_own_policy, cip68_ref_name, 1),

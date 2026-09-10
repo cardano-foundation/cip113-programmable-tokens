@@ -13,7 +13,7 @@ pub const protocol_params_token = "ProtocolParams"
 /// rule this record is kept to. A writable field nothing reads is a trap: an
 /// operator rewrites it, the transaction succeeds, and nothing changes.
 ///
-/// Fields are ordered by read-frequency / hot-path depth. `plg_cred` sits at
+/// Fields are ordered by read-frequency / hot-path depth. `programmable_logic_global_cred` sits at
 /// field 0 because `programmable_logic_base` reads it once per programmable
 /// INPUT — the only per-input read in the protocol — so it pays no `tail_list`
 /// step at all.
@@ -30,7 +30,7 @@ pub const protocol_params_token = "ProtocolParams"
 /// second.
 ///
 /// What is NOT here, and why:
-///   * `prog_logic_cred`, `registry_node_cs` and the seizure datum bound are
+///   * `programmable_logic_base_cred`, `registry_node_cs` and the seizure datum bound are
 ///     compile-time PARAMETERS of the delegates. A frozen value never needs to
 ///     be a datum read — it only needs baking into whatever artifact is itself
 ///     the replaceable unit, and the delegates are exactly that. Both were
@@ -51,14 +51,14 @@ pub const protocol_params_token = "ProtocolParams"
 ///     per-token `issuance_mint` policy is permanent by construction — its
 ///     hash IS the token's policy id — so every rule that may change lives
 ///     behind this credential instead.
-pub type ProgrammableLogicGlobalParams {
+pub type ProtocolParams {
   /// Field 0 — credential of the `programmable_logic_global` dispatcher.
   /// **The hot field**: `programmable_logic_base` reads it on every
   /// programmable input and requires its withdraw-0. This one field IS the
   /// upgrade mechanism — rewriting it swaps the entire dispatch layer without
   /// moving PLB's hash, and therefore without moving a single token address.
   /// First because it is the only per-input read: its accessor walks nothing.
-  plg_cred: Credential,
+  programmable_logic_global_cred: Credential,
   /// Field 1 — credential of the `issuance_logic` withdraw-0 validator (issue
   /// #129). Read ONLY by `issuance_mint`, the permanent per-token policy, to
   /// learn which script currently carries the protocol's issuance rules and
@@ -105,7 +105,7 @@ pub type ProgrammableLogicGlobalParams {
 /// Authenticate the protocol-params NFT reference input by its
 /// caller-supplied index and hand back the raw datum fields. Callers
 /// extract only the fields their branch needs via the `*_field` accessors
-/// below — cheaper than a full `expect _: ProgrammableLogicGlobalParams`
+/// below — cheaper than a full `expect _: ProtocolParams`
 /// deserialisation, which validates every field on every run.
 ///
 /// The redeemer carries `params_idx`, the index of the params UTxO in
@@ -146,9 +146,9 @@ pub fn with_protocol_params_fields(
 /// Field 0: the `programmable_logic_global` dispatcher credential. THE hot
 /// accessor — `programmable_logic_base` calls it once per programmable input,
 /// so it sits at depth zero: `head_list` and nothing else.
-pub fn plg_cred_field(fields: List<Data>) -> Credential {
-  expect plg_cred: Credential = head_list(fields)
-  plg_cred
+pub fn programmable_logic_global_cred_field(fields: List<Data>) -> Credential {
+  expect programmable_logic_global_cred: Credential = head_list(fields)
+  programmable_logic_global_cred
 }
 
 /// Field 1: the `issuance_logic` withdraw-0 credential. Read by

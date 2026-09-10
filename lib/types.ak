@@ -21,7 +21,7 @@ pub type RegistryProof {
 ///
 /// This redeemer carries NO `params_idx`: the `transfer` validator no longer
 /// reads the protocol-params datum at all. The three values it used to read
-/// there — `prog_logic_cred`, `registry_node_cs` and the seizure datum bound —
+/// there — `programmable_logic_base_cred`, `registry_node_cs` and the seizure datum bound —
 /// are compile-time parameters of the validator now. Same for the standalone
 /// `third_party` and `unfracking` redeemers.
 pub type TransferRedeemer {
@@ -59,7 +59,7 @@ pub type ThirdPartyRedeemer {
 /// PLB runs once per programmable-token input, so its cost is multiplied by
 /// every such input in the transaction — which is why it now does the smallest
 /// job in the protocol: locate the params datum, read ONE credential
-/// (`plg_cred`, field 2), and require that credential's withdraw-0 at the
+/// (`programmable_logic_global_cred`, field 2), and require that credential's withdraw-0 at the
 /// witnessed index. No arm, no `when`, no choice of accessor.
 ///
 /// It witnesses WHERE the dispatcher's credential sits in the ledger-ordered
@@ -79,13 +79,13 @@ pub type ThirdPartyRedeemer {
 pub type BaseSpendRedeemer {
   /// Index of the protocol-params NFT UTxO in `reference_inputs`.
   params_idx: Int,
-  /// Index of `plg_cred`'s entry in the ledger-ordered withdrawal map.
+  /// Index of `programmable_logic_global_cred`'s entry in the ledger-ordered withdrawal map.
   wdrl_idx: Int,
 }
 
 /// Redeemer of the `programmable_logic_global` dispatcher.
 ///
-/// PLG is reached from PLB (which named it via `plg_cred`) and does exactly one
+/// PLG is reached from PLB (which named it via `programmable_logic_global_cred`) and does exactly one
 /// thing: prove that the delegate for the chosen ACTION was invoked. The three
 /// delegate hashes are compile-time parameters of PLG, so it never reads the
 /// params datum — the trust chain is PLB -> params -> PLG -> delegate, and PLG
@@ -131,7 +131,7 @@ pub type ProgrammableLogicGlobalRedeemer {
 /// upgrade path itself — replacing it is a redeploy by definition — so there
 /// is no such coupling to protect here.
 pub type ProtocolParamsRedeemer {
-  /// Rewrite mutable protocol wiring. May change `plg_cred`, `transfer_cred`
+  /// Rewrite mutable protocol wiring. May change `programmable_logic_global_cred`, `transfer_cred`
   /// and `third_party_cred`; may NOT touch `upgrade_cred` or the nomination.
   /// Authorised by the sitting `upgrade_cred`'s withdraw-0.
   ProtocolUpgrade
@@ -169,7 +169,7 @@ pub type MintingRegistryProof {
 /// reference inputs. Everything that could ever change — registry proofs,
 /// custody, delegate redeemer shapes — travels in `IssuanceLogicRedeemer`
 /// instead, so this type can stay frozen for as long as any token exists.
-pub type IssuanceRedeemer {
+pub type IssuanceMintRedeemer {
   params_idx: Int,
 }
 

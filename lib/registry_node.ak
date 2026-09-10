@@ -1,9 +1,9 @@
 use aiken/builtin.{unconstr_fields}
-use assets
 use cardano/address.{Credential, VerificationKey}
 use cardano/assets.{PolicyId} as value
 use cardano/transaction.{InlineDatum, Input}
-use list
+use prog_assets
+use unsafe_list
 
 /// Constants for token names
 pub const origin_node_tn = #""
@@ -26,7 +26,7 @@ pub const sentinel_next_key =
 pub const empty_vkey = VerificationKey(#"")
 
 /// The canonical origin registry node. Used as a single equality target by
-/// `is_origin_directory_node`, so any future field added to `RegistryNode` is
+/// `is_origin_registry_node`, so any future field added to `RegistryNode` is
 /// automatically enforced for the origin without touching the role helper.
 pub const origin_node: RegistryNode =
   RegistryNode {
@@ -34,7 +34,7 @@ pub const origin_node: RegistryNode =
     next: sentinel_next_key,
     minting_logic_script: empty_vkey,
     transfer_logic_script: empty_vkey,
-    third_party_transfer_logic_script: empty_vkey,
+    third_party_logic_script: empty_vkey,
     unfracking_logic_script: empty_vkey,
     global_state_cs: #"",
   }
@@ -45,7 +45,7 @@ pub const origin_node: RegistryNode =
 /// Field order is load-bearing: it determines the CBOR layout consumed by both
 /// on-chain and off-chain code. The three script-credential fields are ordered
 /// by the natural lifecycle of a programmable token — `minting_logic_script`
-/// (mint), `transfer_logic_script` (transfer), `third_party_transfer_logic_script`
+/// (mint), `transfer_logic_script` (transfer), `third_party_logic_script`
 /// (admin) — with `minting_logic_script` first because registration is the
 /// earliest event in a token's lifetime.
 pub type RegistryNode {
@@ -58,12 +58,12 @@ pub type RegistryNode {
   /// it the `key` (the policy id) without recomputing the issuance hash.
   /// The `registry` validator's mint handler also cryptographically binds
   /// this field to the policy id
-  /// via `is_programmable_token_id_valid`, so the field cannot lie.
+  /// via `expect_programmable_token_id_valid`, so the field cannot lie.
   minting_logic_script: Credential,
   /// The transfer logic script credential that validates token transfers
   transfer_logic_script: Credential,
   /// The third party transfer logic script credential that handles admin actions (seizure, etc.)
-  third_party_transfer_logic_script: Credential,
+  third_party_logic_script: Credential,
   /// Credential whose withdraw-0 must be invoked by any unfracking action
   /// touching this policy — the issuer-declared unfracking constraint
   /// hook. `empty_vkey` means unfracking is FORBIDDEN for this policy
@@ -95,7 +95,8 @@ pub fn new_registry_node_getter(
         tail,
         fn(proof_idx) {
           if ref_idx == proof_idx {
-            expect assets.peek_first(head.output) == registry_node_cs
+            expect
+              prog_assets.expect_first_policy(head.output) == registry_node_cs
             expect InlineDatum(data) = head.output.datum
             data
           } else {
@@ -118,10 +119,12 @@ pub fn with_key_and_transfer_logic(
   return: fn(ByteArray, Credential) -> result,
 ) -> result {
   let fields = unconstr_fields(data)
-  expect key: ByteArray = list.head(fields)
+  expect key: ByteArray = unsafe_list.expect_head(fields)
   // RegistryNode field index 3: key=0, next=1, minting_logic=2, transfer_logic=3
-  expect transfer_logic_script: Credential = list.head(
-    list.tail(list.tail(list.tail(fields))),
+  expect transfer_logic_script: Credential = unsafe_list.expect_head(
+    unsafe_list.expect_tail(
+      unsafe_list.expect_tail(unsafe_list.expect_tail(fields)),
+    ),
   )
   return(key, transfer_logic_script)
 }
@@ -131,24 +134,28 @@ pub fn with_key_and_next_key(
   return: fn(ByteArray, ByteArray) -> result,
 ) -> result {
   let fields = unconstr_fields(data)
-  expect key: ByteArray = list.head(fields)
-  let fields = list.tail(fields)
-  expect next: ByteArray = list.head(fields)
+  expect key: ByteArray = unsafe_list.expect_head(fields)
+  let fields = unsafe_list.expect_tail(fields)
+  expect next: ByteArray = unsafe_list.expect_head(fields)
   return(key, next)
 }
 
-pub fn with_key_and_3rd_party_logic(
+pub fn with_key_and_third_party_logic(
   data: Data,
   return: fn(ByteArray, Credential) -> result,
 ) -> result {
   let fields = unconstr_fields(data)
-  expect key: ByteArray = list.head(fields)
+  expect key: ByteArray = unsafe_list.expect_head(fields)
   // RegistryNode field index 4:
   // key=0, next=1, minting_logic=2, transfer_logic=3, third_party=4
-  expect third_party_transfer_logic_script: Credential = list.head(
-    list.tail(list.tail(list.tail(list.tail(fields)))),
+  expect third_party_logic_script: Credential = unsafe_list.expect_head(
+    unsafe_list.expect_tail(
+      unsafe_list.expect_tail(
+        unsafe_list.expect_tail(unsafe_list.expect_tail(fields)),
+      ),
+    ),
   )
-  return(key, third_party_transfer_logic_script)
+  return(key, third_party_logic_script)
 }
 
 /// Extract `key` and `minting_logic_script` from a `RegistryNode` datum.
@@ -160,10 +167,10 @@ pub fn with_key_and_minting_logic(
   return: fn(ByteArray, Credential) -> result,
 ) -> result {
   let fields = unconstr_fields(data)
-  expect key: ByteArray = list.head(fields)
+  expect key: ByteArray = unsafe_list.expect_head(fields)
   // RegistryNode field index 2: key=0, next=1, minting_logic=2
-  expect minting_logic_script: Credential = list.head(
-    list.tail(list.tail(fields)),
+  expect minting_logic_script: Credential = unsafe_list.expect_head(
+    unsafe_list.expect_tail(unsafe_list.expect_tail(fields)),
   )
   return(key, minting_logic_script)
 }
@@ -177,11 +184,17 @@ pub fn with_key_and_unfracking_logic(
   return: fn(ByteArray, Credential) -> result,
 ) -> result {
   let fields = unconstr_fields(data)
-  expect key: ByteArray = list.head(fields)
+  expect key: ByteArray = unsafe_list.expect_head(fields)
   // RegistryNode field index 5: key=0, next=1, minting_logic=2,
   // transfer_logic=3, third_party=4, unfracking=5 (global_state_cs=6)
-  expect unfracking_logic_script: Credential = list.head(
-    list.tail(list.tail(list.tail(list.tail(list.tail(fields))))),
+  expect unfracking_logic_script: Credential = unsafe_list.expect_head(
+    unsafe_list.expect_tail(
+      unsafe_list.expect_tail(
+        unsafe_list.expect_tail(
+          unsafe_list.expect_tail(unsafe_list.expect_tail(fields)),
+        ),
+      ),
+    ),
   )
   return(key, unfracking_logic_script)
 }

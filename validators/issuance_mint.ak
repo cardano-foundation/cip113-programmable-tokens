@@ -27,9 +27,9 @@ use aiken/collection/pairs as std_pairs
 use cardano/address.{Credential}
 use cardano/assets.{PolicyId}
 use cardano/transaction.{ScriptPurpose, Transaction, Withdraw}
-use pairs
 use programmable_logic/params
-use types.{IssuanceRedeemer}
+use types.{IssuanceMintRedeemer}
+use unsafe_pairs
 
 validator issuance_mint(
   // <- the hash of the contract of the logic for minting.
@@ -39,11 +39,11 @@ validator issuance_mint(
   // UTxO at `redeemer.params_idx` and reads `issuance_logic_cred` (field 5).
   params_policy: PolicyId,
 ) {
-  mint(redeemer: IssuanceRedeemer, own_policy: PolicyId, self: Transaction) {
+  mint(redeemer: IssuanceMintRedeemer, own_policy: PolicyId, self: Transaction) {
     trace @"Starting issuance_mint validation"
 
     // 1. The substandard's minting logic must be invoked (proof of instance).
-    expect pairs.has_key_or_fail(self.withdrawals, minting_logic_cred)
+    expect unsafe_pairs.has_key_or_fail(self.withdrawals, minting_logic_cred)
 
     // 2. The protocol's issuance logic must be invoked AND must have covered
     //    this policy. Its credential is the LIVE one from the params datum,

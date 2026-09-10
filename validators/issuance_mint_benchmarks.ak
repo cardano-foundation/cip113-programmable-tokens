@@ -29,7 +29,7 @@ use cardano/transaction.{
 }
 use issuance_logic
 use programmable_logic/fixture
-use programmable_logic/params.{ProgrammableLogicGlobalParams}
+use programmable_logic/params.{ProtocolParams}
 use registry_node.{RegistryNode, empty_vkey}
 use types.{MintingRegistryProof, RefInput, TokenExists, TransferRedeemer}
 
@@ -37,7 +37,7 @@ use types.{MintingRegistryProof, RefInput, TokenExists, TransferRedeemer}
 // Test constants (mirrored from issuance_mint.test.ak)
 // ---------------------------------------------------------------------------
 
-const test_plb_cred =
+const test_programmable_logic_base_cred =
   Script(#"11111111111111111111111111111111111111111111111111111111")
 
 const test_registry_cs =
@@ -87,7 +87,7 @@ fn registry_node_ref_input() -> Input {
           key: test_own_policy,
           next: #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
           transfer_logic_script: empty_vkey,
-          third_party_transfer_logic_script: empty_vkey,
+          third_party_logic_script: empty_vkey,
           minting_logic_script: test_ml_cred,
           unfracking_logic_script: empty_vkey,
           global_state_cs: #"",
@@ -113,8 +113,8 @@ fn params_ref_input(transfer_cred: Credential) -> Input {
       },
       value: min_ada |> assets.add(test_params_policy, "ProtocolParams", 1),
       datum: InlineDatum(
-        ProgrammableLogicGlobalParams {
-          plg_cred: transfer_cred,
+        ProtocolParams {
+          programmable_logic_global_cred: transfer_cred,
           transfer_cred,
           third_party_cred: test_ml_cred,
           upgrade_cred: test_ml_cred,
@@ -127,12 +127,12 @@ fn params_ref_input(transfer_cred: Credential) -> Input {
   }
 }
 
-fn plb_input_with_policy() -> Input {
+fn programmable_logic_base_input_with_policy() -> Input {
   Input {
     output_reference: dummy_oref,
     output: Output {
       address: Address {
-        payment_credential: test_plb_cred,
+        payment_credential: test_programmable_logic_base_cred,
         stake_credential: Some(
           Inline(
             Script(#"77777777777777777777777777777777777777777777777777777777"),
@@ -146,10 +146,10 @@ fn plb_input_with_policy() -> Input {
   }
 }
 
-fn plb_output_with_policy(qty: Int) -> Output {
+fn programmable_logic_base_output_with_policy(qty: Int) -> Output {
   Output {
     address: Address {
-      payment_credential: test_plb_cred,
+      payment_credential: test_programmable_logic_base_cred,
       stake_credential: Some(
         Inline(
           Script(#"77777777777777777777777777777777777777777777777777777777"),
@@ -169,7 +169,7 @@ const test_issuance_logic_hash: ByteArray =
 /// withdraw-0; the permanent policy is a fixed-cost lookup.
 fn invoke_issuance(self: Transaction, redeemer: MintingRegistryProof) -> Bool {
   issuance_logic.issuance_logic.withdraw(
-    test_plb_cred,
+    test_programmable_logic_base_cred,
     test_registry_cs,
     test_params_policy,
     fixture.max_inline_datum_bytes,
@@ -202,12 +202,12 @@ fn sample_delegate_transferact(
 
   let tx = Transaction {
     ..transaction.placeholder,
-    inputs: [plb_input_with_policy()],
+    inputs: [programmable_logic_base_input_with_policy()],
     reference_inputs: [
       registry_node_ref_input(),
       params_ref_input(test_transfer_cred),
     ],
-    outputs: [plb_output_with_policy(150)],
+    outputs: [programmable_logic_base_output_with_policy(150)],
     mint: from_asset(test_own_policy, test_token_name, 50),
     withdrawals: [Pair(test_ml_cred, 0), Pair(test_transfer_cred, 0)],
     redeemers: [
@@ -238,8 +238,13 @@ fn sample_no_delegate_many_outputs(
   let n = size + 1
   let qty_per_output = 50 / n
   let remainder = 50 % n
-  let outputs = list.repeat(plb_output_with_policy(qty_per_output), n - 1)
-    |> list.concat([plb_output_with_policy(qty_per_output + remainder)])
+  let outputs = list.repeat(
+    programmable_logic_base_output_with_policy(qty_per_output),
+    n - 1,
+  )
+    |> list.concat(
+        [programmable_logic_base_output_with_policy(qty_per_output + remainder)],
+      )
 
   let rdmr = RefInput { index: 0 }
 

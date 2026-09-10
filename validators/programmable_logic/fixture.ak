@@ -10,7 +10,7 @@ use cardano/address.{Address, Credential, Inline}
 use cardano/assets.{AssetName, PolicyId, Value, ada_asset_name, ada_policy_id}
 use cardano/fuzz as cardano
 use cardano/transaction.{InlineDatum, Input, NoDatum, Output, Transaction}
-use programmable_logic/params.{ProgrammableLogicGlobalParams}
+use programmable_logic/params.{ProtocolParams}
 use registry_node.{RegistryNode, empty_vkey, sentinel_next_key}
 use types.{TokenExists, TransferRedeemer, UnfrackingRedeemer}
 
@@ -21,7 +21,7 @@ pub const credential_transfer_logic: Credential =
 
 /// Some script credential for the 3rd-party logic. Could also be a verification
 /// key hash, but the primary use-case is for script.
-pub const credential_3rd_party_logic: Credential =
+pub const credential_third_party_logic: Credential =
   Credential.Script(#"0000000000000000000000000000000000000000000000000000035d")
 
 /// Some script credential for the 3rd-party logic. Could also be a verification
@@ -46,11 +46,11 @@ pub const credential_validator_logic_base: Credential =
 /// ⚠ It must also stay clear of the `00..00 || small` filler families in
 /// `wdrl_idx_cost.test.ak` — a collision there would silently corrupt that cost
 /// record without failing a single test.
-pub const hash_validator_plg: ByteArray =
+pub const hash_validator_programmable_logic_global: ByteArray =
   #"00000000000000000000000000000000000000000000000000000101"
 
-pub const credential_validator_plg: Credential =
-  Credential.Script(hash_validator_plg)
+pub const credential_validator_programmable_logic_global: Credential =
+  Credential.Script(hash_validator_programmable_logic_global)
 
 /// Arbitrary script hash representing the `transfer` validator. The dispatcher
 /// bakes this hash in and requires its withdraw-0 on a `TransferAct`; the
@@ -65,7 +65,7 @@ pub const credential_validator_transfer: Credential =
 /// Arbitrary script credential representing the standalone third-party
 /// (seize/clawback) validator. Carried by the protocol-params datum
 /// (`third_party_cred`); a BaseSpendRedeemer base spend requires this
-/// script's withdraw-0. Distinct from `credential_3rd_party_logic`, which is
+/// script's withdraw-0. Distinct from `credential_third_party_logic`, which is
 /// an ISSUER's per-policy third-party-transfer logic script (registry field).
 pub const hash_validator_third_party: ByteArray =
   #"00000000000000000000000000000000000000000000000000731d3a"
@@ -103,9 +103,9 @@ pub const policy_tokens_registry: PolicyId =
 pub const withdrawals_transfer: Pairs<Credential, Int> =
   [
     // The dispatcher's withdraw-0 — what the base spend requires. FIRST,
-    // because its hash is the minimum of this set (see `hash_validator_plg`),
+    // because its hash is the minimum of this set (see `hash_validator_programmable_logic_global`),
     // so literal index 0 IS its ledger-sorted position.
-    Pair(credential_validator_plg, 0),
+    Pair(credential_validator_programmable_logic_global, 0),
     // The artificial withdraw-0 to execute the transfer validator (required
     // by the dispatcher's TransferAct)
     Pair(credential_validator_transfer, 0),
@@ -115,17 +115,17 @@ pub const withdrawals_transfer: Pairs<Credential, Int> =
 
 /// Typical withdrawals found in a 3rd party transaction; used to artificially
 /// invoke the third_party validator.
-pub const withdrawals_3rd_party: Pairs<Credential, Int> =
+pub const withdrawals_third_party: Pairs<Credential, Int> =
   [
     // The dispatcher's withdraw-0 — required by the base spend. FIRST for the
     // same ledger-ordering reason as `withdrawals_transfer`.
-    Pair(credential_validator_plg, 0),
+    Pair(credential_validator_programmable_logic_global, 0),
     // The framework third_party validator's withdraw-0 (required by the
     // dispatcher's ThirdPartyAct) — a third-party tx never loads `transfer`
     Pair(credential_validator_third_party, 0),
     // The issuer's 3rd-party transfer logic withdraw-0 (required by the
     // third_party validator)
-    Pair(credential_3rd_party_logic, 0),
+    Pair(credential_third_party_logic, 0),
   ]
 
 /// Typical withdrawals found in an unfracking transaction (Finding 17).
@@ -138,7 +138,7 @@ pub const withdrawals_unfracking: Pairs<Credential, Int> =
   [
     // The dispatcher's withdraw-0 — required by the base spend. FIRST for the
     // same ledger-ordering reason as `withdrawals_transfer`.
-    Pair(credential_validator_plg, 0),
+    Pair(credential_validator_programmable_logic_global, 0),
     // The artificial withdraw-0 to execute the unfracking invariants
     Pair(credential_validator_unfracking, 0),
     // The artificial withdraw-0 authorising the script-staked PLB inputs
@@ -206,12 +206,12 @@ pub const credential_upgrade_authority: Credential =
 pub const max_inline_datum_bytes: Int = 1024
 
 /// The live protocol wiring. Six fields, every one with a named on-chain
-/// reader — see `params.ProgrammableLogicGlobalParams`. AT REST: no authority
+/// reader — see `params.ProtocolParams`. AT REST: no authority
 /// handover in flight, which is the state genesis is required to produce and
 /// the state the protocol spends almost all of its life in.
-pub const protocol_params: ProgrammableLogicGlobalParams =
-  ProgrammableLogicGlobalParams {
-    plg_cred: credential_validator_plg,
+pub const protocol_params: ProtocolParams =
+  ProtocolParams {
+    programmable_logic_global_cred: credential_validator_programmable_logic_global,
     issuance_logic_cred: credential_validator_issuance_logic,
     transfer_cred: credential_validator_transfer,
     third_party_cred: credential_validator_third_party,
@@ -225,7 +225,7 @@ pub fn some_input_fuel(label: ByteArray) -> Input {
     output_reference: generate(cardano.output_reference(), label),
     output: Output {
       address: generate(cardano.address(), label),
-      value: min_ada_value,
+      value: some_ada_value,
       datum: NoDatum,
       reference_script: None,
     },
@@ -249,7 +249,7 @@ pub fn any_input_with_programmable_tokens(
       },
       value: list.foldr(
         tokens,
-        min_ada_value,
+        some_ada_value,
         fn((policy, asset_name, quantity), assets) {
           assets.add(assets, policy, asset_name, quantity)
         },
@@ -284,7 +284,7 @@ pub fn some_input_with_programmable_tokens(
 /// Some reference inputs holding the given protocol params as inline datum.
 /// Identified by a specific NFT from the protocol params policy.
 pub fn some_reference_input_protocol_params(
-  protocol_params: ProgrammableLogicGlobalParams,
+  protocol_params: ProtocolParams,
   seed: ByteArray,
 ) -> Input {
   Input {
@@ -293,7 +293,7 @@ pub fn some_reference_input_protocol_params(
       address: address.from_verification_key(
         generate(cardano.verification_key_hash(), seed),
       ),
-      value: min_ada_value
+      value: some_ada_value
         |> assets.add(policy_protocol_params, "ProtocolParams", 1),
       datum: InlineDatum(as_data(protocol_params)),
       reference_script: None,
@@ -322,7 +322,7 @@ pub fn some_output_with_programmable_tokens_with(
     },
     value: list.foldr(
       tokens,
-      min_ada_value,
+      some_ada_value,
       fn((policy, asset_name, quantity), assets) {
         assets.add(assets, policy, asset_name, quantity)
       },
@@ -352,7 +352,7 @@ pub fn some_output_with_seized_tokens(
     },
     value: list.foldr(
       tokens,
-      min_ada_value,
+      some_ada_value,
       fn((policy, asset_name, quantity), assets) {
         assets.add(assets, policy, asset_name, quantity)
       },
@@ -365,7 +365,7 @@ pub fn some_output_with_seized_tokens(
 /// A token registry linked-list node configured with the 'transfer_logic'
 pub fn some_reference_input_tokens_registry_node_with(
   transfer_logic_script: Credential,
-  third_party_transfer_logic_script: Credential,
+  third_party_logic_script: Credential,
   key: ByteArray,
   next: ByteArray,
   label: ByteArray,
@@ -376,7 +376,7 @@ pub fn some_reference_input_tokens_registry_node_with(
       address: address.from_verification_key(
         generate(cardano.verification_key_hash(), label),
       ),
-      value: min_ada_value
+      value: some_ada_value
         |> assets.add(policy_tokens_registry, blake2b_256(key), 1),
       datum: InlineDatum(
         as_data(
@@ -384,7 +384,7 @@ pub fn some_reference_input_tokens_registry_node_with(
             key,
             next,
             transfer_logic_script,
-            third_party_transfer_logic_script,
+            third_party_logic_script,
             // PR-1: not exercised by transfer/3rd-party tests; placeholder.
             minting_logic_script: empty_vkey,
             unfracking_logic_script: empty_vkey,
@@ -404,7 +404,7 @@ pub fn some_reference_input_tokens_registry_node(
 ) -> Input {
   some_reference_input_tokens_registry_node_with(
     credential_transfer_logic,
-    credential_3rd_party_logic,
+    credential_third_party_logic,
     key,
     next,
     label,
@@ -488,7 +488,7 @@ pub fn some_reference_input_unfracking_registry_node(
       address: address.from_verification_key(
         generate(cardano.verification_key_hash(), label),
       ),
-      value: min_ada_value
+      value: some_ada_value
         |> assets.add(policy_tokens_registry, blake2b_256(key), 1),
       datum: InlineDatum(
         as_data(
@@ -496,7 +496,7 @@ pub fn some_reference_input_unfracking_registry_node(
             key,
             next: sentinel_next_key,
             transfer_logic_script: credential_transfer_logic,
-            third_party_transfer_logic_script: credential_3rd_party_logic,
+            third_party_logic_script: credential_third_party_logic,
             minting_logic_script: empty_vkey,
             unfracking_logic_script: credential_unfracking_hook,
             global_state_cs: "",
@@ -555,7 +555,7 @@ pub fn some_unfracking(
 // --------------------------------------------------------------------- helpers
 
 /// Some value with a non-zero ADA amount. Embodies typical values found on-chain.
-pub const min_ada_value: Value =
+pub const some_ada_value: Value =
   assets.zero |> assets.add(ada_policy_id, ada_asset_name, 1000000)
 
 /// Run a 'Fuzzer' in-place, using a label as a seed. This can be used to

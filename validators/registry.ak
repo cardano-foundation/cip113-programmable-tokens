@@ -34,15 +34,15 @@ use cardano/address.{Script, VerificationKey}
 use cardano/assets.{PolicyId}
 use cardano/transaction.{OutputReference, Transaction}
 use linked_list.{
-  is_field_updated_registry_node, is_inserted_directory_node,
-  is_updated_directory_node, validate_directory_init,
-  validate_directory_node_output, validate_mint,
+  is_field_updated_registry_node, is_inserted_registry_node,
+  is_updated_registry_node, validate_mint, validate_registry_init,
+  validate_registry_node_output,
 }
-use pairs
 use registry_node.{RegistryNode}
 use types.{IssuanceCborHex, RegistryInit, RegistryInsert, RegistryRedeemer}
+use unsafe_pairs
 use utils.{
-  expect_inline_datum, has_currency_symbol, is_programmable_token_id_valid,
+  expect_inline_datum, expect_programmable_token_id_valid, has_currency_symbol,
   mint_has_policy,
 }
 
@@ -63,7 +63,7 @@ validator registry(utxo_ref: OutputReference, issuance_cbor_hex_cs: PolicyId) {
         // wearing its spending hat. No parameter is needed to say so: the mint
         // and spend handlers share one hash, so the policy minting the node NFT
         // IS the credential that must lock it.
-        validate_directory_init(
+        validate_registry_init(
           self.outputs,
           self.mint,
           policy_id,
@@ -89,7 +89,7 @@ validator registry(utxo_ref: OutputReference, issuance_cbor_hex_cs: PolicyId) {
         // for the derivation is the inner 28-byte hash of the credential,
         // extracted inside the helper.
         expect
-          is_programmable_token_id_valid(
+          expect_programmable_token_id_valid(
             key,
             issuance_cbor.prefix_cbor_hex,
             issuance_cbor.postfix_cbor_hex,
@@ -106,7 +106,8 @@ validator registry(utxo_ref: OutputReference, issuance_cbor_hex_cs: PolicyId) {
         //
         // Whether a first mint of `key` occurs in the same tx is NOT
         // checked here: if it does, issuance_mint validates it as usual.
-        expect pairs.has_key_or_fail(self.withdrawals, minting_logic_script)
+        expect
+          unsafe_pairs.has_key_or_fail(self.withdrawals, minting_logic_script)
 
         // Must mint exactly one node token with the new key
         expect validate_mint(self.mint, policy_id) == key
@@ -129,25 +130,25 @@ validator registry(utxo_ref: OutputReference, issuance_cbor_hex_cs: PolicyId) {
         // enforces exactly two such outputs. The strict ordering invariant
         // (covering_node.key < key, asserted below) means no single output can satisfy
         // both the inserted and the updated-covering shape, so identifying which is
-        // which by a single `is_inserted_directory_node` check is unambiguous.
+        // which by a single `is_inserted_registry_node` check is unambiguous.
         expect [out1,
               out2] = list.filter(
           self.outputs,
           fn(o) { has_currency_symbol(o.value, policy_id) },
         )
 
-        let node1 = validate_directory_node_output(
+        let node1 = validate_registry_node_output(
           out1,
           policy_id,
           covering_input.output.address,
         )
-        let node2 = validate_directory_node_output(
+        let node2 = validate_registry_node_output(
           out2,
           policy_id,
           covering_input.output.address,
         )
 
-        let updated = if is_inserted_directory_node(
+        let updated = if is_inserted_registry_node(
           node1,
           key,
           covering_node.next,
@@ -156,7 +157,7 @@ validator registry(utxo_ref: OutputReference, issuance_cbor_hex_cs: PolicyId) {
           node2
         } else {
           expect
-            is_inserted_directory_node(
+            is_inserted_registry_node(
               node2,
               key,
               covering_node.next,
@@ -165,7 +166,7 @@ validator registry(utxo_ref: OutputReference, issuance_cbor_hex_cs: PolicyId) {
           node1
         }
         // node2 inserted ⇒ node1 is the updated covering
-        is_updated_directory_node(updated, covering_node, key)
+        is_updated_registry_node(updated, covering_node, key)
       }
     }
   }
@@ -216,7 +217,7 @@ validator registry(utxo_ref: OutputReference, issuance_cbor_hex_cs: PolicyId) {
           self.outputs,
           fn(o) { has_currency_symbol(o.value, registry_node_cs) },
         )
-        let new_node = validate_directory_node_output(
+        let new_node = validate_registry_node_output(
           cont,
           registry_node_cs,
           own_input.output.address,

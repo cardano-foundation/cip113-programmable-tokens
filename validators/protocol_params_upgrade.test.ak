@@ -13,8 +13,8 @@
 ////
 //// ## Designed out by the four-field params datum
 ////
-//// `ProgrammableLogicGlobalParams` dropped `registry_node_cs` and
-//// `prog_logic_cred` when their last on-chain readers went away. FOUR tests
+//// `ProtocolParams` dropped `registry_node_cs` and
+//// `programmable_logic_base_cred` when their last on-chain readers went away. FOUR tests
 //// went with them. Two of the four lived in THIS file, and a reader who finds
 //// two deleted security tests deserves to know which of the two reasons
 //// applies to each:
@@ -37,7 +37,7 @@
 //// `validators/transfer.test.ak`:
 ////
 ////   * `protocol_params_structure` (was transfer.test.ak:28-40) — its only two
-////     assertions were on `prog_logic_cred` and `registry_node_cs`. With both
+////     assertions were on `programmable_logic_base_cred` and `registry_node_cs`. With both
 ////     fields gone the test has no assertion left to make; it was not
 ////     exercising the `transfer` validator at all.
 ////   * `protocol_params_from_reference_inputs` (was transfer.test.ak:213-225)
@@ -55,7 +55,7 @@ use cardano/transaction.{
   InlineDatum, Input, NoDatum, Output, OutputReference, Transaction,
 }
 use programmable_logic/fixture
-use programmable_logic/params.{ProgrammableLogicGlobalParams}
+use programmable_logic/params.{ProtocolParams}
 use protocol_params
 use types.{
   NominateAuthority, PromoteAuthority, ProtocolParamsRedeemer, ProtocolUpgrade,
@@ -114,11 +114,8 @@ fn params_utxo_value() -> Value {
 
 /// Params after a legitimate transfer-validator-swap upgrade: only `transfer_cred`
 /// changes; everything else (incl. the frozen anchors) is preserved.
-fn upgraded_params() -> ProgrammableLogicGlobalParams {
-  ProgrammableLogicGlobalParams {
-    ..fixture.protocol_params,
-    transfer_cred: new_transfer_cred,
-  }
+fn upgraded_params() -> ProtocolParams {
+  ProtocolParams { ..fixture.protocol_params, transfer_cred: new_transfer_cred }
 }
 
 /// The credential the sitting authority nominates as its successor. Distinct
@@ -132,8 +129,8 @@ const impostor_cred: Credential =
   Script(#"33333333333333333333333333333333333333333333333333333333")
 
 /// Params with a handover IN FLIGHT: nominated, not yet activated.
-fn params_in_flight() -> ProgrammableLogicGlobalParams {
-  ProgrammableLogicGlobalParams {
+fn params_in_flight() -> ProtocolParams {
+  ProtocolParams {
     ..fixture.protocol_params,
     pending_upgrade_cred: Some(nominee_cred),
   }
@@ -141,8 +138,8 @@ fn params_in_flight() -> ProgrammableLogicGlobalParams {
 
 /// Params after a completed handover: the nominee is the authority and the
 /// nomination is cleared. Every other field is untouched — that is the rail.
-fn params_promoted() -> ProgrammableLogicGlobalParams {
-  ProgrammableLogicGlobalParams {
+fn params_promoted() -> ProtocolParams {
+  ProtocolParams {
     ..fixture.protocol_params,
     upgrade_cred: nominee_cred,
     pending_upgrade_cred: None,
@@ -163,7 +160,7 @@ fn params_utxo_input() -> Input {
 
 /// Continuing protocol-params output for a given new datum + value + address.
 fn continuing_output(
-  params: ProgrammableLogicGlobalParams,
+  params: ProtocolParams,
   val: Value,
   addr: Address,
 ) -> Output {
@@ -194,7 +191,7 @@ fn valid_upgrade_tx() -> Transaction {
 
 /// The params UTxO carrying an arbitrary old datum — needed by every test
 /// that starts from a handover already in flight.
-fn params_utxo_input_with(old: ProgrammableLogicGlobalParams) -> Input {
+fn params_utxo_input_with(old: ProtocolParams) -> Input {
   Input {
     output_reference: own_ref,
     output: Output {
@@ -209,8 +206,8 @@ fn params_utxo_input_with(old: ProgrammableLogicGlobalParams) -> Input {
 /// Spend a params UTxO whose CURRENT datum is `old`, producing `new`, with
 /// `withdrawals` present. The single shape every two-phase test is built from.
 fn handover_tx(
-  old: ProgrammableLogicGlobalParams,
-  new: ProgrammableLogicGlobalParams,
+  old: ProtocolParams,
+  new: ProtocolParams,
   withdrawals: Pairs<Credential, Int>,
 ) -> Transaction {
   Transaction {
@@ -227,7 +224,7 @@ fn handover_tx(
 /// action, with `tx`. Reads as: call, under this action, from this state.
 fn call_from(
   redeemer: ProtocolParamsRedeemer,
-  old: ProgrammableLogicGlobalParams,
+  old: ProtocolParams,
   tx: Transaction,
 ) -> Bool {
   protocol_params.protocol_params.spend(
@@ -266,14 +263,14 @@ test params_spend_upgrade_succeeds() {
 // Mutating plg_cred (the dispatcher credential) is the CANONICAL upgrade: it
 // re-points every programmable spend at a new dispatch layer without moving
 // PLB's hash, and therefore without moving a single token address.
-test params_spend_upgrade_can_change_plg_cred() {
+test params_spend_upgrade_can_change_programmable_logic_global_cred() {
   let tx = Transaction {
     ..valid_upgrade_tx(),
     outputs: [
       continuing_output(
-        ProgrammableLogicGlobalParams {
+        ProtocolParams {
           ..fixture.protocol_params,
-          plg_cred: new_transfer_cred,
+          programmable_logic_global_cred: new_transfer_cred,
         },
         params_utxo_value(),
         params_spend_address(),
@@ -298,7 +295,7 @@ test params_spend_fails_direct_authority_rewrite() fail {
     ..valid_upgrade_tx(),
     outputs: [
       continuing_output(
-        ProgrammableLogicGlobalParams {
+        ProtocolParams {
           ..fixture.protocol_params,
           upgrade_cred: new_transfer_cred,
         },
@@ -354,7 +351,7 @@ test params_spend_fails_self_installation_under_ordinary_upgrade() fail {
     ..valid_upgrade_tx(),
     outputs: [
       continuing_output(
-        ProgrammableLogicGlobalParams {
+        ProtocolParams {
           ..fixture.protocol_params,
           upgrade_cred: new_transfer_cred,
         },
@@ -586,7 +583,7 @@ const unsatisfiable_cred: Credential = VerificationKey(#"")
 const short_cred: Credential = Script(#"deadbeef")
 
 /// An upgrade transaction whose continuing datum is `params`.
-fn upgrade_tx_with(params: ProgrammableLogicGlobalParams) -> Transaction {
+fn upgrade_tx_with(params: ProtocolParams) -> Transaction {
   Transaction {
     ..valid_upgrade_tx(),
     outputs: [
@@ -610,7 +607,7 @@ fn upgrade_tx_with(params: ProgrammableLogicGlobalParams) -> Transaction {
 test params_spend_fails_unsatisfiable_upgrade_authority() fail {
   call(
     upgrade_tx_with(
-      ProgrammableLogicGlobalParams {
+      ProtocolParams {
         ..fixture.protocol_params,
         upgrade_cred: unsatisfiable_cred,
       },
@@ -623,7 +620,7 @@ test params_spend_fails_unsatisfiable_upgrade_authority() fail {
 test params_spend_fails_unsatisfiable_transfer_cred() fail {
   call(
     upgrade_tx_with(
-      ProgrammableLogicGlobalParams {
+      ProtocolParams {
         ..fixture.protocol_params,
         transfer_cred: unsatisfiable_cred,
       },
@@ -635,12 +632,12 @@ test params_spend_fails_unsatisfiable_transfer_cred() fail {
 // widest brick this validator can prevent — an unsatisfiable plg_cred makes
 // every programmable token UTxO on the deployment permanently unspendable,
 // because PLB requires exactly this credential's withdraw-0 on every input.
-test params_spend_fails_unsatisfiable_plg_cred() fail {
+test params_spend_fails_unsatisfiable_programmable_logic_global_cred() fail {
   call(
     upgrade_tx_with(
-      ProgrammableLogicGlobalParams {
+      ProtocolParams {
         ..fixture.protocol_params,
-        plg_cred: unsatisfiable_cred,
+        programmable_logic_global_cred: unsatisfiable_cred,
       },
     ),
   )
@@ -650,10 +647,7 @@ test params_spend_fails_unsatisfiable_plg_cred() fail {
 test params_spend_fails_wrong_length_credential() fail {
   call(
     upgrade_tx_with(
-      ProgrammableLogicGlobalParams {
-        ..fixture.protocol_params,
-        transfer_cred: short_cred,
-      },
+      ProtocolParams { ..fixture.protocol_params, transfer_cred: short_cred },
     ),
   )
 }
@@ -699,7 +693,7 @@ test params_spend_nomination_succeeds() {
 // such to anyone watching the chain, instead of being reachable inside
 // something that presents itself as a routine parameter change.
 test params_spend_fails_nomination_carrying_an_upgrade() fail {
-  let nominated_and_upgraded = ProgrammableLogicGlobalParams {
+  let nominated_and_upgraded = ProtocolParams {
     ..fixture.protocol_params,
     transfer_cred: new_transfer_cred,
     pending_upgrade_cred: Some(nominee_cred),
@@ -719,7 +713,7 @@ test params_spend_fails_nomination_carrying_an_upgrade() fail {
 // with the test above, this is what makes the declared action a RAIL rather
 // than a label — neither arm can do the other's job.
 test params_spend_fails_upgrade_carrying_a_nomination() fail {
-  let upgraded_and_nominated = ProgrammableLogicGlobalParams {
+  let upgraded_and_nominated = ProtocolParams {
     ..fixture.protocol_params,
     transfer_cred: new_transfer_cred,
     pending_upgrade_cred: Some(nominee_cred),
@@ -737,7 +731,7 @@ test params_spend_fails_upgrade_carrying_a_nomination() fail {
 
 // A nomination may not move the authority: that is what phase 2 is for.
 test params_spend_fails_nomination_moving_the_authority() fail {
-  let nominated_and_promoted = ProgrammableLogicGlobalParams {
+  let nominated_and_promoted = ProtocolParams {
     ..fixture.protocol_params,
     upgrade_cred: nominee_cred,
     pending_upgrade_cred: Some(nominee_cred),
@@ -784,7 +778,7 @@ test params_spend_revocation_succeeds() {
 
 // Re-nomination: replacing one nominee with another needs no revoke first.
 test params_spend_renomination_succeeds() {
-  let renominated = ProgrammableLogicGlobalParams {
+  let renominated = ProtocolParams {
     ..fixture.protocol_params,
     pending_upgrade_cred: Some(impostor_cred),
   }
@@ -842,7 +836,7 @@ test params_spend_fails_promotion_without_nominee_withdrawal() fail {
 // Only the NOMINATED credential may activate. Here a third party presents its
 // own withdrawal and writes itself in as the authority.
 test params_spend_fails_promotion_by_non_nominee() fail {
-  let impostor_promoted = ProgrammableLogicGlobalParams {
+  let impostor_promoted = ProtocolParams {
     ..fixture.protocol_params,
     upgrade_cred: impostor_cred,
     pending_upgrade_cred: None,
@@ -855,13 +849,13 @@ test params_spend_fails_promotion_by_non_nominee() fail {
 }
 
 // Promotion is PURE: the nominee may not change anything else on its way in.
-// `plg_cred` is the sharpest case — it re-points every programmable spend on
+// `programmable_logic_global_cred` is the sharpest case — it re-points every programmable spend on
 // the deployment, and this is exactly the transaction the sitting authority
 // would be racing to revoke.
-test params_spend_fails_promotion_changing_plg_cred() fail {
-  let promoted_and_upgraded = ProgrammableLogicGlobalParams {
+test params_spend_fails_promotion_changing_programmable_logic_global_cred() fail {
+  let promoted_and_upgraded = ProtocolParams {
     ..params_promoted(),
-    plg_cred: new_transfer_cred,
+    programmable_logic_global_cred: new_transfer_cred,
   }
   call_from(
     PromoteAuthority,
@@ -877,7 +871,7 @@ test params_spend_fails_promotion_changing_plg_cred() fail {
 // A promotion must CLEAR the nomination. Leaving it set would keep a live
 // second route open against the new authority, which nobody nominated.
 test params_spend_fails_promotion_leaving_nomination_set() fail {
-  let promoted_but_still_pending = ProgrammableLogicGlobalParams {
+  let promoted_but_still_pending = ProtocolParams {
     ..params_promoted(),
     pending_upgrade_cred: Some(nominee_cred),
   }
@@ -896,7 +890,7 @@ test params_spend_fails_promotion_leaving_nomination_set() fail {
 // matter: a wrong-length nominee is refused at nomination time rather than
 // becoming a nominee that can never produce a withdrawal.
 test params_spend_fails_wrong_length_pending_cred() fail {
-  let bad_nomination = ProgrammableLogicGlobalParams {
+  let bad_nomination = ProtocolParams {
     ..fixture.protocol_params,
     pending_upgrade_cred: Some(short_cred),
   }
@@ -916,7 +910,7 @@ test params_spend_fails_wrong_length_pending_cred() fail {
 // present, so the transaction gets past the withdrawal check and dies on the
 // datum comparison alone.
 test params_spend_fails_promotion_installing_other_credential() fail {
-  let wrong_successor = ProgrammableLogicGlobalParams {
+  let wrong_successor = ProtocolParams {
     ..fixture.protocol_params,
     upgrade_cred: impostor_cred,
     pending_upgrade_cred: None,
@@ -933,7 +927,7 @@ test params_spend_fails_promotion_installing_other_credential() fail {
 // shape a nominee would actually reach for; it must cost a second transaction
 // under the sitting-authority route, after the handover has completed.
 test params_spend_fails_promotion_changing_transfer_cred() fail {
-  let promoted_and_upgraded = ProgrammableLogicGlobalParams {
+  let promoted_and_upgraded = ProtocolParams {
     ..params_promoted(),
     transfer_cred: new_transfer_cred,
   }

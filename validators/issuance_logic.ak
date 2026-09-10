@@ -18,7 +18,7 @@
 //// and no policy id ever moves.
 ////
 //// The trust this adds is nothing new. The upgrade authority could already
-//// drain every token by installing a permissive dispatcher in `plg_cred`;
+//// drain every token by installing a permissive dispatcher in `programmable_logic_global_cred`;
 //// installing a permissive script here is the same authority, the same act.
 ////
 //// Runs ONCE per transaction (withdraw-0), for every policy in its redeemer.
@@ -28,11 +28,11 @@
 
 use aiken/builtin.{unconstr_fields}
 use aiken/collection/list
-use assets as prog_assets
 use cardano/address.{Credential, Inline}
 use cardano/assets.{PolicyId}
 use cardano/certificate.{Certificate, RegisterCredential}
 use cardano/transaction.{Input, Output, ScriptPurpose, Transaction, Withdraw}
+use prog_assets
 use programmable_logic/params
 use registry_node.{RegistryNode}
 use types.{
@@ -44,7 +44,7 @@ use utils.{expect_inline_datum, has_currency_symbol}
 validator issuance_logic(
   // Programmable Token Script Hash — the custody address every issued token
   // must land at.
-  programmable_logic_base: Credential,
+  programmable_logic_base_cred: Credential,
   // Registry Node Currency Symbol — authenticates registry proofs.
   registry_node_cs: PolicyId,
   // One-shot protocol-params NFT policy. Locates the protocol-params UTxO
@@ -74,7 +74,7 @@ validator issuance_logic(
           self,
           proof,
           own_policy,
-          programmable_logic_base,
+          programmable_logic_base_cred,
           registry_node_cs,
           params_policy,
           max_inline_datum_bytes,
@@ -124,7 +124,7 @@ fn valid_issuance(
   self: Transaction,
   proof: MintingRegistryProof,
   own_policy: PolicyId,
-  programmable_logic_base: Credential,
+  programmable_logic_base_cred: Credential,
   registry_node_cs: PolicyId,
   params_policy: PolicyId,
   max_inline_datum_bytes: Int,
@@ -132,7 +132,7 @@ fn valid_issuance(
   let custody_ok = fn() {
     no_escape(
       self.outputs,
-      programmable_logic_base,
+      programmable_logic_base_cred,
       own_policy,
       max_inline_datum_bytes,
     )
@@ -182,14 +182,14 @@ fn valid_issuance(
 /// than exists) — value-conservation makes the ledger reject that anyway.
 fn no_escape(
   outputs: List<Output>,
-  programmable_logic_base: Credential,
+  programmable_logic_base_cred: Credential,
   own_policy: PolicyId,
   max_inline_datum_bytes: Int,
 ) -> Bool {
   list.all(
     outputs,
     fn(output) {
-      if output.address.payment_credential == programmable_logic_base {
+      if output.address.payment_credential == programmable_logic_base_cred {
         expect Some(Inline(_stake_cred)) = output.address.stake_credential
         // A programmable-token UTxO must stay seizable: no datum hash
         // (unspendable without the preimage), no reference script (bloats the
@@ -226,7 +226,7 @@ fn verify_registry_node(
   // No need to compare `registry.minting_logic_script` against the validator's
   // `minting_logic_cred` parameter here. `registry_mint` already enforces that
   // the registered credential's inner hash is the one the policy id was
-  // derived from (via `is_programmable_token_id_valid`). Since this
+  // derived from (via `expect_programmable_token_id_valid`). Since this
   // validator's `minting_logic_cred` parameter is also baked into the policy
   // id at compile time, collision-resistance of blake2b_224 implies the two
   // credentials must match. Checking again here would be redundant.
@@ -314,7 +314,7 @@ fn third_party_covers_own_registry_node(
   third_party_cred: Credential,
   own_registry_node_idx: Int,
 ) -> Bool {
-  when find_tp_redeemer(redeemers, third_party_cred) is {
+  when find_third_party_redeemer(redeemers, third_party_cred) is {
     None -> False
     Some(ThirdPartyRedeemer { registry_node_idx, .. }) ->
       registry_node_idx == own_registry_node_idx
@@ -324,7 +324,7 @@ fn third_party_covers_own_registry_node(
 /// Find the `third_party` validator's Withdraw redeemer in `tx.redeemers` and
 /// decode it. Mirrors `find_transfer_redeemer`; returns None when the
 /// third_party validator isn't invoked.
-fn find_tp_redeemer(
+fn find_third_party_redeemer(
   redeemers: Pairs<ScriptPurpose, Data>,
   cred: Credential,
 ) -> Option<ThirdPartyRedeemer> {
@@ -337,9 +337,9 @@ fn find_tp_redeemer(
             expect tp: ThirdPartyRedeemer = data
             Some(tp)
           } else {
-            find_tp_redeemer(tail, cred)
+            find_third_party_redeemer(tail, cred)
           }
-        _ -> find_tp_redeemer(tail, cred)
+        _ -> find_third_party_redeemer(tail, cred)
       }
   }
 }

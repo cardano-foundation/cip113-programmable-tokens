@@ -2,7 +2,7 @@ use aiken/builtin.{equals_bytearray}
 use aiken/collection/dict.{Dict}
 use aiken/collection/dict/strategy as dict_strategy
 use cardano/assets.{AssetName}
-use pairs.{pop_until}
+use unsafe_pairs.{expect_pop_until_and_then}
 
 pub type Tokens =
   Dict<AssetName, Int>
@@ -13,20 +13,20 @@ pub type Tokens =
 ///
 /// In practice, this means we suppose both values have been constructed from
 /// existing well-formed Values.
-pub fn contains(
+pub fn expect_contains(
   superset: Pairs<AssetName, Int>,
   subset: Pairs<AssetName, Int>,
 ) -> Bool {
   when subset is {
     [] -> True
     [head_subset, ..tail_subset] -> {
-      let head_superset, tail_superset <- pop_until(
+      let head_superset, tail_superset <- expect_pop_until_and_then(
         superset,
         equals_bytearray(head_subset.1st, _),
       )
       and {
         head_superset >= head_subset.2nd,
-        contains(tail_superset, tail_subset),
+        expect_contains(tail_superset, tail_subset),
       }
     }
   }

@@ -29,7 +29,7 @@ use utils.{bytearray_lt, expect_inline_datum, has_currency_symbol}
 ///  5. `node.key < node.next` in Plutus byte order.
 ///  6. NFT asset name strictly equals `node.key`. (Origin case passes because
 ///     both sides are #"".)
-pub fn validate_directory_node_output(
+pub fn validate_registry_node_output(
   output: Output,
   node_cs: PolicyId,
   node_address: Address,
@@ -64,7 +64,7 @@ pub fn validate_directory_node_output(
 }
 
 /// Validate registry Init: no inputs, one empty origin node output, mint origin token
-pub fn validate_directory_init(
+pub fn validate_registry_init(
   node_outputs: List<Output>,
   mint: Value,
   node_cs: PolicyId,
@@ -76,7 +76,7 @@ pub fn validate_directory_init(
     fn(output) { has_currency_symbol(output.value, node_cs) },
   )
   // Origin node must be locked under the registry's own spend handler
-  let node = validate_directory_node_output(
+  let node = validate_registry_node_output(
     node_output,
     node_cs,
     Address(node_address_cred, None),
@@ -84,7 +84,7 @@ pub fn validate_directory_init(
 
   and {
     // Node must match the canonical origin shape (all fields)
-    is_origin_directory_node(node)?,
+    is_origin_registry_node(node)?,
     // Must mint exactly one origin token and no other tokens from this policy
     (validate_mint(mint, node_cs) == origin_node_tn)?,
   }
@@ -93,7 +93,7 @@ pub fn validate_directory_init(
 /// True iff `node` is the canonical origin registry node. Single equality
 /// against the `origin_node` constant — future fields added to `RegistryNode`
 /// are automatically enforced without touching this helper.
-pub fn is_origin_directory_node(node: RegistryNode) -> Bool {
+pub fn is_origin_registry_node(node: RegistryNode) -> Bool {
   node == origin_node
 }
 
@@ -105,10 +105,10 @@ pub fn is_origin_directory_node(node: RegistryNode) -> Bool {
 ///     latter when the inserted node becomes the new last node and inherits
 ///     the sentinel from the previous last.
 ///   * credentials are strict 28-byte hashes (no length-0 origin loophole).
-///     Applies to `transfer_logic_script`, `third_party_transfer_logic_script`
+///     Applies to `transfer_logic_script`, `third_party_logic_script`
 ///     and `minting_logic_script`.
 ///   * `global_state_cs` is 0 or 28 bytes (CIP-113 normative MAY).
-pub fn is_inserted_directory_node(
+pub fn is_inserted_registry_node(
   node: RegistryNode,
   insert_key: ByteArray,
   next_key: ByteArray,
@@ -124,7 +124,7 @@ pub fn is_inserted_directory_node(
     // CIP-113: credentials MUST be 28-byte hashes (no empty allowed here —
     // empty credentials belong only to the origin node)
     is_28_byte_credential(node.transfer_logic_script)?,
-    is_28_byte_credential(node.third_party_transfer_logic_script)?,
+    is_28_byte_credential(node.third_party_logic_script)?,
     // The new node's `minting_logic_script` datum
     // field MUST equal the redeemer's `minting_logic_script`. Prevents a
     // benign-looking redeemer from producing a node datum that points at
@@ -150,7 +150,7 @@ pub fn is_28_bytes(hash: ByteArray) -> Bool {
   bytearray.length(hash) == 28
 }
 
-/// Strict 28-byte credential check. Used by `is_inserted_directory_node` to
+/// Strict 28-byte credential check. Used by `is_inserted_registry_node` to
 /// reject the length-0 origin shape on a non-origin node.
 pub fn is_28_byte_credential(cred: Credential) -> Bool {
   when cred is {
@@ -164,7 +164,7 @@ pub fn is_28_byte_credential(cred: Credential) -> Bool {
 /// inserted key. Implemented as a single record-equality check so any future
 /// field added to `RegistryNode` is automatically enforced.
 /// Fix for NEW-1 — matches Plutarch's pisInsertedOnNode strict equality.
-pub fn is_updated_directory_node(
+pub fn is_updated_registry_node(
   node: RegistryNode,
   original: RegistryNode,
   insert_key: ByteArray,
@@ -191,12 +191,12 @@ pub fn is_field_updated_registry_node(
       next: old.next,
       minting_logic_script: old.minting_logic_script,
       transfer_logic_script: new.transfer_logic_script,
-      third_party_transfer_logic_script: new.third_party_transfer_logic_script,
+      third_party_logic_script: new.third_party_logic_script,
       unfracking_logic_script: new.unfracking_logic_script,
       global_state_cs: new.global_state_cs,
     },
     is_28_byte_credential(new.transfer_logic_script)?,
-    is_28_byte_credential(new.third_party_transfer_logic_script)?,
+    is_28_byte_credential(new.third_party_logic_script)?,
     (bytearray.length(new.global_state_cs) == 0 || is_28_bytes(
       new.global_state_cs,
     ))?,

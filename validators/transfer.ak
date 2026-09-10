@@ -2,13 +2,13 @@
 ////
 //// The withdraw-0 validator every ordinary programmable-token TRANSFER is
 //// dispatched to. PLB runs once per spent input and requires the dispatcher
-//// (`plg_cred`) named in the protocol-params datum; the dispatcher, under a
+//// (`programmable_logic_global_cred`) named in the protocol-params datum; the dispatcher, under a
 //// `TransferAct` redeemer, requires THIS script's withdraw-0 against the hash
 //// baked into it. This script then runs ONCE per transaction and enforces the
 //// transfer invariants over the whole transaction: registry proofs,
 //// substandard transfer-logic invocation, value containment.
 ////
-//// It reads NO datum — `prog_logic_cred`, `registry_node_cs` and the seizure
+//// It reads NO datum — `programmable_logic_base_cred`, `registry_node_cs` and the seizure
 //// datum bound are compile-time parameters — so an ordinary transfer resolves
 //// the protocol-params reference input exactly once, in PLB, per input.
 ////
@@ -33,7 +33,7 @@ use registry_node.{new_registry_node_getter}
 use types.{TransferRedeemer}
 
 validator transfer(
-  prog_logic_cred: Credential,
+  programmable_logic_base_cred: Credential,
   registry_node_cs: PolicyId,
   max_inline_datum_bytes: Int,
 ) {
@@ -60,7 +60,7 @@ validator transfer(
 
     invariants.validate_transfer(
       self,
-      prog_logic_cred,
+      programmable_logic_base_cred,
       get_registry_node,
       proofs,
       max_inline_datum_bytes,

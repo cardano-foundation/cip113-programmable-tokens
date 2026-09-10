@@ -1,7 +1,7 @@
 //// The protocol-params UTxO — one script, two purposes.
 ////
 //// The protocol-params UTxO holds the protocol-params NFT and the
-//// `ProgrammableLogicGlobalParams` datum: the live wiring every programmable
+//// `ProtocolParams` datum: the live wiring every programmable
 //// token transaction reads. `mint` creates it, exactly once; `spend` makes it
 //// upgradable in place while holding the rails that must never bend.
 ////
@@ -29,17 +29,17 @@
 ////   * The STRUCTURAL rails live here, in both handlers: the NFT is created
 ////     once and continues, it stays at this address, non-ADA value is
 ////     conserved, the datum stays well-formed, and every credential in it is a
-////     well-formed 28-byte hash. `params_wellformed` is called by BOTH
+////     well-formed 28-byte hash. `params_well_formed` is called by BOTH
 ////     handlers, so the state the spend refuses to move to is also a state the
 ////     mint refuses to create.
-////     There are no frozen-field rails left to enforce: `prog_logic_cred` and
+////     There are no frozen-field rails left to enforce: `programmable_logic_base_cred` and
 ////     `registry_node_cs` are no longer datum fields at all — they are
 ////     compile-time parameters of the delegates. Note precisely what that does
 ////     and does not buy. The FIELDS are unrepresentable, so no upgrade can edit
 ////     them in place. The VALUES are still reachable one hop away: an upgrade
-////     that rewrites `plg_cred` installs a dispatch layer naming delegate
+////     that rewrites `programmable_logic_global_cred` installs a dispatch layer naming delegate
 ////     hashes of the authority's choosing, and those delegates carry whatever
-////     `prog_logic_cred` and `registry_node_cs` they were applied with. That is
+////     `programmable_logic_base_cred` and `registry_node_cs` they were applied with. That is
 ////     the same authority acting in the same transaction, not a separate
 ////     escape — and it is the pre-existing shape of the upgrade threat model,
 ////     unchanged here.
@@ -79,14 +79,12 @@
 
 use aiken/collection/list
 use aiken/collection/pairs
-use assets.{expect_only_nft_of_policy} as my_assets
 use cardano/address.{Credential}
 use cardano/assets.{PolicyId}
 use cardano/transaction.{InlineDatum, Output, OutputReference, Transaction}
 use linked_list.{is_28_byte_credential}
-use programmable_logic/params.{
-  ProgrammableLogicGlobalParams, protocol_params_token,
-}
+use prog_assets.{expect_only_nft_of_policy}
+use programmable_logic/params.{ProtocolParams, protocol_params_token}
 use types.{
   NominateAuthority, PromoteAuthority, ProtocolParamsRedeemer, ProtocolUpgrade,
 }
@@ -97,24 +95,21 @@ use types.{
 /// never appear in `tx.withdrawals`. Writing one here is a ONE-WAY BRICK: an
 /// unsatisfiable `upgrade_cred` makes this validator's own authority check
 /// permanently unsatisfiable, with no repair path, and an unsatisfiable
-/// `plg_cred` makes every programmable token UTxO unspendable. `plg_cred` is
+/// `programmable_logic_global_cred` makes every programmable token UTxO unspendable. `programmable_logic_global_cred` is
 /// checked first because it is the one credential on the SPEND path, and so the
 /// widest brick this validator can prevent.
 ///
 /// Shared by BOTH handlers on purpose. The rail used to exist only on the
 /// update path, which left the protocol able to be BORN in exactly the state
 /// every later update is refused for.
-fn params_wellformed(
-  params: ProgrammableLogicGlobalParams,
-  is_init init: Bool,
-) -> Bool {
+fn params_well_formed(params: ProtocolParams, is_init init: Bool) -> Bool {
   and {
-    is_28_byte_credential(params.plg_cred)?,
+    is_28_byte_credential(params.programmable_logic_global_cred)?,
     is_28_byte_credential(params.issuance_logic_cred)?,
     is_28_byte_credential(params.transfer_cred)?,
     is_28_byte_credential(params.third_party_cred)?,
     is_28_byte_credential(params.upgrade_cred)?,
-    pending_wellformed(params.pending_upgrade_cred, is_init: init)?,
+    pending_well_formed(params.pending_upgrade_cred, is_init: init)?,
   }
 }
 
@@ -129,7 +124,7 @@ fn params_wellformed(
 /// revocable. Carrying the distinction as a flag on the shared rail — rather
 /// than as a separate line at the mint site — is what keeps "the state genesis
 /// may create" and "the state an update may move to" defined in one place.
-fn pending_wellformed(pending: Option<Credential>, is_init init: Bool) -> Bool {
+fn pending_well_formed(pending: Option<Credential>, is_init init: Bool) -> Bool {
   when pending is {
     None -> True
     Some(cred) -> and {
@@ -139,12 +134,12 @@ fn pending_wellformed(pending: Option<Credential>, is_init init: Bool) -> Bool {
   }
 }
 
-/// The datum rail: inline, and decodes as `ProgrammableLogicGlobalParams`.
+/// The datum rail: inline, and decodes as `ProtocolParams`.
 /// Returns the VALUE, because both handlers need to constrain the fields and
 /// not merely confirm they parse.
-fn output_params(output: Output) -> ProgrammableLogicGlobalParams {
+fn expect_output_params(output: Output) -> ProtocolParams {
   expect InlineDatum(datum) = output.datum
-  expect params: ProgrammableLogicGlobalParams = datum
+  expect params: ProtocolParams = datum
   params
 }
 
@@ -153,7 +148,7 @@ fn output_params(output: Output) -> ProgrammableLogicGlobalParams {
 /// `promote_authority`, because it is a different credential from a different
 /// datum field proving a different thing.
 fn sitting_authority_approves(
-  old: ProgrammableLogicGlobalParams,
+  old: ProtocolParams,
   withdrawals: Pairs<Credential, Int>,
 ) -> Bool {
   pairs.has_key(withdrawals, old.upgrade_cred)
@@ -165,8 +160,8 @@ fn sitting_authority_approves(
 /// NOMINATION may not move either, so a handover can never begin inside a
 /// transaction that presents itself as a parameter change.
 fn protocol_upgrade(
-  old: ProgrammableLogicGlobalParams,
-  new: ProgrammableLogicGlobalParams,
+  old: ProtocolParams,
+  new: ProtocolParams,
   withdrawals: Pairs<Credential, Int>,
 ) -> Bool {
   and {
@@ -184,13 +179,13 @@ fn protocol_upgrade(
 /// Nothing takes effect: `upgrade_cred` is untouched, and the nominee holds no
 /// power until it activates itself.
 fn nominate_authority(
-  old: ProgrammableLogicGlobalParams,
-  new: ProgrammableLogicGlobalParams,
+  old: ProtocolParams,
+  new: ProtocolParams,
   withdrawals: Pairs<Credential, Int>,
 ) -> Bool {
   and {
     sitting_authority_approves(old, withdrawals)?,
-    (new == ProgrammableLogicGlobalParams {
+    (new == ProtocolParams {
       ..old,
       pending_upgrade_cred: new.pending_upgrade_cred,
     })?,
@@ -207,7 +202,7 @@ fn nominate_authority(
 /// mentioned, and the omission is invisible (mutation-verified 2026-09-07:
 /// the `transfer_cred` comparison in the first draft killed no test, and
 /// would have gone on killing none as fields accumulated). Same shape as
-/// `linked_list.is_updated_directory_node`.
+/// `linked_list.is_updated_registry_node`.
 ///
 /// Splitting promotion from upgrading is what keeps revocation meaningful:
 /// nomination and revocation race by construction, and if the nominee wins
@@ -215,14 +210,14 @@ fn nominate_authority(
 /// consented to — never a handover plus an arbitrary protocol change smuggled
 /// into the very transaction the sitting authority was trying to abort.
 fn promote_authority(
-  old: ProgrammableLogicGlobalParams,
-  new: ProgrammableLogicGlobalParams,
+  old: ProtocolParams,
+  new: ProtocolParams,
   withdrawals: Pairs<Credential, Int>,
 ) -> Bool {
   expect Some(nominee) = old.pending_upgrade_cred
   and {
     pairs.has_key(withdrawals, nominee)?,
-    (new == ProgrammableLogicGlobalParams {
+    (new == ProtocolParams {
       ..old,
       upgrade_cred: nominee,
       pending_upgrade_cred: None,
@@ -258,15 +253,15 @@ validator protocol_params(utxo_ref: OutputReference) {
       },
     )
 
-    let genesis_params = output_params(nft_output)
+    let genesis_params = expect_output_params(nft_output)
 
     and {
       // Genesis must satisfy the rails every later update satisfies — the
       // protocol must not be born in a state the spend handler would refuse to
       // move to.
       // `is_init: True` is what additionally forbids a nomination baked into
-      // the genesis datum — see `pending_wellformed`.
-      params_wellformed(genesis_params, is_init: True)?,
+      // the genesis datum — see `pending_well_formed`.
+      params_well_formed(genesis_params, is_init: True)?,
       // A reference script here is paid for by every transaction that
       // references this UTxO. The spend handler already forbids one on the
       // continuing output; genesis is where that asymmetry started.
@@ -279,7 +274,7 @@ validator protocol_params(utxo_ref: OutputReference) {
   }
 
   spend(
-    datum: Option<ProgrammableLogicGlobalParams>,
+    datum: Option<ProtocolParams>,
     redeemer: ProtocolParamsRedeemer,
     own_ref: OutputReference,
     self: Transaction,
@@ -323,8 +318,8 @@ validator protocol_params(utxo_ref: OutputReference) {
     // credentials — the rail that stops an upgrade from bricking PLB / delegate
     // datum reads. No value rail is needed here: exact non-ADA equality above
     // already carries genesis's shape forward.
-    let new_params = output_params(cont)
-    expect params_wellformed(new_params, is_init: False)?
+    let new_params = expect_output_params(cont)
+    expect params_well_formed(new_params, is_init: False)?
 
     // Authorisation (trampoline 2). The redeemer DECLARES which of the three
     // upgrade-path shapes this is, and each arm is one closed rule set read
