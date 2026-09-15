@@ -1095,6 +1095,34 @@ addition: `is_init: True` forbids a nomination baked into the genesis datum
 (`validators/protocol_params.ak:127-135`), so a protocol cannot be born
 mid-handover.
 
+### Who may initialise
+
+`protocol_params` is parameterised by a single `utxo_ref`
+(`validators/protocol_params.ak:222`); its `mint` handler requires that UTxO
+be spent (`:228-231`), so the policy can mint the `ProtocolParams` NFT once.
+Choosing `utxo_ref` is the one irreversible decision genesis makes: a UTxO can
+be spent once, so every distinct choice commits to a distinct policy id, and —
+because `protocol_params` shares one script hash across both handlers — a
+distinct address (`nft_output.address == address.from_script(own_policy)`,
+`:267`).
+
+That policy id, not an address, is what every other validator treats as the
+protocol's identity. `protocol_params` needs no address parameter — the mint
+handler locks its own output at `Script(own_policy)`, which names itself —
+and the spend handler needs no nonce parameter either, since `utxo_ref`
+already made the policy id unique (`validators/protocol_params.ak:8-16`).
+Every reader that must find the live wiring — `programmable_logic_base`,
+`issuance_mint`, `issuance_logic` — takes this policy id as a parameter, not
+an address, and locates the UTxO by NFT presence
+(`validators/programmable_logic/params.ak:140-141`) or, at genesis, by
+`has_nft_strict`, where the whole value must be exactly that one token
+(`validators/protocol_params.ak:245`) — never by comparing addresses. An
+address is one property a UTxO happens to have; a one-shot NFT policy id
+cannot coincide across two deployments, which is why it is what the protocol
+treats as itself. The SDK consequence — the params address collapsing to one
+applied script — is in
+[`08-INTEGRATION-GUIDES.md`](./08-INTEGRATION-GUIDES.md#deriving-protocol-and-registry-identifiers).
+
 ### The three arms
 
 The redeemer declares which of three transaction shapes this is
@@ -1112,6 +1140,57 @@ Because `ProtocolUpgrade` freezes the nomination and `NominateAuthority` freezes
 everything else, an authority handover can never begin inside a transaction that
 presents itself as a parameter change, and a promotion can never carry one.
 Anyone watching the chain sees a handover begin as its own transaction.
+
+### What an upgrade can reach
+
+`ProtocolUpgrade` rewrites fields 0–3 in the datum. Two values that fields 2
+and 3 do NOT name — `programmable_logic_base_cred` and `registry_node_cs` —
+are never datum fields at all: they are compile-time parameters of `transfer`
+(`validators/transfer.ak:33-34`), `third_party`
+(`validators/third_party.ak:42-43`), `unfracking`
+(`validators/unfracking.ak:57-58`) and `issuance_logic`
+(`validators/issuance_logic.ak:41-43`), so no `ProtocolUpgrade` spend can move
+them for the delegates currently wired.
+
+Their VALUES stay reachable, one hop away. An upgrade that rewrites field 0
+(`programmable_logic_global_cred`) installs a new `programmable_logic_global`
+instance, and that instance's own compile-time parameters —
+`transfer_hash`, `third_party_hash`, `unfracking_hash`
+(`validators/programmable_logic_global.ak:48-51`) — name delegates applied
+with whatever `programmable_logic_base_cred` and `registry_node_cs` the
+authority chose when it compiled them
+(`validators/protocol_params.ak:25-32`;
+`validators/programmable_logic/params.ak:31-38`). That is the same authority
+acting in the same transaction that names the new dispatcher, not a separate
+escape route — and it reaches `is_seizable_output_shape_bounded`
+(`lib/prog_assets.ak:279-289`) and every other rule compiled into the four
+delegates the same way: only by shipping new delegates and re-pointing field
+0 at them, never by rewriting a datum field alone.
+
+The same one-hop reach governs issuance. `issuance_logic_cred` (field 1) is a
+live datum read, checked by `issuance_mint` on every mint and burn
+(`validators/issuance_mint.ak:52-63`); rewriting it retires the old
+issuance-logic script for every token at once, including ones already
+minted — the permanent per-token policy never re-validates the replacement,
+it only checks that the *current* `issuance_logic_cred` ran and covered the
+policy (`validators/issuance_mint.ak:53-64`; field 1's own doc states the
+"including ones already minted" consequence,
+`validators/programmable_logic/params.ak:62-64`). The module doc
+states the equivalence directly: "The upgrade authority could already drain
+every token by installing a permissive dispatcher in
+`programmable_logic_global_cred`; installing a permissive script here is the
+same authority, the same act" (`validators/issuance_logic.ak:14-16`).
+
+This is a different kind of "frozen" from a REGISTRY-NODE field. A node's
+`key`, `next` and `minting_logic_script` are frozen against the node's OWN
+`minting_logic_script` withdraw-zero — a different credential entirely, never
+`upgrade_cred` (see [Node updates](#node-updates)). What `ProtocolUpgrade`
+freezes (`upgrade_cred`, the nomination) is frozen against the SAME authority
+that is spending the UTxO: it names what that one transaction may not touch,
+not what no authority can ever reach. The datum's six fields, four of them
+nameable in one `ProtocolUpgrade`, read as though the shape of the record
+were a bound on the protocol; it bounds one transaction, not what a
+dispatcher-and-delegate redeploy under the same authority can still reach.
 
 ### Why the handover is two phases
 
@@ -1177,6 +1256,44 @@ anyone outside the sitting authority: they are ways an authority can misconfigur
 third party can seize it. The protocol treats them as the authority's responsibility rather than
 refusing them, so a tree intended to require several independent parties should be reviewed against
 both before it is installed.
+
+### What no authority can do
+
+Three things stay out of reach regardless of who holds `upgrade_cred`, and each
+is a limit built into a different script than `protocol_params`.
+
+1. **Move a token address.** `programmable_logic_base` is parameterised only
+   by the protocol-params NFT policy (`validators/programmable_logic_base.ak:42`)
+   — it takes no address or nonce parameter of its own, and no
+   `protocol_params` field or redeemer arm names a replacement PLB script.
+   Its hash is the shared payment credential of every programmable token
+   address, fixed the moment it is deployed: swapping the dispatch layer
+   rewrites protocol-params field 0, it does not redeploy PLB
+   (`validators/programmable_logic_base.ak:6-16`).
+2. **Un-seize a programmable output.** `is_seizable_output_shape_bounded`
+   (`lib/prog_assets.ak:279-289`) is compiled logic in the scripts that
+   create PLB outputs, not a protocol-params read — no `ProtocolUpgrade` can
+   loosen it for the delegates currently wired, and an output that already
+   exists cannot have its on-chain shape rewritten in place. The one-hop
+   reach from [What an upgrade can reach](#what-an-upgrade-can-reach) still
+   bounds this the same way it bounds `programmable_logic_base_cred`: a full
+   delegate-and-dispatcher redeploy could ship delegates that never call the
+   predicate for outputs THEY create, but that changes what future outputs
+   look like, not the shape an already-created output already has.
+3. **Alter an already-issued token's own hooks.** A registry node's mutable
+   fields — `transfer_logic_script`, `third_party_logic_script`,
+   `unfracking_logic_script`, `global_state_cs` — are updated only by the
+   node's own `minting_logic_script` withdraw-zero
+   (`validators/registry.ak:223-230`; see [Node updates](#node-updates)).
+   `registry` takes no protocol-params parameter at all
+   (`validators/registry.ak:40`), so `upgrade_cred` has no code path into a
+   registry node, not even the one-hop path that reaches a delegate's
+   compile-time parameters. This is distinct from field 1
+   (`issuance_logic_cred`): that field upgrades the shared machinery every
+   token is validated against — registry proofs, custody, output shape — and
+   applies uniformly to every policy, already-issued ones included (see
+   [What an upgrade can reach](#what-an-upgrade-can-reach)); it is not a way
+   to reach a single token's own substandard hooks.
 
 ---
 

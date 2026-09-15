@@ -11,11 +11,12 @@ Familiarity with the [Architecture](./02-ARCHITECTURE.md) document is assumed �
 ## Table of Contents
 
 1. [Understanding Programmable Addresses](#understanding-programmable-addresses)
-2. [Transaction Rules Every Builder Obeys](#transaction-rules-every-builder-obeys)
-3. [Transaction Skeletons](#transaction-skeletons)
-4. [For Wallet Developers](#for-wallet-developers)
-5. [For Indexers and Explorers](#for-indexers-and-explorers)
-6. [For dApp Developers](#for-dapp-developers)
+2. [Deriving Protocol and Registry Identifiers](#deriving-protocol-and-registry-identifiers)
+3. [Transaction Rules Every Builder Obeys](#transaction-rules-every-builder-obeys)
+4. [Transaction Skeletons](#transaction-skeletons)
+5. [For Wallet Developers](#for-wallet-developers)
+6. [For Indexers and Explorers](#for-indexers-and-explorers)
+7. [For dApp Developers](#for-dapp-developers)
 
 ---
 
@@ -64,6 +65,90 @@ The `expect Some(Inline(stake_cred))` on the first line is load-bearing: a PLB o
 - **A single user may hold programmable tokens at different addresses**, depending on which credential the issuing protocol chose.
 - **Wallets must know the convention** used by a given token to construct the correct query address.
 - **Indexers must be prepared** for the stake credential slot to contain a payment key hash, a stake key hash, or a script hash.
+
+---
+
+## Deriving Protocol and Registry Identifiers
+
+### The registry and params addresses
+
+Both the registry and the protocol-params UTxO resolve to a single applied
+script, not a script layered over an address computed some other way.
+
+`protocol_params(utxo_ref)` IS the address computation: mint and spend share
+one script hash, so the params NFT policy id — the result of applying the
+one `utxo_ref` parameter — is the params address's payment credential
+(`validators/protocol_params.ak:8-16`;
+`nft_output.address == address.from_script(own_policy)`,
+`validators/protocol_params.ak:267`). There is no second parameter and no
+address passed in from another deployment step; see
+[Who may initialise](./02-ARCHITECTURE.md#who-may-initialise).
+
+`registry(utxo_ref, issuance_cbor_hex_cs)` is the same shape: the registry
+node NFT policy id and the registry address's payment credential are the same
+value by construction (`validators/registry.ak:9-16`). `registry` takes no
+protocol-params parameter at all (`validators/registry.ak:40`) — deriving the
+registry's address needs only `issuance_cbor_hex_mint`'s applied policy id
+(see [Deployment ordering](#deployment-ordering) below), never a reference to
+`protocol_params`.
+
+An SDK deriving either address applies parameters to one script and reads the
+resulting policy id back as both the minting policy and the payment
+credential. There is no second lookup and no coordination address to plumb
+through from a different deployment step.
+
+### Deployment ordering
+
+The constraint that matters here is which script's compiled hash is a
+compile-time PARAMETER of another script. It is not an on-chain sequencing
+rule: none of these validators reads another validator's on-chain state to
+run, so "deployed" below means "applied and hashed", not "has processed a
+transaction".
+
+1. `always_fail(nonce)`, `protocol_params(utxo_ref)` and
+   `upgrade_multisig(utxo_ref)` need no other script's hash
+   (`validators/always_fail.ak:5`; `validators/protocol_params.ak:222`;
+   `validators/upgrade_multisig.ak:66`). `protocol_params` takes no address
+   parameter, so its own genesis needs nothing but a chosen `utxo_ref`: the
+   params mint no longer depends on a params spend address, because there is
+   no separate spend-address parameter to depend on.
+2. `issuance_cbor_hex_mint(utxo_ref, always_fail_hash)` needs `always_fail`'s
+   hash (`validators/issuance_cbor_hex_mint.ak:13-16`).
+3. `registry(utxo_ref, issuance_cbor_hex_cs)` needs
+   `issuance_cbor_hex_mint`'s applied policy id (`validators/registry.ak:40`)
+   and nothing else. The registry no longer depends on the protocol-params
+   chain: it carries no `params_policy` parameter, so `registry`'s own
+   `RegistryInit` genesis needs `protocol_params` to be neither deployed nor
+   genesised (`lib/linked_list.ak:64-87` reads no reference input at all).
+4. `programmable_logic_base(params_policy)` needs `protocol_params`'s applied
+   policy id (`validators/programmable_logic_base.ak:42`) and only that.
+5. `transfer`, `third_party` and `unfracking` — each
+   `(programmable_logic_base_cred, registry_node_cs,
+   max_inline_datum_bytes)` — need `programmable_logic_base`'s credential
+   (step 4) and the registry's policy id (step 3), applied with the same
+   `max_inline_datum_bytes` across all three (`validators/transfer.ak:32-35`,
+   `validators/third_party.ak:41-44`, `validators/unfracking.ak:56-59`; see
+   [The `max_inline_datum_bytes` deployment
+   invariant](./02-ARCHITECTURE.md#the-max_inline_datum_bytes-deployment-invariant)).
+   `issuance_logic` needs the same two plus `protocol_params`'s policy id
+   directly (`validators/issuance_logic.ak:38-47`).
+6. `programmable_logic_global(transfer_hash, third_party_hash,
+   unfracking_hash)` needs all three delegate hashes from step 5
+   (`validators/programmable_logic_global.ak:48-51`).
+7. Only once steps 1–6 are computed can the `protocol_params` genesis DATUM
+   be written: fields 0–3 name step 6's dispatcher, step 5's
+   `issuance_logic`, and the `transfer`/`third_party` hashes from step 5
+   directly (`validators/programmable_logic/params.ak:51-75`). The genesis
+   TRANSACTION has no on-chain prerequisite among these scripts — it
+   consumes only its own `utxo_ref` — but the datum it writes cannot be
+   assembled before those hashes exist.
+
+Two consequences follow. The registry can be genesised before, after, or
+independently of `protocol_params`'s genesis, since neither reads the
+other's on-chain state. And an `issuance_cbor_hex_mint` genesis must precede
+any `RegistryInsert` that references it as a reference input
+(`validators/registry.ak:69-74`), but a bare `RegistryInit` needs no
+reference input at all (`lib/linked_list.ak:64-87`).
 
 ---
 
