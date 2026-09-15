@@ -11,13 +11,16 @@
 ////     (per-UTxO-atomic) seizure transaction past maxTxSize;
 ////   * an inline datum no larger than `max_inline_datum_bytes` — seizure
 ////     must reproduce that byte-for-byte too (issue #106, vector 3). The
-////     bound is the live protocol-params field, threaded in by the caller.
+////     bound is a compile-time parameter of each creating script, threaded
+////     in by the caller.
 ////
 //// Note the bound is on the SERIALISED length, which exceeds the raw payload:
 //// Plutus chunks bytestrings over 64 bytes, so a 64-byte ByteArray serialises
 //// to 66 and a 128-byte one to 134. The tests below pin that arithmetic.
 
 use aiken/builtin
+use aiken/collection/list
+use aiken/primitive/bytearray
 use cardano/address.{Address, Credential, Inline, Script}
 use cardano/assets.{ada_asset_name, ada_policy_id} as value
 use cardano/transaction.{Datum, DatumHash, InlineDatum, NoDatum, Output}
@@ -200,6 +203,81 @@ test seizable_unbounded_accepts_large_inline_datum() {
     programmable_logic_base_output(InlineDatum(as_data(payload_64)), None),
   )
 }
+
 // (`seizable_rejects_datum_hash` / `seizable_rejects_reference_script` above
 // already pin that the mint path still rejects vectors 1 and 2 — they call
 // this same unbounded predicate. Only the SIZE rule is relaxed for minting.)
+
+// ==========================================================================
+// The shape guard bounds the DATUM. It does not bound the VALUE.
+//
+// `is_seizable_output_shape_bounded` reads `output.datum` and
+// `output.reference_script` and nothing else. The number of distinct policies
+// in `output.value` is unbounded on every path in the protocol, and the helper
+// that would count them (`utils.count_unique_tokens`) has no production
+// caller.
+//
+// That matters because the cost of SPENDING a programmable UTxO is
+// superlinear in its policy count: `transfer` needs one registry proof per
+// distinct policy plus a quadratic merge in `prog_assets.union`. Measured on
+// this tree with `aiken bench -m many_policies --max-size 130`, the transfer
+// logic crosses the 14,000,000 mem budget at 111 policies (14,108,353) while
+// the ledger's maxValueSize still permits roughly 130 in one output.
+//
+// These tests record the gap. They are deliberately NOT `fail` tests: there is
+// no rail here to assert against yet. They pin the current behaviour so that
+// if a bound is added, they turn red and have to be updated on purpose rather
+// than a rail landing with nothing noticing.
+// ==========================================================================
+
+/// An output holding `n` distinct junk policies alongside its ada.
+fn output_with_policies(n: Int) -> Output {
+  let base = programmable_logic_base_output(NoDatum, None)
+  let padded = list.foldr(
+    list.range(1, n),
+    base.value,
+    fn(i, acc) {
+      value.add(
+        acc,
+        bytearray.concat(
+          #"beef0000000000000000000000000000000000000000000000",
+          bytearray.push(bytearray.push(#"", i % 256), i / 256),
+        ),
+        "JUNK",
+        1,
+      )
+    },
+  )
+  Output { ..base, value: padded }
+}
+
+test output_with_policies_builds_distinct_policies() {
+  // Sanity on the helper: the generated policy ids really are distinct, so
+  // the tests below are not silently collapsing to one policy.
+  let v = output_with_policies(130)
+  // ada + 130 junk policies
+  list.length(value.flatten(v.value)) == 131
+}
+
+// The gap, stated plainly: an output carrying 130 distinct policies — past the
+// measured point at which `transfer` can no longer spend it — passes the
+// bounded shape guard, because the guard never looks at the value.
+test seizable_bounded_accepts_an_output_with_130_policies() {
+  prog_assets.is_seizable_output_shape_bounded(output_with_policies(130), 1024)
+}
+
+// And the unbounded variant likewise.
+test seizable_accepts_an_output_with_130_policies() {
+  prog_assets.is_seizable_output_shape(output_with_policies(130))
+}
+
+// The datum bound still bites on such an output — the two dimensions are
+// independent, which is the point: bounding the datum says nothing about the
+// value.
+test seizable_bounded_still_rejects_a_large_datum_on_a_many_policy_output() {
+  let fat = Output {
+    ..output_with_policies(130),
+    datum: InlineDatum(as_data(payload_64)),
+  }
+  !prog_assets.is_seizable_output_shape_bounded(fat, 8)
+}
