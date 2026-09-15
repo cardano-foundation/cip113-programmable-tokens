@@ -1129,7 +1129,7 @@
     },
     "registry_node/RegistryNode": {
       "title": "RegistryNode",
-      "description": "Registry node in the linked list of registered programmable token policies\n This represents an entry in the CIP-113 registry.\n\n Field order is load-bearing: it determines the CBOR layout consumed by both\n on-chain and off-chain code. The three script-credential fields are ordered\n by the natural lifecycle of a programmable token — `minting_logic_script`\n (mint), `transfer_logic_script` (transfer), `third_party_logic_script`\n (admin) — with `minting_logic_script` first because registration is the\n earliest event in a token's lifetime.",
+      "description": "Registry node in the linked list of registered programmable token policies\n This represents an entry in the CIP-113 registry.\n\n Field order is load-bearing: it determines the CBOR layout consumed by both\n on-chain and off-chain code. The three script-credential fields are ordered\n by the natural lifecycle of a programmable token — `minting_logic_script`\n (mint), `transfer_logic_script` (transfer), `third_party_logic_script`\n (third-party) — with `minting_logic_script` first because registration is the\n earliest event in a token's lifetime.",
       "anyOf": [
         {
           "title": "RegistryNode",
@@ -1158,7 +1158,7 @@
             },
             {
               "title": "third_party_logic_script",
-              "description": "The third party transfer logic script credential that handles admin actions (seizure, etc.)",
+              "description": "The third party transfer logic script credential that handles third-party actions (seizure, etc.)",
               "$ref": "#/definitions/cardano~1address~1Credential"
             },
             {

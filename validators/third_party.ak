@@ -9,7 +9,7 @@
 ////
 //// `transfer` is the hot path: EVERY programmable-token transfer references
 //// it, so every byte of it is a reference-script fee paid by every user on
-//// every transfer, forever. The third-party (administrative) path — forced
+//// every transfer, forever. The third-party path — forced
 //// transfer, seizure, freeze enforcement, burn — is heavy but rare.
 //// Hosting it here keeps those bytes off the transfer reference script and
 //// moves their cost onto the only transactions that use them.

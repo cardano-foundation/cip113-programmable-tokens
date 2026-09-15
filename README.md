@@ -123,7 +123,7 @@ aiken check
 
 - **[Introduction](./documentation/01-INTRODUCTION.md)** — Problem statement, concepts, and benefits
 - **[Architecture](./documentation/02-ARCHITECTURE.md)** — System design, validator coordination, on-chain data structures, and validation flows
-- **[Control Scope & Admin Authority](./documentation/03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md)** — What issuers can and cannot do: third-party action scope and registry lifecycle authority
+- **[Control Scope & Third-Party Actions](./documentation/03-CONTROL-SCOPE-AND-THIRD-PARTY-ACTIONS.md)** — What issuers can and cannot do: third-party action scope and registry lifecycle authority
 - **[Developing Substandards](./documentation/09-DEVELOPING-SUBSTANDARDS.md)** — Guide for implementing new substandards (issuance, transfer, and third-party logic)
 - **[Integration Guides](./documentation/08-INTEGRATION-GUIDES.md)** — For wallet developers, indexers, and dApp developers
 

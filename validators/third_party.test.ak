@@ -855,7 +855,7 @@ test third_party_act_unrelated_policy_mint_succeeds() {
 }
 
 // Positive: wipe (burn seized policy) + mint unrelated policy in the same tx.
-// This is the realistic compliance scenario: admin burns seized tokens while
+// This is the realistic compliance scenario: a third-party action burns seized tokens while
 // the tx also mints something unrelated (e.g. a receipt NFT).
 // Balance invariant sees only the seized policy burn; unrelated mint is invisible.
 test third_party_act_wipe_burn_plus_unrelated_mint_succeeds() {
@@ -1128,8 +1128,8 @@ test third_party_act_pair_ada_topup_succeeds() {
 }
 
 // [AL] issue #96 negative: the ratchet is one-way. Lovelace is NOT a
-// programmable asset — accepting less on the paired output would let the
-// admin drain the holder's ada while seizing. output < input must fail.
+// programmable asset — accepting less on the paired output would let a
+// third-party action drain the holder's ada while seizing. output < input must fail.
 test third_party_act_pair_ada_drain_fails() fail {
   validate_third_party_with_outputs(
     [
@@ -1169,7 +1169,7 @@ test third_party_act_pair_foreign_policy_injection_still_fails() fail {
 // A third-party action creates fresh PLB UTxOs: the destinations the seized
 // tokens land in. They are not paired outputs (those are byte-identical to
 // their inputs and so inherit their shape), and until now nothing constrained
-// them — so an administrator, or a hostile substandard's third-party logic,
+// them — so a third-party action, or a hostile substandard's third-party logic,
 // could seize tokens into a UTxO that could never be seized again. Each test
 // below is ONE delta from `valid_seize_tx`: the destination output's shape.
 
@@ -1190,8 +1190,8 @@ fn seize_with_destination(datum: Datum, ref_script: Option<ScriptHash>) -> Bool 
 }
 
 // A datum HASH on the destination would make the seized UTxO unspendable by
-// anyone without the preimage — the vector of issue #106, applied by the
-// administrator rather than by the holder.
+// anyone without the preimage — the vector of issue #106, applied via the
+// third-party path rather than by the holder.
 test third_party_act_destination_datum_hash_fails() fail {
   seize_with_destination(
     DatumHash(

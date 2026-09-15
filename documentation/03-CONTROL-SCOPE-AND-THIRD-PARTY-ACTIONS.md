@@ -1,12 +1,12 @@
-# Control Scope & Admin Authority
+# Control Scope & Third-Party Actions
 
 This document defines two boundaries that the rest of the architecture assumes
 but does not spell out:
 
 1. **The scope of programmable control** — what a registered CIP-113 policy does
    and does not govern (and why metadata/royalty management is out of scope).
-2. **The scope of administrative authority** — exactly what the third-party
-   path (the administrative / compliance action: forced transfer, seizure,
+2. **The scope of third-party action** — exactly what the third-party
+   path (a compliance action: forced transfer, seizure,
    freeze enforcement, burn), run through the standalone `third_party`
    validator, can and cannot do to a holder's UTxO.
 
@@ -67,11 +67,11 @@ CIP-68/102-aware substandard:
   policy A as a whole, with no carve-out by asset name
   (`validators/programmable_logic/third_party.ak:99-120`, implemented at
   `:121-280`). A companion asset minted under the same policy id as the user
-  token is therefore exactly as reachable by an admin action on policy A as the
-  user token is — the admin may decrease, remove, increase, or leave it
+  token is therefore exactly as reachable by a third-party action on policy A as the
+  user token is — a third-party action may decrease, remove, increase, or leave it
   unchanged on each paired output, the same as any other subject-policy token
   (§2.1).
-- **Protecting a companion asset from an admin action is a substandard
+- **Protecting a companion asset from a third-party action is a substandard
   decision, not a framework guarantee** — the same "framework provides
   primitives, the substandard composes the policy" pattern as holder scope
   (§2.3). Two substandard-level options: (a) the policy's
@@ -89,16 +89,16 @@ CIP-68/102-aware substandard:
   interoperability holds without any escape.
 
 In short: keep everything in the mini-ledger, and decide deliberately how — or
-whether — to keep a companion asset out of an admin action's reach on policy A.
+whether — to keep a companion asset out of a third-party action's reach on policy A.
 The framework does not decide this for you; it gives you the same policy id
 (reachable, substandard-enforced protection if you want it) or a distinct
 policy id (framework-enforced conservation, by construction) to choose from.
 
 ---
 
-## 2. Admin authority — the third-party scope
+## 2. Scope of third-party action
 
-The administrative path (seizure / forced transfer) is the standalone
+The third-party path (seizure / forced transfer) is the standalone
 `third_party` withdraw-0 validator, carrying a `ThirdPartyRedeemer` and invoking
 a policy's `third_party_logic_script`. A spend reaches it the way every spend
 does: `programmable_logic_base` requires the dispatcher's withdraw-zero
@@ -120,20 +120,20 @@ substandard:
 | Each spent PLB UTxO is paired 1:1 with a continuing output preserving **address, datum, and reference script** byte-for-byte | `validators/programmable_logic/third_party.ak:196-198` |
 | Lovelace is **ratcheted, not frozen** — the paired output must carry at least the input's lovelace, never less | `validators/programmable_logic/third_party.ak:211-217` |
 | **Non-subject** token quantities are conserved per pair, byte-for-byte — no other policy can be injected, redirected, split, or destroyed | `validators/programmable_logic/third_party.ak:221-229`, `:254-257` |
-| The paired input **must already hold** policy A — the admin cannot conjure A onto a UTxO that never held it (anti-injection), nor drag an unrelated UTxO into the action (anti-DoS) | `validators/programmable_logic/third_party.ak:253` |
+| The paired input **must already hold** policy A — a third-party action cannot conjure A onto a UTxO that never held it (anti-injection), nor drag an unrelated UTxO into the action (anti-DoS) | `validators/programmable_logic/third_party.ak:253` |
 | The subject delta across all pairs reconciles against A's `mint`/burn; nothing escapes the PLB | `validators/programmable_logic/third_party.ak:181-184` |
 | The action resolves exactly **one** registry node (`registry_node_idx`), hence exactly one policy per transaction (see §3.1) | `lib/types.ak:50-55` |
 
 A single third-party action may act on **multiple UTxOs of the same policy A** in
 one transaction; each spent PLB input gets its own paired output.
 
-**On the subject policy, the admin may change amounts in any direction.**
+**On the subject policy, a third-party action may change amounts in any direction.**
 A third-party action is a forced *transfer*, not only a removal: on each paired
 output the subject policy's tokens may be **decreased, removed entirely,
 increased, or left unchanged**
 (`validators/programmable_logic/third_party.ak:99-120`, implemented at
-`:121-280`). The framework does not require the amount to change — an admin
-can re-spend a holder's UTxO without altering its subject balance, a
+`:121-280`). The framework does not require the amount to change — a third-party
+action can re-spend a holder's UTxO without altering its subject balance, a
 capability bounded by transaction fees rather than the validator; custody is
 unaffected either way. The per-pair check pins the non-subject tokens (and, on
 lovelace, only a floor — see the table above); the *direction* of the subject
@@ -146,7 +146,7 @@ mint of A.
 
 ### 2.2 Freeze vs. extract
 
-The two administrative powers are **asymmetric**:
+The two powers are **asymmetric**:
 
 - **Freeze** (declining to authorise a spend) is **unconditional** — a
   substandard's `transfer_logic` can always refuse a transfer.
@@ -268,12 +268,12 @@ deliberately not provided.
 
 A third-party action operates on the PLB inputs a transaction includes. A holder's
 balance of the subject policy may be spread across many UTxOs (fragmentation),
-and the framework does not force consolidation. Consequences an administrator
-must understand:
+and the framework does not force consolidation. Consequences for a third-party
+action to account for:
 
 - A single third-party action can act on many UTxOs of the *same* policy, but only
   those the transaction actually spends. To fully seize a holder, the
-  administrator must include **all** of that holder's subject-policy UTxOs.
+  transaction must include **all** of that holder's subject-policy UTxOs.
 - A holder can therefore fragment a balance across many small UTxOs to raise the
   cost of — or push past the transaction-size / execution-budget limits for — a
   single atomic seizure. Full seizure may then need **multiple transactions**,
@@ -281,11 +281,11 @@ must understand:
 - This is inherent to the eUTxO model, not a framework defect: there is no
   account-style "seize the whole balance in one call". Holder-driven
   consolidation (the Unfracking action) and substandard-level UTxO-shape
-  guidance reduce fragmentation in practice, but the administrator cannot assume
+  guidance reduce fragmentation in practice, but a third-party action cannot assume
   a holder's balance lives in a single UTxO.
 
 ---
 
 *See also: [`02-ARCHITECTURE.md`](./02-ARCHITECTURE.md) for the validator
-architecture and the third-party (administrative) flow; [`09-DEVELOPING-SUBSTANDARDS.md`](./09-DEVELOPING-SUBSTANDARDS.md)
+architecture and the third-party flow; [`09-DEVELOPING-SUBSTANDARDS.md`](./09-DEVELOPING-SUBSTANDARDS.md)
 for writing transfer and third-party logic.*

@@ -10,6 +10,9 @@ CANONICAL-SOURCE: the validators in validators/ and types in lib/ always win ove
 
 # CIP-113 Substandard Upgrade Guide (pre-audit → post-audit)
 
+> **Terminology note**: this document uses "admin" per the API surface at the
+> time of writing; the current normative term is third-party.
+
 This document is for one specific reader: **an implementor who already built a
 CIP-113 substandard against the pre-audit framework and now needs to upgrade it
 to current `main`.** It is the *conceptual/behavioural* companion to
@@ -215,7 +218,7 @@ this document's TARGET commit they could be shielded from admin seizure via a
 burn** any token whose CIP-67 asset-name label prefix was declared protected —
 "preserve, not fail"); that mechanism no longer exists. Protecting a companion
 asset from an admin action is a substandard-layer responsibility now — see
-[`03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md`](./03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md).
+[`03-CONTROL-SCOPE-AND-THIRD-PARTY-ACTIONS.md`](./03-CONTROL-SCOPE-AND-THIRD-PARTY-ACTIONS.md).
 
 ### 1.6 Holders can restructure their own UTxOs (Unfracking)
 
@@ -462,5 +465,5 @@ Ordered so that CBOR/parameter breakage (which blocks everything) comes first.
 | Third-party scope (protected prefixes since removed, see §0) | `validators/third_party.ak`, invariants in `validators/programmable_logic/third_party.ak` |
 | Protocol-params datum | `validators/programmable_logic/params.ak` |
 | Unfracking | `validators/unfracking.ak` (dispatched by `programmable_logic_global`'s `UnfrackingAct` arm; invariants in `validators/programmable_logic/unfracking.ak`) |
-| Control scope (human narrative) | [`03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md`](./03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md) |
+| Control scope (human narrative) | [`03-CONTROL-SCOPE-AND-THIRD-PARTY-ACTIONS.md`](./03-CONTROL-SCOPE-AND-THIRD-PARTY-ACTIONS.md) |
 | Field-level API/CBOR surface | [`cip113-api-changes-post-audit.md`](./cip113-api-changes-post-audit.md) |

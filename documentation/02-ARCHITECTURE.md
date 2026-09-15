@@ -159,7 +159,7 @@ order. A parameter is applied at deployment and baked into the script hash.
 | `programmable_logic_global` | withdraw, publish | `transfer_hash: ScriptHash`, `third_party_hash: ScriptHash`, `unfracking_hash: ScriptHash` (3) | `validators/programmable_logic_global.ak:48-52` | The dispatcher. Turns the redeemer's action into a requirement that the matching delegate ran (`:63-69`). |
 | `protocol_params` | mint, spend | `utxo_ref: OutputReference` (1) | `validators/protocol_params.ak:228` | One-shot mint of the protocol-params NFT (`:229-273`) and the guard on the UTxO that carries it (`:276-341`). |
 | `registry` | mint, spend | `utxo_ref: OutputReference`, `issuance_cbor_hex_cs: PolicyId` (2) | `validators/registry.ak:49` | The sorted linked list of registered policies: the mint handler owns list structure and the token-id binding (`:50-172`), the spend handler guards every node (`:174-238`). |
-| `third_party` | withdraw, publish | `programmable_logic_base_cred: Credential`, `registry_node_cs: PolicyId`, `max_inline_datum_bytes: Int` (3) | `validators/third_party.ak:39-43` | Administrative actions — forced transfer, seizure, freeze enforcement, burn — for exactly one policy per transaction. |
+| `third_party` | withdraw, publish | `programmable_logic_base_cred: Credential`, `registry_node_cs: PolicyId`, `max_inline_datum_bytes: Int` (3) | `validators/third_party.ak:39-43` | Third-party actions — forced transfer, seizure, freeze enforcement, burn — for exactly one policy per transaction. |
 | `transfer` | withdraw, publish | `programmable_logic_base_cred: Credential`, `registry_node_cs: PolicyId`, `max_inline_datum_bytes: Int` (3) | `validators/transfer.ak:35-39` | Ordinary transfers: ownership, registry proofs, containment at PLB. |
 | `unfracking` | withdraw, publish | `programmable_logic_base_cred: Credential`, `registry_node_cs: PolicyId`, `max_inline_datum_bytes: Int` (3) | `validators/unfracking.ak:55-59` | Holder-driven, same-owner restructuring of the holder's own PLB UTxOs for one policy, gated by that policy's unfracking hook. |
 | `upgrade_multisig` | mint, spend, withdraw, publish | `utxo_ref: OutputReference` (1) | `validators/upgrade_multisig.ak:73` | A reference upgrade authority: an approval tree in a config UTxO, satisfied on `withdraw` (`:154-174`). One possible authority, not a required part of the protocol. |
@@ -802,11 +802,11 @@ this validator's business and is dropped from its accounting
 (`validators/programmable_logic/transfer.ak:110-113`). Custody of a freshly
 minted supply belongs to `issuance_logic`.
 
-### Third-party (administrative)
+### Third-party
 
 Forced transfer, seizure, freeze enforcement and burn run through
 `third_party`. The full scope is specified in
-[`03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md`](./03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md).
+[`03-CONTROL-SCOPE-AND-THIRD-PARTY-ACTIONS.md`](./03-CONTROL-SCOPE-AND-THIRD-PARTY-ACTIONS.md).
 
 A spend reaches it the same way every spend does: PLB requires the dispatcher,
 and the dispatcher requires `third_party` under `ThirdPartyAct`
@@ -831,9 +831,9 @@ withdraw-zero then carries a `ThirdPartyRedeemer`. It differs from a transfer:
    input's (`:217`) — so a rise in the min-ADA parameter cannot make an existing
    UTxO permanently unseizable.
 5. **Anti-injection.** The paired input must already hold the subject policy
-   (`validators/programmable_logic/third_party.ak:253`), so the administrator can
-   neither inject the policy onto a UTxO that never held it nor drag an
-   unrelated UTxO into the action.
+   (`validators/programmable_logic/third_party.ak:253`), so the policy can
+   neither be injected onto a UTxO that never held it nor be dragged in via an
+   unrelated UTxO.
 6. **Aggregate conservation.** Once the inputs are exhausted, the subject
    policy's total across all PLB outputs must contain its total across all PLB
    inputs plus any mint or burn
@@ -1254,7 +1254,7 @@ same policy.
 Note that the authorising credential, `minting_logic_script`, is shared between
 issuance and lifecycle. A substandard that needs those authorities separated
 must separate them in its own minting logic — see
-[`03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md`](./03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md).
+[`03-CONTROL-SCOPE-AND-THIRD-PARTY-ACTIONS.md`](./03-CONTROL-SCOPE-AND-THIRD-PARTY-ACTIONS.md).
 
 ---
 

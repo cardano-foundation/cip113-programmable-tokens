@@ -1,6 +1,6 @@
 # Developing a New Substandard
 
-This guide is for developers who want to create new substandards for CIP-113 programmable tokens. A substandard defines the rules that govern how a specific programmable token can be issued, transferred, restructured, and acted on by an administrator.
+This guide is for developers who want to create new substandards for CIP-113 programmable tokens. A substandard defines the rules that govern how a specific programmable token can be issued, transferred, restructured, and acted on through its third-party logic.
 
 **Target audience**: Cardano developers familiar with Aiken and the UTXO model who want to implement custom token compliance logic (e.g., BaFin, CMTA, or other regulatory frameworks).
 
@@ -177,16 +177,16 @@ Your transfer logic validator decides **what conditions must be met for a transf
 > framework's.** Reference NFTs and royalty tokens stay in the PLB under the
 > same policy, and the base layer draws no distinction between them and any
 > other token of your policy: a companion asset is ordinary subject value on
-> the administrative path (`validators/programmable_logic/third_party.ak:99-120`).
+> the third-party path (`validators/programmable_logic/third_party.ak:99-120`).
 > Transferring them is allowed — your CIP-68/102-aware transfer and minting
 > logic must ensure it happens the proper way (moving them, updating a
 > reference NFT's datum, handling royalties) — and protecting them from your
-> own administrative path is your third-party logic's job. See
-> [`03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md`](./03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md) §1.
+> own third-party action is your third-party logic's job. See
+> [`03-CONTROL-SCOPE-AND-THIRD-PARTY-ACTIONS.md`](./03-CONTROL-SCOPE-AND-THIRD-PARTY-ACTIONS.md) §1.
 
 ### 3. Third-Party Transfer Logic (withdraw)
 
-Invoked when a **third party** (not the token owner) moves tokens. The `third_party` validator resolves the subject policy's registry node from the reference input its redeemer names and requires `third_party_logic_script`'s withdraw-zero (`validators/third_party.ak:92-104`, `validators/programmable_logic/third_party.ak:24-29`). This is used for administrative actions like:
+Invoked when a **third party** (not the token owner) moves tokens. The `third_party` validator resolves the subject policy's registry node from the reference input its redeemer names and requires `third_party_logic_script`'s withdraw-zero (`validators/third_party.ak:92-104`, `validators/programmable_logic/third_party.ak:24-29`). This is used for actions like:
 - Seizing tokens from a sanctioned address
 - Forced transfers by court order
 - Emergency recovery operations
@@ -206,8 +206,8 @@ implemented at `:121-280`).
 > `==` because exact equality forbade the top-up that absorbs a rise in the
 > min-ADA protocol parameter, which would make a third-party action on an
 > existing UTxO unsatisfiable forever; and `>=` rather than free because
-> lovelace is not a programmable asset, so accepting less would let the
-> administrator drain the holder's ada while seizing. If your third-party logic
+> lovelace is not a programmable asset, so accepting less would let a
+> third-party action drain the holder's ada while seizing. If your third-party logic
 > asserts exact ada equality per pair, it re-creates the dead end the base
 > layer exists to avoid.
 
@@ -220,7 +220,7 @@ calls. Two reference patterns gate extraction of script-staked inputs — an
 issuer **allowlist** of known protocols, or **consent** (the script's own
 withdraw-0 must fire in the same tx). Only *extraction* is gated; *freeze* is
 unconditional. See
-[`03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md`](./03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md) §2 for the full specification.
+[`03-CONTROL-SCOPE-AND-THIRD-PARTY-ACTIONS.md`](./03-CONTROL-SCOPE-AND-THIRD-PARTY-ACTIONS.md) §2 for the full specification.
 
 ### 4. Unfracking Hook (withdraw, optional)
 
@@ -285,7 +285,7 @@ behave a particular way, your hook is where that rule goes.
 │  │Issuance Logic│ │Transfer Logic│ │ 3rd Party    │ │Unfracking Hook│  │
 │  │ (withdraw)   │ │ (withdraw)   │ │ Logic        │ │ (withdraw)    │  │
 │  │              │ │              │ │ (withdraw)   │ │               │  │
-│  │ Who can      │ │ Rules for    │ │ Admin        │ │ Same-owner    │  │
+│  │ Who can      │ │ Rules for    │ │ Third-party  │ │ Same-owner    │  │
 │  │ mint/burn?   │ │ owner        │ │ operations   │ │ restructuring │  │
 │  │ + lifecycle  │ │ transfers    │ │              │ │ (or unset =   │  │
 │  │   authority  │ │              │ │              │ │  forbidden)   │  │
@@ -486,7 +486,7 @@ being *created* in the same transaction rather than referenced.
 
 ## Global State
 
-Most real-world substandards need on-chain state — denylists, whitelists, configuration parameters, admin keys, etc. The CIP-113 registry supports this via the `global_state_cs` field in `RegistryNode` (field 6, `lib/registry_node.ak:79-80`).
+Most real-world substandards need on-chain state — denylists, whitelists, configuration parameters, permissioned keys, etc. The CIP-113 registry supports this via the `global_state_cs` field in `RegistryNode` (field 6, `lib/registry_node.ak:79-80`).
 
 ### How it works
 
@@ -522,7 +522,7 @@ During a transfer, the transfer logic validator:
 | Pattern | State Structure | Use Case |
 |---------|----------------|----------|
 | **Linked list** | Sorted linked list of credentials/keys | Denylists, whitelists |
-| **Config NFT** | Single UTxO with configuration datum | Admin keys, thresholds, parameters |
+| **Config NFT** | Single UTxO with configuration datum | Permissioned keys, thresholds, parameters |
 | **Counter** | UTxO with incrementing value | Rate limiting, supply caps |
 
 ### State management validators
@@ -566,7 +566,7 @@ issuance_mint fires
     whose redeemer must name this policy                   (issuance_mint.ak:52-63)
 ```
 
-Your **issuance logic withdraw** validator is invoked. It should verify that the minting is authorized (e.g., admin signature, governance approval).
+Your **issuance logic withdraw** validator is invoked. It should verify that the minting is authorized (e.g., an authorised signature, governance approval).
 
 Tokens are minted to the PLB address with the recipient's stake credential. `issuance_logic` enforces this — no token of the policy may sit at a non-PLB output, and every PLB output carrying the policy must have an inline stake credential and a bounded inline datum (`validators/issuance_logic.ak:183-215`). Your substandard doesn't need to check it.
 
@@ -587,7 +587,7 @@ The `transfer` validator handles:
 
 Your validator only needs to enforce your **custom rules**.
 
-### 4. Third-Party Transfer (Admin/Compliance)
+### 4. Third-Party Transfer (Compliance)
 
 ```
 PLB requires the dispatcher → dispatcher (ThirdPartyAct) requires third_party
@@ -595,7 +595,7 @@ PLB requires the dispatcher → dispatcher (ThirdPartyAct) requires third_party
   → your 3rd-party logic runs
 ```
 
-The transaction selects the administrative path through the **dispatcher's** redeemer — `ThirdPartyAct` (`lib/types.ak:100-109`) — not through the base spend redeemer, which carries no action arm at all. `programmable_logic_base` requires the dispatcher on this path exactly as it does on a transfer; it is the dispatcher that then requires `third_party`'s withdraw-0 (carrying a `ThirdPartyRedeemer`). Your **third-party transfer logic withdraw** validator is then invoked. This path does NOT require the token owner's signature — it's for administrative actions like seizure or forced transfers.
+The transaction selects the third-party path through the **dispatcher's** redeemer — `ThirdPartyAct` (`lib/types.ak:100-109`) — not through the base spend redeemer, which carries no action arm at all. `programmable_logic_base` requires the dispatcher on this path exactly as it does on a transfer; it is the dispatcher that then requires `third_party`'s withdraw-0 (carrying a `ThirdPartyRedeemer`). Your **third-party transfer logic withdraw** validator is then invoked. This path does NOT require the token owner's signature — it's for third-party actions like seizure or forced transfers.
 
 ### 5. Unfracking (Holder-Initiated Restructuring)
 
@@ -649,7 +649,7 @@ place after registration (`lib/linked_list.ak:184-208`):
 **retroactive**: the new transfer / third-party / unfracking logic governs *all existing
 holders'* tokens on their next spend, so integrators must read the current node
 and never cache its credentials (see
-[`03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md`](./03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md) §3.2).
+[`03-CONTROL-SCOPE-AND-THIRD-PARTY-ACTIONS.md`](./03-CONTROL-SCOPE-AND-THIRD-PARTY-ACTIONS.md) §3.2).
 
 So you **can** re-point a token's transfer, third-party or unfracking logic, or its
 global-state pointer, in place — no migration needed — as long as the change
@@ -718,7 +718,7 @@ pub type IssuanceAction {
 
 Each arm validates only its own context:
 
-- `Register` — validate the registration (e.g. admin signature) **and assert
+- `Register` — validate the registration (e.g. an authorised signature) **and assert
   `tx.mint` carries no entries under your policy id**. Resolve the policy id
   from the registry-node output being created in this transaction (its NFT's
   asset name is the policy id, and its datum's `minting_logic_script` is your
@@ -762,10 +762,10 @@ or perform a wholesale substandard swap. For those, migrate:
 3. **Migrate balances** — use either:
    - **A third-party action** (the dispatcher's `ThirdPartyAct` plus a `ThirdPartyRedeemer`) on the old token to move balances from holders to a migration address, then mint equivalent new tokens
    - **Burn old + mint new** in coordinated transactions
-4. **Decommission the old token** — the old registry entry remains but the token is effectively deprecated (there is no de-registration; see [`03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md`](./03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md) §3.3)
+4. **Decommission the old token** — the old registry entry remains but the token is effectively deprecated (there is no de-registration; see [`03-CONTROL-SCOPE-AND-THIRD-PARTY-ACTIONS.md`](./03-CONTROL-SCOPE-AND-THIRD-PARTY-ACTIONS.md) §3.3)
 
 **Recommendation**: design your substandard for upgradeability from the start.
-Put behavior that may need tuning (thresholds, admin keys) behind a global-state
+Put behavior that may need tuning (thresholds, permissioned keys) behind a global-state
 config NFT so you can adjust it without even a node update, and decide up front
 whether issuance and registry-lifecycle should be the same authority or distinct
 ones.

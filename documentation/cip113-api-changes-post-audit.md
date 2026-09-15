@@ -10,6 +10,9 @@ CANONICAL-SOURCE: validators/ and lib/ always win over this doc; each claim is a
 
 # CIP-113 Programmable Tokens — Audit-Era API Changes
 
+> **Terminology note**: this document uses "admin" per the API surface at the
+> time of writing; the current normative term is third-party.
+
 A reference for off-chain integrators (transaction builders, indexers,
 custodial software, wallet teams) covering every breaking change to the public
 on-chain surface between the pre-audit baseline and current `main`.

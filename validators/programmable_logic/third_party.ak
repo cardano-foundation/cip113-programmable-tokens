@@ -118,7 +118,7 @@ fn drop_accum_tokens(
 ///        * Lovelace is exempt from that byte-identity rule: it is peeled
 ///          off both sides first and only ratcheted (output >= input) —
 ///          equality would brick a UTxO when min-ADA rises, and `<` would
-///          let the admin drain the holder's ada while seizing (issue #96).
+///          let a third-party action drain the holder's ada while seizing (issue #96).
 ///
 ///   2. **Conservation balance** (once inputs are exhausted): the sum of
 ///      the acted-on policy's tokens across all PLB outputs must be a
@@ -148,7 +148,7 @@ fn validate_io_constraints_and_balance(
             // Issue #106, fourth creation site: a third-party action creates
             // fresh PLB outputs (the destinations the seized tokens land in),
             // and those must stay seizable in turn — no datum hash, no
-            // reference script. Without this an administrator, or a hostile
+            // reference script. Without this a third-party action, or a hostile
             // substandard's third-party logic, could produce a UTxO nobody can
             // ever seize again. The PAIRED outputs need no check here: they are
             // byte-identical to their inputs, which were themselves shape-checked
@@ -210,8 +210,8 @@ fn validate_io_constraints_and_balance(
         // comparing the halves, and RATCHET it: the paired output must carry
         // at least the input's lovelace. `>=` ONLY: a min-ADA rise must be
         // absorbable by a top-up, and lovelace is not a programmable asset,
-        // so accepting less would let the admin drain the holder's ada while
-        // seizing.
+        // so accepting less would let a third-party action drain the holder's
+        // ada while seizing.
         let input_lovelace, input_assets <- prog_assets.split_lovelace(
           input.value,
         )
@@ -242,7 +242,7 @@ fn validate_io_constraints_and_balance(
         // anti-churn check on top of this — a degenerate "no-op" third-party
         // action (restoring a holder's exact balance) is ACCEPTED, because
         // conservation holds and no custody is lost. Each forced respend
-        // still costs the (trusted) admin real fees, so sustained no-op
+        // still costs real fees, so sustained no-op
         // churn is fee-limited off-chain rather than blocked on-chain. The
         // `!is_empty` line below is the SEPARATE Finding-12 anti-injection
         // invariant (the input must already hold the acted-on policy).
