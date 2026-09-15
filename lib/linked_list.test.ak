@@ -1,5 +1,8 @@
 // Unit tests for linked list validation logic
-use cardano/address.{Script}
+use aiken/collection/list
+use aiken/fuzz
+use aiken/primitive/bytearray
+use cardano/address.{Script, VerificationKey}
 use linked_list.{
   is_field_updated_registry_node, is_inserted_registry_node,
   is_updated_registry_node,
@@ -398,4 +401,226 @@ test is_field_updated_registry_node_rejects_malformed_unfracking_hook() fail {
     unfracking_logic_script: Script(#"6666"),
   }
   is_field_updated_registry_node(new, original)
+}
+
+// ==========================================================================
+// #128: every RegistryNode field is size-bounded by HAND, not by the cast.
+//
+// `expect node: RegistryNode = datum` checks the constructor tag and the field
+// count only — `Hash` is an alias for `ByteArray`, so a credential carrying a
+// kilobyte of junk is a well-typed node (demonstrated in
+// `lib/registry_node.test.ak`). The rails below are the only thing standing
+// between that and a node datum large enough to price every reader out of
+// spending or referencing it.
+//
+// These are stated as BICONDITIONALS over an arbitrary hash length: the rail
+// accepts EXACTLY the valid lengths and rejects every other one. That pins the
+// negative direction (no oversized field gets through) and the positive
+// direction (the deliberate optionals still work) in a single property, so a
+// future "cap everything at 28" edit cannot quietly ban a legal shape.
+// ==========================================================================
+
+/// Hash lengths from empty to well past a policy id, so the properties below
+/// cover the undersized, exact, and oversized cases in one generator.
+fn any_hash_length() -> Fuzzer<ByteArray> {
+  fuzz.bytearray_between(0, 64)
+}
+
+// `transfer_logic_script` has NO optional form: exactly 28 bytes, nothing else.
+test prop_insert_bounds_transfer_credential(hash via any_hash_length()) {
+  let node = RegistryNode {
+    ..valid_inserted_node(),
+    transfer_logic_script: Script(hash),
+  }
+  let accepted = is_inserted_registry_node(
+    node,
+    node.key,
+    node.next,
+    node.minting_logic_script,
+  )
+  accepted == ( bytearray.length(hash) == 28 )
+}
+
+test prop_insert_bounds_third_party_credential(hash via any_hash_length()) {
+  let node = RegistryNode {
+    ..valid_inserted_node(),
+    third_party_logic_script: Script(hash),
+  }
+  let accepted = is_inserted_registry_node(
+    node,
+    node.key,
+    node.next,
+    node.minting_logic_script,
+  )
+  accepted == ( bytearray.length(hash) == 28 )
+}
+
+// `unfracking_logic_script` IS optional, but its unset form is `empty_vkey` —
+// a VerificationKey with an empty hash. A `Script` credential therefore has no
+// legal empty form: 28 bytes or nothing.
+test prop_insert_bounds_unfracking_hook_script_form(hash via any_hash_length()) {
+  let node = RegistryNode {
+    ..valid_inserted_node(),
+    unfracking_logic_script: Script(hash),
+  }
+  let accepted = is_inserted_registry_node(
+    node,
+    node.key,
+    node.next,
+    node.minting_logic_script,
+  )
+  accepted == ( bytearray.length(hash) == 28 )
+}
+
+// The VerificationKey form of the hook: 28 bytes (signature-gated unfracking)
+// or empty (`empty_vkey` — unfracking forbidden, the default). Both legal.
+test prop_insert_bounds_unfracking_hook_vkey_form(hash via any_hash_length()) {
+  let node = RegistryNode {
+    ..valid_inserted_node(),
+    unfracking_logic_script: VerificationKey(hash),
+  }
+  let accepted = is_inserted_registry_node(
+    node,
+    node.key,
+    node.next,
+    node.minting_logic_script,
+  )
+  let len = bytearray.length(hash)
+  accepted == ( len == 28 || len == 0 )
+}
+
+// `global_state_cs` is the CIP-113 normative MAY: 0 (absent) or 28 (a policy id).
+test prop_insert_bounds_global_state_cs(cs via any_hash_length()) {
+  let node = RegistryNode { ..valid_inserted_node(), global_state_cs: cs }
+  let accepted = is_inserted_registry_node(
+    node,
+    node.key,
+    node.next,
+    node.minting_logic_script,
+  )
+  let len = bytearray.length(cs)
+  accepted == ( len == 28 || len == 0 )
+}
+
+// The same four fields on the OTHER writer. The update path is the one an
+// issuer can drive at will after registration, so it carries the same bounds.
+
+test prop_update_bounds_transfer_credential(hash via any_hash_length()) {
+  let original = updatable_node()
+  let new = RegistryNode { ..original, transfer_logic_script: Script(hash) }
+  is_field_updated_registry_node(new, original) == (
+    bytearray.length(hash) == 28
+  )
+}
+
+test prop_update_bounds_third_party_credential(hash via any_hash_length()) {
+  let original = updatable_node()
+  let new = RegistryNode { ..original, third_party_logic_script: Script(hash) }
+  is_field_updated_registry_node(new, original) == (
+    bytearray.length(hash) == 28
+  )
+}
+
+test prop_update_bounds_unfracking_hook_script_form(hash via any_hash_length()) {
+  let original = updatable_node()
+  let new = RegistryNode { ..original, unfracking_logic_script: Script(hash) }
+  is_field_updated_registry_node(new, original) == (
+    bytearray.length(hash) == 28
+  )
+}
+
+test prop_update_bounds_unfracking_hook_vkey_form(hash via any_hash_length()) {
+  let original = updatable_node()
+  let new = RegistryNode {
+    ..original,
+    unfracking_logic_script: VerificationKey(hash),
+  }
+  let len = bytearray.length(hash)
+  is_field_updated_registry_node(new, original) == ( len == 28 || len == 0 )
+}
+
+test prop_update_bounds_global_state_cs(cs via any_hash_length()) {
+  let original = updatable_node()
+  let new = RegistryNode { ..original, global_state_cs: cs }
+  let len = bytearray.length(cs)
+  is_field_updated_registry_node(new, original) == ( len == 28 || len == 0 )
+}
+
+// The properties above are biconditionals, so their ACCEPT half only bites on
+// a run where the fuzzer happens to draw exactly 28 bytes. These pin the
+// boundary deterministically — one length either side of the bound, plus the
+// two legal optional forms — so neither half can pass vacuously.
+
+/// A hash of exactly `n` bytes.
+fn hash_of_length(n: Int) -> ByteArray {
+  bytearray.take(
+    list.foldr(
+      list.range(1, 5),
+      #"",
+      fn(_, acc) {
+        bytearray.concat(
+          acc,
+          #"deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+        )
+      },
+    ),
+    n,
+  )
+}
+
+test hash_of_length_builds_the_stated_size() {
+  // Sanity on the helper, so the boundary tests below cannot pass because it
+  // silently returned something shorter than asked for.
+  and {
+    (bytearray.length(hash_of_length(0)) == 0)?,
+    (bytearray.length(hash_of_length(27)) == 27)?,
+    (bytearray.length(hash_of_length(28)) == 28)?,
+    (bytearray.length(hash_of_length(29)) == 29)?,
+    (bytearray.length(hash_of_length(64)) == 64)?,
+  }
+}
+
+fn insert_accepts_transfer_hash(n: Int) -> Bool {
+  let node = RegistryNode {
+    ..valid_inserted_node(),
+    transfer_logic_script: Script(hash_of_length(n)),
+  }
+  is_inserted_registry_node(
+    node,
+    node.key,
+    node.next,
+    node.minting_logic_script,
+  )
+}
+
+test insert_transfer_credential_accepts_exactly_28_bytes() {
+  and {
+    !insert_accepts_transfer_hash(0)?,
+    !insert_accepts_transfer_hash(27)?,
+    insert_accepts_transfer_hash(28)?,
+    !insert_accepts_transfer_hash(29)?,
+    !insert_accepts_transfer_hash(64)?,
+  }
+}
+
+fn update_accepts_unfracking_vkey(n: Int) -> Bool {
+  let original = updatable_node()
+  let new = RegistryNode {
+    ..original,
+    unfracking_logic_script: VerificationKey(hash_of_length(n)),
+  }
+  is_field_updated_registry_node(new, original)
+}
+
+// The optional hook: BOTH legal forms accepted, everything between rejected.
+// This is the test a "cap everything at 28" change would break, which is why
+// it is here.
+test update_unfracking_hook_accepts_both_legal_forms() {
+  and {
+    update_accepts_unfracking_vkey(0)?,
+    !update_accepts_unfracking_vkey(27)?,
+    update_accepts_unfracking_vkey(28)?,
+    !update_accepts_unfracking_vkey(29)?,
+    !update_accepts_unfracking_vkey(64)?,
+  }
 }

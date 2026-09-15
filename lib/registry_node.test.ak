@@ -1,7 +1,8 @@
+use aiken/builtin
 use aiken/collection/list
 use aiken/fuzz
 use aiken/primitive/bytearray
-use cardano/address.{Script, VerificationKey}
+use cardano/address.{Credential, Script, VerificationKey}
 use cardano/assets.{PolicyId, ada_asset_name, ada_policy_id} as value
 use cardano/fuzz as cardano
 use cardano/transaction.{InlineDatum, Input, Output}
@@ -222,4 +223,92 @@ test prop_sentinel_greater_than_any_28_byte_value(
   // below `sentinel_next_key`. This is what makes the sentinel safe as the
   // `next` field of the last registry node.
   bytearray_lt(policy, sentinel_next_key)
+}
+
+// ------------------------------- datum-size surface of the RegistryNode cast
+//
+// #128: `expect node: RegistryNode = datum` checks the constructor tag and the
+// FIELD COUNT. It does not check the length of any field. `Hash` and
+// `ScriptHash` are aliases for `ByteArray`, so a `Credential` carrying a
+// kilobyte of junk is a well-typed `RegistryNode` as far as the cast is
+// concerned. Every length bound on a node is therefore hand-written, in
+// `linked_list`, at each of the writers — see the rails exercised by
+// `registry_insert_fails_oversized_transfer_logic_credential` and
+// `registry_spend_fails_update_oversized_unfracking_credential`.
+//
+// These tests pin both halves: what the cast does NOT enforce (size) and what
+// it DOES (arity). They are the reason the manual rails cannot be dropped.
+
+/// A credential hash of `chunks` * 16 bytes. Built rather than written as a
+/// literal so the size is visible as a number.
+fn oversized_hash(chunks: Int) -> ByteArray {
+  list.foldr(
+    list.range(1, chunks),
+    #"",
+    fn(_, acc) { bytearray.concat(acc, #"deadbeefdeadbeefdeadbeefdeadbeef") },
+  )
+}
+
+/// A `RegistryNode` whose four credential fields each carry a 1 KiB hash.
+fn oversized_node() -> RegistryNode {
+  let fat = Script(oversized_hash(64))
+  RegistryNode {
+    key: #"11111111111111111111111111111111111111111111111111111111",
+    next: sentinel_next_key,
+    minting_logic_script: fat,
+    transfer_logic_script: fat,
+    third_party_logic_script: fat,
+    unfracking_logic_script: fat,
+    global_state_cs: #"",
+  }
+}
+
+/// Seven fields of the right types, plus one. Used to pin the arity check.
+type EightFieldNode {
+  key: ByteArray,
+  next: ByteArray,
+  minting_logic_script: Credential,
+  transfer_logic_script: Credential,
+  third_party_logic_script: Credential,
+  unfracking_logic_script: Credential,
+  global_state_cs: ByteArray,
+  junk: ByteArray,
+}
+
+test oversized_hash_builds_the_stated_size() {
+  // Sanity on the helper before the tests below lean on its magnitude.
+  bytearray.length(oversized_hash(64)) == 1024
+}
+
+// The cast does NOT bound field size: a node carrying 4 KiB of credential
+// hashes is accepted as a well-formed `RegistryNode`.
+test registry_node_cast_accepts_an_unbounded_credential_hash() {
+  let datum: Data = as_data(oversized_node())
+  expect node: RegistryNode = datum
+  node.transfer_logic_script == Script(oversized_hash(64))
+}
+
+// And the junk is real bytes on chain, not a decoding artefact: the serialised
+// node is orders of magnitude larger than a well-formed one (~200 bytes).
+test registry_node_cast_accepts_a_datum_of_arbitrary_size() {
+  bytearray.length(builtin.serialise_data(oversized_node())) > 4000
+}
+
+// The cast DOES bound arity: an extra field is refused, so junk cannot ride
+// along in a field the record does not declare.
+test registry_node_cast_rejects_an_extra_field() fail {
+  let datum: Data = as_data(
+    EightFieldNode {
+      key: #"11111111111111111111111111111111111111111111111111111111",
+      next: sentinel_next_key,
+      minting_logic_script: Script(#"00"),
+      transfer_logic_script: Script(#"00"),
+      third_party_logic_script: Script(#"00"),
+      unfracking_logic_script: Script(#"00"),
+      global_state_cs: #"",
+      junk: #"deadbeef",
+    },
+  )
+  expect _node: RegistryNode = datum
+  True
 }

@@ -119,6 +119,8 @@
 // assert nothing about derivation.
 // ===========================================================================
 
+use aiken/collection/list
+use aiken/primitive/bytearray
 use cardano/address.{Address, Credential, Inline, Script, VerificationKey}
 use cardano/assets.{PolicyId, ada_asset_name, ada_policy_id, from_asset}
 use cardano/transaction.{
@@ -277,31 +279,37 @@ fn updated_covering_node_output() -> Output {
 }
 
 /// Inserted node output: key=computed_key, next=0xff…ff
-fn inserted_node_output() -> Output {
-  let key = computed_key()
+/// The node datum a valid insert writes.
+fn inserted_node() -> RegistryNode {
+  RegistryNode {
+    key: computed_key(),
+    next: #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    transfer_logic_script: Script(
+      #"55555555555555555555555555555555555555555555555555555555",
+    ),
+    third_party_logic_script: Script(
+      #"66666666666666666666666666666666666666666666666666666666",
+    ),
+    minting_logic_script: test_inserted_minting_logic_cred,
+    unfracking_logic_script: empty_vkey,
+    global_state_cs: #"",
+  }
+}
+
+/// The inserted-node output carrying `node` as its datum. The value and
+/// address stay valid so a test varying only the datum isolates the datum.
+fn inserted_node_output_of(node: RegistryNode) -> Output {
   Output {
     address: test_node_address,
     value: min_ada
-      |> assets.add(registry_script_hash, key, 1),
-    datum: InlineDatum(
-      as_data(
-        RegistryNode {
-          key,
-          next: #"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
-          transfer_logic_script: Script(
-            #"55555555555555555555555555555555555555555555555555555555",
-          ),
-          third_party_logic_script: Script(
-            #"66666666666666666666666666666666666666666666666666666666",
-          ),
-          minting_logic_script: test_inserted_minting_logic_cred,
-          unfracking_logic_script: empty_vkey,
-          global_state_cs: #"",
-        },
-      ),
-    ),
+      |> assets.add(registry_script_hash, computed_key(), 1),
+    datum: InlineDatum(as_data(node)),
     reference_script: None,
   }
+}
+
+fn inserted_node_output() -> Output {
+  inserted_node_output_of(inserted_node())
 }
 
 /// Reference input carrying the IssuanceCborHex NFT
@@ -1481,6 +1489,72 @@ test registry_spend_fails_origin_node_update() fail {
     withdrawals: [],
   }
   call_spend(Some(origin_node), spend_own_ref(), tx)
+}
+
+// ========================================================================
+// #128: credential fields are bounded by hand, not by the cast.
+//
+// `expect node: RegistryNode = datum` checks the constructor tag and the
+// field count; it does NOT check the length of any field, because `Hash` is
+// an alias for `ByteArray` (demonstrated in `lib/registry_node.test.ak` by
+// `registry_node_cast_accepts_an_unbounded_credential_hash`). A node is
+// therefore only size-bounded because `is_28_byte_credential` and its
+// siblings are written out at every writer.
+//
+// The existing malformed-credential tests all use a SHORT hash, which the
+// `== 28` rail catches for free. These two use an oversized one, because that
+// is the direction with a consequence: a node is a reference input on every
+// transfer of its policy and the covering input of every insert into its key
+// range, so an unbounded node datum is a denial of service, not a typo.
+// One per writer — insert and update.
+// ========================================================================
+
+/// A credential hash of 512 bytes: 32 repetitions of a 16-byte chunk. Built
+/// rather than written out so the size is legible as a number.
+fn oversized_credential() -> Credential {
+  Script(
+    list.foldr(
+      list.range(1, 32),
+      #"",
+      fn(_, acc) { bytearray.concat(acc, #"deadbeefdeadbeefdeadbeefdeadbeef") },
+    ),
+  )
+}
+
+test oversized_credential_is_oversized() {
+  // Sanity on the helper, so the two tests below cannot pass because it
+  // silently produced a 28-byte value.
+  expect Script(hash) = oversized_credential()
+  bytearray.length(hash) == 512
+}
+
+// Reject (INSERT writer): an oversized transfer_logic_script on the newly
+// inserted node. Single delta from `inserted_node()`.
+test registry_insert_fails_oversized_transfer_logic_credential() fail {
+  let fat = RegistryNode {
+    ..inserted_node(),
+    transfer_logic_script: oversized_credential(),
+  }
+  let tx = Transaction {
+    ..valid_insert_tx(),
+    outputs: [updated_covering_node_output(), inserted_node_output_of(fat)],
+  }
+  call_insert_validator(valid_insert_redeemer(), tx)
+}
+
+// Reject (UPDATE writer): an oversized unfracking_logic_script. Covers the
+// field the existing malformed-credential test does not reach, on the path
+// an issuer can drive at will after registration.
+test registry_spend_fails_update_oversized_unfracking_credential() fail {
+  let bad = RegistryNode {
+    ..new_registry_node(),
+    unfracking_logic_script: oversized_credential(),
+  }
+  let tx = Transaction {
+    ..update_transaction(),
+    outputs: [registry_node_output(bad)],
+  }
+  call_spend(Some(old_registry_node()), spend_own_ref(), tx)
 }
 
 // Reject: malformed mutable value — a non-28-byte transfer_logic_script.
