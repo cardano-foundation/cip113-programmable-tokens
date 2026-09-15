@@ -4,11 +4,14 @@
 //// containing the issuance script template bytes (prefix and postfix).
 
 use aiken/collection/list
+use aiken/primitive/bytearray
 use cardano/address
 use cardano/assets.{PolicyId}
 use cardano/transaction.{InlineDatum, OutputReference, Transaction}
 use prog_assets.{expect_only_nft_of_policy}
-use types.{IssuanceCborHex, issuance_cbor_hex_token_name}
+use types.{
+  IssuanceCborHex, issuance_cbor_hex_token_name, max_issuance_template_bytes,
+}
 
 validator issuance_cbor_hex_mint(
   utxo_ref: OutputReference,
@@ -44,7 +47,16 @@ validator issuance_cbor_hex_mint(
       },
     )
     expect InlineDatum(datum) = nft_output.datum
-    expect _issuance_datum: IssuanceCborHex = datum
+    expect issuance_datum: IssuanceCborHex = datum
+
+    // The cast checks the constructor tag and the field count; it does not
+    // bound either ByteArray. Bound them here, at the only moment this datum
+    // can ever be written — the NFT is locked at `always_fail` immediately
+    // below, so there is no second chance.
+    expect
+      bytearray.length(issuance_datum.prefix_cbor_hex) + bytearray.length(
+        issuance_datum.postfix_cbor_hex,
+      ) <= max_issuance_template_bytes
     // NFT must be locked at the always-fail address with no stake credential
     (nft_output.address == expected_address)?
   }

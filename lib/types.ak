@@ -6,6 +6,25 @@ use cardano/assets.{PolicyId}
 /// Token name for the issuance CBOR hex reference NFT
 pub const issuance_cbor_hex_token_name = "IssuanceCborHex"
 
+/// Upper bound on `prefix_cbor_hex` + `postfix_cbor_hex` in the
+/// `IssuanceCborHex` datum.
+///
+/// The template is the compiled `issuance_mint` script split around its
+/// hashed parameter, so the real figure is that script's size — 679 bytes at
+/// the time of writing. 4096 leaves roughly six times that headroom for a
+/// larger future issuance policy while keeping the datum far below anything
+/// that could price registration out of a transaction.
+///
+/// The bound exists because this datum has NO repair path. Its NFT is locked
+/// at `always_fail`, so the UTxO can never be respent and the datum can never
+/// be rewritten, yet every `RegistryInsert` must take it as a reference input
+/// and hash the template to derive the policy id
+/// (`utils.apply_hashed_parameter`). An oversized template would therefore
+/// disable all future registration permanently, with no upgrade able to reach
+/// it. Checking the length once, at the one-shot mint, converts that silent
+/// permanent brick into a loud failure at deployment time.
+pub const max_issuance_template_bytes: Int = 4096
+
 /// Proof that a token is (or is not) in the registry
 pub type RegistryProof {
   /// Token exists in the registry at this reference input index
