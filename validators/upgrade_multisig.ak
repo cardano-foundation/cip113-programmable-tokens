@@ -1,38 +1,29 @@
 //// The upgrade authority — a native-script-shaped multisig held in a config UTxO.
 ////
 //// This is the credential `protocol_params` names in `upgrade_cred`: the party
-//// whose withdraw-0 authorises a protocol upgrade (trampoline 2). Its ONLY job
-//// is that authorisation decision; every structural rail of an upgrade lives
-//// in `protocol_params`, and this script checks nothing about the upgrade.
+//// whose withdraw-0 authorises a protocol upgrade. Its ONLY job is that
+//// authorisation decision; every structural rail of an upgrade lives in
+//// `protocol_params`, and this script checks nothing about the upgrade.
 ////
-//// ## What replaced what
-////
-//// The previous reference authority was a flat M-of-N over compile-time
-//// parameters. That had two costs (audit-3 finding 05, MINR-054/057):
-////
-////   * the parameters were unguarded — a duplicated signer halved the
-////     threshold, a threshold of 0 authorised everything, a threshold above
-////     the signer count could never be met — and there was nowhere to guard
-////     them, because a parameter is written by nobody on-chain;
-////   * every signer rotation was a new applied script, and so a new credential,
-////     and so a full `upgrade_cred` handover — two transactions since #125.
-////
-//// Both go away by moving the configuration into a DATUM this script owns:
+//// The configuration lives in a DATUM this script owns:
 ////
 ////   * `mint` creates the config UTxO once, holding the one-shot config NFT
 ////     and a `MultisigScript` tree (`lib/multisig.ak`, Sundae's native-script
 ////     ADT) that must be `well_formed`;
 ////   * `spend` updates the tree: the OLD tree must be satisfied, the NEW one
 ////     must be well-formed, the NFT continues at this address. Rotation is
-////     now a config update, and `upgrade_cred` never moves for it;
+////     a config update, and `upgrade_cred` never moves for it;
 ////   * `withdraw` is the trampoline target: find the config NFT among the
 ////     reference inputs, decode the tree, and ask whether the transaction
 ////     satisfies it — signatories, validity range and withdrawals all count,
-////     so `AtLeast`, `After` and `Script` leaves each mean what they say.
+////     so `AtLeast`, `After` and `Script` leaves each mean what they say;
+////   * `publish` allows `RegisterCredential` only — registration is required
+////     before the withdraw-0 can ever be used, and deregistration and
+////     delegation of this script's stake credential are deliberately closed.
 ////
-//// One script, three handlers, one hash: the NFT policy, the config address's
+//// One script, four handlers, one hash: the NFT policy, the config address's
 //// payment credential and the withdraw-0 credential in `upgrade_cred` are all
-//// the same value, by construction (the #117 / #118 pattern).
+//// the same value, by construction.
 ////
 //// ## What the tree buys
 ////
@@ -43,10 +34,11 @@
 ////
 //// ## Two limits, deliberately
 ////
-////   * The config UTxO cannot be spent and referenced in one transaction, so a
-////     config update and a protocol upgrade are two transactions. Reading the
-////     tree from inputs as well would buy that back at the cost of a second
-////     code path; both are rare, so simplicity wins.
+////   * The config UTxO cannot be spent and referenced in one transaction — the
+////     ledger's non-disjoint-reference-inputs rule (`ConwayUtxoBabbageNonDisjointRefInputs`)
+////     forbids it — so a config update and a protocol upgrade are two
+////     transactions. Reading the tree from inputs as well would buy that back
+////     at the cost of a second code path; both are rare, so simplicity wins.
 ////   * The tree is read on every upgrade, so its evaluation cost is bounded by
 ////     `multisig.max_size`, enforced when the tree is WRITTEN — an authority
 ////     cannot configure itself into a tree it can no longer afford to run.
@@ -63,7 +55,8 @@ use utils.{has_currency_symbol}
 /// Token name of the one-shot config NFT.
 pub const upgrade_multisig_token: ByteArray = "UpgradeMultisig"
 
-/// The datum rail: inline, and decodes as a tree. Shared by all three handlers.
+/// The datum rail: inline, and decodes as a tree. Shared by the mint, spend
+/// and withdraw handlers.
 fn expect_output_tree(output: Output) -> MultisigScript {
   expect InlineDatum(datum) = output.datum
   expect tree: MultisigScript = datum
@@ -99,7 +92,8 @@ validator upgrade_multisig(utxo_ref: OutputReference) {
       well_formed(expect_output_tree(nft_output))?,
       // Paid for by every upgrade that references this UTxO otherwise.
       (nft_output.reference_script == None)?,
-      // Locked at THIS script, wearing its spending hat.
+      // Locked at THIS script, wearing its spending hat. `from_script` carries
+      // no stake credential, so the config UTxO can never be delegated.
       (nft_output.address == address.from_script(own_policy))?,
     }
   }
@@ -157,8 +151,9 @@ validator upgrade_multisig(utxo_ref: OutputReference) {
     // The reward account IS this script; its hash is the config NFT's policy.
     expect Script(own_hash) = account
 
-    // The config UTxO, by its one-shot NFT. Policy presence suffices: the
-    // mint handler mints exactly one token, so any UTxO carrying it is the
+    // The config UTxO, by its one-shot NFT. Policy presence suffices: `mint`
+    // can run only once (`utxo_ref` is one-shot), so this policy can never
+    // mint a second token under any name, and any UTxO carrying it is the
     // genuine config.
     let config = list.expect_find(
       self.reference_inputs,
@@ -175,9 +170,9 @@ validator upgrade_multisig(utxo_ref: OutputReference) {
 
   // A withdraw-0 credential must be registered before it can withdraw. In the
   // era after Conway the legacy no-witness registration is withdrawn, so a
-  // script without this handler can never be registered again — and the old
-  // reference authority lacked it (MINR-057). Registration only; nothing else
-  // is ever needed and nothing else is allowed.
+  // script without this handler can never be registered at all (#127).
+  // Registration only: deregistering this credential's stake — and so
+  // recovering its deposit — and delegating it are both permanently closed.
   publish(_r: Data, c: Certificate, _s: Transaction) {
     when c is {
       RegisterCredential { .. } -> True

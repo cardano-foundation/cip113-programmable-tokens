@@ -9,7 +9,7 @@
 ////
 //// `transfer` is the hot path: EVERY programmable-token transfer references
 //// it, so every byte of it is a reference-script fee paid by every user on
-//// every transfer, forever. The third-party (administrative) path — forced
+//// every transfer, forever. The third-party path — forced
 //// transfer, seizure, freeze enforcement, burn — is heavy but rare.
 //// Hosting it here keeps those bytes off the transfer reference script and
 //// moves their cost onto the only transactions that use them.
@@ -23,9 +23,11 @@
 //// Security shape: this delegation is purely RESTRICTIVE and self-contained.
 //// Exactly ONE delegate is required per dispatch; whichever runs enforces its
 //// full invariants over the whole transaction, so authorising any one of them
-//// is sound. This script reads NO datum: `programmable_logic_base_cred`, `registry_node_cs`
-//// and the seizure datum bound are compile-time parameters, and it never needs
-//// the other delegates' hashes, so there is no circular dependency.
+//// is sound. This script reads no PROTOCOL-PARAMS datum: `programmable_logic_base_cred`,
+//// `registry_node_cs` and the seizure datum bound are compile-time parameters,
+//// and it never needs the other delegates' hashes, so there is no circular
+//// dependency. It still reads the registry node's inline datum and the output
+//// datums it bounds.
 
 use aiken/collection/list as aiken_list
 use cardano/address.{Credential}
@@ -50,14 +52,6 @@ validator third_party(
 
     let ThirdPartyRedeemer { registry_node_idx, outputs_start_idx } = redeemer
 
-    // The three values below used to be read from the protocol-params datum on
-    // every invocation. Two of them are FROZEN by `protocol_params` and
-    // the third is the seizure datum bound; all three are compile-time
-    // parameters now, so this validator resolves the params reference input
-    // ZERO times. A frozen value never needs to be a datum read — it only needs
-    // baking into whatever artifact is itself the replaceable unit, and this
-    // validator is exactly that: swapping it is a new script plus a new
-    // `programmable_logic_global` plus one datum rewrite.
     let registry_node = locate_registry_node(
       self.reference_inputs,
       registry_node_idx,
@@ -96,9 +90,10 @@ fn locate_registry_node(
 ) -> Data {
   let node_ref = aiken_list.expect_at(reference_inputs, registry_node_idx)
   // Checking the POLICY ID alone suffices because registry NFTs are
-  // mint-gated by `registry_mint`, which binds the NFT asset name to the
-  // node's `key` and shape-checks the datum at Insert — so any UTxO carrying
-  // this policy is a genuine node whose datum fields cannot lie.
+  // mint-gated by the `registry` validator's mint handler, which binds the
+  // NFT asset name to the node's `key` and shape-checks the datum at Insert —
+  // so any UTxO carrying this policy is a genuine node whose datum fields
+  // cannot lie.
   expect prog_assets.expect_first_policy(node_ref.output) == registry_node_cs
   expect InlineDatum(data) = node_ref.output.datum
   data

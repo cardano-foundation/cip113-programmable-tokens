@@ -11,12 +11,11 @@
 //// authority: the transfer input scan (every PLB input) and the
 //// unfracking owner pinning (first PLB input; subsequent inputs must
 //// then equal the pinned address). ThirdPartyAct deliberately does NOT
-//// use it — admin actions are authorised by the policy's third-party
+//// use it — third-party actions are authorised by the policy's third-party
 //// logic, not the holder.
 ////
-//// Cost note: each validator embeds its own copy and each has a single
-//// call site, so the compiler inlines it — source-level dedup, no
-//// execution overhead (verified against the transfer benchmarks).
+//// Each caller embeds its own copy with a single call site, so the
+//// compiler inlines it — source-level dedup, no execution overhead.
 
 use cardano/address.{Address, Credential, Inline, Script, VerificationKey}
 

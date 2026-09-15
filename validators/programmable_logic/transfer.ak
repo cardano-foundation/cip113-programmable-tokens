@@ -28,10 +28,9 @@ pub fn validate_transfer(
   )
 
   // Collect all programmable tokens across inputs and minted/burned values.
-  // The Separation of Concerns between transfer and minting is that if it's a
-  // pure minting, i.e. policy does not appear in input, no further validation
-  // is due. Finding 02: this invariant is now enforced (see
-  // `collect_input_assets` for the fix).
+  // A policy that appears only in `tx.mint` (a pure mint, not present in any
+  // input) is dropped — `issuance_logic` owns its custody, not the transfer
+  // path (Finding 02; see `collect_input_assets`).
   let input_assets = collect_input_assets(
     self,
     has_withdrawal,
@@ -46,7 +45,9 @@ pub fn validate_transfer(
     max_inline_datum_bytes,
   )
 
-  // Check transfer logic for each programmable token type and filter to only programmable tokens.
+  // One proof per input policy, in ascending policy order, and the proof
+  // list must be exactly consumed — a transaction carrying a trailing proof
+  // is rejected.
   [] == verify_proofs(
     proofs,
     choose_registered_token_with(get_registry_node, has_withdrawal, _, _, _, _),
@@ -76,17 +77,14 @@ fn collect_input_assets(
 ) -> Assets {
   let has_signatory = unsafe_list.has_or_fail(tx.extra_signatories, _)
 
-  // Finding 02 fix: seed with EMPTY assets (was: `prog_assets.from_value(tx.mint)`).
-  // Mint contributions are folded in AFTER the input scan via
-  // `apply_mint_to_known_policies`, which keeps mint deltas ONLY for policies
-  // that appear in PLB inputs. Mint-only ("purely minted") policies are
-  // dropped here — issuance_mint owns their custody, not the transfer path.
-  //
-  // Side-effect to watch: with this fix the transfer path no longer
-  // accidentally rejects a pure mint routed to a non-PLB address. That
-  // custody check belongs in issuance_mint, whose precise per-registry-node
-  // delegation (Finding 04 fix) covers both the third-party + mint escape
-  // and this transfer + mint variant: it delegates only to a validator whose
+  // Seeded with EMPTY assets (Finding 02). Mint contributions are folded in
+  // AFTER the input scan via `apply_mint_to_known_policies`, which keeps
+  // mint deltas ONLY for policies that appear in PLB inputs. Mint-only
+  // ("purely minted") policies are dropped here — a pure mint routed to a
+  // non-PLB address is not this path's concern. That custody check belongs
+  // in `issuance_logic`, whose precise per-registry-node delegation
+  // (Finding 04) covers both the third-party + mint escape and this
+  // transfer + mint variant: it delegates only to a validator whose
   // redeemer names the minted policy's node, and otherwise enforces
   // `no_escape` itself.
   let programmable_logic_base_inputs = prog_assets.collect(
@@ -145,10 +143,8 @@ fn collect_input_assets(
 /// Cost: O(|inputs| + |mint|); `tokens.union` paid only at exact matches.
 fn apply_mint_to_known_policies(inputs: Assets, mint: Assets) -> Assets {
   // Mint-empty short-circuit at the OUTER level: a transfer-only tx (no
-  // mint) skips the per-input `assets_split_at` calls entirely and pays no
-  // per-policy cost in the merge — same big-O as the original two-pointer.
-  // Without this, the bench `many_policies` axis paid ~3.7M cpu / extra
-  // policy for split_at calls that always returned empty.
+  // mint) skips the per-input `assets_split_at` calls entirely, so it pays
+  // no per-policy split cost.
   when mint is {
     [] -> inputs
     _ ->
@@ -171,12 +167,11 @@ fn apply_mint_to_known_policies(inputs: Assets, mint: Assets) -> Assets {
   }
 }
 
-/// Get inputs from prog_logic_cred and verify ALL have proper authorization
-/// This function enforces ownership by requiring that every input from prog_logic_cred
-/// is authorized by its stake credential (signature or script invocation).
-/// If ANY input lacks authorization, the transaction FAILS.
-/// Sum values from a list of inputs
-/// Check transfer logic for each currency symbol and filter to only programmable tokens
+/// Consume one proof per input policy, in ascending order. A programmable
+/// policy (`TokenExists`) must be contained in the paired output policy
+/// unless fully burned, in which case it is not expected in the outputs at
+/// all. An unregistered policy (`TokenDoesNotExist`) is skipped. Aborts on
+/// an invalid proof.
 fn verify_proofs(
   proofs: List<RegistryProof>,
   choose_registered_token: fn(
@@ -239,10 +234,9 @@ fn verify_proofs(
   }
 }
 
-/// Validate a single currency symbol against its proof
-/// Returns True if the token IS a programmable token (TokenExists with valid proof)
-/// Returns False if the token is NOT a programmable token (TokenDoesNotExist with valid proof)
-/// FAILS the transaction if any proof is invalid
+/// Validate a single currency symbol against its proof. Calls
+/// `when_registered` for a `TokenExists` proof and `when_not_registered`
+/// for a `TokenDoesNotExist` proof; aborts on an invalid proof.
 fn choose_registered_token_with(
   get_registry_node: fn(Int) -> Data,
   has_withdrawal: fn(Credential) -> Bool,

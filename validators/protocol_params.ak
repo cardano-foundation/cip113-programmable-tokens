@@ -5,44 +5,36 @@
 //// token transaction reads. `mint` creates it, exactly once; `spend` makes it
 //// upgradable in place while holding the rails that must never bend.
 ////
-//// Merging the pair into ONE multi-purpose validator collapses two hashes into
-//// one: every handler of a `validator` block shares a single script hash, so
-//// the protocol-params NFT policy id (this script as a minting policy) and the
+//// Every handler of a `validator` block shares a single script hash, so the
+//// protocol-params NFT policy id (this script as a minting policy) and the
 //// protocol-params address's payment credential (this script as a spending
-//// validator) are now THE SAME VALUE, by construction rather than by
-//// deployment discipline.
+//// validator) are THE SAME VALUE, by construction. The mint handler needs no
+//// address parameter: the NFT is locked at `Script(own_policy)`, which it
+//// names itself. The spend handler needs no nonce parameter either:
+//// `utxo_ref` on the mint side already makes every deployment's policy id —
+//// and so its address — unique. The protocol's identity is the NFT asset
+//// class, not the address.
 ////
-//// Two parameters disappear as a direct consequence:
-////
-////   * `params_spend_addr_hash` — the mint handler used to be told, as a
-////     compile-time parameter, which address the NFT must be locked at. It now
-////     names itself: `Script(own_policy)`.
-////   * `_nonce` — the spend handler carried an unused parameter whose only job
-////     was giving each deployment its own address, because it could not be
-////     parameterised by the NFT policy (that policy is the hash of the mint
-////     script, which was parameterised by this address — a cycle). Merged,
-////     the cycle is gone and `utxo_ref` on the mint side already makes every
-////     deployment unique. The protocol's identity was always the NFT asset
-////     class rather than the address, which is why nothing is lost here.
-////
-//// Division of labour (deliberate — see the in-place-upgradability design doc):
+//// Division of labour:
 ////   * The STRUCTURAL rails live here, in both handlers: the NFT is created
 ////     once and continues, it stays at this address, non-ADA value is
 ////     conserved, the datum stays well-formed, and every credential in it is a
 ////     well-formed 28-byte hash. `params_well_formed` is called by BOTH
 ////     handlers, so the state the spend refuses to move to is also a state the
 ////     mint refuses to create.
-////     There are no frozen-field rails left to enforce: `programmable_logic_base_cred` and
-////     `registry_node_cs` are no longer datum fields at all — they are
-////     compile-time parameters of the delegates. Note precisely what that does
-////     and does not buy. The FIELDS are unrepresentable, so no upgrade can edit
+////     `programmable_logic_base_cred` and `registry_node_cs` are compile-time
+////     parameters of the delegates, not datum fields — no upgrade can edit
 ////     them in place. The VALUES are still reachable one hop away: an upgrade
 ////     that rewrites `programmable_logic_global_cred` installs a dispatch layer naming delegate
 ////     hashes of the authority's choosing, and those delegates carry whatever
 ////     `programmable_logic_base_cred` and `registry_node_cs` they were applied with. That is
 ////     the same authority acting in the same transaction, not a separate
-////     escape — and it is the pre-existing shape of the upgrade threat model,
-////     unchanged here.
+////     escape.
+////     `upgrade_cred` and `pending_upgrade_cred` ARE datum fields, and each
+////     redeemer arm freezes the one it does not own: `ProtocolUpgrade`
+////     freezes the nomination, `NominateAuthority` freezes everything but the
+////     nomination, so an authority handover can never ride inside a
+////     transaction that looks like a parameter change.
 ////   * The AUTHORISATION decision ("may this upgrade happen?") is trampolined to
 ////     the `upgrade_cred` withdraw-0 named in the CURRENT (spent) datum.
 ////     This validator never inspects that authority's internals — no signer
@@ -50,32 +42,31 @@
 ////     governance-action validator later) can be swapped by rewriting one datum
 ////     field, with no change here and no residue left behind.
 ////
-////     CHANGING that authority is two-phase, and is the one thing the sitting
-////     authority cannot do in a single step (issue #125). Phase 1: the sitting
-////     authority writes `pending_upgrade_cred` — an ordinary upgrade, and
-////     reversible by another one. Phase 2: the nominee presents its OWN
-////     withdraw-0, which promotes it and clears the nomination, and is the
-////     only transaction shape that may move `upgrade_cred` at all.
+////     CHANGING that authority is two-phase — the one thing the sitting
+////     authority cannot do in a single step. Phase 1, under
+////     `NominateAuthority`: the sitting authority writes
+////     `pending_upgrade_cred`, an ordinary, reversible upgrade. Phase 2,
+////     under `PromoteAuthority`: the nominee presents its OWN withdraw-0,
+////     which promotes it and clears the nomination, and is the only
+////     transaction shape that may move `upgrade_cred` at all.
 ////
 ////     The evidence demanded is that the incoming authority exists, runs and
 ////     consents — so a typo, or the hash of a script nobody deployed, can
-////     never take over. That is the same evidence a co-signature would give,
-////     WITHOUT requiring the nominee to appear in a transaction built by
-////     someone else, which no governance action and no slowly-assembled
-////     quorum can promise. Splitting the phases is what buys that, and it is
-////     why the co-signature form drafted in #125 was rejected.
+////     never take over — without requiring the nominee to appear in a
+////     transaction built by someone else, which no governance action and no
+////     slowly-assembled quorum can promise. Splitting the phases is what buys
+////     that.
 ////
-//// v1 policy choices:
-////   * value: non-ADA assets STRICTLY equal, in both directions — the NFT can
-////     never be split away and junk can never be injected. LOVELACE IS
-////     UNCONSTRAINED relative to the input. It used to ratchet upward, which
-////     made over-funding unrecoverable by anyone forever; the ratchet defended
-////     against nothing, because the ledger's own min-UTxO rule is the real
-////     floor and the only party who can spend this UTxO at all is the upgrade
-////     authority — already trusted to replace every credential in the datum,
-////     including its own successor.
-////   * timelock: NONE. The seam is here (validity interval is in `self`) but no
-////     delay is enforced in v1.
+//// Value policy: non-ADA assets STRICTLY equal, in both directions — the NFT
+//// can never be split away and junk can never be injected. LOVELACE IS
+//// UNCONSTRAINED relative to the input: the ledger's own min-UTxO rule is
+//// the real floor, and the only parties who can spend this UTxO at all are
+//// the sitting authority, or a standing nominee — both already trusted to
+//// replace every credential in the datum, including the authority's own
+//// successor.
+////
+//// Timelock: NONE. The validity interval is available in `self` but no delay
+//// is enforced.
 
 use aiken/collection/list
 use aiken/collection/pairs
@@ -92,16 +83,20 @@ use types.{
 /// Every credential in the datum must be a well-formed 28-byte hash.
 ///
 /// A reward account is a header byte + 28-byte hash, so a wrong-length hash can
-/// never appear in `tx.withdrawals`. Writing one here is a ONE-WAY BRICK: an
-/// unsatisfiable `upgrade_cred` makes this validator's own authority check
-/// permanently unsatisfiable, with no repair path, and an unsatisfiable
-/// `programmable_logic_global_cred` makes every programmable token UTxO unspendable. `programmable_logic_global_cred` is
-/// checked first because it is the one credential on the SPEND path, and so the
-/// widest brick this validator can prevent.
+/// never appear in `tx.withdrawals`. Writing an unsatisfiable `upgrade_cred`
+/// is a ONE-WAY BRICK for every future `ProtocolUpgrade` or
+/// `NominateAuthority` spend, since both require the sitting authority's own
+/// withdraw-0. A standing nomination is the one repair path: `PromoteAuthority`
+/// authorises on the NOMINEE's withdraw-0 instead, so a nomination made before
+/// the brick can still take over. An unsatisfiable `programmable_logic_global_cred`
+/// makes every programmable token UTxO unspendable. `programmable_logic_global_cred`
+/// is checked first because it is on the programmable-token spend path
+/// (`programmable_logic_base.ak:74`), the widest brick this validator can
+/// prevent.
 ///
-/// Shared by BOTH handlers on purpose. The rail used to exist only on the
-/// update path, which left the protocol able to be BORN in exactly the state
-/// every later update is refused for.
+/// Shared by BOTH handlers on purpose: the mint refuses to create a state the
+/// spend would refuse to move to, so the protocol cannot be born in a state no
+/// later update could reach.
 fn params_well_formed(params: ProtocolParams, is_init init: Bool) -> Bool {
   and {
     is_28_byte_credential(params.programmable_logic_global_cred)?,
@@ -156,9 +151,10 @@ fn sitting_authority_approves(
 
 /// `ProtocolUpgrade`: rewrite mutable wiring. `upgrade_cred` may not move —
 /// that is the rail the whole two-phase design rests on, since a direct
-/// rewrite would reinstate the one-way brick this issue exists to close. The
-/// NOMINATION may not move either, so a handover can never begin inside a
-/// transaction that presents itself as a parameter change.
+/// rewrite would reinstate the one-way brick a wrong-length or undeployed
+/// hash would cause. The NOMINATION may not move either, so a handover can
+/// never begin inside a transaction that presents itself as a parameter
+/// change.
 fn protocol_upgrade(
   old: ProtocolParams,
   new: ProtocolParams,
@@ -199,9 +195,7 @@ fn nominate_authority(
 /// The promotion is PURE, as one record equality: the only permitted
 /// difference is that the nomination has become the authority. Written
 /// field-by-field this rail leaks — a field added later is simply not
-/// mentioned, and the omission is invisible (mutation-verified 2026-09-07:
-/// the `transfer_cred` comparison in the first draft killed no test, and
-/// would have gone on killing none as fields accumulated). Same shape as
+/// mentioned, and the omission is invisible. Same shape as
 /// `linked_list.is_updated_registry_node`.
 ///
 /// Splitting promotion from upgrading is what keeps revocation meaningful:
@@ -244,8 +238,7 @@ validator protocol_params(utxo_ref: OutputReference) {
     // it matches only a value whose non-ADA half is exactly this one NFT. So
     // this finder is also the no-junk-token rail — an output bundling another
     // asset with the params NFT is simply not found, and genesis fails. A
-    // separate value check here would be dead code (mutation-verified: it
-    // killed no test).
+    // separate value check here would be dead code.
     let nft_output = list.expect_find(
       self.outputs,
       fn(output) {
@@ -262,13 +255,15 @@ validator protocol_params(utxo_ref: OutputReference) {
       // `is_init: True` is what additionally forbids a nomination baked into
       // the genesis datum — see `pending_well_formed`.
       params_well_formed(genesis_params, is_init: True)?,
-      // A reference script here is paid for by every transaction that
-      // references this UTxO. The spend handler already forbids one on the
-      // continuing output; genesis is where that asymmetry started.
+      // No reference script may be attached to the protocol-params UTxO, on
+      // either handler: one here would be paid for by every transaction that
+      // references this UTxO.
       (nft_output.reference_script == None)?,
       // Locked at THIS script, wearing its spending hat. No parameter is needed
       // to say so: the mint and spend handlers share one hash, so the policy
-      // minting the NFT IS the credential that must lock it.
+      // minting the NFT IS the credential that must lock it. `from_script`
+      // carries no stake credential, so the params UTxO can never be
+      // delegated.
       (nft_output.address == address.from_script(own_policy))?,
     }
   }
@@ -281,8 +276,9 @@ validator protocol_params(utxo_ref: OutputReference) {
   ) {
     trace @"Starting protocol_params spend validation"
 
-    // Current wiring, from the UTxO being spent. `upgrade_cred` here is the
-    // authority that must approve this spend.
+    // Current wiring, from the UTxO being spent. `upgrade_cred` is the
+    // authority for the `ProtocolUpgrade` and `NominateAuthority` arms;
+    // `PromoteAuthority` is authorised by the standing nominee instead.
     expect Some(old_params) = datum
 
     // Own input + own address (the protocol-params address). All structural checks
@@ -311,7 +307,7 @@ validator protocol_params(utxo_ref: OutputReference) {
 
     // Value: non-ADA assets must match EXACTLY — preserving the NFT, forbidding
     // junk-token injection and splitting the NFT away. Lovelace is deliberately
-    // unconstrained relative to the input; see the v1 policy note above.
+    // unconstrained relative to the input; see the value policy note above.
     expect assets.expect_match_assets(cont.value, own_input.output.value)?
 
     // Continuing datum must be inline, well-formed, and carry only well-formed
@@ -321,9 +317,10 @@ validator protocol_params(utxo_ref: OutputReference) {
     let new_params = expect_output_params(cont)
     expect params_well_formed(new_params, is_init: False)?
 
-    // Authorisation (trampoline 2). The redeemer DECLARES which of the three
-    // upgrade-path shapes this is, and each arm is one closed rule set read
-    // against the OLD datum — the state being spent decides who may spend it.
+    // Authorisation, via the `upgrade_cred` withdraw-0. The redeemer DECLARES
+    // which of the three upgrade-path shapes this is, and each arm is one
+    // closed rule set read against the OLD datum — the state being spent
+    // decides who may spend it.
     //
     // Declaring the action is not decoration: it is what makes the three rule
     // sets mutually exclusive. `ProtocolUpgrade` freezes the nomination and

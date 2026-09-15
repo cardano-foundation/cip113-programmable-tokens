@@ -1,5 +1,4 @@
-//// Utility functions for CIP-113 validators
-//// Migrated from various Plutarch utility modules
+//// Utility functions for CIP-113 validators.
 
 use aiken/builtin.{tail_list}
 use aiken/collection/dict
@@ -37,7 +36,8 @@ fn do_has_currency_symbol(
   }
 }
 
-/// Count unique tokens in a value (number of distinct currency symbol + token name pairs)
+/// Count distinct currency-symbol + token-name pairs in a value, including
+/// the ada entry if present.
 pub fn count_unique_tokens(value: Value) -> Int {
   assets.reduce(value, 0, fn(_policy, _name, _amount, acc) { acc + 1 })
 }
@@ -47,9 +47,9 @@ pub fn bytearray_lt(a: ByteArray, b: ByteArray) -> Bool {
   builtin.less_than_bytearray(a, b)
 }
 
-/// Apply hashed parameter to prefix and postfix to compute policy ID
-/// This reconstructs the minting policy script and hashes it to get the currency symbol
-/// Follows Plutus V3 script format: version_header + prefix + serialized_param + postfix
+/// Apply the inner hashed parameter to prefix and postfix to compute the
+/// policy id: version_header + prefix + hashed_param + postfix. Any CBOR
+/// framing for the parameter lives inside `prefix`/`postfix`.
 pub fn apply_hashed_parameter(
   prefix: ByteArray,
   postfix: ByteArray,
@@ -74,12 +74,13 @@ pub fn apply_hashed_parameter(
 /// Verify that `cs_to_insert` is the policy id derived from applying the
 /// issuance template (`prefix` + `postfix`) to the inner 28-byte hash of
 /// `minting_logic_script`. This is the *cryptographic binding* tying the
-/// registered credential to the policy id; mode-independent.
+/// registered credential to the policy id.
 ///
-/// The `Constr` variant tag (VerificationKey vs Script) is embedded in
-/// `prefix` by the off-chain bootstrap, so this on-chain code only needs
-/// to sandwich the inner hash bytes — the policy id derivation
-/// indirectly enforces variant agreement.
+/// `minting_logic_script` must be a `Script` credential — a `VerificationKey`
+/// aborts here. The `Constr` variant tag (VerificationKey vs Script) is
+/// embedded in `prefix` by the off-chain bootstrap, so once past that check
+/// the policy id derivation pins the tag bytes inside the hash alongside the
+/// inner hash bytes.
 pub fn expect_programmable_token_id_valid(
   cs_to_insert: ByteArray,
   prefix: ByteArray,
@@ -94,13 +95,8 @@ pub fn expect_programmable_token_id_valid(
 /// quantity sign.
 ///
 /// Used by the `registry` validator's spend handler (Re-audit R-01): a
-/// registry-node spend must
-/// not mint or burn tokens of the spent node's own `key`.
-///
-/// Cheapest primitive among the candidates benchmarked in
-/// `lib/utils.test.ak` (`bench_a4_has_key_*`) — ~14–18% fewer ex-units than
-/// the previous split-helper implementation, both in the "absent" and
-/// "present" directions.
+/// registry-node spend must not mint or burn tokens of the spent node's own
+/// `key`.
 ///
 /// Note on burn-only entries: a `tx.mint` containing only negative
 /// quantities under `policy` returns `True` from this function (the

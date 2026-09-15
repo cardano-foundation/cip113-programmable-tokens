@@ -8,9 +8,11 @@
 //// transfer invariants over the whole transaction: registry proofs,
 //// substandard transfer-logic invocation, value containment.
 ////
-//// It reads NO datum — `programmable_logic_base_cred`, `registry_node_cs` and the seizure
-//// datum bound are compile-time parameters — so an ordinary transfer resolves
-//// the protocol-params reference input exactly once, in PLB, per input.
+//// It reads no PROTOCOL-PARAMS datum — `programmable_logic_base_cred`,
+//// `registry_node_cs` and the seizure datum bound are compile-time parameters —
+//// so an ordinary transfer resolves the protocol-params reference input exactly
+//// once, in PLB, per input. It still reads the registry node it proves against
+//// and the output datums it bounds.
 ////
 //// It is the hot path — every transfer references it, so every byte here is
 //// a reference-script fee paid on every transfer, forever. That is why it
@@ -18,11 +20,6 @@
 //// their own withdraw-0 validators (`third_party`, `unfracking`), each
 //// dispatched to by `programmable_logic_global` (`ThirdPartyAct`,
 //// `UnfrackingAct`), and this validator has no redeemer switch at all.
-////
-//// Lineage: this is the transfer arm of the former `programmable_logic_global`
-//// coordinator (SmartTokens.Contracts.ProgrammableLogicBase,
-//// `mkProgrammableLogicGlobal` in the Plutarch reference implementation),
-//// which used to dispatch transfer / third-party / unfracking itself.
 
 use cardano/address.{Credential}
 use cardano/assets.{PolicyId} as value
@@ -42,14 +39,6 @@ validator transfer(
 
     let TransferRedeemer { proofs } = redeemer
 
-    // The three values below used to be read from the protocol-params datum on
-    // every invocation. Two of them are FROZEN by `protocol_params` and
-    // the third is the seizure datum bound; all three are compile-time
-    // parameters now, so this validator resolves the params reference input
-    // ZERO times. A frozen value never needs to be a datum read — it only needs
-    // baking into whatever artifact is itself the replaceable unit, and this
-    // validator is exactly that: swapping it is a new script plus a new
-    // `programmable_logic_global` plus one datum rewrite.
     // Getter for registry nodes in reference inputs (proof walk).
     let get_registry_node = new_registry_node_getter(
       registry_node_cs,

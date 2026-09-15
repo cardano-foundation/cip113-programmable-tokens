@@ -2,9 +2,6 @@ use aiken/collection/dict
 use aiken/collection/list
 use aiken/primitive/bytearray
 use cardano/address.{Address, Credential, Script, VerificationKey}
-// Linked list validation logic for the token registry
-// Migrated from SmartTokens.LinkedList.Common
-
 use cardano/assets.{AssetName, PolicyId, Value}
 use cardano/transaction.{Output}
 use registry_node.{
@@ -163,7 +160,6 @@ pub fn is_28_byte_credential(cred: Credential) -> Bool {
 /// field equals the original except `next`, which now points at the freshly
 /// inserted key. Implemented as a single record-equality check so any future
 /// field added to `RegistryNode` is automatically enforced.
-/// Fix for NEW-1 — matches Plutarch's pisInsertedOnNode strict equality.
 pub fn is_updated_registry_node(
   node: RegistryNode,
   original: RegistryNode,
@@ -178,9 +174,10 @@ pub fn validate_mint(mint: Value, policy_id: PolicyId) -> AssetName {
   asset_name
 }
 
-// True iff `new` equals `old` except possibly the mutable fields: 
-// transfer_logic_script, third_party_transfer_logic_script, and global_state_cs.
-// All other fields must still be well-formed. The record freezes key, next, and minting_logic_script
+// True iff `new` equals `old` except possibly the mutable fields:
+// transfer_logic_script, third_party_logic_script, unfracking_logic_script,
+// and global_state_cs. All other fields must still be well-formed. The
+// record freezes key, next, and minting_logic_script.
 pub fn is_field_updated_registry_node(
   new: RegistryNode,
   old: RegistryNode,

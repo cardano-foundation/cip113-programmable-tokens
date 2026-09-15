@@ -46,7 +46,7 @@ pub const origin_node: RegistryNode =
 /// on-chain and off-chain code. The three script-credential fields are ordered
 /// by the natural lifecycle of a programmable token — `minting_logic_script`
 /// (mint), `transfer_logic_script` (transfer), `third_party_logic_script`
-/// (admin) — with `minting_logic_script` first because registration is the
+/// (third-party) — with `minting_logic_script` first because registration is the
 /// earliest event in a token's lifetime.
 pub type RegistryNode {
   /// The key (currency symbol) of the programmable token policy
@@ -62,7 +62,7 @@ pub type RegistryNode {
   minting_logic_script: Credential,
   /// The transfer logic script credential that validates token transfers
   transfer_logic_script: Credential,
-  /// The third party transfer logic script credential that handles admin actions (seizure, etc.)
+  /// The third party transfer logic script credential that handles third-party actions (seizure, etc.)
   third_party_logic_script: Credential,
   /// Credential whose withdraw-0 must be invoked by any unfracking action
   /// touching this policy — the issuer-declared unfracking constraint
