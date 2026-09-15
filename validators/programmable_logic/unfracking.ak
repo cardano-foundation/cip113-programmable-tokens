@@ -1,9 +1,9 @@
-//// Unfracking invariants — v2 (registry-gated, third-party-shaped)
+//// Unfracking invariants (registry-gated, third-party-shaped)
 ////
 //// This module is the engine of the standalone `unfracking` withdraw-0
-//// validator, which programmable_logic_base dispatches to directly under a
-//// `SpendViaUnfracking` redeemer — the `transfer` validator plays no part in
-//// an unfracking transaction, keeping the hot-path transfer reference script
+//// validator, which `programmable_logic_global` requires under an
+//// `UnfrackingAct` redeemer — the `transfer` validator plays no part in an
+//// unfracking transaction, keeping the hot-path transfer reference script
 //// small. See `unfracking`'s module docs for the delegation rationale.
 ////
 //// An unfracking action lets a holder restructure the PLB UTxOs they
@@ -12,10 +12,9 @@
 //// one policy locks them all together. Acting on that one policy moves
 //// its tokens into their own UTxO(s) while everything else stays put.
 ////
-//// v2 changes vs v1 (see design doc `unfracking-v2-registry-hook.md`):
+//// Properties of an unfracking action:
 ////
-////   * SINGLE-POLICY per action, named by a registry node — no longer a
-////     whole-UTxO free-for-all restructuring.
+////   * SINGLE-POLICY per action, named by a registry node.
 ////   * REGISTRY-GATED, least permission by default: the acted-on
 ////     policy's `unfracking_logic_script` withdraw-0 must be invoked in
 ////     the same transaction. An UNSET hook (`empty_vkey`) means

@@ -9,7 +9,8 @@ pub type Tokens =
 
 /// /!\ PRE-CONDITION /!\
 /// Given pairs are assumed to be well-formed and semantically 'correct'. That
-/// is, keys contain no duplicates and are in ascending order.
+/// is, keys contain no duplicates and are in ascending order. A violation
+/// aborts the script; it does not return `False`.
 ///
 /// In practice, this means we suppose both values have been constructed from
 /// existing well-formed Values.
@@ -32,7 +33,8 @@ pub fn expect_contains(
   }
 }
 
-/// Merge two token maps by summing quantities per token name.
+/// Merge two token maps by summing quantities per token name. Names summing
+/// to zero are dropped; the enclosing policy key is not.
 pub fn union(left: Tokens, right: Tokens) -> Dict<AssetName, Int> {
   dict.union_with(left, right, dict_strategy.sum_if_non_zero())
 }

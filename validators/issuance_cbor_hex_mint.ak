@@ -1,9 +1,9 @@
-use aiken/collection/list
-// Issuance CBOR Hex Reference NFT Minting Policy
-// Simple one-shot minting policy to create a reference NFT that marks the UTxO
-// containing the issuance script template bytes (prefix and postfix)
-// Migrated from SmartTokens.Contracts.IssuanceCborHex
+//// Issuance CBOR Hex Reference NFT Minting Policy.
+////
+//// One-shot minting policy that creates a reference NFT marking the UTxO
+//// containing the issuance script template bytes (prefix and postfix).
 
+use aiken/collection/list
 use cardano/address
 use cardano/assets.{PolicyId}
 use cardano/transaction.{InlineDatum, OutputReference, Transaction}
@@ -32,7 +32,7 @@ validator issuance_cbor_hex_mint(
 
     // The always-fail address where the NFT must be locked
     let expected_address = address.from_script(always_fail_hash)
-    // Find the output with address equal to the always-fail address and containing the minted NFT
+    // Find the single output holding the minted NFT
     let nft_output = list.expect_find(
       self.outputs,
       fn(output) {

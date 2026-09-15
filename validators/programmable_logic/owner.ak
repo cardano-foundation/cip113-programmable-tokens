@@ -14,9 +14,8 @@
 //// use it — admin actions are authorised by the policy's third-party
 //// logic, not the holder.
 ////
-//// Cost note: each validator embeds its own copy and each has a single
-//// call site, so the compiler inlines it — source-level dedup, no
-//// execution overhead (verified against the transfer benchmarks).
+//// Each caller embeds its own copy with a single call site, so the
+//// compiler inlines it — source-level dedup, no execution overhead.
 
 use cardano/address.{Address, Credential, Inline, Script, VerificationKey}
 

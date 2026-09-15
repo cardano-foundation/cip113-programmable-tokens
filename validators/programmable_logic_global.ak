@@ -6,7 +6,7 @@
 ////
 //// Position in the trust chain:
 ////
-////   programmable_logic_base --reads--> params[plg_cred] --requires--> THIS
+////   programmable_logic_base --reads--> params[programmable_logic_global_cred] --requires--> THIS
 ////     --requires--> transfer | third_party | unfracking
 ////
 //// PLB proves *a* dispatcher ran — the one the protocol-params datum currently
@@ -32,7 +32,7 @@
 //// **Upgrade coherence (deployment responsibility, not enforceable on-chain).**
 //// A script cannot read another script's parameters, so nothing here can check
 //// that the hashes baked in agree with the `transfer_cred` / `third_party_cred`
-//// that `issuance_mint` reads from the params datum. Replacing a delegate is
+//// that `issuance_logic` reads from the params datum. Replacing a delegate is
 //// therefore a TWO-artifact change — new delegate, new instance of this
 //// validator — landed together with the datum rewrite. See the upgrade runbook.
 

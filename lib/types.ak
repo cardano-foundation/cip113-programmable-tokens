@@ -1,5 +1,4 @@
-// Core data types for CIP-113 programmable tokens
-// Migrated from SmartTokens.Types.PTokenDirectory and SmartTokens.Types.ProtocolParams
+//// Core data types for CIP-113 programmable tokens.
 
 use cardano/address.{Credential}
 use cardano/assets.{PolicyId}
@@ -19,17 +18,17 @@ pub type RegistryProof {
 /// ordinary programmable-token transfer is dispatched to, by
 /// `programmable_logic_global` under a `TransferAct` arm.
 ///
-/// This redeemer carries NO `params_idx`: the `transfer` validator no longer
-/// reads the protocol-params datum at all. The three values it used to read
-/// there — `programmable_logic_base_cred`, `registry_node_cs` and the seizure datum bound —
-/// are compile-time parameters of the validator now. Same for the standalone
-/// `third_party` and `unfracking` redeemers.
+/// This redeemer carries no `params_idx`: the `transfer` validator does not
+/// read the protocol-params datum. `programmable_logic_base_cred`,
+/// `registry_node_cs` and the seizure datum bound are compile-time parameters
+/// of the validator instead. Same for the standalone `third_party` and
+/// `unfracking` redeemers.
 pub type TransferRedeemer {
   /// One registry proof per distinct spent policy, in ascending policy order
   proofs: List<RegistryProof>,
 }
 
-/// Redeemer of the standalone `unfracking` withdraw-0 validator (v2).
+/// Redeemer of the standalone `unfracking` withdraw-0 validator.
 /// Same index-hint discipline as `ThirdPartyRedeemer`: an unfracking action
 /// is single-policy, names its registry node, and pairs every PLB input
 /// positionally with a continuing output starting at `outputs_start_idx`.
@@ -44,9 +43,7 @@ pub type UnfrackingRedeemer {
 /// Same index-hint discipline as `UnfrackingRedeemer`: a third-party
 /// (seize / clawback / freeze-enforcement) action names its subject
 /// policy's registry node and pairs every acted-on PLB input positionally
-/// with a continuing output starting at `outputs_start_idx`. Carries the
-/// exact fields the old inline `ThirdPartyAct` arm did — the logic moved
-/// out of the former coordinator into its own script, the redeemer surface is unchanged.
+/// with a continuing output starting at `outputs_start_idx`.
 pub type ThirdPartyRedeemer {
   /// Index of the subject policy's registry node in reference inputs
   registry_node_idx: Int,
@@ -57,9 +54,9 @@ pub type ThirdPartyRedeemer {
 /// Redeemer of the `programmable_logic_base` spend validator.
 ///
 /// PLB runs once per programmable-token input, so its cost is multiplied by
-/// every such input in the transaction — which is why it now does the smallest
+/// every such input in the transaction — which is why it does the smallest
 /// job in the protocol: locate the params datum, read ONE credential
-/// (`programmable_logic_global_cred`, field 2), and require that credential's withdraw-0 at the
+/// (`programmable_logic_global_cred`, field 0), and require that credential's withdraw-0 at the
 /// witnessed index. No arm, no `when`, no choice of accessor.
 ///
 /// It witnesses WHERE the dispatcher's credential sits in the ledger-ordered
@@ -71,11 +68,6 @@ pub type ThirdPartyRedeemer {
 /// Self-validating: a wrong `wdrl_idx` resolves to some other credential and
 /// the equality fails, so a dishonest witness can only invalidate its own
 /// transaction.
-///
-/// **The pairwise-distinctness ASSUMPTION is gone.** PLB used to choose between
-/// three credentials by redeemer arm, which was only sound while those three
-/// were distinct — a property nothing on-chain enforced. There is now exactly
-/// one credential on this path, so there is nothing to collide.
 pub type BaseSpendRedeemer {
   /// Index of the protocol-params NFT UTxO in `reference_inputs`.
   params_idx: Int,
@@ -124,16 +116,16 @@ pub type ProgrammableLogicGlobalRedeemer {
 /// nomination can never ride along inside a parameter change. Anyone watching
 /// the chain sees an authority handover begin as its own transaction.
 ///
-/// This does NOT reopen audit-3 finding 02 (issue #124), which is about the
-/// PLB redeemer carrying action variants: PLB must stay action-agnostic
-/// because its hash is baked into every token address, so an action set
-/// change there would be a token-address migration. `protocol_params` is the
-/// upgrade path itself — replacing it is a redeploy by definition — so there
-/// is no such coupling to protect here.
+/// Audit-3 finding 02 (issue #124) is about the PLB redeemer carrying action
+/// variants: PLB stays action-agnostic because its hash is baked into every
+/// token address, so an action set change there would be a token-address
+/// migration. `protocol_params` is the upgrade path itself — replacing it is
+/// a redeploy by definition — so there is no such coupling to protect here.
 pub type ProtocolParamsRedeemer {
-  /// Rewrite mutable protocol wiring. May change `programmable_logic_global_cred`, `transfer_cred`
-  /// and `third_party_cred`; may NOT touch `upgrade_cred` or the nomination.
-  /// Authorised by the sitting `upgrade_cred`'s withdraw-0.
+  /// Rewrite mutable protocol wiring. May change `programmable_logic_global_cred`,
+  /// `issuance_logic_cred`, `transfer_cred` and `third_party_cred`; may NOT
+  /// touch `upgrade_cred` or the nomination. Authorised by the sitting
+  /// `upgrade_cred`'s withdraw-0.
   ProtocolUpgrade
   /// Phase 1 of a handover: set (or clear) `pending_upgrade_cred` and nothing
   /// else. `Some(c)` nominates or re-nominates, `None` revokes. Authorised by
@@ -145,20 +137,19 @@ pub type ProtocolParamsRedeemer {
   PromoteAuthority
 }
 
-/// Redeemer for the issuance minting policy.
+/// Per-policy registry proof carried in `IssuanceLogicRedeemer`.
 ///
 /// The redeemer is the registry proof itself — a `RefInput` index for a
 /// subsequent mint (registry node already exists), or an `OutputIndex` for
 /// the first mint (registry node being created in the same tx).
 ///
-/// The substandard's withdraw-0 invocation (proof of instance) is checked
-/// directly against the validator's `minting_logic_cred` parameter — no
+/// The substandard's withdraw-0 invocation (proof of instance) is checked by
+/// `issuance_mint` directly against its `minting_logic_cred` parameter — no
 /// separate redeemer field needed. The validator parameter is baked into
 /// the policy id at compile time and pinned to `registry.minting_logic_script`
-/// by the cryptographic binding in the `registry` validator's mint handler,
-/// so collision-resistance
-/// of blake2b_224 forces credential agreement without a runtime equality
-/// check on the redeemer.
+/// by the cryptographic binding in the registry validator's mint handler, so
+/// collision-resistance of blake2b_224 forces credential agreement without a
+/// runtime equality check on the redeemer.
 pub type MintingRegistryProof {
   RefInput { index: Int }
   OutputIndex { index: Int }

@@ -20,8 +20,6 @@
 ////
 //// The frozen interface, stated once: `issuance_logic`'s redeemer decodes as
 //// `Pairs<PolicyId, Data>`. The keys are read here; the values never are.
-////
-//// Migrated from SmartTokens.Contracts.Issuance; split by #129.
 
 use aiken/collection/pairs as std_pairs
 use cardano/address.{Credential}
@@ -32,11 +30,14 @@ use types.{IssuanceMintRedeemer}
 use unsafe_pairs
 
 validator issuance_mint(
-  // <- the hash of the contract of the logic for minting.
+  // The substandard's minting-logic credential. Its withdraw-0 is the proof
+  // of instance (`issuance_mint.ak:46`), and it is the per-token entropy in
+  // this policy id.
   minting_logic_cred: Credential,
   // One-shot protocol-params NFT policy — the protocol's permanent anchor,
-  // the same parameter PLB and the delegates take. Locates the protocol-params
-  // UTxO at `redeemer.params_idx` and reads `issuance_logic_cred` (field 5).
+  // the same parameter `programmable_logic_base` and `issuance_logic` take.
+  // Locates the protocol-params UTxO at `redeemer.params_idx` and reads
+  // `issuance_logic_cred` (field 1).
   params_policy: PolicyId,
 ) {
   mint(redeemer: IssuanceMintRedeemer, own_policy: PolicyId, self: Transaction) {

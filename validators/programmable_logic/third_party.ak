@@ -1,6 +1,5 @@
 //// Third-party transfer invariants (seize / clawback / freeze enforcement),
 //// hosted by the standalone `third_party` withdraw-0 validator.
-//// Migrated from SmartTokens.Contracts.ProgrammableLogicBase (mkProgrammableLogicGlobal)
 
 use aiken/collection/dict
 use aiken/collection/list.{foldl} as aiken_list
@@ -57,7 +56,11 @@ pub fn validate_third_party(
   )
 }
 
-/// Drop 'n' output from the list, while accumulating tokens of a given policy present in dropped outputs
+/// Drop 'n' outputs from the list, while accumulating tokens of a given
+/// policy present in dropped outputs. Every dropped output at the PLB
+/// credential must also carry an inline stake credential and stay seizable
+/// (`prog_assets.is_seizable_output_shape_bounded`, issue #106) — a fresh
+/// destination created here is a future seizure target too.
 fn drop_accum_tokens(
   outputs: List<Output>,
   n: Int,
@@ -111,7 +114,11 @@ fn drop_accum_tokens(
 ///        * For every NON-acted-on policy: the input's tokens for that
 ///          policy and the paired output's tokens for that policy must be
 ///          byte-identical (no spam, no foreign-policy injection — the
-///          `before`/`after` halves of the two `value_split_at`s must match).
+///          `before`/`after` halves of the two `assets_split_at`s must match).
+///        * Lovelace is exempt from that byte-identity rule: it is peeled
+///          off both sides first and only ratcheted (output >= input) —
+///          equality would brick a UTxO when min-ADA rises, and `<` would
+///          let the admin drain the holder's ada while seizing (issue #96).
 ///
 ///   2. **Conservation balance** (once inputs are exhausted): the sum of
 ///      the acted-on policy's tokens across all PLB outputs must be a
@@ -150,7 +157,7 @@ fn validate_io_constraints_and_balance(
             // The inline stake credential is required for the same reason
             // `no_escape` requires it on the issuance path: a PLB output without
             // one has no owner `owner.ak` can ever authorise, so it is
-            // permanently unspendable. `issuance_mint` skips `no_escape` when it
+            // permanently unspendable. `issuance_logic` skips `no_escape` when it
             // delegates custody here, so this is the only place that catches a
             // mint composed with a seize.
             expect Some(Inline(..)) = output.address.stake_credential
@@ -185,7 +192,8 @@ fn validate_io_constraints_and_balance(
     }
 
     [Input { output: input, .. }, ..tail_inputs] ->
-      // Validate all inputs pointing at a programmable proof
+      // Only inputs at the PLB credential are paired; anything else is
+      // skipped.
       if input.address.payment_credential == programmable_logic_base_cred {
         // Extract the paired output and ensure it preserves address, datum,
         // AND reference_script. Finding 13: without the reference_script
@@ -197,17 +205,13 @@ fn validate_io_constraints_and_balance(
         expect output.datum == input.datum
         expect output.reference_script == input.reference_script
 
-        // [AL] issue #96: peel the ada entry (empty policy id — always the
-        // first entry, since every UTxO holds lovelace) off BOTH sides before
+        // issue #96: peel the ada entry (empty policy id — always the first
+        // entry, since every UTxO holds lovelace) off BOTH sides before
         // comparing the halves, and RATCHET it: the paired output must carry
-        // at least the input's lovelace. Splitting the full value put ada in
-        // the `before` half, so its byte-equality forced exact lovelace
-        // conservation per pair — and a protocol-parameter rise of the
-        // min-ADA calculation above an existing UTxO's lovelace made every
-        // ThirdPartyAct on it unsatisfiable forever (equality forbade the
-        // top-up that would absorb the rise). `>=` ONLY: lovelace is not a
-        // programmable asset, so accepting less would let the admin drain
-        // the holder's ada while seizing.
+        // at least the input's lovelace. `>=` ONLY: a min-ADA rise must be
+        // absorbable by a top-up, and lovelace is not a programmable asset,
+        // so accepting less would let the admin drain the holder's ada while
+        // seizing.
         let input_lovelace, input_assets <- prog_assets.split_lovelace(
           input.value,
         )
@@ -234,22 +238,14 @@ fn validate_io_constraints_and_balance(
         // otherwise this third-party action would CONTAMINATE an innocent
         // UTxO that never held the policy).
         //
-        // R-03 (re-audit): a former `input_tokens_at != output_tokens_at`
-        // guard tried to reject no-op forced respends as an anti-DoS measure.
-        // It was removed. It was PAIR-LOCAL, so it never delivered the
-        // aggregate guarantee it appeared to: an admin can restore a holder's
-        // exact balance in an UNPAIRED output (any output before
-        // `outputs_start_idx`, or a trailing output past the paired inputs)
-        // that the per-pair check never inspects, making the whole seizure a
-        // net no-op while every pair still shows a local delta. A proper
-        // per-owner aggregate anti-churn check was measured and costs ~+22%
-        // in script size, CPU and memory on the coordinator (the script every
-        // transfer references) — disproportionate for a threat Cardano's fee
-        // model already mitigates: each forced respend costs the (trusted)
-        // admin real fees, so sustained no-op churn is self-limiting. The
-        // `!is_empty` line below is a SEPARATE Finding-12 anti-injection
-        // invariant (the input must already hold the acted-on policy) and
-        // stays.
+        // R-03 (re-audit): the protocol deliberately has no aggregate
+        // anti-churn check on top of this — a degenerate "no-op" third-party
+        // action (restoring a holder's exact balance) is ACCEPTED, because
+        // conservation holds and no custody is lost. Each forced respend
+        // still costs the (trusted) admin real fees, so sustained no-op
+        // churn is fee-limited off-chain rather than blocked on-chain. The
+        // `!is_empty` line below is the SEPARATE Finding-12 anti-injection
+        // invariant (the input must already hold the acted-on policy).
         expect !dict.is_empty(input_tokens_at)
         expect and {
             (input_tokens_before == output_tokens_before)?,

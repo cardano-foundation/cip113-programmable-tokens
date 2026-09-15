@@ -1,6 +1,7 @@
 use unsafe_list
 
-/// Search a specific key in an associative list, and fail if not found.
+/// Search for a specific key in an associative list: returns `True` if the
+/// key is present, otherwise ABORTS — never returns `False`.
 pub fn has_key_or_fail(self: List<Pair<k, v>>, k: k) -> Bool {
   unsafe_list.expect_head(self).1st == k || has_key_or_fail(
     unsafe_list.expect_tail(self),
@@ -8,8 +9,9 @@ pub fn has_key_or_fail(self: List<Pair<k, v>>, k: k) -> Bool {
   )
 }
 
-/// Drop elements from an associative list until a given key is encountered. Fails loudly otherwise.
-/// Returns the value at that key, and the rest of the list.
+/// Drop elements from an associative list until `until` matches a key.
+/// Aborts if never matched. Passes the value and the remaining tail to
+/// `return`.
 pub fn expect_pop_until_and_then(
   self: Pairs<ByteArray, v>,
   until: fn(ByteArray) -> Bool,

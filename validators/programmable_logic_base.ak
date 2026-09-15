@@ -2,7 +2,6 @@
 //// This validator locks all programmable token UTxOs. It forwards validation
 //// to the `programmable_logic_global` dispatcher, named by the protocol-params
 //// datum.
-//// Migrated from SmartTokens.Contracts.ProgrammableLogicBase
 ////
 //// Upgradability in place: PLB is parameterized by the protocol-params NFT
 //// policy — the protocol's only permanent anchor — instead of a compile-time
@@ -13,8 +12,7 @@
 //// protocol-params UTxO; PLB's hash — and with it every programmable token
 //// address — never changes.
 ////
-//// **This validator is deliberately the smallest thing in the protocol**, and
-//// it is the one script that can never be replaced, because its hash anchors
+//// PLB is the one script that can never be replaced, because its hash anchors
 //// every token address. It runs once per programmable INPUT, so every
 //// instruction here is multiplied by the number of tokens a transaction moves.
 //// It therefore does exactly three things: locate the params datum, read ONE
@@ -26,7 +24,7 @@
 ////
 //// The trust chain, in one line:
 ////
-////   PLB --reads--> params[plg_cred] --requires--> PLG --requires--> delegate
+////   PLB --reads--> params[programmable_logic_global_cred] --requires--> PLG --requires--> delegate
 ////
 //// The witness is self-validating: a wrong `wdrl_idx` resolves to some other
 //// credential, the equality fails, and a dishonest witness only invalidates its
@@ -34,12 +32,6 @@
 //// witnessed entry: O(`wdrl_idx`), not O(1), but with no credential comparison
 //// on the way, where a scan would compare at every entry up to the dispatcher's
 //// position (cost record: `programmable_logic/wdrl_idx_cost.test.ak`).
-////
-//// Lineage: PLB used to dispatch to one of three delegate credentials itself,
-//// choosing between them on a three-constructor redeemer. That was only sound
-//// while the three credentials were pairwise distinct — an assumption nothing
-//// on-chain enforced. With a single credential on this path there is nothing
-//// left to collide, so the assumption is gone rather than documented.
 
 use aiken/collection/list
 use cardano/assets.{PolicyId}

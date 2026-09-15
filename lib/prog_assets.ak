@@ -240,10 +240,9 @@ pub fn collect_output_assets(
 ///   * An inline datum is BOUNDED by `max_inline_datum_bytes` (issue #106, vector 3):
 ///     seizure must reproduce it byte-for-byte too, so an unbounded one pushes
 ///     the seizure past `maxTxSize` — or, short of that, collapses how many
-///     UTxOs an issuer can seize per transaction. The bound is a live datum
-///     field (`ProtocolParams.max_inline_datum_bytes`), not a constant,
-///     so it can be retuned as DeFi order/loan state grows without
-///     re-deploying the delegates.
+///     UTxOs an issuer can seize per transaction. The bound is a compile-time
+///     parameter of every script that creates PLB outputs, retuned by a
+///     redeploy as DeFi order/loan state grows.
 ///
 /// Enforced at every PLB-output creation site (transfer, mint, unfracking
 /// destinations) so the property holds inductively for all PLB UTxOs.
@@ -260,29 +259,18 @@ pub fn is_seizable_output_shape(output: Output) -> Bool {
 /// compile-time parameter of every script that creates PLB outputs.
 ///
 /// Used at EVERY PLB-output creation site: the transfer gate, the fresh
-/// destination outputs of a third-party or unfracking action, and — since
-/// #129 split issuance — `issuance_logic`, for PLB outputs that carry the
-/// policy being minted.
+/// destination outputs of a third-party or unfracking action, and
+/// `issuance_logic`, for PLB outputs that carry the policy being minted.
 ///
-/// Issuance was exempt until then, and the record of why matters because two
-/// of the reasons have expired and one has not:
+/// The SUBSTANDARD's minting logic remains the right place for anything
+/// finer than a byte bound — it knows what its outputs should look like.
+/// This bound is the floor under it, not a replacement for it: without it,
+/// an issuer (or a hostile substandard) could mint a PLB output with a
+/// datum too large to reproduce in a seizure transaction, making it
+/// unseizable by construction — CIP-68 reference tokens with data-URI
+/// logos are the standing example of a datum large enough to matter.
 ///
-///   * (expired) threading the bound into the old single `issuance_mint`
-///     would have forced a params read on the `OutputIndex` path, which was
-///     built to need no reference input. The permanent policy now reads the
-///     params UTxO on every path anyway, and `issuance_logic` is a replaceable
-///     script that can take the bound as a parameter like the other three.
-///   * (expired) "an issuer that bloats a datum has only made its own asset
-///     awkward to seize" — but an unseizable UTxO is exactly what vector 3
-///     exists to prevent, whoever created it, and CIP-68 reference tokens
-///     minted with data-URI logos were the standing example of a kilobyte
-///     datum born at mint.
-///   * (still true) the SUBSTANDARD's minting logic remains the right place
-///     for anything finer than a byte bound — it knows what its outputs
-///     should look like. The core bound is the floor under it, not a
-///     replacement for it.
-///
-/// The bound is now a core guarantee for every PLB UTxO, with one deployment
+/// The bound is a core guarantee for every PLB UTxO, with one deployment
 /// invariant no script can check: each of the four scripts bounds only the
 /// outputs IT creates, so all four must be deployed with the same value (or,
 /// minimally, every creator's bound ≤ every carrier's). A UTxO born under a

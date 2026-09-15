@@ -1,23 +1,22 @@
 //// Native-script multisig semantics in Plutus, for the upgrade authority.
 ////
 //// `MultisigScript` and `satisfied` are copied from SundaeSwap's `aicone`
-//// (`lib/sundae/multisig.ak`, Apache-2.0, main @ `753436d6caea`, fetched
-//// 2026-09-07), with its `satisfying` test verbatim. Copied rather than
-//// depended on: the repository is unpublished (version 0.0.0) and this repo
-//// takes no on-chain dependency beyond stdlib and fuzz. The port needed no
-//// source change — every stdlib module it uses exists unchanged in v3.
+//// (`lib/sundae/multisig.ak`, Apache-2.0, main @ `753436d6caea`), with its
+//// `satisfying` test verbatim. Copied rather than depended on: the
+//// repository is unpublished (version 0.0.0) and this repo takes no
+//// on-chain dependency beyond stdlib and fuzz.
 ////
 //// Left out on purpose: `satisfied_payload`, which verifies ed25519
 //// signatures over an arbitrary payload. The authority decides on
 //// `extra_signatories`, so it would be dead code carrying two crypto builtins.
 ////
 //// Added here: `well_formed` and `size`. Sundae's `AtLeast` has exactly the
-//// defects the reference M-of-N validator had (MINR-054, audit-3 finding 05):
-//// duplicate children inflate the count, `required <= 0` is permissionless,
-//// `required > length` can never be met. Adopting the tree without a
-//// well-formedness rail would move that problem, not solve it — and the rail
-//// is only enforceable when the tree lives in a datum someone WRITES, which is
-//// why `upgrade_multisig` holds it in a config UTxO and checks it on both the
+//// defects the reference M-of-N validator had (A3-05): duplicate children
+//// inflate the count, `required <= 0` is permissionless, `required >
+//// length` can never be met. Adopting the tree without a well-formedness
+//// rail would move that problem, not solve it — and the rail is only
+//// enforceable when the tree lives in a datum someone WRITES, which is why
+//// `upgrade_multisig` holds it in a config UTxO and checks it on both the
 //// mint and the spend.
 
 use aiken/collection/list
@@ -91,25 +90,20 @@ pub fn satisfied(
 /// authority that writes itself a tree too expensive to evaluate has bricked
 /// the upgrade path; this cap makes that unrepresentable.
 ///
-/// Chosen on measurement, not on feel. The worst case at a given cap is a
-/// flat `AtLeast` over cap-1 signature leaves with every member signing —
-/// every leaf scans the whole signatory list, and on the UPDATE path the
-/// duplicate check compares every pair of children (`list.unique` is
-/// quadratic in structural equality). Measured 2026-09-07, mainnet budget
-/// 14 M mem / 10 B cpu (see `update_at_max_size_tree` in the validator tests):
-///
-///   cap   withdraw (per upgrade)   update (per rotation)
-///    16     0.90 M /  262 M         1.91 M /  682 M   (14% of mem budget)
-///    20     1.23 M /  358 M         2.65 M /  970 M   (19%)
-///    24     1.61 M /  468 M         3.51 M / 1.31 B   (25%)
-///    32     2.52 M /  733 M         5.61 M / 2.16 B   (40%)
+/// The worst case at a given cap is a flat `AtLeast` over cap-1 signature
+/// leaves with every member signing — every leaf scans the whole signatory
+/// list, and on the UPDATE path the duplicate check compares every pair of
+/// children (`list.unique` is quadratic in structural equality). Costs at
+/// each candidate cap are exercised by `update_at_max_size_tree` in the
+/// validator tests.
 ///
 /// 20 leaves room for a 7-signer hot set, a dated cold pair and a governance
-/// `Script` leaf (about 18 nodes) while keeping the worst case under a fifth
-/// of one transaction's memory. A realistic federation — 2-of-3 hot, dated
-/// 2-of-2 cold, one governance leaf — is 11 nodes and costs a fraction of
-/// this. The cap is baked into the validator's bytes, so changing it later is
-/// an authority handover, not a config update: decide it before deployment.
+/// `Script` leaf (about 15 nodes) while keeping the worst case well inside
+/// one transaction's memory budget. A realistic federation — 2-of-3 hot,
+/// dated 2-of-2 cold, one governance leaf — is 11 nodes and costs a fraction
+/// of this. The cap is baked into the validator's bytes, so changing it
+/// later is an authority handover, not a config update: decide it before
+/// deployment.
 pub const max_size: Int = 20
 
 /// A tree the authority may be configured with.
@@ -125,7 +119,11 @@ pub const max_size: Int = 20
 ///   * every `AtLeast` has `1 <= required <= length(scripts)`;
 ///   * the whole tree fits under `max_size`.
 ///
-/// Time leaves carry no constraint: any `Int` is a valid POSIX time bound.
+/// Time leaves carry no constraint: any `Int` is a valid POSIX time bound —
+/// nothing here requires a tree to contain an evidence leaf at all, so a
+/// tree of `Before`/`After` leaves alone is well-formed and permissionless
+/// once its time bound has passed; that configuration is the authority's own
+/// responsibility, not a shape this rail refuses.
 pub fn well_formed(script: MultisigScript) -> Bool {
   and {
     size(script) <= max_size,
@@ -173,7 +171,7 @@ fn size_all(scripts: List<MultisigScript>) -> Int {
 }
 
 // ---------------------------------------------------------------------------
-// Sundae's own test, verbatim
+// Sundae's own test, verbatim, plus one addition below
 // ---------------------------------------------------------------------------
 
 fn valid_range(lo: Int, hi: Int) -> ValidityRange {
@@ -341,8 +339,8 @@ test well_formed_rejects_short_script_hash() {
   !well_formed(Script { script_hash: #"a1a1" })
 }
 
-// `AllOf []` is vacuously true — a permissionless authority. The sharpest edge
-// in the whole ADT, and the reason list nodes must be non-empty.
+// `AllOf []` is vacuously true — a permissionless authority, and the reason
+// list nodes must be non-empty.
 test well_formed_rejects_empty_all_of() {
   !well_formed(AllOf { scripts: [] })
 }
@@ -461,15 +459,15 @@ fn leaf_keys(script: MultisigScript) -> List<ByteArray> {
 
 const no_w: Pairs<Credential, Lovelace> = []
 
-// The generator and the rail agree on what a good tree is.
+// Every tree the generator produces is well-formed.
 test prop_generated_trees_are_well_formed(t via any_tree()) {
   well_formed(t)
 }
 
-// THE property the rail exists for: a well-formed, time-free tree can never be
-// satisfied with no evidence at all. This is what "no permissionless
-// authority" means, and it is exactly what `AllOf []` and `AtLeast { 0, .. }`
-// would violate.
+// A well-formed, time-free, GENERATED tree can never be satisfied with no
+// evidence at all — `any_tree()` never emits an empty list node or an
+// `AtLeast` with `required: 0`, the two shapes `well_formed_rejects_empty_all_of`
+// and `well_formed_rejects_zero_threshold` cover directly.
 test prop_no_evidence_never_satisfies(t via any_tree()) {
   !satisfied(t, [], valid_range(0, 1), no_w)
 }
@@ -529,8 +527,8 @@ test prop_at_least_is_counting(
   )
 }
 
-// Duplicating any member of a well-formed `AtLeast` makes it ill-formed —
-// whatever the threshold, whatever the size.
+// Duplicating the first member of a well-formed `AtLeast` makes it
+// ill-formed — whatever the threshold, whatever the size.
 fn keys_with_threshold() -> Fuzzer<(List<ByteArray>, Int)> {
   fuzz.and_then(
     fuzz.set_between(any_key(), 1, 8),
