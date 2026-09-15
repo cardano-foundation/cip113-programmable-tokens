@@ -16,7 +16,7 @@ jobs:
       - run: aiken fmt --check
       - run: aiken check -D
       # The assertions env compiles env/with_assertions.ak in place of the
-      # default no-op, enforcing assets.collect's documented no-ada
+      # default no-op, enforcing prog_assets.collect's documented no-ada
       # pre-condition. Without this step that assertion never executes.
       - run: aiken check -D --env with_assertions
       - run: aiken build

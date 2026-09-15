@@ -3,7 +3,7 @@ DOC-KIND: migration-guide
 AUDIENCE: substandard implementors upgrading an EXISTING pre-audit substandard to post-audit main
 FORMAT: agentic-first (stable anchors, before→after tables, code anchors, verifiable checklists) — also human-readable
 BASELINE: 8143853 (pre-audit, 2026-04-28)
-TARGET:   3a6d8d6 (main, 2026-07-16) + re-audit R-01..R-05
+TARGET:   3a6d8d6 (main, 2026-07-16) + re-audit R-01..R-06 (all six landed on main; superseded by later branches — see §0)
 COMPANION: cip113-api-changes-post-audit.md  (the field-level API/CBOR surface; this doc is the conceptual/behavioural layer)
 CANONICAL-SOURCE: the validators in validators/ and types in lib/ always win over this doc; every claim below is anchored to file:symbol
 -->
@@ -41,6 +41,22 @@ models in §1 are the framework's current contract, not just a diff.
 
 **If you are a human**: read §1 for the model, skim §2 to see what will break,
 work §3 top-to-bottom, tick §5.
+
+**Current state.** `main` has moved past this document's TARGET commit through
+several further refactors. Two claims below no longer hold and are marked
+where they occur:
+
+- **`protected_prefixes` does not exist any more.** Added in #82, it shipped
+  before this document's TARGET commit and was removed again in #97 (issue
+  #96). Current `main`'s 7th field is `unfracking_logic_script`.
+- **The protocol-params datum has 6 fields and no `unfracking_cred`.**
+  `programmable_logic_global` now locates `transfer` / `third_party` /
+  `unfracking` by compile-time parameter, not a params-datum credential.
+  Separately, `RegistryNode.unfracking_logic_script` is a newer, additional
+  per-policy gate the `unfracking` validator itself enforces. See
+  `validators/programmable_logic/params.ak` and `lib/registry_node.ak` for the
+  current shapes, and `CONTRACT_SURFACE_CHANGES.md` for every step between
+  this document's target and today.
 
 ---
 
@@ -87,14 +103,15 @@ scripts that govern it. Post-audit, `lib/registry_node.ak:RegistryNode` is that
 object and is the single source of truth for a policy:
 
 ```
+// Current main (see lib/registry_node.ak; protected_prefixes was removed — see §0)
 RegistryNode {
-  key                                : ByteArray    -- the policy id this node governs
-  next                               : ByteArray    -- linked-list successor
-  minting_logic_script               : Credential   -- your issuance withdraw-0
-  transfer_logic_script              : Credential   -- your transfer withdraw-0
-  third_party_transfer_logic_script  : Credential   -- your admin/seizure withdraw-0
-  global_state_cs                    : ByteArray     -- optional global-state policy (28B or empty)
-  protected_prefixes                 : List<ByteArray> -- CIP-67 labels the admin can't touch
+  key                     : ByteArray  -- the policy id this node governs
+  next                    : ByteArray  -- linked-list successor
+  minting_logic_script    : Credential -- your issuance withdraw-0
+  transfer_logic_script   : Credential -- your transfer withdraw-0
+  third_party_logic_script: Credential -- your admin/seizure withdraw-0 (renamed from third_party_transfer_logic_script)
+  unfracking_logic_script : Credential -- your issuer-set unfracking hook; empty_vkey forbids unfracking
+  global_state_cs         : ByteArray  -- optional global-state policy (28B or empty)
 }
 ```
 
@@ -121,9 +138,10 @@ re-spending the node UTxO through `validators/registry_spend.ak`
 | `next` | **No** (via update) | Only re-linked by insert, never by update. |
 | `minting_logic_script` | **No** | Immutable — it is bound to `key`; changing it would break the binding. |
 | `transfer_logic_script` | **Yes** | The rules governing ordinary transfers can change. |
-| `third_party_transfer_logic_script` | **Yes** | The admin/seizure rules can change. |
+| `third_party_logic_script` (renamed from `third_party_transfer_logic_script`) | **Yes** | The admin/seizure rules can change. |
+| `unfracking_logic_script` | **Yes** | Your unfracking hook can change; `empty_vkey` forbids unfracking entirely. |
 | `global_state_cs` | **Yes** | 28-byte credential or empty. |
-| `protected_prefixes` | **Yes, APPEND-ONLY** | May add CIP-67 labels; may never drop one. Protection cannot be revoked. |
+| `protected_prefixes` | *(removed — added in #82, removed again in #97; not part of current `main`, see §0)* |
 
 Authority to update is **the `minting_logic_script` itself**: the update is only
 valid if `minting_logic_script` is a `Script` credential *and* its withdraw-0 is
@@ -147,22 +165,23 @@ minting logic can never update — updates are script-gated by construction.
 
 ### 1.4 The admin path has a defined, bounded custody scope
 
-> **Superseded on `feat/upgradability-in-place`** by the validator split — see
-> `cip113-api-changes-post-audit.md` §17. The third-party path is no longer a
-> `programmable_logic_global` redeemer arm; it is the **standalone `third_party`
-> validator** (redeemer `ThirdPartyRedeemer { params_idx, registry_node_idx,
-> outputs_start_idx }`), dispatched by `programmable_logic_base` via
-> `SpendViaThirdParty`. (`programmable_logic_global` itself is renamed
-> **`transfer`**, redeemer `TransferRedeemer`, and handles transfers only.) The
-> custody guarantees below are unchanged — only the validator that hosts them
-> and the redeemer that carries the action moved.
+> **Superseded, and superseded again — see `cip113-api-changes-post-audit.md`
+> §0/§17.** The third-party path is the **standalone `third_party` validator**
+> (redeemer `ThirdPartyRedeemer { registry_node_idx, outputs_start_idx }`),
+> dispatched by `programmable_logic_base` via the flat
+> `BaseSpendRedeemer { params_idx, wdrl_idx }` — not `SpendViaThirdParty`, which
+> was itself a later, since-removed shape. `programmable_logic_global` is the
+> PLG dispatcher again, routing `ThirdPartyAct` to `third_party`. The custody
+> guarantees below are unchanged — only the validator that hosts them and the
+> redeemer that carries the action moved.
 
 Pre-audit, the third-party/seizure path was under-specified. It is now a
 first-class action with structural guarantees the base layer enforces regardless
 of your substandard (`validators/programmable_logic/third_party.ak`):
 
-- Your `third_party_transfer_logic_script` MUST be invoked (withdraw-0) — the
-  admin cannot act without your logic authorising it.
+- Your `third_party_logic_script` (renamed from `third_party_transfer_logic_script`)
+  MUST be invoked (withdraw-0) — the admin cannot act without your logic
+  authorising it.
 - Each spent PLB UTxO is paired 1:1 with a continuing output that preserves
   **address, datum, and reference script** byte-for-byte (Finding 13).
 - The paired input MUST already hold the subject policy — no injecting a policy
@@ -178,43 +197,49 @@ action is authorised; the framework guarantees *what shape* it can take. You no
 longer have to (and cannot) re-implement custody preservation — but you also
 cannot exceed this scope. See §1.5 for what you can carve out of it.
 
-### 1.5 Companion assets stay inside the PLB — and you protect them with prefixes
+### 1.5 Companion assets stay inside the PLB (protected prefixes, since removed)
+
+> **Superseded — see §0.** `protected_prefixes` was added in #82 and removed
+> again in #97 (issue #96); it is not part of current `main`. What remains
+> true is the first sentence below: the framework never lets a registered
+> policy's tokens leave the PLB except through `ThirdPartyAct`'s anti-injection
+> and reconciliation guarantees (§1.4). If your substandard needs to shield
+> companion assets from admin seizure, that protection is not currently a
+> framework primitive — it is your substandard's own responsibility.
 
 The framework never lets a registered policy's tokens leave the PLB (no
 carve-out). Companion assets (CIP-68 reference NFTs label 100, CIP-102 royalty
-tokens label 500) therefore live *inside* the PLB under the same policy, and you
-shield them from admin seizure via `protected_prefixes` on the node:
-
-`ThirdPartyAct` may **not extract or burn** any token whose CIP-67 asset-name
-label prefix is on `protected_prefixes` — on each pair those tokens must be
-byte-equal across input and output ("preserve, not fail":
-`third_party.ak:protected_subset`). The unprotected remainder is still fully
-seizable.
-
-**Why your substandard cares:** if your token has CIP-68/102 companion assets,
-declaring their label prefixes as protected is now *your* responsibility at
-registration (and you can only ever *add* more later — §1.3). Metadata/royalty
-management itself is out of framework scope and lives in your
-CIP-68/102-aware minting/transfer logic. See
+tokens label 500) therefore live *inside* the PLB under the same policy. At
+this document's TARGET commit they could be shielded from admin seizure via a
+`protected_prefixes` field on the node (`ThirdPartyAct` could **not extract or
+burn** any token whose CIP-67 asset-name label prefix was declared protected —
+"preserve, not fail"); that mechanism no longer exists. Protecting a companion
+asset from an admin action is a substandard-layer responsibility now — see
 [`03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md`](./03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md).
 
 ### 1.6 Holders can restructure their own UTxOs (Unfracking)
 
-> **Superseded on `feat/upgradability-in-place`** by the validator split — see
-> `cip113-api-changes-post-audit.md` §17. There is no `UnfrackingAct` any more:
-> `programmable_logic_base` dispatches straight to the `unfracking` validator
-> via `SpendViaUnfracking`, and the transfer validator is not part of an
-> unfracking transaction at all. Everything below about *what* unfracking does
-> and why your substandard cares still holds.
+> **Superseded, and superseded again — see `cip113-api-changes-post-audit.md`
+> §0/§17.** `ProgrammableLogicGlobalRedeemer.UnfrackingAct` is field-less and
+> dispatched by the `programmable_logic_global` (PLG) dispatcher again, not by
+> `programmable_logic_base` directly, and not via `SpendViaUnfracking` (a
+> later, since-removed shape). PLG requires the standalone `unfracking`
+> validator's withdraw-0 via a compile-time `ScriptHash` parameter, not a
+> protocol-params field (`unfracking_cred` was removed). The `unfracking`
+> validator ADDITIONALLY, and separately, requires the acted-on policy's own
+> `RegistryNode.unfracking_logic_script` withdraw-0 — a newer, per-policy
+> consent hook; a policy whose node sets `empty_vkey` there has unfracking
+> forbidden outright. Everything below about *what* unfracking does and why
+> your substandard cares still holds.
 
 New action `ProgrammableLogicGlobalRedeemer.UnfrackingAct` (Finding 17) lets a
 holder redistribute the programmable tokens they already hold across their own
 PLB UTxOs — value-preserving, same-owner, **no substandard logic invoked**. Its
 purpose is to split multi-policy UTxOs into single-policy UTxOs, so a freeze on
 one policy cannot collaterally freeze unrelated policies sharing a UTxO. The
-invariants live in a standalone `unfracking` withdraw-0 validator whose
-credential is the protocol-params datum's `unfracking_cred` field; PLG only
-checks that validator is invoked.
+invariants live in a standalone `unfracking` withdraw-0 validator; PLG checks
+that validator is invoked, and the validator itself additionally requires the
+acted-on policy's `RegistryNode.unfracking_logic_script` withdraw-0.
 
 **Why your substandard cares:** two points. (a) Unfracking runs *without* your
 transfer logic, so do not assume your transfer logic sees every movement of your
@@ -432,10 +457,10 @@ Ordered so that CBOR/parameter breakage (which blocks everything) comes first.
 | Registry node datum & field mutability | `lib/registry_node.ak:RegistryNode`, `lib/linked_list.ak:is_field_updated_registry_node` |
 | Node update path & authority (R-01) | `validators/registry_spend.ak` |
 | Registration flows (with/without first mint) | `lib/types.ak:RegistryRedeemer`, `validators/registry_mint.ak` |
-| Issuance / delegation / custody | `validators/issuance_mint.ak:plgl_scope_covers` (`transfer_scope_covers` on `feat/upgradability-in-place`) |
+| Issuance / delegation / custody | `validators/issuance_mint.ak` (the permanent per-token policy) and `validators/issuance_logic.ak:delegate_covers_own_registry_node` (the replaceable protocol rules, incl. `transfer_scope_covers`) — split by #129, superseding the single-script form this document describes |
 | Transfer proof contract | `validators/programmable_logic/transfer.ak:verify_proofs` |
-| Third-party scope & protected prefixes | `validators/programmable_logic/third_party.ak` |
+| Third-party scope (protected prefixes since removed, see §0) | `validators/third_party.ak`, invariants in `validators/programmable_logic/third_party.ak` |
 | Protocol-params datum | `validators/programmable_logic/params.ak` |
-| Unfracking | `validators/programmable_logic/unfracking.ak` (on `feat/upgradability-in-place`: dispatched by PLB's `SpendViaUnfracking`, no PLG branch) |
+| Unfracking | `validators/unfracking.ak` (dispatched by `programmable_logic_global`'s `UnfrackingAct` arm; invariants in `validators/programmable_logic/unfracking.ak`) |
 | Control scope (human narrative) | [`03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md`](./03-CONTROL-SCOPE-AND-ADMIN-AUTHORITY.md) |
 | Field-level API/CBOR surface | [`cip113-api-changes-post-audit.md`](./cip113-api-changes-post-audit.md) |

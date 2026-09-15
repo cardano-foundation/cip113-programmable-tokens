@@ -67,27 +67,37 @@ When contributing code, it helps to have discussed the rationale and (ideally) h
 
 **Prerequisites:**
 
-- [Aiken](https://aiken-lang.org/installation-instructions) v1.1.21 (pinned in `aiken.toml`)
+- [Aiken](https://aiken-lang.org/installation-instructions) v1.1.23 (pinned in `aiken.toml`)
 
-**Build:**
-
-```bash
-aiken build
-```
-
-**Run tests:**
-
-```bash
-aiken check
-```
-
-**Format check (run before submitting a PR):**
+**Format check:**
 
 ```bash
 aiken fmt --check
 ```
 
-Make sure **all** tests are successful before submitting a pull request.
+**Run tests:**
+
+```bash
+aiken check -D
+```
+
+The `with_assertions` environment additionally compiles runtime assertions that
+the default environment no-ops (see the comment on the corresponding step in
+`.github/workflows/continuous-integration.yml`):
+
+```bash
+aiken check -D --env with_assertions
+```
+
+**Build** (regenerates `plutus.json`; run last, since it reads the current source):
+
+```bash
+aiken build
+```
+
+Run `aiken fmt` (without `--check`) to apply formatting before committing.
+Make sure **all** tests are successful in both environments before submitting
+a pull request — this is the same sequence continuous integration runs.
 
 ### Coding standards
 
@@ -115,4 +125,4 @@ Thank you for contributing your changes by opening a pull request! To get someth
 + Change is related to an issue, feature (idea), or bug report — ideally discussed beforehand
 + Well-scoped — we prefer multiple PRs rather than one big one
 
-**Note:** This project is currently in R&D phase. As the CIP-113 standard evolves, significant changes may be required. We appreciate your understanding and flexibility during this development period.
+**Note:** As the CIP-113 standard itself continues to evolve, a change here can require coordinating with the standard's own discussion thread — see [Communication channels](#communication-channels) above.

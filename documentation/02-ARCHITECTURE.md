@@ -1162,6 +1162,22 @@ Both write paths hold the tree to `well_formed` — the mint at
 `withdraw` does not run `well_formed`: the tree was checked when it was written,
 so authorising an upgrade pays only for `satisfied`.
 
+**What `well_formed` deliberately does not check.** It constrains the tree's *shape*, not who can
+satisfy it, and two consequences follow that an authority configuring itself must handle on its own.
+
+A tree needs no evidence leaf. `Before` and `After` carry no constraint (`lib/multisig.ak:140-141`),
+so a tree built only from time bounds is well-formed and installable, and `withdraw` then authorises
+it with no signatories and no withdrawals once the bound has passed — a validity range is evidence of
+*when*, never of *who*. And the duplicate-child rule compares children structurally
+(`lib/multisig.ak:156`), so it rejects `[sig(A), sig(A)]` but admits
+`[AllOf { scripts: [sig(A)] }, sig(A)]`, in which one party satisfies an `AtLeast` of two.
+
+Both shapes require satisfying the *existing* tree in order to install, so neither is reachable by
+anyone outside the sitting authority: they are ways an authority can misconfigure itself, not ways a
+third party can seize it. The protocol treats them as the authority's responsibility rather than
+refusing them, so a tree intended to require several independent parties should be reviewed against
+both before it is installed.
+
 ---
 
 ## Security Properties
