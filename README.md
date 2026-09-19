@@ -52,7 +52,7 @@ Programmable tokens are **native Cardano assets** with an additional layer of va
 - 📋 **On-Chain Registry** — Decentralized directory of registered programmable tokens
 - 🎯 **Composable Logic** — Plug-and-play transfer and minting validation scripts
 - 🚫 **Freeze & Seize** — Optional issuer controls for regulatory compliance
-- ⚡ **Direct-Index Registry Proofs** — A membership (or non-membership) proof is a direct index into the reference inputs, so cost scales with the proof's position, not the registry's size (`validators/third_party.ak:97`)
+- ⚡ **Direct-Index Registry Proofs** — A membership (or non-membership) proof is a direct index into the reference inputs, so cost scales with the proof's position, not the registry's size (`validators/third_party.ak:91`)
 - 🔗 **Native Asset Based** — Built on Cardano's native token infrastructure with no hard fork required
 - 🧹 **Unfracking** — Holder-driven UTxO restructuring that isolates each policy in its own UTxO, containing freeze collateral damage
 - 🧩 **Extensible** — Support for denylists, allowlists, time-locks, and custom policies
@@ -137,21 +137,21 @@ These components form the shared infrastructure that all programmable tokens use
 
 #### 1. Token Registry (On-Chain Directory)
 
-A sorted linked list of registered programmable token policies, implemented as on-chain UTxOs with NFT markers (`lib/registry_node.ak:51-81`). Each registry entry (`RegistryNode`) carries the token's policy id (`key`), the substandard's minting, transfer, third-party (issuer control) and unfracking script credentials, and an optional global-state currency symbol. Covering-node proofs give membership and non-membership checks whose cost scales with the proof's position among the reference inputs, not with the size of the registry: a proof is a direct index into `reference_inputs` (`validators/third_party.ak:97`). Four of the seven fields are live configuration — the transfer, third-party and unfracking script credentials plus the global-state symbol can be updated in place by the token's lifecycle authority, its `minting_logic_script` credential (`validators/registry.ak:174-233`, `lib/linked_list.ak:180-207`); the key and that authority itself never change.
+A sorted linked list of registered programmable token policies, implemented as on-chain UTxOs with NFT markers (`lib/registry_node.ak:51-81`). Each registry entry (`RegistryNode`) carries the token's policy id (`key`), the substandard's minting, transfer, third-party (issuer control) and unfracking script credentials, and an optional global-state currency symbol. Covering-node proofs give membership and non-membership checks whose cost scales with the proof's position among the reference inputs, not with the size of the registry: a proof is a direct index into `reference_inputs` (`validators/third_party.ak:91`). Four of the seven fields are live configuration — the transfer, third-party and unfracking script credentials plus the global-state symbol can be updated in place by the token's lifecycle authority, its `minting_logic_script` credential (`validators/registry.ak:174-233`, `lib/linked_list.ak:181-206`); the key and that authority itself never change.
 
 #### 2. Programmable Logic Base, Dispatcher, and Delegate Validators
 
-A shared spending validator, `programmable_logic_base` (PLB), holds every programmable token (`validators/programmable_logic_base.ak:50`). PLB runs once per spent programmable input — the only per-input cost in the protocol — and does the smallest possible job: read one credential from the protocol-params datum, the `programmable_logic_global` dispatcher's, and require that credential's withdraw-zero at a witnessed index (`validators/programmable_logic_base.ak:72-74`). `programmable_logic_global` holds the three delegate script hashes as compile-time parameters and requires whichever one the redeemer names — `transfer` (ordinary transfers), `third_party` (seize / clawback / freeze enforcement) or `unfracking` (holder-driven, same-owner restructuring) — running once per transaction regardless of how many inputs it covers (`validators/programmable_logic_global.ak:48-70`).
+A shared spending validator, `programmable_logic_base` (PLB), holds every programmable token (`validators/programmable_logic_base.ak:42`). PLB runs once per spent programmable input — the only per-input cost in the protocol — and does the smallest possible job: read one credential from the protocol-params datum, the `programmable_logic_global` dispatcher's, and require that credential's withdraw-zero at a witnessed index (`validators/programmable_logic_base.ak:64-66`). `programmable_logic_global` holds the three delegate script hashes as compile-time parameters and requires whichever one the redeemer names — `transfer` (ordinary transfers), `third_party` (seize / clawback / freeze enforcement) or `unfracking` (holder-driven, same-owner restructuring) — running once per transaction regardless of how many inputs it covers (`validators/programmable_logic_global.ak:48-70`).
 
 #### 3. Minting Policies
 
 - **Issuance** (`issuance_mint`, `issuance_logic`) — `issuance_mint` is permanent per token: its applied hash IS the token's policy id. It requires two withdraw-zeros: the substandard's own `minting_logic_cred` (which doubles as the token's **registry-lifecycle authority**) and the protocol's `issuance_logic`, named by the protocol-params datum's `issuance_logic_cred` field, proving it covered this policy id (`validators/issuance_mint.ak:34-64`). `issuance_logic` is the replaceable half — its rules can be upgraded for every existing token by rewriting one datum field, with no policy id moving (`validators/issuance_logic.ak:44-97`).
-- **Registry Policy** (`registry`) — one script, two handlers: `mint` manages the sorted linked list of registered tokens, `spend` guards every node (`validators/registry.ak:49`, `:174`).
+- **Registry Policy** (`registry`) — one script, two handlers: `mint` manages the sorted linked list of registered tokens, `spend` guards every node (`validators/registry.ak:40`, `:174`).
 - **Protocol Params Policy** (`protocol_params`) — one-shot mint of the protocol-parameters NFT; `spend` enforces the three upgrade-path transaction shapes (`validators/protocol_params.ak:228`, `:276`).
 
 #### 4. Upgrade Authority
 
-`upgrade_multisig` holds the upgrade authority as a `MultisigScript` approval tree (Sundae's native-script ADT, `lib/multisig.ak`) inside a config UTxO it owns. `protocol_params` names this script's withdraw-zero credential as `upgrade_cred`; rotating signers is a config-UTxO update, not a script redeploy — the credential itself never moves (`validators/upgrade_multisig.ak:73-189`).
+`upgrade_multisig` holds the upgrade authority as a `MultisigScript` approval tree (Sundae's native-script ADT, `lib/multisig.ak`) inside a config UTxO it owns. `protocol_params` names this script's withdraw-zero credential as `upgrade_cred`; rotating signers is a config-UTxO update, not a script redeploy — the credential itself never moves (`validators/upgrade_multisig.ak:66-186`).
 
 ### Substandards (Pluggable Token Rules)
 
@@ -168,17 +168,17 @@ Substandard implementations live in the platform repository:
 
 | Validator | Handlers | Purpose |
 |-----------|----------|---------|
-| `programmable_logic_base` | Spend | Custody of every programmable-token UTxO; reads the dispatcher credential off the protocol-params datum and requires its withdraw-zero (`validators/programmable_logic_base.ak:50-77`) |
+| `programmable_logic_base` | Spend | Custody of every programmable-token UTxO; reads the dispatcher credential off the protocol-params datum and requires its withdraw-zero (`validators/programmable_logic_base.ak:42-72`) |
 | `programmable_logic_global` | Withdraw, Publish | Dispatcher: proves the redeemer-named delegate (`transfer`, `third_party` or `unfracking`) was invoked (`validators/programmable_logic_global.ak:48-71`) |
-| `transfer` | Withdraw, Publish | Transfer delegate — the hot path. Walks a registry proof per policy and requires that policy's registered transfer-logic script's withdraw-zero (`validators/programmable_logic/transfer.ak:180-280`). Checks ownership of every spent input (`:72-114`, `validators/programmable_logic/owner.ak:28-40`) and that outputs contain at least the input tokens at a valid PLB shape (`:213-217`, `lib/prog_assets.ak:208-225`) |
-| `third_party` | Withdraw, Publish | Seize / clawback / freeze-enforcement delegate (`validators/third_party.ak:39-76`) |
-| `unfracking` | Withdraw, Publish | Holder-driven, same-owner restructuring delegate (`validators/unfracking.ak:55-92`) |
+| `transfer` | Withdraw, Publish | Transfer delegate — the hot path. Walks a registry proof per policy and requires that policy's registered transfer-logic script's withdraw-zero (`validators/programmable_logic/transfer.ak:175-274`). Checks ownership of every spent input (`:72-114`, `validators/programmable_logic/owner.ak:27-39`) and that outputs contain at least the input tokens at a valid PLB shape (`:213-217`, `lib/prog_assets.ak:208-225`) |
+| `third_party` | Withdraw, Publish | Seize / clawback / freeze-enforcement delegate (`validators/third_party.ak:41-80`) |
+| `unfracking` | Withdraw, Publish | Holder-driven, same-owner restructuring delegate (`validators/unfracking.ak:56-95`) |
 | `issuance_mint` | Mint | Permanent per-token minting/burning policy; its applied hash IS the token's policy id (`validators/issuance_mint.ak:34-64`) |
 | `issuance_logic` | Withdraw, Publish | Replaceable per-transaction issuance rules, upgradable via the protocol-params `issuance_logic_cred` field (`validators/issuance_logic.ak:44-89`) |
 | `issuance_cbor_hex_mint` | Mint | One-shot mint of the issuance script template reference NFT (`validators/issuance_cbor_hex_mint.ak:13-51`) |
-| `registry` | Mint, Spend | Sorted linked-list registry: `mint` manages insert/update (`validators/registry.ak:49-173`), `spend` guards every node (`:174-239`) |
+| `registry` | Mint, Spend | Sorted linked-list registry: `mint` manages insert/update (`validators/registry.ak:41-167`), `spend` guards every node (`:174-239`) |
 | `protocol_params` | Mint, Spend | One-shot mint of the protocol-parameters NFT (`validators/protocol_params.ak:228-275`); `spend` enforces the three upgrade-path shapes (`:276-342`) |
-| `upgrade_multisig` | Mint, Spend, Withdraw, Publish | Holds and evaluates the upgrade authority's multisig approval tree in a config UTxO (`validators/upgrade_multisig.ak:73-181`) |
+| `upgrade_multisig` | Mint, Spend, Withdraw, Publish | Holds and evaluates the upgrade authority's multisig approval tree in a config UTxO (`validators/upgrade_multisig.ak:66-186`) |
 | `always_fail` | Spend | Permanently locks reference NFTs (e.g. `IssuanceCborHex`) so they can never be spent (`validators/always_fail.ak:5-10`) |
 
 See the [Architecture doc](./documentation/02-ARCHITECTURE.md) for detailed validator interactions and validation flows. For substandard validators, see the [platform repository](https://github.com/cardano-foundation/cip113-programmable-tokens-platform/tree/main/src/substandards).
@@ -228,10 +228,10 @@ graph TB
 
 All programmable tokens are locked at a shared smart contract address. When a transfer occurs:
 
-1. The transaction spends a token UTxO from the shared `programmable_logic_base` address (`validators/programmable_logic_base.ak:51`).
-2. `programmable_logic_base` reads the dispatcher credential off the protocol-params datum and requires the `programmable_logic_global` dispatcher's withdraw-zero (`validators/programmable_logic_base.ak:72-74`).
+1. The transaction spends a token UTxO from the shared `programmable_logic_base` address (`validators/programmable_logic_base.ak:42`).
+2. `programmable_logic_base` reads the dispatcher credential off the protocol-params datum and requires the `programmable_logic_global` dispatcher's withdraw-zero (`validators/programmable_logic_base.ak:64-66`).
 3. `programmable_logic_global` requires the withdraw-zero of the delegate the redeemer names — `transfer`, for an ordinary transfer (`validators/programmable_logic_global.ak:63-69`).
-4. `transfer` walks a registry proof per distinct policy touched and requires that policy's registered transfer-logic script's withdraw-zero (`validators/programmable_logic/transfer.ak:180-280`), then checks ownership of every spent input (`:72-114`, `validators/programmable_logic/owner.ak:28-40`) and that outputs contain at least the input tokens at a valid PLB shape (`:213-217`, `lib/prog_assets.ak:208-225`).
+4. `transfer` walks a registry proof per distinct policy touched and requires that policy's registered transfer-logic script's withdraw-zero (`validators/programmable_logic/transfer.ak:175-274`), then checks ownership of every spent input (`:72-114`, `validators/programmable_logic/owner.ak:27-39`) and that outputs contain at least the input tokens at a valid PLB shape (`:213-217`, `lib/prog_assets.ak:208-225`).
 5. Tokens land back at the `programmable_logic_base` address, under the new owner's stake credential.
 
 ## Example: Freeze & Seize Stablecoin

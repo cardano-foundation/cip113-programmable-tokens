@@ -53,7 +53,7 @@ Throughout this document we use one abbreviation — **Programmable Logic Base
 (PLB)**, the spending validator that custodies all programmable token UTxOs.
 PLB requires exactly one thing: the withdraw-zero of the **dispatcher**,
 `programmable_logic_global`, whose credential it reads from the protocol-params
-datum (`validators/programmable_logic_base.ak:72-74`). The dispatcher, in turn,
+datum (`validators/programmable_logic_base.ak:64-66`). The dispatcher, in turn,
 requires the withdraw-zero of one of three **delegate** validators —
 `transfer`, `third_party`, `unfracking` — selected by its own redeemer
 (`validators/programmable_logic_global.ak:63-69`). The delegate then requires
@@ -105,10 +105,10 @@ the credential your registry node names for that kind of action.
 
 | Component | What it does | Why you don't touch it |
 |-----------|-------------|----------------------|
-| **`programmable_logic_base` (PLB)** | Spending validator that custodies all programmable token UTxOs. Reads one credential out of the protocol-params datum — `programmable_logic_global_cred`, field 0 — and requires that credential's withdraw-zero at the index its redeemer witnesses (`validators/programmable_logic_base.ak:66-74`). It has no action arm. | Every token holder's UTxO lives at a PLB address; its hash is baked into every one of those addresses, so it can never be replaced. |
+| **`programmable_logic_base` (PLB)** | Spending validator that custodies all programmable token UTxOs. Reads one credential out of the protocol-params datum — `programmable_logic_global_cred`, field 0 — and requires that credential's withdraw-zero at the index its redeemer witnesses (`validators/programmable_logic_base.ak:58-66`). It has no action arm. | Every token holder's UTxO lives at a PLB address; its hash is baked into every one of those addresses, so it can never be replaced. |
 | **`programmable_logic_global`** | The dispatcher. Its redeemer names an action, and it requires the matching delegate's withdraw-zero against a hash baked in at compile time (`validators/programmable_logic_global.ak:48-69`). It reads no datum and touches no value. | It is the link that turns "some dispatcher ran" into "the right delegate ran". Replacing the dispatch layer is a protocol-params datum rewrite, not a token migration. |
-| **`transfer` / `third_party` / `unfracking`** | The three delegates, each a withdraw-zero validator running once per transaction. Each resolves the subject policy's registry node from a reference input and requires the credential that node names for its kind of action (`validators/programmable_logic/transfer.ak:256-264`, `validators/programmable_logic/third_party.ak:24-29`, `validators/programmable_logic/unfracking.ak:107-120`). | They call *your* validators — you don't call them. |
-| **`registry`** | One validator, two handlers on one hash (`validators/registry.ak:49`): `mint` builds and extends the sorted linked list of registered policies, `spend` guards every node UTxO. Each node stores which substandard credentials govern that token. | Your token gets registered here, but you don't modify the registry validator. |
+| **`transfer` / `third_party` / `unfracking`** | The three delegates, each a withdraw-zero validator running once per transaction. Each resolves the subject policy's registry node from a reference input and requires the credential that node names for its kind of action (`validators/programmable_logic/transfer.ak:250-258`, `validators/programmable_logic/third_party.ak:23-28`, `validators/programmable_logic/unfracking.ak:107-120`). | They call *your* validators — you don't call them. |
+| **`registry`** | One validator, two handlers on one hash (`validators/registry.ak:40`): `mint` builds and extends the sorted linked list of registered policies, `spend` guards every node UTxO. Each node stores which substandard credentials govern that token. | Your token gets registered here, but you don't modify the registry validator. |
 | **Issuance infrastructure** | `issuance_mint` — the permanent per-token policy whose applied hash **is** the token's policy id (`validators/issuance_mint.ak:34-41`); `issuance_logic` — the protocol's replaceable issuance rules, named live by the protocol-params datum (`validators/issuance_logic.ak:44-62`); `issuance_cbor_hex_mint`; `protocol_params` (mint + spend on one hash, `validators/protocol_params.ak:228`); `always_fail`. | Handles the mechanics of minting and custody. Your issuance logic validator is invoked *by* `issuance_mint`. |
 
 **Key insight**: Your substandard validators are invoked by the core infrastructure, not the other way around. The delegate validator looks up your token in the registry, finds your validator credentials, and requires that they are present in the transaction's withdrawals.
@@ -124,9 +124,9 @@ the fourth is an opt-in.
 | Registry field | Invoked by | Required? |
 |---|---|---|
 | `minting_logic_script` | `issuance_mint` on every mint and burn (`validators/issuance_mint.ak:46`); `registry`'s mint handler at registration (`validators/registry.ak:109-110`); `registry`'s spend handler on a node update (`validators/registry.ak:227-234`) | Yes |
-| `transfer_logic_script` | `transfer` (`validators/programmable_logic/transfer.ak:264`) | Yes |
-| `third_party_logic_script` | `third_party` (`validators/programmable_logic/third_party.ak:29`) | Yes |
-| `unfracking_logic_script` | `unfracking` (`validators/programmable_logic/unfracking.ak:120`) | Optional; unset means unfracking is forbidden |
+| `transfer_logic_script` | `transfer` (`validators/programmable_logic/transfer.ak:258`) | Yes |
+| `third_party_logic_script` | `third_party` (`validators/programmable_logic/third_party.ak:28`) | Yes |
+| `unfracking_logic_script` | `unfracking` (`validators/programmable_logic/unfracking.ak:119`) | Optional; unset means unfracking is forbidden |
 
 All four are `Credential`s. Three of them are normally `Script` credentials —
 withdraw-zero stake validators you write — but the type permits a
@@ -165,7 +165,7 @@ Your issuance logic validator decides **who can mint and burn** tokens. This cou
 
 ### 2. Transfer Logic (withdraw)
 
-Invoked when an **owner transfers** their tokens. The `transfer` validator resolves the policy's registry node from a reference input, checks the node's `key` equals the policy, and requires `transfer_logic_script`'s withdraw-zero (`validators/programmable_logic/transfer.ak:256-264`).
+Invoked when an **owner transfers** their tokens. The `transfer` validator resolves the policy's registry node from a reference input, checks the node's `key` equals the policy, and requires `transfer_logic_script`'s withdraw-zero (`validators/programmable_logic/transfer.ak:250-258`).
 
 Your transfer logic validator decides **what conditions must be met for a transfer**. This could be:
 - Check sender/recipient against a denylist (freeze-and-seize)
@@ -177,7 +177,7 @@ Your transfer logic validator decides **what conditions must be met for a transf
 > framework's.** Reference NFTs and royalty tokens stay in the PLB under the
 > same policy, and the base layer draws no distinction between them and any
 > other token of your policy: a companion asset is ordinary subject value on
-> the third-party path (`validators/programmable_logic/third_party.ak:99-120`).
+> the third-party path (`validators/programmable_logic/third_party.ak:102-127`).
 > Transferring them is allowed — your CIP-68/102-aware transfer and minting
 > logic must ensure it happens the proper way (moving them, updating a
 > reference NFT's datum, handling royalties) — and protecting them from your
@@ -186,7 +186,7 @@ Your transfer logic validator decides **what conditions must be met for a transf
 
 ### 3. Third-Party Transfer Logic (withdraw)
 
-Invoked when a **third party** (not the token owner) moves tokens. The `third_party` validator resolves the subject policy's registry node from the reference input its redeemer names and requires `third_party_logic_script`'s withdraw-zero (`validators/third_party.ak:92-104`, `validators/programmable_logic/third_party.ak:24-29`). This is used for actions like:
+Invoked when a **third party** (not the token owner) moves tokens. The `third_party` validator resolves the subject policy's registry node from the reference input its redeemer names and requires `third_party_logic_script`'s withdraw-zero (`validators/third_party.ak:86-99`, `validators/programmable_logic/third_party.ak:23-28`). This is used for actions like:
 - Seizing tokens from a sanctioned address
 - Forced transfers by court order
 - Emergency recovery operations
@@ -195,14 +195,14 @@ Invoked when a **third party** (not the token owner) moves tokens. The `third_pa
 — paired-output address/datum/reference-script preservation, byte-for-byte
 conservation of every non-subject **policy**, anti-injection, and an aggregate
 conservation rail on the subject policy
-(`validators/programmable_logic/third_party.ak:99-120`, the rules in one place;
+(`validators/programmable_logic/third_party.ak:102-127`, the rules in one place;
 implemented at `:121-280`).
 
 > **Lovelace is the exception to the byte-identity, and your logic must expect
 > it.** Ada is peeled off both sides of each pair before the asset lists are
 > compared, and it is **ratcheted, not conserved**: the paired continuing
 > output must carry *at least* the input's lovelace
-> (`validators/programmable_logic/third_party.ak:211-217`). `>=` rather than
+> (`validators/programmable_logic/third_party.ak:215-221`). `>=` rather than
 > `==` because exact equality forbade the top-up that absorbs a rise in the
 > min-ADA protocol parameter, which would make a third-party action on an
 > existing UTxO unsatisfiable forever; and `>=` rather than free because
@@ -253,7 +253,7 @@ field decides the policy's posture:
 
 The field is **mutable** through the registry-node update path, exactly like
 the other logic fields — an issuer may set it, change it, or unset it back to
-`empty_vkey` (`lib/linked_list.ak:203-207`).
+`empty_vkey` (`lib/linked_list.ak:202-204`).
 
 What the base layer enforces around your hook, so you do not have to: `tx.mint`
 is zero; every PLB input carries the same full address and that single owner
@@ -323,15 +323,15 @@ The `minting_logic_script` (your issuance logic credential) is both **stored in 
 
 Every PLB output must carry no datum hash, no reference script, and — where it
 carries a programmable policy — an inline datum serialising to at most
-`max_inline_datum_bytes` (`lib/prog_assets.ak:291-302`).
+`max_inline_datum_bytes` (`lib/prog_assets.ak:279-290`).
 
 That bound is **not** a protocol-params datum field. It is a compile-time
 parameter of four scripts, and **all four must be deployed with the same value**:
 
 | script | parameter declared at |
 |---|---|
-| `transfer` | `validators/transfer.ak:38` |
-| `third_party` | `validators/third_party.ak:42` |
+| `transfer` | `validators/transfer.ak:35` |
+| `third_party` | `validators/third_party.ak:44` |
 | `unfracking` | `validators/unfracking.ak:58` |
 | `issuance_logic` | `validators/issuance_logic.ak:61` |
 
@@ -405,7 +405,7 @@ address is **registered**, and after Conway registering a *script* credential
 requires that script's consent. Every withdraw-zero validator in the core
 protocol therefore carries a `publish` handler accepting `RegisterCredential`
 and refusing every other certificate (`validators/programmable_logic_global.ak:72-77`,
-`validators/transfer.ak:70-75`, `validators/third_party.ak:76-81`,
+`validators/transfer.ak:59-64`, `validators/third_party.ak:70-75`,
 `validators/unfracking.ak:92-97`, `validators/issuance_logic.ak:89-94`).
 **The same obligation falls on each of your four credentials.** A substandard
 script with no `publish` handler, or one that rejects `RegisterCredential`, can
@@ -416,9 +416,9 @@ phase-1 ledger rejection with no validator trace to read.
 
 1. A user builds a transfer transaction
 2. The transaction includes withdraw-zero entries for the dispatcher, the `transfer` delegate, and your transfer logic validator
-3. The PLB spending validator runs once per spent input, reads `programmable_logic_global_cred` from the protocol-params datum, and requires that credential at the withdrawal index its redeemer witnesses (`validators/programmable_logic_base.ak:66-74`)
+3. The PLB spending validator runs once per spent input, reads `programmable_logic_global_cred` from the protocol-params datum, and requires that credential at the withdrawal index its redeemer witnesses (`validators/programmable_logic_base.ak:58-66`)
 4. The dispatcher runs once, and under a `TransferAct` redeemer requires the `transfer` validator's withdraw-zero (`validators/programmable_logic_global.ak:63-69`)
-5. The `transfer` validator runs once: it resolves one registry proof per distinct spent policy and, for each registered policy, requires that policy's `transfer_logic_script` withdraw-zero (`validators/programmable_logic/transfer.ak:256-264`)
+5. The `transfer` validator runs once: it resolves one registry proof per distinct spent policy and, for each registered policy, requires that policy's `transfer_logic_script` withdraw-zero (`validators/programmable_logic/transfer.ak:250-258`)
 6. Your transfer logic withdrawal validator runs and either succeeds or fails
 7. If all validators pass, the transaction is valid
 
@@ -548,7 +548,7 @@ When a new programmable token is registered, a `RegistryNode` entry is created i
 - Your **unfracking hook** credential (or `empty_vkey` to forbid unfracking)
 - Your **global state** currency symbol (if applicable)
 
-The registry mechanics are handled by the core infrastructure (`registry`'s mint handler, `validators/registry.ak:50`), but **your issuance logic withdraw-0 runs at registration** — the mint handler requires it in `tx.withdrawals` as proof that your substandard instance authorises the registration (the *proof of instance* check, `validators/registry.ak:99-110`). So your validators must be compiled, deployed, their stake addresses registered, and able to validate a registration transaction before the token can be registered.
+The registry mechanics are handled by the core infrastructure (`registry`'s mint handler, `validators/registry.ak:41`), but **your issuance logic withdraw-0 runs at registration** — the mint handler requires it in `tx.withdrawals` as proof that your substandard instance authorises the registration (the *proof of instance* check, `validators/registry.ak:99-110`). So your validators must be compiled, deployed, their stake addresses registered, and able to validate a registration transaction before the token can be registered.
 
 A registration **may or may not mint the first tokens in the same transaction** — the framework supports both and does not constrain the choice (`validators/registry.ak:106-108`):
 
@@ -581,8 +581,8 @@ PLB requires the dispatcher → dispatcher (TransferAct) requires transfer
 Your **transfer logic withdraw** validator is invoked. It receives the full transaction context and must verify that the transfer meets your rules (e.g., not denylisted, on whitelist, within limits).
 
 The `transfer` validator handles:
-- Ownership verification — every PLB input's stake credential must sign, or (for a script credential) present its own withdraw-zero (`validators/programmable_logic/owner.ak:28-40`)
-- Value containment — programmable tokens must reappear at PLB outputs (`validators/programmable_logic/transfer.ak:43-47`, `:213-217`)
+- Ownership verification — every PLB input's stake credential must sign, or (for a script credential) present its own withdraw-zero (`validators/programmable_logic/owner.ak:27-39`)
+- Value containment — programmable tokens must reappear at PLB outputs (`validators/programmable_logic/transfer.ak:42-46`, `:213-217`)
 - Registry proof resolution, one proof per distinct spent policy
 
 Your validator only needs to enforce your **custom rules**.
@@ -638,14 +638,14 @@ Registration ──→ Minting ──→ Transfer ──→ ... ──→ Burnin
 
 A registered token's `RegistryNode` is **live configuration, not a frozen
 record**. Through the registry update path, **four** fields can be changed in
-place after registration (`lib/linked_list.ak:184-208`):
+place after registration (`lib/linked_list.ak:181-206`):
 
 - `transfer_logic_script`
 - `third_party_logic_script`
-- `unfracking_logic_script` — including unsetting it back to `empty_vkey`, which forbids unfracking again (`lib/linked_list.ak:203-207`)
+- `unfracking_logic_script` — including unsetting it back to `empty_vkey`, which forbids unfracking again (`lib/linked_list.ak:202-204`)
 - `global_state_cs`
 
-`key`, `next`, and `minting_logic_script` are **frozen** (`lib/linked_list.ak:189-197`). Updates are
+`key`, `next`, and `minting_logic_script` are **frozen** (`lib/linked_list.ak:187-189`). Updates are
 **retroactive**: the new transfer / third-party / unfracking logic governs *all existing
 holders'* tokens on their next spend, so integrators must read the current node
 and never cache its credentials (see
@@ -656,7 +656,7 @@ global-state pointer, in place — no migration needed — as long as the change
 stays within the mutable-field envelope above. The new values are still
 shape-checked: each credential must be 28 bytes, the state policy must be empty
 or 28 bytes, and the unfracking hook must be `empty_vkey` or 28 bytes
-(`lib/linked_list.ak:198-207`).
+(`lib/linked_list.ak:195-204`).
 
 ### Lifecycle authority is your issuance credential
 
@@ -1082,7 +1082,7 @@ let tx = client
 
 // 5. A MINT creates a PLB output for the recipient: no datum hash, no reference
 //    script, inline datum within max_inline_datum_bytes
-//    (lib/prog_assets.ak:291-302). A BURN creates no such output — an output
+//    (lib/prog_assets.ak:279-290). A BURN creates no such output — an output
 //    cannot carry a negative quantity, and the tokens being burned come from a
 //    PLB INPUT, not from a new output.
 if (quantity > 0n) {
@@ -1155,7 +1155,7 @@ const wdrlIdx = BigInt(
 // A SINGLE-CONSTRUCTOR record with two integer fields. There is no action arm:
 // a transfer, a seizure and an unfracking all use this same shape. `wdrl_idx`
 // locates the DISPATCHER's entry — programmable_logic_global_cred, protocol-params
-// field 0 — not the delegate's (validators/programmable_logic_base.ak:72-74).
+// field 0 — not the delegate's (validators/programmable_logic_base.ak:64-66).
 const baseSpendRedeemer = Data.constr(0n, [Data.int(paramsIdx), Data.int(wdrlIdx)]);
 
 // ProgrammableLogicGlobalRedeemer — lib/types.ak:100-109. Three field-less arms,
@@ -1251,7 +1251,7 @@ Transcription notes:
 Where the owner is a **`Script`** rather than a key, drop `addSigner` and add
 that script's own withdraw-zero as a fourth entry — then recompute `wdrlIdx`,
 because a script credential sorts among the scripts and may land before the
-dispatcher (`validators/programmable_logic/owner.ak:28-40`).
+dispatcher (`validators/programmable_logic/owner.ak:27-39`).
 
 For the seizure and unfracking shapes, change the dispatcher's arm and the
 delegate: `ThirdPartyAct` (`Data.constr(1n, [])`) plus the `third_party`
@@ -1418,7 +1418,7 @@ protocol. With your own deployment's hashes the dispatcher can sit anywhere.
 A wrong `wdrl_idx` cannot authorise anything — `programmable_logic_base`
 resolves the entry at that index and requires it to equal
 `programmable_logic_global_cred`, the **dispatcher** credential read from
-protocol-params field 0 (`validators/programmable_logic_base.ak:72-74`, field
+protocol-params field 0 (`validators/programmable_logic_base.ak:64-66`, field
 declared at `validators/programmable_logic/params.ak:55-61`, accessor at
 `:146-152`) — but it does fail the transaction, so derive it from the *final*
 withdrawal set, after the builder has added everything. A key-hash withdrawal

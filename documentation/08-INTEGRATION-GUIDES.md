@@ -54,7 +54,7 @@ expect
   }
 ```
 
-Quoted from `validators/programmable_logic/owner.ak:33-38` (`authorised_stake_cred`, declared at `:28`). It is called from `transfer` (`validators/programmable_logic/transfer.ak:98`) and from `unfracking` (`validators/programmable_logic/unfracking.ak:169`). The `third_party` path does not call it — a third-party action is authorised by the issuer, not by the holder.
+Quoted from `validators/programmable_logic/owner.ak:32-37` (`authorised_stake_cred`, declared at `:28`). It is called from `transfer` (`validators/programmable_logic/transfer.ak:96`) and from `unfracking` (`validators/programmable_logic/unfracking.ak:169`). The `third_party` path does not call it — a third-party action is authorised by the issuer, not by the holder.
 
 **Which credential goes in the stake slot is an off-chain and protocol-level choice, not an on-chain constraint.** Different tokens or deployments may adopt different conventions. Using the stake key aligns with Cardano's existing address model; using the payment key is equally valid on-chain and becomes mandatory for enterprise addresses.
 
@@ -127,7 +127,7 @@ transaction".
    max_inline_datum_bytes)` — need `programmable_logic_base`'s credential
    (step 4) and the registry's policy id (step 3), applied with the same
    `max_inline_datum_bytes` across all three (`validators/transfer.ak:32-35`,
-   `validators/third_party.ak:41-44`, `validators/unfracking.ak:56-59`; see
+   `validators/third_party.ak:42-44`, `validators/unfracking.ak:56-59`; see
    [The `max_inline_datum_bytes` deployment
    invariant](./02-ARCHITECTURE.md#the-max_inline_datum_bytes-deployment-invariant)).
    `issuance_logic` needs the same two plus `protocol_params`'s policy id
@@ -171,7 +171,7 @@ transfer | third_party | unfracking   withdraw, once per transaction
 the policy's substandard logic script  withdraw
 ```
 
-- `programmable_logic_base` reads one field out of the protocol-params datum — `programmable_logic_global_cred`, field 0 — and requires that credential's withdraw-zero at the index its redeemer witnesses (`validators/programmable_logic_base.ak:66-74`). It has no action arm: **every** programmable spend requires the dispatcher, whether it is a transfer, a seizure, or an unfracking.
+- `programmable_logic_base` reads one field out of the protocol-params datum — `programmable_logic_global_cred`, field 0 — and requires that credential's withdraw-zero at the index its redeemer witnesses (`validators/programmable_logic_base.ak:58-66`). It has no action arm: **every** programmable spend requires the dispatcher, whether it is a transfer, a seizure, or an unfracking.
 - `programmable_logic_global` takes the three delegate hashes as compile-time parameters and turns its redeemer's action into a requirement that the matching delegate ran: `TransferAct` → `transfer`, `ThirdPartyAct` → `third_party`, `UnfrackingAct` → `unfracking` (`validators/programmable_logic_global.ak:63-70`).
 - The delegate does the work, once per transaction: `transfer` (`validators/programmable_logic/transfer.ak:15-56`), `third_party` (`validators/programmable_logic/third_party.ak:16-58`), `unfracking` (`validators/programmable_logic/unfracking.ak:96-153`). Each resolves the subject policy's registry node from a reference input and requires the credential that node names for its kind of action.
 
@@ -183,9 +183,9 @@ Every withdrawal below is for **zero ADA**. Omitting any one of them fails the t
 
 | Action | Required withdraw-zero credentials | Enforced by |
 |---|---|---|
-| **Transfer** | `programmable_logic_global_cred`; `transfer`; the policy's `transfer_logic_script`; plus the owner's credential when the owner is a `Script` | `validators/programmable_logic_base.ak:72-74`; `validators/programmable_logic_global.ak:64`, `:69`; `validators/programmable_logic/transfer.ak:264`; `validators/programmable_logic/owner.ak:37` |
-| **Seize / third party** | `programmable_logic_global_cred`; `third_party`; the policy's `third_party_logic_script` | `validators/programmable_logic_base.ak:72-74`; `validators/programmable_logic_global.ak:65`, `:69`; `validators/programmable_logic/third_party.ak:29` |
-| **Unfracking** | `programmable_logic_global_cred`; `unfracking`; the policy's `unfracking_logic_script`; plus the owner's credential when the owner is a `Script` | `validators/programmable_logic_base.ak:72-74`; `validators/programmable_logic_global.ak:66`, `:69`; `validators/programmable_logic/unfracking.ak:120`; `validators/programmable_logic/owner.ak:37` |
+| **Transfer** | `programmable_logic_global_cred`; `transfer`; the policy's `transfer_logic_script`; plus the owner's credential when the owner is a `Script` | `validators/programmable_logic_base.ak:64-66`; `validators/programmable_logic_global.ak:64`, `:69`; `validators/programmable_logic/transfer.ak:258`; `validators/programmable_logic/owner.ak:36` |
+| **Seize / third party** | `programmable_logic_global_cred`; `third_party`; the policy's `third_party_logic_script` | `validators/programmable_logic_base.ak:64-66`; `validators/programmable_logic_global.ak:65`, `:69`; `validators/programmable_logic/third_party.ak:28` |
+| **Unfracking** | `programmable_logic_global_cred`; `unfracking`; the policy's `unfracking_logic_script`; plus the owner's credential when the owner is a `Script` | `validators/programmable_logic_base.ak:64-66`; `validators/programmable_logic_global.ak:66`, `:69`; `validators/programmable_logic/unfracking.ak:119`; `validators/programmable_logic/owner.ak:36` |
 | **Issuance (mint or burn)** | the substandard's `minting_logic_cred`; the protocol's `issuance_logic_cred` | `validators/issuance_mint.ak:46`; `validators/issuance_mint.ak:52-63` |
 
 Three consequences worth stating plainly:
@@ -194,7 +194,7 @@ Three consequences worth stating plainly:
 - **A transfer needs three script withdrawals, not two.** A transaction carrying only `transfer` and `transfer_logic_script` fails at `programmable_logic_base` before the transfer validator runs.
 - **A burn is both.** Burning a programmable token spends a PLB UTxO, so the transaction carries the issuance withdrawals *and* the full spend chain for the action that releases the tokens.
 
-Where the owner is a `Script`, one withdrawal of that credential authorises **every** PLB input in the transaction that carries it: the check is per input (`validators/programmable_logic/transfer.ak:92-104`) but is satisfied by membership in the transaction-wide withdrawal set (`validators/programmable_logic/transfer.ak:58-70`). A script that authorises a withdraw-zero must therefore enumerate the PLB inputs it means to authorise; it cannot assume it is being asked about one.
+Where the owner is a `Script`, one withdrawal of that credential authorises **every** PLB input in the transaction that carries it: the check is per input (`validators/programmable_logic/transfer.ak:90-102`) but is satisfied by membership in the transaction-wide withdrawal set (`validators/programmable_logic/transfer.ak:59-71`). A script that authorises a withdraw-zero must therefore enumerate the PLB inputs it means to authorise; it cannot assume it is being asked about one.
 
 ### The base spend redeemer
 
@@ -217,12 +217,12 @@ What each action needs:
 
 | Action | Reference inputs | Why |
 |---|---|---|
-| Transfer | the protocol-params UTxO; one registry node per distinct policy carried by the spent PLB inputs | PLB reads the params datum (`validators/programmable_logic_base.ak:66`); `transfer` resolves one proof per policy (`validators/programmable_logic/transfer.ak:50-55`) |
-| Seize / third party | the protocol-params UTxO; the subject policy's registry node | PLB; `validators/third_party.ak:97-104` |
+| Transfer | the protocol-params UTxO; one registry node per distinct policy carried by the spent PLB inputs | PLB reads the params datum (`validators/programmable_logic_base.ak:66`); `transfer` resolves one proof per policy (`validators/programmable_logic/transfer.ak:51-56`) |
+| Seize / third party | the protocol-params UTxO; the subject policy's registry node | PLB; `validators/third_party.ak:91-99` |
 | Unfracking | the protocol-params UTxO; the acted-on policy's registry node | PLB; `validators/unfracking.ak:77-81` |
 | Issuance | the protocol-params UTxO; **and** the policy's registry node, whenever that policy's proof is `RefInput` | `validators/issuance_mint.ak:52-56`; `validators/issuance_logic.ak:152-155` resolves the node out of `reference_inputs` and binds it to the policy; `validators/issuance_logic.ak:267-281` is how `issuance_logic` locates the params UTxO without a hint |
 
-The params UTxO is required by `programmable_logic_base`, once per programmable input. **The three delegates read it zero times.** The values they would have read from it — `programmable_logic_base_cred`, `registry_node_cs` and `max_inline_datum_bytes` — are compile-time parameters of `transfer` (`validators/transfer.ak:36-38`), `third_party` (`validators/third_party.ak:40-42`) and `unfracking` (`validators/unfracking.ak:56-58`). Neither the registry NFT policy nor the PLB credential is a protocol-params datum field; see the parameter table in [`02-ARCHITECTURE.md`](./02-ARCHITECTURE.md#validator-reference).
+The params UTxO is required by `programmable_logic_base`, once per programmable input. **The three delegates read it zero times.** The values they would have read from it — `programmable_logic_base_cred`, `registry_node_cs` and `max_inline_datum_bytes` — are compile-time parameters of `transfer` (`validators/transfer.ak:33-35`), `third_party` (`validators/third_party.ak:42-44`) and `unfracking` (`validators/unfracking.ak:56-58`). Neither the registry NFT policy nor the PLB credential is a protocol-params datum field; see the parameter table in [`02-ARCHITECTURE.md`](./02-ARCHITECTURE.md#validator-reference).
 
 The index hints, and who consumes each:
 
@@ -230,19 +230,19 @@ The index hints, and who consumes each:
 |---|---|---|---|
 | `params_idx` | `BaseSpendRedeemer` (`lib/types.ak:81`) | `validators/programmable_logic_base.ak:66` | `reference_inputs` |
 | `params_idx` | `IssuanceMintRedeemer` (`lib/types.ak:173`) | `validators/issuance_mint.ak:52-56` | `reference_inputs` |
-| `registry_node_idx` | `ThirdPartyRedeemer` (`lib/types.ak:52`) | `validators/third_party.ak:97` | `reference_inputs` |
+| `registry_node_idx` | `ThirdPartyRedeemer` (`lib/types.ak:49`) | `validators/third_party.ak:91` | `reference_inputs` |
 | `registry_node_idx` | `UnfrackingRedeemer` (`lib/types.ak:38`) | `validators/unfracking.ak:77-81` | `reference_inputs` |
 | `node_idx` | each `RegistryProof` inside `TransferRedeemer` (`lib/types.ak:13`, `:15`) | `lib/registry_node.ak:83-108` | `reference_inputs` |
-| `outputs_start_idx` | `ThirdPartyRedeemer` (`lib/types.ak:54`), `UnfrackingRedeemer` (`lib/types.ak:40`) | `validators/programmable_logic/third_party.ak:31-38`; `validators/programmable_logic/unfracking.ak:134-141` | `outputs` |
-| `wdrl_idx` | `BaseSpendRedeemer` (`lib/types.ak:83`) | `validators/programmable_logic_base.ak:72` | `withdrawals` |
+| `outputs_start_idx` | `ThirdPartyRedeemer` (`lib/types.ak:51`), `UnfrackingRedeemer` (`lib/types.ak:39`) | `validators/programmable_logic/third_party.ak:30-37`; `validators/programmable_logic/unfracking.ak:134-141` | `outputs` |
+| `wdrl_idx` | `BaseSpendRedeemer` (`lib/types.ak:83`) | `validators/programmable_logic_base.ak:64` | `withdrawals` |
 
 `issuance_logic` takes no index hint: it finds the params UTxO itself by scanning `reference_inputs` for the params NFT (`validators/issuance_logic.ak:267-281`).
 
 Each hint is validated by what it resolves to, never trusted:
 
 - the UTxO at `params_idx` must carry the protocol-params NFT policy and an inline datum (`validators/programmable_logic/params.ak:139-142`). Presence of the policy is the whole test — the asset name and quantity are not checked on this path, because the policy is a one-shot NFT;
-- the UTxO at `registry_node_idx`, and at each proof's `node_idx`, must have the registry NFT policy as its first non-ADA policy and an inline datum (`validators/third_party.ak:102-104`; `lib/registry_node.ak:99-100`);
-- a `TokenExists` proof's node must have `key == policy` (`validators/programmable_logic/transfer.ak:261`); a `TokenDoesNotExist` proof's node must cover the policy, `key < policy < next` (`:273-274`).
+- the UTxO at `registry_node_idx`, and at each proof's `node_idx`, must have the registry NFT policy as its first non-ADA policy and an inline datum (`validators/third_party.ak:97-99`; `lib/registry_node.ak:99-100`);
+- a `TokenExists` proof's node must have `key == policy` (`validators/programmable_logic/transfer.ak:255`); a `TokenDoesNotExist` proof's node must cover the policy, `key < policy < next` (`:273-274`).
 
 ### The withdrawal index
 
@@ -272,15 +272,15 @@ Every output at the `programmable_logic_base` payment credential must:
 - carry **no reference script**;
 - where it carries an inline datum, serialise that datum to **at most `max_inline_datum_bytes`**.
 
-The predicate is `lib/prog_assets.ak:291-302` (`is_seizable_output_shape_bounded`), applied at every site that creates a PLB output: the transfer gate (`lib/prog_assets.ak:219`, reached from `validators/programmable_logic/transfer.ak:43`), third-party and unfracking destinations, and issuance (`validators/issuance_logic.ak:203`). The reasons are in [`02-ARCHITECTURE.md`](./02-ARCHITECTURE.md#plb-output-shape); the builder-facing consequence is that an output violating any of the four is rejected at creation time, not later.
+The predicate is `lib/prog_assets.ak:279-290` (`is_seizable_output_shape_bounded`), applied at every site that creates a PLB output: the transfer gate (`lib/prog_assets.ak:219`, reached from `validators/programmable_logic/transfer.ak:42`), third-party and unfracking destinations, and issuance (`validators/issuance_logic.ak:194`). The reasons are in [`02-ARCHITECTURE.md`](./02-ARCHITECTURE.md#plb-output-shape); the builder-facing consequence is that an output violating any of the four is rejected at creation time, not later.
 
-`max_inline_datum_bytes` is a compile-time parameter of four scripts — `transfer` (`validators/transfer.ak:38`), `third_party` (`validators/third_party.ak:42`), `unfracking` (`validators/unfracking.ak:58`) and `issuance_logic` (`validators/issuance_logic.ak:61`) — and **all four are deployed with the same value**. Read it from the deployment's blueprint, not from the protocol-params datum: it is not a field there.
+`max_inline_datum_bytes` is a compile-time parameter of four scripts — `transfer` (`validators/transfer.ak:35`), `third_party` (`validators/third_party.ak:44`), `unfracking` (`validators/unfracking.ak:58`) and `issuance_logic` (`validators/issuance_logic.ak:61`) — and **all four are deployed with the same value**. Read it from the deployment's blueprint, not from the protocol-params datum: it is not a field there.
 
-One exception a seizure builder needs: the **paired continuing output** of a third-party action is not re-checked against the bound. It is instead required to be byte-identical to the input it is paired with — address, datum and reference script (`validators/programmable_logic/third_party.ak:196-198`) — so its datum is whatever the input already carried and was bounded when that input was created. Fresh destination outputs get the full check (`validators/programmable_logic/third_party.ak:156-161`).
+One exception a seizure builder needs: the **paired continuing output** of a third-party action is not re-checked against the bound. It is instead required to be byte-identical to the input it is paired with — address, datum and reference script (`validators/programmable_logic/third_party.ak:204-206`) — so its datum is whatever the input already carried and was bounded when that input was created. Fresh destination outputs get the full check (`validators/programmable_logic/third_party.ak:163-168`).
 
 **Lovelace is not covered by any of these byte-identity rules.** Both pairing validators strip ADA off the two sides before comparing them, and then treat it differently:
 
-- a third-party pair **ratchets** it — the paired continuing output must carry **at least** the input's lovelace, `expect (output_lovelace >= input_lovelace)?` (`validators/programmable_logic/third_party.ak:217`). Byte-identity applies to the ADA-stripped halves, i.e. to the non-ADA policies (`:254-257`). Equality is deliberately *not* required: it would leave a UTxO whose lovelace sits below a later min-UTxO rise permanently unseizable. A builder may therefore top the paired output up to the current min-UTxO, and must never give it less than the input had;
+- a third-party pair **ratchets** it — the paired continuing output must carry **at least** the input's lovelace, `expect (output_lovelace >= input_lovelace)?` (`validators/programmable_logic/third_party.ak:221`). Byte-identity applies to the ADA-stripped halves, i.e. to the non-ADA policies (`:254-257`). Equality is deliberately *not* required: it would leave a UTxO whose lovelace sits below a later min-UTxO rise permanently unseizable. A builder may therefore top the paired output up to the current min-UTxO, and must never give it less than the input had;
 - an unfracking pair leaves it **unconstrained** — the lovelace is not even read (`validators/programmable_logic/unfracking.ak:288-298`). A builder redistributes the input's ADA across the owner's outputs as min-UTxO requires, and needs no extra funding input to do it.
 
 ### Stake-credential registration and the `publish` handlers
@@ -292,8 +292,8 @@ In the Conway era, registering a *script* credential requires that script's cons
 | Validator | `publish` at |
 |---|---|
 | `programmable_logic_global` | `validators/programmable_logic_global.ak:72-77` |
-| `transfer` | `validators/transfer.ak:70-75` |
-| `third_party` | `validators/third_party.ak:76-81` |
+| `transfer` | `validators/transfer.ak:59-64` |
+| `third_party` | `validators/third_party.ak:70-75` |
 | `unfracking` | `validators/unfracking.ak:92-97` |
 | `issuance_logic` | `validators/issuance_logic.ak:89-94` |
 | `upgrade_multisig` | `validators/upgrade_multisig.ak:181-186` |
@@ -385,7 +385,7 @@ Transcription notes:
 
 - **`some_transfer` builds one further reference input** — a list-head registry node keyed `""` — so that its fixture registry is gap-free, which puts policy P's own node at position 2 and makes the fixture's proof `TokenExists { node_idx: 2 }`. That head node is not required on chain: a real registry has gaps, and a transfer references only the nodes its proofs resolve. The skeleton above omits it, which is why its `node_idx` is 1.
 - **The fixture's owner credential is also policy P's `transfer_logic_script`**, so its three withdrawals cover both the substandard's rule and the owner's consent. When the owner is a *different* `Script`, add its credential as a fourth withdrawal (see [the dApp skeleton](#transaction-building)). When the owner is a `VerificationKey`, the owner signs instead and the set stays at three.
-- **One proof per distinct policy in the spent inputs**, including non-programmable ones: a policy with no registry node needs a `TokenDoesNotExist` proof naming a covering node. Proofs are consumed in ascending policy order (`validators/programmable_logic/transfer.ak:180-240`).
+- **One proof per distinct policy in the spent inputs**, including non-programmable ones: a policy with no registry node needs a `TokenDoesNotExist` proof naming a covering node. Proofs are consumed in ascending policy order (`validators/programmable_logic/transfer.ak:175-235`).
 
 ### Seize (third party)
 
@@ -413,7 +413,7 @@ Outputs:
       amount; lovelace is EXEMPT from byte-identity and RATCHETED -- give
       this output AT LEAST the input's lovelace, and top it up freely if
       min-UTxO requires it
-      (validators/programmable_logic/third_party.ak:217)
+      (validators/programmable_logic/third_party.ak:221)
   [1] the destination output at the PLB payment credential, holding the
       seized tokens
 
@@ -441,9 +441,9 @@ Redeemer (third_party_logic_script, once):
 
 Transcription notes:
 
-- **`valid_seize_tx` carries one withdrawal**, `third_party_logic_script`. It is a unit fixture that calls the `third_party` delegate directly, so it does not build the PLB and dispatcher links. A whole transaction carries all three, which is what `withdrawals_third_party` holds; the delegate's own requirement is `validators/programmable_logic/third_party.ak:29`, the other two are `validators/programmable_logic_base.ak:72-74` and `validators/programmable_logic_global.ak:65`.
+- **`valid_seize_tx` carries one withdrawal**, `third_party_logic_script`. It is a unit fixture that calls the `third_party` delegate directly, so it does not build the PLB and dispatcher links. A whole transaction carries all three, which is what `withdrawals_third_party` holds; the delegate's own requirement is `validators/programmable_logic/third_party.ak:28`, the other two are `validators/programmable_logic_base.ak:64-66` and `validators/programmable_logic_global.ak:65`.
 - **Both of the fixture's outputs sit at the same owner.** That is a fixture simplification: the paired output's address is pinned to its input's, but the destination output beyond the paired region is constrained only by the PLB payment credential and the output-shape rule. A real seizure sends it to the issuer's own programmable address.
-- **`outputs_start_idx` is where the paired region begins.** Outputs before it are scanned for subject-policy tokens and folded into the conservation total; outputs from that index on are paired positionally with the PLB inputs. The per-pair rules and the aggregate conservation rail are stated in one place at `validators/programmable_logic/third_party.ak:99-120` and implemented at `:121-280`.
+- **`outputs_start_idx` is where the paired region begins.** Outputs before it are scanned for subject-policy tokens and folded into the conservation total; outputs from that index on are paired positionally with the PLB inputs. The per-pair rules and the aggregate conservation rail are stated in one place at `validators/programmable_logic/third_party.ak:102-127` and implemented at `:121-280`.
 - **No owner signature and no owner withdrawal.** The holder does not consent to a seizure and is not asked to.
 
 ### Unfracking
@@ -485,7 +485,7 @@ your own set to compute wdrl_idx):
 
 Mint:
   - empty. Unfracking is value-preserving; any mint or burn fails
-    (validators/programmable_logic/unfracking.ak:105)
+    (validators/programmable_logic/unfracking.ak:104)
 
 Redeemer (programmable_logic_base, one per spent PLB input):
   BaseSpendRedeemer { params_idx: 0, wdrl_idx: 0 }
@@ -506,7 +506,7 @@ Redeemer (unfracking_logic_script, once):
 Transcription notes:
 
 - **`transfer_logic_script` is here as the owner's consent, not as a transfer rule.** In the fixture the holder's stake credential is the same script as policy P's `transfer_logic_script`, so one withdrawal serves. A holder with a `VerificationKey` credential signs instead and the set is three entries. The `transfer` validator is *not* part of an unfracking transaction.
-- **`unfracking_logic_script` is default-deny.** It is registry-node field 5 (`lib/registry_node.ak:78`), and an issuer who never set it leaves it at `empty_vkey` — a zero-byte key hash (`lib/registry_node.ak:26`). No ledger transaction can carry a withdrawal keyed by an empty hash, so the unconditional requirement at `validators/programmable_logic/unfracking.ak:120` forbids unfracking outright for such a policy.
+- **`unfracking_logic_script` is default-deny.** It is registry-node field 5 (`lib/registry_node.ak:78`), and an issuer who never set it leaves it at `empty_vkey` — a zero-byte key hash (`lib/registry_node.ak:26`). No ledger transaction can carry a withdrawal keyed by an empty hash, so the unconditional requirement at `validators/programmable_logic/unfracking.ak:119` forbids unfracking outright for such a policy.
 - **Every output stays at the same owner.** Unfracking restructures the holder's own UTxOs; it cannot move value to anyone else.
 
 ### Issuance (mint or burn)
@@ -594,11 +594,11 @@ A programmable token transfer differs from a standard native token transfer in f
 
 **Authorization.** The owner authorizes the spend with whichever key matches the credential in the *stake* slot — the stake key if the stake key is the owner credential, the payment key if it is the payment key. This differs from standard transactions, where the payment key always authorizes.
 
-**Three script withdrawals, not two.** `programmable_logic_global`, `transfer`, and the policy's `transfer_logic_script`. The first is what `programmable_logic_base` requires of every spend (`validators/programmable_logic_base.ak:72-74`); a transaction without it fails before the transfer validator runs. `transfer_logic_script` is read from the policy's registry node at build time.
+**Three script withdrawals, not two.** `programmable_logic_global`, `transfer`, and the policy's `transfer_logic_script`. The first is what `programmable_logic_base` requires of every spend (`validators/programmable_logic_base.ak:64-66`); a transaction without it fails before the transfer validator runs. `transfer_logic_script` is read from the policy's registry node at build time.
 
 **Two reference inputs, at computed indices.** The protocol-params UTxO and the registry node for the policy being spent. The params UTxO is required by `programmable_logic_base`, not by `transfer`. Both positions are indices into the ledger's canonical `reference_inputs` ordering — see [Reference inputs and index hints](#reference-inputs-and-index-hints).
 
-**One registry proof per distinct policy in the inputs.** A programmable policy gets a `TokenExists` proof naming its node; a non-programmable policy gets a `TokenDoesNotExist` proof naming a node that covers it, `key < policy < next` (`validators/programmable_logic/transfer.ak:269-277`). ADA needs no proof.
+**One registry proof per distinct policy in the inputs.** A programmable policy gets a `TokenExists` proof naming its node; a non-programmable policy gets a `TokenDoesNotExist` proof naming a node that covers it, `key < policy < next` (`validators/programmable_logic/transfer.ak:263-271`). ADA needs no proof.
 
 The output goes to the recipient's programmable address: the payment credential stays `programmable_logic_base`, only the stake credential changes. It must satisfy [the PLB output shape rule](#plb-output-shape-and-the-datum-bound).
 
@@ -624,14 +624,14 @@ Programmable token addresses generally hold minimal ADA, so delegation rewards a
 |---|---|
 | Querying by payment credential only | Returns ALL programmable token UTxOs (every holder), not just the user's. Query by the full address, including the stake credential. |
 | Assuming the payment key signs the spend | The credential in the stake slot determines authorization. If the stake key is the owner, the stake key signs. |
-| Omitting the dispatcher's withdraw-zero | The single most common failure. `programmable_logic_base` requires `programmable_logic_global_cred`'s withdraw-zero on **every** programmable spend (`validators/programmable_logic_base.ak:72-74`). A transaction with only `transfer` and `transfer_logic_script` is rejected. |
+| Omitting the dispatcher's withdraw-zero | The single most common failure. `programmable_logic_base` requires `programmable_logic_global_cred`'s withdraw-zero on **every** programmable spend (`validators/programmable_logic_base.ak:64-66`). A transaction with only `transfer` and `transfer_logic_script` is rejected. |
 | Computing `wdrl_idx` against insertion order | It is a position in the ledger's ordering: every `Script` credential before every `VerificationKey` credential, bytewise within each. Recompute it once the withdrawal set is final. |
 | Missing reference inputs | Both the protocol-params UTxO and the registry node must be present. Without the first, `programmable_logic_base` cannot read the dispatcher credential; without the second, `transfer` cannot resolve its proof. |
 | Not registering the stake address | Every withdraw-zero credential — `programmable_logic_global`, `transfer`, the substandard's scripts, a dApp's script — must have a registered stake address. An unregistered one fails at the ledger level, in phase 1, with no validator trace. |
 | Wrong credential convention | If the token protocol uses payment keys but the wallet builds the address with the stake key (or the reverse), the balance reads zero and transfers fail. |
 | Caching a registry-node reference input | A registry node UTxO is consumed and re-created when a token is registered around it, or when its node is updated in place. A transfer referencing a stale (now-spent) node fails. Resolve the covering or exists node at build time, and on failure **re-resolve against the current registry and rebuild** rather than retrying the same reference. See the registration-contention limitation in [`02-ARCHITECTURE.md`](./02-ARCHITECTURE.md#registration-contention). |
-| Caching a token's logic **credentials** | A registry node's `transfer_logic_script`, `third_party_logic_script`, `unfracking_logic_script` and `global_state_cs` are **live, mutable configuration** — the issuer can update them in place, and the change is **retroactive** (it governs every existing holder on their next spend). `key`, `next` and `minting_logic_script` are the only frozen fields (`lib/linked_list.ak:184-208`). Always resolve the **current** node at build time, and monitor node updates for the policies you support. |
-| Building a PLB output with a datum hash or a reference script | Rejected at creation (`lib/prog_assets.ak:291-302`). Use `NoDatum` or an inline datum within `max_inline_datum_bytes`, and always an inline stake credential. |
+| Caching a token's logic **credentials** | A registry node's `transfer_logic_script`, `third_party_logic_script`, `unfracking_logic_script` and `global_state_cs` are **live, mutable configuration** — the issuer can update them in place, and the change is **retroactive** (it governs every existing holder on their next spend). `key`, `next` and `minting_logic_script` are the only frozen fields (`lib/linked_list.ak:181-206`). Always resolve the **current** node at build time, and monitor node updates for the policies you support. |
+| Building a PLB output with a datum hash or a reference script | Rejected at creation (`lib/prog_assets.ak:279-290`). Use `NoDatum` or an inline datum within `max_inline_datum_bytes`, and always an inline stake credential. |
 
 ### UTxO hygiene and anti-injection
 
@@ -650,7 +650,7 @@ This is the mechanism behind a **freeze-for-ransom scam**: an attacker gets a fr
 - Whether a co-located token is a **registered programmable token** at all — and if so, from its registry node, **who can freeze or seize it** (`transfer_logic_script` / `third_party_logic_script` and the credentials behind them). A *registered* token with **unknown or untrusted logic** sitting beside a user's assets is the loud signal: only a registered token can freeze the shared UTxO, because its transfer logic runs on the spend and can decline. An **unregistered** co-located token is an ordinary native token — it moves via a covering-node proof and cannot lock the UTxO, though it may still be spam.
 - **Newly-formed co-location.** Flag any output that places multiple distinct programmable policies together when **no input already held that combination** — the co-location is being created, not carried forward. Apply this both to the wallet's own change and, critically, to any externally-built transaction presented for signing. Suppress it for a **continuing output** (an input already held the same combination) and for recognized dApp interactions.
 
-**Recovery — separating a co-mingled UTxO.** If assets do end up co-located, the holder splits the UTxO into single-policy UTxOs, after which a freeze on one policy leaves the others free. The `unfracking` validator (`validators/unfracking.ak:55`) performs exactly this split: a same-owner, value-preserving restructuring of the holder's own PLB UTxOs for one policy, gated by that policy's own `unfracking_logic_script` hook rather than by its transfer logic. The legitimate token is freed and the suspicious token is isolated in its own UTxO. Build it as [the unfracking skeleton](#unfracking).
+**Recovery — separating a co-mingled UTxO.** If assets do end up co-located, the holder splits the UTxO into single-policy UTxOs, after which a freeze on one policy leaves the others free. The `unfracking` validator (`validators/unfracking.ak:56`) performs exactly this split: a same-owner, value-preserving restructuring of the holder's own PLB UTxOs for one policy, gated by that policy's own `unfracking_logic_script` hook rather than by its transfer logic. The legitimate token is freed and the suspicious token is isolated in its own UTxO. Build it as [the unfracking skeleton](#unfracking).
 
 The practical consequence for users: **freeze-for-ransom only works if the tokens cannot be separated** — a wallet that supports both the prevention above and this separation defangs the scam, and users should never pay.
 
@@ -740,7 +740,7 @@ Every programmable-token transaction carries the `programmable_logic_global` wit
 |---|---|---|
 | **Transfer** | `TransferAct` → `transfer` (`TransferRedeemer { proofs }`) | Owner-authorized. The stake credential owner signed or invoked. Input and output may have different stake credentials. |
 | **Unfracking** | `UnfrackingAct` → `unfracking` (`UnfrackingRedeemer { registry_node_idx, outputs_start_idx }`) | Owner-authorized, same-owner, value-preserving restructuring of one policy across the holder's own PLB UTxOs. No transfer logic runs; the policy's unfracking hook does. Mint and burn are both empty. |
-| **Third-party** | `ThirdPartyAct` → `third_party` (`ThirdPartyRedeemer { registry_node_idx, outputs_start_idx }`) | Authorised by the policy's third-party logic script (forced transfer, seizure, burn). No owner signature or owner withdrawal. The paired continuing output preserves the holder's address, datum and reference script; among non-ADA policies only the subject policy's tokens change, while its lovelace may rise (`validators/programmable_logic/third_party.ak:217`). An indexer must not read a lovelace increase on that output as a payment. |
+| **Third-party** | `ThirdPartyAct` → `third_party` (`ThirdPartyRedeemer { registry_node_idx, outputs_start_idx }`) | Authorised by the policy's third-party logic script (forced transfer, seizure, burn). No owner signature or owner withdrawal. The paired continuing output preserves the holder's address, datum and reference script; among non-ADA policies only the subject policy's tokens change, while its lovelace may rise (`validators/programmable_logic/third_party.ak:221`). An indexer must not read a lovelace increase on that output as a payment. |
 
 The base-spend redeemer does **not** distinguish them: `BaseSpendRedeemer` is a single-constructor record carrying two indices (`lib/types.ak:79-84`), identical in all three cases.
 
@@ -756,7 +756,7 @@ The on-chain registry is a sorted linked list of `RegistryNode` UTxOs. Each node
 - **`unfracking_logic_script`** — the issuer's unfracking hook, or `empty_vkey` when the issuer forbids unfracking for the policy.
 - **`global_state_cs`** — may point to additional on-chain state, such as a denylist.
 
-Four of the seven are mutable in place — the three logic-script fields above and `global_state_cs` (`lib/linked_list.ak:184-208`). An indexer that snapshots a node once will serve stale governance data.
+Four of the seven are mutable in place — the three logic-script fields above and `global_state_cs` (`lib/linked_list.ak:181-206`). An indexer that snapshots a node once will serve stale governance data.
 
 #### Compliance events (freeze-and-seize substandard)
 
@@ -799,7 +799,7 @@ To authorize spending from this address, the owner check resolves the `Script` b
 Script(_hash) -> has_withdrawal(stake_cred)
 ```
 
-`validators/programmable_logic/owner.ak:37`. This is the **delegate's** check — it runs inside `transfer` (`validators/programmable_logic/transfer.ak:98`) and inside `unfracking` (`validators/programmable_logic/unfracking.ak:169`). `programmable_logic_global` never inspects an input's stake credential; it only requires the delegate's withdraw-zero (`validators/programmable_logic_global.ak:63-70`).
+`validators/programmable_logic/owner.ak:36`. This is the **delegate's** check — it runs inside `transfer` (`validators/programmable_logic/transfer.ak:96`) and inside `unfracking` (`validators/programmable_logic/unfracking.ak:169`). `programmable_logic_global` never inspects an input's stake credential; it only requires the delegate's withdraw-zero (`validators/programmable_logic_global.ak:63-70`).
 
 So your dApp's script must be **invokable as a stake validator via withdraw-zero**:
 
@@ -856,7 +856,7 @@ Note the ordering hazard: `dapp_script` is a `Script` credential, so it sorts am
 Your dApp's `withdraw` handler is the gate for all spending of programmable tokens held by your dApp. It must:
 
 1. **Validate your business logic** — whatever the dApp's purpose is (swap, lend, vote), this is where you enforce it.
-2. **Enumerate the PLB inputs it is authorizing.** One withdrawal of your credential satisfies the owner check for **every** PLB input in the transaction whose stake credential is your script: the check is per input (`validators/programmable_logic/transfer.ak:92-104`) but is satisfied by set membership (`validators/programmable_logic/transfer.ak:58-70`). Your handler cannot assume it is being asked about a single UTxO — if it approves at all, it approves all of them.
+2. **Enumerate the PLB inputs it is authorizing.** One withdrawal of your credential satisfies the owner check for **every** PLB input in the transaction whose stake credential is your script: the check is per input (`validators/programmable_logic/transfer.ak:90-102`) but is satisfied by set membership (`validators/programmable_logic/transfer.ak:59-71`). Your handler cannot assume it is being asked about a single UTxO — if it approves at all, it approves all of them.
 3. **Not re-validate the programmable chain.** Registry proofs, containment at PLB, and the substandard's rules are `transfer`'s and `transfer_logic_script`'s job. Your script's concern is whether *this* transaction is a legitimate dApp operation over *these* inputs.
 
 ### Stake address registration
@@ -886,7 +886,7 @@ A programmable-token transaction loads several validators at once:
 - the policy's substandard logic script (withdraw) — once per transaction
 - your dApp script (withdraw) — once per transaction
 
-Budget accordingly. `programmable_logic_base` is the one that multiplies, which is why it does the smallest job in the protocol: one reference-input lookup, one field read, one withdrawal lookup, one equality (`validators/programmable_logic_base.ak:66-74`). The delegate is the expensive one — `transfer` walks the registry proofs and sums values across inputs and outputs — so cost grows with the number of distinct policy ids, not only with the number of inputs. Profile with realistic transaction sizes.
+Budget accordingly. `programmable_logic_base` is the one that multiplies, which is why it does the smallest job in the protocol: one reference-input lookup, one field read, one withdrawal lookup, one equality (`validators/programmable_logic_base.ak:58-66`). The delegate is the expensive one — `transfer` walks the registry proofs and sums values across inputs and outputs — so cost grows with the number of distinct policy ids, not only with the number of inputs. Profile with realistic transaction sizes.
 
 ### Composability patterns
 
@@ -908,7 +908,7 @@ When your dApp releases programmable tokens (a user withdraws from a pool):
 
 #### Holding mixed assets
 
-A dApp UTxO at `addr(programmable_logic_base, dapp_script_hash)` can hold both programmable and non-programmable tokens. The `transfer` validator handles this: a non-programmable policy is proven absent from the registry by a `TokenDoesNotExist` covering-node proof and skipped (`validators/programmable_logic/transfer.ak:269-277`). Every distinct non-ADA policy in the spent inputs needs a proof of one kind or the other.
+A dApp UTxO at `addr(programmable_logic_base, dapp_script_hash)` can hold both programmable and non-programmable tokens. The `transfer` validator handles this: a non-programmable policy is proven absent from the registry by a `TokenDoesNotExist` covering-node proof and skipped (`validators/programmable_logic/transfer.ak:263-271`). Every distinct non-ADA policy in the spent inputs needs a proof of one kind or the other.
 
 Mixing is still a liability rather than a convenience — see [UTxO hygiene and anti-injection](#utxo-hygiene-and-anti-injection). A frozen policy in a shared UTxO freezes everything beside it, including your dApp's own assets.
 
@@ -923,7 +923,7 @@ Mixing is still a liability rather than a convenience — see [UTxO hygiene and 
 | Conflating zero-ADA and real withdrawals | Your `withdraw` handler is invoked for both. Check the withdrawal amount. |
 | Computing `wdrl_idx` before adding your own withdrawal | Your script credential sorts among the script credentials and can shift `programmable_logic_global_cred`'s position. Recompute over the final set. |
 | Not budgeting execution units | Several validator invocations in one transaction can exceed default budgets, and `programmable_logic_base` runs once per input. Profile on preview or preprod. |
-| Assuming direct UTxO spending | You do not spend programmable token UTxOs with your spending validator; you authorize via withdraw-zero. `programmable_logic_base` is the spending validator, and it requires the dispatcher's withdraw-zero on every path (`validators/programmable_logic_base.ak:72-74`) — transfers, third-party actions and unfracking alike. |
+| Assuming direct UTxO spending | You do not spend programmable token UTxOs with your spending validator; you authorize via withdraw-zero. `programmable_logic_base` is the spending validator, and it requires the dispatcher's withdraw-zero on every path (`validators/programmable_logic_base.ak:64-66`) — transfers, third-party actions and unfracking alike. |
 | Minting the token in a registry lifecycle transaction | A registry-node lifecycle transaction — registering a token, or updating a node in place — must **not** mint or burn that node's own programmable token. The `registry` validator's spend handler rejects it (`validators/registry.ak:187-188`, inside the handler at `:174-238`), and it is the sole spender of every node. Lifecycle and issuance are always **separate** transactions. Registering a *new* token still mints the new key; the rule applies to the node being *spent*, e.g. the covering predecessor. See [Registry Lifecycle & Upgradeability](./09-DEVELOPING-SUBSTANDARDS.md#registry-lifecycle--upgradeability) and [`03` §3.2](./03-CONTROL-SCOPE-AND-THIRD-PARTY-ACTIONS.md). |
 
 ---

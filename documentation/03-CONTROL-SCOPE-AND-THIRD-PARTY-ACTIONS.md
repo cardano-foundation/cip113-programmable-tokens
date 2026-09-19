@@ -10,7 +10,7 @@ but does not spell out:
    freeze enforcement, burn), run through the standalone `third_party`
    validator, can and cannot do to a holder's UTxO.
 
-The withdraw-0 validator is `third_party` (`validators/third_party.ak:39`); it
+The withdraw-0 validator is `third_party` (`validators/third_party.ak:41`); it
 calls the invariant module `validators/programmable_logic/third_party.ak`,
 which holds the rules this document is the normative reading of. The
 registry-node shape and lifecycle mechanics referenced throughout are
@@ -65,7 +65,7 @@ CIP-68/102-aware substandard:
   `next`, and five credential/currency fields, none of them a label list
   (`lib/registry_node.ak:51-81`) — and the third-party per-pair rules operate on
   policy A as a whole, with no carve-out by asset name
-  (`validators/programmable_logic/third_party.ak:99-120`, implemented at
+  (`validators/programmable_logic/third_party.ak:102-127`, implemented at
   `:121-280`). A companion asset minted under the same policy id as the user
   token is therefore exactly as reachable by a third-party action on policy A as the
   user token is — a third-party action may decrease, remove, increase, or leave it
@@ -76,7 +76,7 @@ CIP-68/102-aware substandard:
   primitives, the substandard composes the policy" pattern as holder scope
   (§2.3). Two substandard-level options: (a) the policy's
   `third_party_logic_script` — the script whose withdraw-zero the base layer
-  requires present (`validators/programmable_logic/third_party.ak:29`) — runs
+  requires present (`validators/programmable_logic/third_party.ak:28`) — runs
   with full visibility into the transaction and can itself refuse to authorise
   a seizure that disturbs the protected asset names; the base layer only checks
   that this script's withdraw-zero is invoked, never what it itself checks. Or
@@ -103,7 +103,7 @@ The third-party path (seizure / forced transfer) is the standalone
 a policy's `third_party_logic_script`. A spend reaches it the way every spend
 does: `programmable_logic_base` requires the dispatcher's withdraw-zero
 (`programmable_logic_global_cred`, protocol-params field 0 —
-`validators/programmable_logic_base.ak:72-74`), and the dispatcher requires
+`validators/programmable_logic_base.ak:64-66`), and the dispatcher requires
 `third_party`'s withdraw-zero under a `ThirdPartyAct` redeemer
 (`validators/programmable_logic_global.ak:65`, `:69`). The subject of the
 action is **policy A** — the registry node pointed to by `registry_node_idx`
@@ -116,12 +116,12 @@ substandard:
 
 | Guarantee | Enforced by |
 |---|---|
-| A's `third_party_logic_script` is invoked (withdraw-0) | `validators/programmable_logic/third_party.ak:29` |
-| Each spent PLB UTxO is paired 1:1 with a continuing output preserving **address, datum, and reference script** byte-for-byte | `validators/programmable_logic/third_party.ak:196-198` |
-| Lovelace is **ratcheted, not frozen** — the paired output must carry at least the input's lovelace, never less | `validators/programmable_logic/third_party.ak:211-217` |
-| **Non-subject** token quantities are conserved per pair, byte-for-byte — no other policy can be injected, redirected, split, or destroyed | `validators/programmable_logic/third_party.ak:221-229`, `:254-257` |
-| The paired input **must already hold** policy A — a third-party action cannot conjure A onto a UTxO that never held it (anti-injection), nor drag an unrelated UTxO into the action (anti-DoS) | `validators/programmable_logic/third_party.ak:253` |
-| The subject delta across all pairs reconciles against A's `mint`/burn; nothing escapes the PLB | `validators/programmable_logic/third_party.ak:181-184` |
+| A's `third_party_logic_script` is invoked (withdraw-0) | `validators/programmable_logic/third_party.ak:28` |
+| Each spent PLB UTxO is paired 1:1 with a continuing output preserving **address, datum, and reference script** byte-for-byte | `validators/programmable_logic/third_party.ak:204-206` |
+| Lovelace is **ratcheted, not frozen** — the paired output must carry at least the input's lovelace, never less | `validators/programmable_logic/third_party.ak:215-221` |
+| **Non-subject** token quantities are conserved per pair, byte-for-byte — no other policy can be injected, redirected, split, or destroyed | `validators/programmable_logic/third_party.ak:225-233`, `:254-257` |
+| The paired input **must already hold** policy A — a third-party action cannot conjure A onto a UTxO that never held it (anti-injection), nor drag an unrelated UTxO into the action (anti-DoS) | `validators/programmable_logic/third_party.ak:249` |
+| The subject delta across all pairs reconciles against A's `mint`/burn; nothing escapes the PLB | `validators/programmable_logic/third_party.ak:188-191` |
 | The action resolves exactly **one** registry node (`registry_node_idx`), hence exactly one policy per transaction (see §3.1) | `lib/types.ak:50-55` |
 
 A single third-party action may act on **multiple UTxOs of the same policy A** in
@@ -131,7 +131,7 @@ one transaction; each spent PLB input gets its own paired output.
 A third-party action is a forced *transfer*, not only a removal: on each paired
 output the subject policy's tokens may be **decreased, removed entirely,
 increased, or left unchanged**
-(`validators/programmable_logic/third_party.ak:99-120`, implemented at
+(`validators/programmable_logic/third_party.ak:102-127`, implemented at
 `:121-280`). The framework does not require the amount to change — a third-party
 action can re-spend a holder's UTxO without altering its subject balance, a
 capability bounded by transaction fees rather than the validator; custody is
@@ -226,7 +226,7 @@ A node's four mutable fields — `transfer_logic_script`,
 `third_party_logic_script`, `unfracking_logic_script`, and `global_state_cs` —
 can be changed through the registry lifecycle (update) path, authorised by the
 registration credential (`minting_logic_script`). `key`, `next`, and
-`minting_logic_script` are frozen (`lib/linked_list.ak:184-209`).
+`minting_logic_script` are frozen (`lib/linked_list.ak:181-206`).
 
 The update path itself is gated on `minting_logic_script`'s credential type: it
 must be a `Script` credential whose withdraw-zero is present in the

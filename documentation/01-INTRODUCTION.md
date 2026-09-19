@@ -172,7 +172,7 @@ A sorted linked list of registered programmable token policies, stored as on-cha
 - The unfracking logic script credential, invoked by the `unfracking` delegate when set — left unset, it forbids unfracking for that policy
 - An optional global-state currency symbol (e.g., a denylist)
 
-A registry proof is a **direct index into the transaction's reference inputs**, supplied by the redeemer and authenticated against the registry NFT policy, rather than a walk of the list. Its cost does not grow with the size of the registry; it grows only with the position of the referenced node among the reference inputs (`lib/registry_node.ak:83-108`, `validators/programmable_logic/transfer.ak:255-267`).
+A registry proof is a **direct index into the transaction's reference inputs**, supplied by the redeemer and authenticated against the registry NFT policy, rather than a walk of the list. Its cost does not grow with the size of the registry; it grows only with the position of the referenced node among the reference inputs (`lib/registry_node.ak:83-108`, `validators/programmable_logic/transfer.ak:249-261`).
 
 #### 3. Validation Scripts (Substandards)
 Pluggable stake validators defined by substandards that enforce token-specific rules:
@@ -182,15 +182,15 @@ Pluggable stake validators defined by substandards that enforce token-specific r
 Different tokens can use different substandards — each substandard is registered in the on-chain registry and invoked automatically by the core framework. Scripts are invoked using the **withdraw-zero pattern** — stake validators are triggered with 0 ADA withdrawals.
 
 #### 4. Dispatcher (`programmable_logic_global`)
-Spending a programmable-token UTxO always runs `programmable_logic_base` (PLB), the shared validator behind every programmable logic address. PLB does the smallest possible job: it reads one credential from the protocol-params reference input and requires that credential's withdraw-zero (`validators/programmable_logic_base.ak:66-74`). That credential names `programmable_logic_global`, the dispatcher.
+Spending a programmable-token UTxO always runs `programmable_logic_base` (PLB), the shared validator behind every programmable logic address. PLB does the smallest possible job: it reads one credential from the protocol-params reference input and requires that credential's withdraw-zero (`validators/programmable_logic_base.ak:58-66`). That credential names `programmable_logic_global`, the dispatcher.
 
 The dispatcher has exactly one job of its own: given the action the redeemer names — an ordinary transfer, a third-party action, or an unfracking restructuring — require the withdraw-zero of the delegate validator responsible for that action (`validators/programmable_logic_global.ak:63-69`). It reads no datum and looks up nothing in the registry; that work belongs to the delegate.
 
 #### 5. Delegate Validators (`transfer`, `third_party`, `unfracking`)
 The dispatcher's redeemer names one delegate and requires its withdraw-zero (`validators/programmable_logic_global.ak:63-69`); the check is a lower bound; it does not exclude some other script's withdraw-zero also being present. Each delegate is a standalone withdraw-zero validator:
-- **`transfer`** — the ordinary path. It walks the registry proofs supplied in its own redeemer, requires the withdraw-zero of the substandard's own transfer logic script for every registered policy touched, checks that the tokens reappear with the correct value, and confirms whoever owns the spent input consented — a signature for a verification-key owner, that script's withdraw-zero for a script owner (`validators/programmable_logic/owner.ak:28-39`, called from `validators/programmable_logic/transfer.ak:98`).
-- **`third_party`** — seize, clawback, freeze enforcement. Authorised by the policy's own third-party logic script, not by the holder (`validators/programmable_logic/third_party.ak:29`).
-- **`unfracking`** — holder-driven, same-owner restructuring. Requires the policy's unfracking logic script's withdraw-zero, when the registry node sets one (`validators/programmable_logic/unfracking.ak:120`).
+- **`transfer`** — the ordinary path. It walks the registry proofs supplied in its own redeemer, requires the withdraw-zero of the substandard's own transfer logic script for every registered policy touched, checks that the tokens reappear with the correct value, and confirms whoever owns the spent input consented — a signature for a verification-key owner, that script's withdraw-zero for a script owner (`validators/programmable_logic/owner.ak:27-38`, called from `validators/programmable_logic/transfer.ak:96`).
+- **`third_party`** — seize, clawback, freeze enforcement. Authorised by the policy's own third-party logic script, not by the holder (`validators/programmable_logic/third_party.ak:28`).
+- **`unfracking`** — holder-driven, same-owner restructuring. Requires the policy's unfracking logic script's withdraw-zero, when the registry node sets one (`validators/programmable_logic/unfracking.ak:119`).
 
 ### Transaction Flow Example
 
@@ -217,18 +217,18 @@ Let's walk through a simple transfer:
 ### Security Model
 
 **Ownership Verification**:
-- Every input from the programmable logic address that is spent on the holder's own authority — an ordinary transfer or an unfracking restructuring — must be authorized by that address's stake credential (`validators/programmable_logic/owner.ak:28-39`)
+- Every input from the programmable logic address that is spent on the holder's own authority — an ordinary transfer or an unfracking restructuring — must be authorized by that address's stake credential (`validators/programmable_logic/owner.ak:27-38`)
 - Authorization = a signature from the stake key (verification-key owner) OR that script's withdraw-zero (script owner)
 - If any such input lacks authorization, the transaction fails
-- Third-party actions do not go through this check: no line in the `third_party` validator's withdraw handler (`validators/third_party.ak:44-74`) or in its invariants module (`validators/programmable_logic/third_party.ak`) calls the owner check or reads `extra_signatories` — the path's only authorisation step is the subject policy's own third-party logic script's withdraw-zero (`validators/programmable_logic/third_party.ak:29`), never the holder
+- Third-party actions do not go through this check: no line in the `third_party` validator's withdraw handler (`validators/third_party.ak:44-74`) or in its invariants module (`validators/programmable_logic/third_party.ak`) calls the owner check or reads `extra_signatories` — the path's only authorisation step is the subject policy's own third-party logic script's withdraw-zero (`validators/programmable_logic/third_party.ak:28`), never the holder
 
 **Registry Authenticity**:
-- Registry-node NFTs carry the `registry` validator's own minting policy, and only its mint handler can mint one — the origin node at genesis, one more per subsequent insertion, each shape-checked and cryptographically bound to the policy it represents before it is minted (`validators/registry.ak:50-172`)
+- Registry-node NFTs carry the `registry` validator's own minting policy, and only its mint handler can mint one — the origin node at genesis, one more per subsequent insertion, each shape-checked and cryptographically bound to the policy it represents before it is minted (`validators/registry.ak:41-167`)
 - A delegate authenticates the node it reads by checking that NFT policy, not just its position (`lib/registry_node.ak:98-100`)
 - This is what prevents a forged registry entry from ever being read as genuine
 
 **Governed, transparent rules**:
-- A token's transfer and third-party logic can change only through the registry's authorized update path (`validators/registry.ak:214-236`), and only within a fixed envelope: the update is guarded by `lib/linked_list.ak:184-209`, which freezes the policy ID and the issuance authority and permits only the transfer, third-party, unfracking and global-state fields to change
+- A token's transfer and third-party logic can change only through the registry's authorized update path (`validators/registry.ak:214-236`), and only within a fixed envelope: the update is guarded by `lib/linked_list.ak:181-206`, which freezes the policy ID and the issuance authority and permits only the transfer, third-party, unfracking and global-state fields to change
 - Every update is on-chain, retroactive, and visible to holders (integrators read the live registry node rather than caching its rules)
 - Issuer controls are explicitly defined at registration time
 
