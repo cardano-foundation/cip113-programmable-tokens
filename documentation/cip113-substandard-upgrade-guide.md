@@ -46,12 +46,18 @@ models in §1 are the framework's current contract, not just a diff.
 work §3 top-to-bottom, tick §5.
 
 **Current state.** `main` has moved past this document's TARGET commit through
-several further refactors. Two claims below no longer hold and are marked
-where they occur:
+several further refactors. The narrative sections below are a record of that
+migration and are left as written. **The forward-looking parts — the §4 map
+and the §5 "definition of done" checklist — describe the TARGET commit, not
+`main`:** there is no `registry_mint`/`registry_spend` pair (one `registry`
+validator, two parameters), `issuance_mint` takes two parameters, and neither
+`mode` nor `protected_prefixes` exists. Two claims below no longer hold and
+are marked where they occur:
 
 - **`protected_prefixes` does not exist any more.** Added in #82, it shipped
   before this document's TARGET commit and was removed again in #97 (issue
-  #96). Current `main`'s 7th field is `unfracking_logic_script`.
+  #96). Current `main`'s 6th field (index 5) is `unfracking_logic_script`;
+  `global_state_cs` remains last.
 - **The protocol-params datum has 6 fields and no `unfracking_cred`.**
   `programmable_logic_global` now locates `transfer` / `third_party` /
   `unfracking` by compile-time parameter, not a params-datum credential.

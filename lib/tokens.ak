@@ -8,9 +8,13 @@ pub type Tokens =
   Dict<AssetName, Int>
 
 /// /!\ PRE-CONDITION /!\
-/// Given pairs are assumed to be well-formed and semantically 'correct'. That
-/// is, keys contain no duplicates and are in ascending order. A violation
-/// aborts the script; it does not return `False`.
+/// Given pairs are assumed to be well-formed and semantically 'correct': keys
+/// contain no duplicates and are in ascending order. Violations are NOT
+/// detected, and they do not fail uniformly — a key missing from `superset`
+/// aborts (`unsafe_list.expect_head` on an exhausted list), a duplicated or
+/// misordered `superset` key can instead return `False` or pass silently,
+/// because the scan stops at the first match. An empty `subset` returns `True`
+/// without inspecting `superset` at all.
 ///
 /// In practice, this means we suppose both values have been constructed from
 /// existing well-formed Values.

@@ -57,9 +57,12 @@ validator programmable_logic_global(
   ) {
     trace @"Starting programmable_logic_global dispatch"
 
-    // One lookup, against a hash that is part of this script's identity. A
-    // redeemer naming the wrong action resolves to a delegate that is not
-    // present, so it can only invalidate its own transaction.
+    // One lookup, against a hash that is part of this script's identity. This
+    // is a REQUIREMENT, not an exclusion: nothing here forbids a second
+    // delegate's withdraw-zero from also being present. A redeemer naming an
+    // action whose delegate is absent fails here; naming one that IS present
+    // merely subjects the transaction to that delegate's rules in full. Either
+    // way no authority is created, because every script present must pass.
     let required = when redeemer is {
       TransferAct -> transfer_hash
       ThirdPartyAct -> third_party_hash

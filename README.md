@@ -172,7 +172,7 @@ Substandard implementations live in the platform repository:
 | `programmable_logic_global` | Withdraw, Publish | Dispatcher: proves the redeemer-named delegate (`transfer`, `third_party` or `unfracking`) was invoked (`validators/programmable_logic_global.ak:48-71`) |
 | `transfer` | Withdraw, Publish | Transfer delegate — the hot path. Walks a registry proof per policy and requires that policy's registered transfer-logic script's withdraw-zero (`validators/programmable_logic/transfer.ak:175-274`). Checks ownership of every spent input (`validators/programmable_logic/transfer.ak:73-112`, `validators/programmable_logic/owner.ak:27-39`) and that outputs contain at least the input tokens at a valid PLB shape (`validators/programmable_logic/transfer.ak:208-212`, `lib/prog_assets.ak:208-225`) |
 | `third_party` | Withdraw, Publish | Seize / clawback / freeze-enforcement delegate (`validators/third_party.ak:41-80`) |
-| `unfracking` | Withdraw, Publish | Holder-driven, same-owner restructuring delegate (`validators/unfracking.ak:56-95`) |
+| `unfracking` | Withdraw, Publish | Holder-driven, same-owner restructuring delegate (`validators/unfracking.ak:59-98`) |
 | `issuance_mint` | Mint | Permanent per-token minting/burning policy; its applied hash IS the token's policy id (`validators/issuance_mint.ak:34-64`) |
 | `issuance_logic` | Withdraw, Publish | Replaceable per-transaction issuance rules, upgradable via the protocol-params `issuance_logic_cred` field (`validators/issuance_logic.ak:44-89`) |
 | `issuance_cbor_hex_mint` | Mint | One-shot mint of the issuance script template reference NFT (`validators/issuance_cbor_hex_mint.ak:13-51`) |
@@ -230,7 +230,7 @@ All programmable tokens are locked at a shared smart contract address. When a tr
 
 1. The transaction spends a token UTxO from the shared `programmable_logic_base` address (`validators/programmable_logic_base.ak:42`).
 2. `programmable_logic_base` reads the dispatcher credential off the protocol-params datum and requires the `programmable_logic_global` dispatcher's withdraw-zero (`validators/programmable_logic_base.ak:64-66`).
-3. `programmable_logic_global` requires the withdraw-zero of the delegate the redeemer names — `transfer`, for an ordinary transfer (`validators/programmable_logic_global.ak:63-69`).
+3. `programmable_logic_global` requires the withdraw-zero of the delegate the redeemer names — `transfer`, for an ordinary transfer (`validators/programmable_logic_global.ak:66-72`).
 4. `transfer` walks a registry proof per distinct policy touched and requires that policy's registered transfer-logic script's withdraw-zero (`validators/programmable_logic/transfer.ak:175-274`), then checks ownership of every spent input (`validators/programmable_logic/transfer.ak:73-112`, `validators/programmable_logic/owner.ak:27-39`) and that outputs contain at least the input tokens at a valid PLB shape (`validators/programmable_logic/transfer.ak:208-212`, `lib/prog_assets.ak:208-225`).
 5. Tokens land back at the `programmable_logic_base` address, under the new owner's stake credential.
 

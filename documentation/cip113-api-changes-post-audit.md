@@ -96,7 +96,7 @@ this writing:
 - **`RegistryNode` (`lib/registry_node.ak`) has 7 fields**: `key`, `next`,
   `minting_logic_script`, `transfer_logic_script`, `third_party_logic_script`
   (renamed from `third_party_transfer_logic_script`), `unfracking_logic_script`
-  (the current 7th field — an issuer-set unfracking hook, not
+  (the current 6th field, at index 5 — an issuer-set unfracking hook, not
   `protected_prefixes`), `global_state_cs`.
 - **The protocol-params datum (`ProtocolParams` in
   `validators/programmable_logic/params.ak`) has 6 fields**:
@@ -241,7 +241,7 @@ pub type RegistryNode {
   minting_logic_script: Credential,
   transfer_logic_script: Credential,
   third_party_logic_script: Credential,         // renamed from third_party_transfer_logic_script
-  unfracking_logic_script: Credential,          // 7th field — protected_prefixes was removed (#97)
+  unfracking_logic_script: Credential,          // 6th field (index 5) — protected_prefixes was removed (#97)
   global_state_cs: ByteArray,
 }
 ```
@@ -789,8 +789,8 @@ When upgrading off-chain integration:
       inputs already holding the subject policy, and leave protected-prefixed
       tokens byte-equal on the continuing output (§10).
 - [ ] Add the 3rd `RegistryNode` field `minting_logic_script` if migrating
-      from pre-`ebd9ffa` (§2, §7). Current `main`'s 7th field is
-      `unfracking_logic_script`, not `protected_prefixes` — that field
+      from pre-`ebd9ffa` (§2, §7). Current `main`'s 6th field (index 5)
+      is `unfracking_logic_script`, not `protected_prefixes` — that field
       shipped after #82 and was removed again in #97 (issue #96); do not add
       it (§0).
 - [ ] Current `main`'s protocol-params datum has 6 fields and no

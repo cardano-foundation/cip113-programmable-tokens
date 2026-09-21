@@ -56,7 +56,7 @@ PLB requires exactly one thing: the withdraw-zero of the **dispatcher**,
 datum (`validators/programmable_logic_base.ak:64-66`). The dispatcher, in turn,
 requires the withdraw-zero of one of three **delegate** validators —
 `transfer`, `third_party`, `unfracking` — selected by its own redeemer
-(`validators/programmable_logic_global.ak:63-69`). The delegate then requires
+(`validators/programmable_logic_global.ak:66-72`). The delegate then requires
 the credential your registry node names for that kind of action.
 
 ```
@@ -202,7 +202,7 @@ implemented at `:128-276`).
 > it.** Ada is peeled off both sides of each pair before the asset lists are
 > compared, and it is **ratcheted, not conserved**: the paired continuing
 > output must carry *at least* the input's lovelace
-> (`validators/programmable_logic/third_party.ak:215-221`). `>=` rather than
+> (`validators/programmable_logic/third_party.ak:220-226`). `>=` rather than
 > `==` because exact equality forbade the top-up that absorbs a rise in the
 > min-ADA protocol parameter, which would make a third-party action on an
 > existing UTxO unsatisfiable forever; and `>=` rather than free because
@@ -341,7 +341,7 @@ parameter of four scripts, and **all four must be deployed with the same value**
 |---|---|
 | `transfer` | `validators/transfer.ak:35` |
 | `third_party` | `validators/third_party.ak:44` |
-| `unfracking` | `validators/unfracking.ak:58` |
+| `unfracking` | `validators/unfracking.ak:62` |
 | `issuance_logic` | `validators/issuance_logic.ak:60` |
 
 **Why this is safety-critical, and why nothing on-chain can enforce it.** Each of
@@ -419,9 +419,9 @@ A credential cannot appear in a transaction's withdrawals until its stake
 address is **registered**, and after Conway registering a *script* credential
 requires that script's consent. Every withdraw-zero validator in the core
 protocol therefore carries a `publish` handler accepting `RegisterCredential`
-and refusing every other certificate (`validators/programmable_logic_global.ak:72-77`,
+and refusing every other certificate (`validators/programmable_logic_global.ak:75-80`,
 `validators/transfer.ak:59-64`, `validators/third_party.ak:70-75`,
-`validators/unfracking.ak:92-97`, `validators/issuance_logic.ak:89-94`).
+`validators/unfracking.ak:95-100`, `validators/issuance_logic.ak:89-94`).
 **The same obligation falls on each of your four credentials.** A substandard
 script with no `publish` handler, or one that rejects `RegisterCredential`, can
 never be registered and therefore can never be invoked — and the failure is a
@@ -432,7 +432,7 @@ phase-1 ledger rejection with no validator trace to read.
 1. A user builds a transfer transaction
 2. The transaction includes withdraw-zero entries for the dispatcher, the `transfer` delegate, and your transfer logic validator
 3. The PLB spending validator runs once per spent input, reads `programmable_logic_global_cred` from the protocol-params datum, and requires that credential at the withdrawal index its redeemer witnesses (`validators/programmable_logic_base.ak:58-66`)
-4. The dispatcher runs once, and under a `TransferAct` redeemer requires the `transfer` validator's withdraw-zero (`validators/programmable_logic_global.ak:63-69`)
+4. The dispatcher runs once, and under a `TransferAct` redeemer requires the `transfer` validator's withdraw-zero (`validators/programmable_logic_global.ak:66-72`)
 5. The `transfer` validator runs once: it resolves one registry proof per distinct spent policy and, for each registered policy, requires that policy's `transfer_logic_script` withdraw-zero (`validators/programmable_logic/transfer.ak:250-258`)
 6. Your transfer logic withdrawal validator runs and either succeeds or fails
 7. If all validators pass, the transaction is valid

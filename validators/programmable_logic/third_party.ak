@@ -156,10 +156,15 @@ fn validate_io_constraints_and_balance(
             //
             // The inline stake credential is required for the same reason
             // `no_escape` requires it on the issuance path: a PLB output without
-            // one has no owner `owner.ak` can ever authorise, so it is
-            // permanently unspendable. `issuance_logic` skips `no_escape` when it
-            // delegates custody here, so this is the only place that catches a
-            // mint composed with a seize.
+            // one has no owner `owner.ak` can authorise, so no holder-driven
+            // path can ever spend it — not `transfer`, not `unfracking`. A
+            // third-party action still could, since it does not consult the
+            // owner, but only into a continuing output at the same ownerless
+            // address with the lovelace ratcheted in place. Refusing to create
+            // one keeps that dead end out of the token's history.
+            // `issuance_logic` skips `no_escape` when it delegates custody
+            // here, so this is the only place that catches a mint composed
+            // with a seize.
             expect Some(Inline(..)) = output.address.stake_credential
             expect
               prog_assets.is_seizable_output_shape_bounded(
