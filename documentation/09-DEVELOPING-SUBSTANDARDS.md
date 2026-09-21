@@ -109,7 +109,7 @@ the credential your registry node names for that kind of action.
 | **`programmable_logic_global`** | The dispatcher. Its redeemer names an action, and it requires the matching delegate's withdraw-zero against a hash baked in at compile time (`validators/programmable_logic_global.ak:48-69`). It reads no datum and touches no value. | It is the link that turns "some dispatcher ran" into "the right delegate ran". Replacing the dispatch layer is a protocol-params datum rewrite, not a token migration. |
 | **`transfer` / `third_party` / `unfracking`** | The three delegates, each a withdraw-zero validator running once per transaction. Each resolves the subject policy's registry node from a reference input and requires the credential that node names for its kind of action (`validators/programmable_logic/transfer.ak:250-258`, `validators/programmable_logic/third_party.ak:23-28`, `validators/programmable_logic/unfracking.ak:107-120`). | They call *your* validators — you don't call them. |
 | **`registry`** | One validator, two handlers on one hash (`validators/registry.ak:40`): `mint` builds and extends the sorted linked list of registered policies, `spend` guards every node UTxO. Each node stores which substandard credentials govern that token. | Your token gets registered here, but you don't modify the registry validator. |
-| **Issuance infrastructure** | `issuance_mint` — the permanent per-token policy whose applied hash **is** the token's policy id (`validators/issuance_mint.ak:34-41`); `issuance_logic` — the protocol's replaceable issuance rules, named live by the protocol-params datum (`validators/issuance_logic.ak:44-62`); `issuance_cbor_hex_mint`; `protocol_params` (mint + spend on one hash, `validators/protocol_params.ak:228`); `always_fail`. | Handles the mechanics of minting and custody. Your issuance logic validator is invoked *by* `issuance_mint`. |
+| **Issuance infrastructure** | `issuance_mint` — the permanent per-token policy whose applied hash **is** the token's policy id (`validators/issuance_mint.ak:34-41`); `issuance_logic` — the protocol's replaceable issuance rules, named live by the protocol-params datum (`validators/issuance_logic.ak:44-62`); `issuance_cbor_hex_mint`; `protocol_params` (mint + spend on one hash, `validators/protocol_params.ak:232`); `always_fail`. | Handles the mechanics of minting and custody. Your issuance logic validator is invoked *by* `issuance_mint`. |
 
 **Key insight**: Your substandard validators are invoked by the core infrastructure, not the other way around. The delegate validator looks up your token in the registry, finds your validator credentials, and requires that they are present in the transaction's withdrawals.
 
@@ -196,7 +196,7 @@ Invoked when a **third party** (not the token owner) moves tokens. The `third_pa
 conservation of every non-subject **policy**, anti-injection, and an aggregate
 conservation rail on the subject policy
 (`validators/programmable_logic/third_party.ak:102-127`, the rules in one place;
-implemented at `:121-280`).
+implemented at `:128-276`).
 
 > **Lovelace is the exception to the byte-identity, and your logic must expect
 > it.** Ada is peeled off both sides of each pair before the asset lists are
@@ -323,7 +323,7 @@ The `minting_logic_script` (your issuance logic credential) is both **stored in 
 
 Every PLB output **that carries programmable tokens** must carry no datum hash,
 no reference script, and an inline datum serialising to at most
-`max_inline_datum_bytes` (`lib/prog_assets.ak:279-290`).
+`max_inline_datum_bytes` (`lib/prog_assets.ak:292-303`).
 
 The qualifier is load-bearing. A PLB address is not a gate: creating an output
 invokes nothing, so anyone can pay ada or non-programmable tokens to that
@@ -342,17 +342,18 @@ parameter of four scripts, and **all four must be deployed with the same value**
 | `transfer` | `validators/transfer.ak:35` |
 | `third_party` | `validators/third_party.ak:44` |
 | `unfracking` | `validators/unfracking.ak:58` |
-| `issuance_logic` | `validators/issuance_logic.ak:61` |
+| `issuance_logic` | `validators/issuance_logic.ak:60` |
 
 **Why this is safety-critical, and why nothing on-chain can enforce it.** Each of
 the four bounds only the outputs *it* creates, and no script can read another
 script's parameters. So a UTxO born under a **laxer** bound than the one
-`transfer` or `third_party` must later carry it under is **frozen and
-unseizable** — permanently, with no repair path. The rule is stated at
-`lib/prog_assets.ak:285-290` — all four must be deployed with the same value
+`transfer` must later carry it under cannot carry that datum forward, and past
+a point cannot be seized at all — not because a validator refuses, but because
+the seizure cannot be built. The rule is stated at
+`lib/prog_assets.ak:293-297` — all four must be deployed with the same value
 (or, minimally, every creator's bound must be less than or equal to every
 carrier's), "correct by composition, at deployment" — and again at
-`validators/issuance_logic.ak:54-60`, which draws out the consequence for the
+`validators/issuance_logic.ak:48-57`, which draws out the consequence for the
 issuance path in as many words: a datum born under a laxer bound than the one
 `transfer` must later carry it under cannot be carried forward, because
 `transfer` bounds every PLB output it creates. The UTxO is neither frozen nor
@@ -369,7 +370,7 @@ four deployed scripts was compiled with. Read the deployed value from the
 deployment's blueprint; it is not in the protocol-params datum, so there is
 nowhere else to read it. If you need a rule finer than a byte count, put it in
 your own minting logic: the core bound is the floor under your rules, not a
-replacement for them (`lib/prog_assets.ak:280-283`).
+replacement for them (`lib/prog_assets.ak:293-296`).
 
 ---
 
@@ -582,7 +583,7 @@ issuance_mint fires
 
 Your **issuance logic withdraw** validator is invoked. It should verify that the minting is authorized (e.g., an authorised signature, governance approval).
 
-Tokens are minted to the PLB address with the recipient's stake credential. `issuance_logic` enforces this — no token of the policy may sit at a non-PLB output, and every PLB output carrying the policy must have an inline stake credential and a bounded inline datum (`validators/issuance_logic.ak:183-215`). Your substandard doesn't need to check it.
+Tokens are minted to the PLB address with the recipient's stake credential. `issuance_logic` enforces this — no token of the policy may sit at a non-PLB output, and every PLB output carrying the policy must have an inline stake credential and a bounded inline datum (`validators/issuance_logic.ak:188-220`). Your substandard doesn't need to check it.
 
 ### 3. Transfer (Owner-Initiated)
 
@@ -698,10 +699,13 @@ third-party logic, unfracking hook, global state).
 > (`validators/registry.test.ak:985`) pins that. A verification key is not a
 > way to get a frozen node; it is a way to get no node.
 >
-> The spend handler's `VerificationKey` arm, which denies a node update outright
-> (`validators/registry.ak:223-230`), is therefore unreachable: no node holding
-> a verification-key `minting_logic_script` can exist to be spent. It is
-> defence-in-depth, not a configuration choice.
+> The spend handler's `VerificationKey` arm (`validators/registry.ak:223-230`)
+> is not reachable for a *registered* node, since none can hold a
+> verification-key `minting_logic_script`. It is reachable, and load-bearing,
+> for the **origin** node: `origin_node` carries `empty_vkey` in that field
+> (`lib/registry_node.ak:35`), and this arm is what refuses to rewrite it in
+> place — `registry_spend_fails_origin_node_update` pins that. Do not read it
+> as dead code.
 >
 > If you want the node's configuration immutable, write a minting-logic script
 > that refuses node-update transactions. That is the only way to get one.
@@ -1068,7 +1072,7 @@ const issuanceMintRedeemer = Data.constr(0n, [Data.int(paramsIdx)]);
 // MintingRegistryProof: RefInput { index } is constructor 0, OutputIndex { index }
 // is constructor 1 (lib/types.ak:162-165). Use OutputIndex, naming an OUTPUT
 // position, when the registry node is being CREATED in this same transaction —
-// a first mint alongside registration (`validators/issuance_logic.ak:141-151`).
+// a first mint alongside registration (`validators/issuance_logic.ak:146-156`).
 const issuanceLogicRedeemer = Data.map([
   [Data.bytearray(tokenPolicyId), Data.constr(0n, [Data.int(registryNodeIdx)])],
 ]);
@@ -1106,15 +1110,25 @@ let tx = client
   // 4. The reference inputs, at the indices the two redeemers named.
   .readFrom({ referenceInputs: refInputs });
 
-// 5. A MINT creates a PLB output for the recipient: no datum hash, no reference
-//    script, inline datum within max_inline_datum_bytes
-//    (lib/prog_assets.ak:279-290). A FULL burn creates no such output — an
-//    output cannot carry a negative quantity, and the tokens being burned come
-//    from a PLB INPUT, not from a new output. A PARTIAL burn does create one,
-//    for the remaining balance; see the note below.
-if (quantity > 0n) {
+// 5. Any programmable tokens of this policy left over must land at a PLB
+//    output: no datum hash, no reference script, inline datum within
+//    max_inline_datum_bytes (lib/prog_assets.ak:292-303).
+//
+//    For a MINT that is the newly minted quantity. For a BURN it is the
+//    remainder — what the spent PLB inputs held, minus what is being burned.
+//    A FULL burn leaves nothing over and creates no output; a PARTIAL burn
+//    does, and omitting it makes the transfer delegate reject the
+//    transaction (validators/programmable_logic/transfer.ak:191-212).
+//
+//    `quantity` is negative on a burn, so compute the remainder rather than
+//    reusing it: `heldBySpentInputs` is the total of this policy across the
+//    PLB inputs the transaction spends.
+const remainder = quantity > 0n ? quantity : heldBySpentInputs + quantity;
+if (remainder > 0n) {
   let outAssets = Assets.fromLovelace(1_500_000n);
-  outAssets = Assets.addByHex(outAssets, tokenPolicyId, assetNameHex, quantity);
+  outAssets = Assets.addByHex(
+    outAssets, tokenPolicyId, assetNameHex, remainder,
+  );
   tx = tx.payToAddress({
     address: recipientProgrammableAddress,
     assets: outAssets,
@@ -1142,7 +1156,7 @@ a PLB output. `transfer` applies the mint to each spent policy and then requires
 the paired outputs to contain what is left, unless the policy was consumed
 entirely (`validators/programmable_logic/transfer.ak:191-212`); `no_escape`
 independently forbids the remainder landing at any address other than the base
-(`validators/issuance_logic.ak:174-206`). So `issuance_logic` constrains the
+(`validators/issuance_logic.ak:179-211`). So `issuance_logic` constrains the
 shape of PLB outputs that carry the policy and never requires one to exist — it
 is the *full* burn, not burning as such, that produces none.
 

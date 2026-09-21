@@ -50,12 +50,13 @@ validator issuance_logic(
   // `unfracking` take, and it MUST be deployed with the same value: each
   // script bounds only the outputs it creates, so a datum born under a laxer
   // bound cannot be carried forward: `transfer` bounds every PLB output it
-  // creates. The UTxO itself is neither frozen nor unseizable — its tokens
-  // can move to a compliant output, and `third_party` does not re-apply the
-  // bound to a paired continuing output, so a seizure still validates. What
-  // a mismatch costs is a substandard whose transfer logic needs the datum
-  // to continue, and seizure batch size. Nothing on-chain can compare the
-  // four values — correctness here is by composition, at deployment.
+  // creates. No validator refuses to spend such a UTxO — `third_party` does
+  // not re-apply the bound to a paired continuing output, so a seizure
+  // passes every on-chain check. The limit is feasibility: the seizure must
+  // reproduce that datum byte for byte, which collapses seizure batch size
+  // and, past `maxTxSize`, leaves no constructible seizure at all. Nothing
+  // on-chain can compare the four values — correctness here is by
+  // composition, at deployment.
   max_inline_datum_bytes: Int,
 ) {
   withdraw(

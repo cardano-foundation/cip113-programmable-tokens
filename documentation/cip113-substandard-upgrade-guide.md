@@ -149,8 +149,11 @@ re-spending the node UTxO through the `validators/registry.ak` spend handler
 Authority to update is **the `minting_logic_script` itself**: the update is only
 valid if its withdraw-0 is invoked in the update transaction (the
 `validators/registry.ak` spend handler). Updates are script-gated by
-construction, because `minting_logic_script` can only ever be a `Script`
-credential — registration aborts on a `VerificationKey` (`lib/utils.ak:90`).
+construction: every *registered* node's `minting_logic_script` is a `Script`
+credential, because registration aborts on a `VerificationKey`
+(`lib/utils.ak:90`). The origin node is the exception — it carries
+`empty_vkey`, and the spend handler's `VerificationKey` arm is what keeps it
+from being rewritten.
 
 **Why your substandard cares — two consequences:**
 

@@ -72,7 +72,7 @@ CIP-68/102-aware substandard:
   (`lib/registry_node.ak:51-81`) — and the third-party per-pair rules operate on
   policy A as a whole, with no carve-out by asset name
   (`validators/programmable_logic/third_party.ak:102-127`, implemented at
-  `:121-280`). A companion asset minted under the same policy id as the user
+  `:128-276`). A companion asset minted under the same policy id as the user
   token is therefore exactly as reachable by a third-party action on policy A as the
   user token is — a third-party action may decrease, remove, increase, or leave it
   unchanged on each paired output, the same as any other subject-policy token
@@ -125,7 +125,7 @@ substandard:
 | A's `third_party_logic_script` is invoked (withdraw-0) | `validators/programmable_logic/third_party.ak:28` |
 | Each spent PLB UTxO is paired 1:1 with a continuing output preserving **address, datum, and reference script** byte-for-byte | `validators/programmable_logic/third_party.ak:204-206` |
 | Lovelace is **ratcheted, not frozen** — the paired output must carry at least the input's lovelace, never less | `validators/programmable_logic/third_party.ak:215-221` |
-| **Non-subject** token quantities are conserved per pair, byte-for-byte — no other policy can be injected, redirected, split, or destroyed | `validators/programmable_logic/third_party.ak:225-233`, `:254-257` |
+| **Non-subject** token quantities are conserved per pair, byte-for-byte — no other policy can be injected, redirected, split, or destroyed | `validators/programmable_logic/third_party.ak:225-233`, `:250-253` |
 | The paired input **must already hold** policy A — a third-party action cannot conjure A onto a UTxO that never held it (anti-injection), nor drag an unrelated UTxO into the action (anti-DoS) | `validators/programmable_logic/third_party.ak:249` |
 | The subject delta across all pairs reconciles against A's `mint`/burn; nothing escapes the PLB | `validators/programmable_logic/third_party.ak:188-191` |
 | The action resolves exactly **one** registry node (`registry_node_idx`), hence exactly one policy per transaction (see §3.1) | `lib/types.ak:50-55` |
@@ -138,7 +138,7 @@ A third-party action is a forced *transfer*, not only a removal: on each paired
 output the subject policy's tokens may be **decreased, removed entirely,
 increased, or left unchanged**
 (`validators/programmable_logic/third_party.ak:102-127`, implemented at
-`:121-280`). The framework does not require the amount to change — a third-party
+`:128-276`). The framework does not require the amount to change — a third-party
 action can re-spend a holder's UTxO without altering its subject balance, a
 capability bounded by transaction fees rather than the validator; custody is
 unaffected either way. The per-pair check pins the non-subject tokens (and, on
@@ -236,8 +236,10 @@ registration credential (`minting_logic_script`). `key`, `next`, and
 
 The update path itself is gated on `minting_logic_script`'s credential type: it
 must be a `Script` credential whose withdraw-zero is present in the
-transaction — a node registered with a `VerificationKey` `minting_logic_script`
-can never be updated in place (`validators/registry.ak:226-235`).
+transaction. No *registered* node can hold a `VerificationKey` there —
+registration aborts on one (`lib/utils.ak:90`) — so the handler's
+`VerificationKey` arm exists for the origin node, which carries `empty_vkey`
+and therefore cannot be updated in place (`validators/registry.ak:226-235`).
 
 Two properties integrators must understand:
 

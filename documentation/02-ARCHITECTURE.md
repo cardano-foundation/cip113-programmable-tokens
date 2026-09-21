@@ -56,7 +56,7 @@ This means:
   unspendable. The rule is enforced wherever a PLB output is created —
   `lib/prog_assets.ak:218` for transfers,
   `validators/programmable_logic/third_party.ak:163` for third-party
-  destinations, `validators/issuance_logic.ak:193` at issuance.
+  destinations, `validators/issuance_logic.ak:198` at issuance.
 - **Wallets need integration.** The tokens are ordinary native assets at the
   ledger level, but a wallet must resolve stake-credential ownership at a shared
   script address to show the right balance.
@@ -153,11 +153,11 @@ order. A parameter is applied at deployment and baked into the script hash.
 |---|---|---|---|---|
 | `always_fail` | spend | `_nonce: ByteArray` (1) | `validators/always_fail.ak:5` | Unspendable address. Locks the issuance-template NFT. The nonce makes each deployment a distinct hash. |
 | `issuance_cbor_hex_mint` | mint | `utxo_ref: OutputReference`, `always_fail_hash: ByteArray` (2) | `validators/issuance_cbor_hex_mint.ak:13-16` | One-shot mint of the reference NFT holding the issuance script template, locked at `always_fail_hash` (`:34`, `:49`). |
-| `issuance_logic` | withdraw, publish | `programmable_logic_base_cred: Credential`, `registry_node_cs: PolicyId`, `params_policy: PolicyId`, `max_inline_datum_bytes: Int` (4) | `validators/issuance_logic.ak:44-62` | The protocol's replaceable issuance rules: registry proof, custody of the minted supply, output shape. One entry per policy issued (`:69-83`). |
+| `issuance_logic` | withdraw, publish | `programmable_logic_base_cred: Credential`, `registry_node_cs: PolicyId`, `params_policy: PolicyId`, `max_inline_datum_bytes: Int` (4) | `validators/issuance_logic.ak:44-62` | The protocol's replaceable issuance rules: registry proof, custody of the minted supply, output shape. One entry per policy issued (`:74-88`). |
 | `issuance_mint` | mint | `minting_logic_cred: Credential`, `params_policy: PolicyId` (2) | `validators/issuance_mint.ak:34-41` | The permanent per-token minting policy. Its hash IS the token's policy id. Requires the substandard's minting logic (`:46`) and the protocol's issuance logic covering this policy (`:52-63`). |
-| `programmable_logic_base` | spend | `params_policy: PolicyId` (1) | `validators/programmable_logic_base.ak:42` | Custody of every programmable-token UTxO. Reads one credential from the protocol-params datum and requires its withdraw-zero (`:66-74`). |
+| `programmable_logic_base` | spend | `params_policy: PolicyId` (1) | `validators/programmable_logic_base.ak:42` | Custody of every programmable-token UTxO. Reads one credential from the protocol-params datum and requires its withdraw-zero (`:58-66`). |
 | `programmable_logic_global` | withdraw, publish | `transfer_hash: ScriptHash`, `third_party_hash: ScriptHash`, `unfracking_hash: ScriptHash` (3) | `validators/programmable_logic_global.ak:48-52` | The dispatcher. Turns the redeemer's action into a requirement that the matching delegate ran (`:63-69`). |
-| `protocol_params` | mint, spend | `utxo_ref: OutputReference` (1) | `validators/protocol_params.ak:228` | One-shot mint of the protocol-params NFT (`:229-273`) and the guard on the UTxO that carries it (`:276-341`). |
+| `protocol_params` | mint, spend | `utxo_ref: OutputReference` (1) | `validators/protocol_params.ak:232` | One-shot mint of the protocol-params NFT (`:229-273`) and the guard on the UTxO that carries it (`:280-345`). |
 | `registry` | mint, spend | `utxo_ref: OutputReference`, `issuance_cbor_hex_cs: PolicyId` (2) | `validators/registry.ak:40` | The sorted linked list of registered policies: the mint handler owns list structure and the token-id binding (`:50-172`), the spend handler guards every node (`:174-238`). |
 | `third_party` | withdraw, publish | `programmable_logic_base_cred: Credential`, `registry_node_cs: PolicyId`, `max_inline_datum_bytes: Int` (3) | `validators/third_party.ak:41-45` | Third-party actions — forced transfer, seizure, freeze enforcement, burn — for exactly one policy per transaction. |
 | `transfer` | withdraw, publish | `programmable_logic_base_cred: Credential`, `registry_node_cs: PolicyId`, `max_inline_datum_bytes: Int` (3) | `validators/transfer.ak:32-36` | Ordinary transfers: ownership, registry proofs, containment at PLB. |
@@ -174,7 +174,7 @@ sometimes mistaken for datum fields:
   (`validators/issuance_logic.ak:47`, `:49`).
 - `max_inline_datum_bytes` is a parameter of those same four scripts
   (`validators/transfer.ak:35`, `validators/third_party.ak:44`,
-  `validators/unfracking.ak:58`, `validators/issuance_logic.ak:61`) and carries
+  `validators/unfracking.ak:58`, `validators/issuance_logic.ak:60`) and carries
   a deployment invariant — see [Ledger Shape Rules](#ledger-shape-rules).
 - `params_policy` — the one-shot protocol-params NFT policy — is a parameter of
   `programmable_logic_base` (`validators/programmable_logic_base.ak:42`),
@@ -226,9 +226,9 @@ Quoted from `validators/programmable_logic_base.ak:42-67`.
 `wdrl_idx` is a position in the ledger's canonical withdrawal ordering — script
 credentials first, then verification-key credentials, bytewise within each
 group — over the transaction's complete withdrawal set. The lookup is a direct
-`list.expect_at` (`:72`), so it drops `wdrl_idx` list cells and performs no
+`list.expect_at` (`:64`), so it drops `wdrl_idx` list cells and performs no
 credential comparison on the way. It is self-validating: a wrong index resolves
-to some other credential, the equality at `:74` fails, and a dishonest witness
+to some other credential, the equality at `:66` fails, and a dishonest witness
 can only invalidate its own transaction.
 
 Because PLB compares exactly one credential, there is no pairwise-distinctness
@@ -366,14 +366,14 @@ reference input following the addressed one — the earlier the node sits, the
 more it costs (`lib/registry_node.ak:83-108`). A wrong index
 resolves to a UTxO that fails authentication — the addressed node's first
 non-ADA policy must be the registry NFT policy
-(`lib/registry_node.ak:98-99`, `validators/third_party.ak:91`).
+(`lib/registry_node.ak:98-99`, `validators/third_party.ak:97`).
 
 **Token exists** (`TokenExists { node_idx }`) — the addressed node is checked by
 `validators/programmable_logic/transfer.ak:249-261`:
 
 1. the node carries an authentic registry NFT;
-2. `node.key == policy` (`:261`);
-3. `node.transfer_logic_script` is in the transaction's withdrawals (`:264`).
+2. `node.key == policy` (`:255`);
+3. `node.transfer_logic_script` is in the transaction's withdrawals (`:258`).
 
 **Token does not exist** (`TokenDoesNotExist { node_idx }`) — the addressed node
 covers the policy: `node.key < policy < node.next`
@@ -427,10 +427,11 @@ A node's four logic fields are mutable in place; `key`, `next` and
 `minting_logic_script` are frozen. The rule is one record equality,
 `lib/linked_list.ak:181-206`: `transfer_logic_script`,
 `third_party_logic_script`, `unfracking_logic_script` and `global_state_cs` may
-move, and each must stay well formed (`:198-207`). An update is authorised by
-the node's own `minting_logic_script` withdraw-zero, and a
-verification-key credential in that field cannot authorise one
-(`validators/registry.ak:227-234`).
+move, and each must stay well formed (`:195-204`). An update is authorised by
+the node's own `minting_logic_script` withdraw-zero. A verification-key
+credential in that field cannot authorise one, which is what freezes the
+origin node's fields — no registered node can hold one, since registration
+aborts on it (`validators/registry.ak:227-234`, `lib/utils.ak:90`).
 
 ### Registration contention
 
@@ -555,7 +556,7 @@ Six fields, `validators/programmable_logic/params.ak:54-103`. The datum lives in
 the UTxO marked by the one-shot protocol-params NFT. Each field below names its
 **sole on-chain reader** besides `protocol_params` itself, which validates the
 whole record on both of its handlers (`validators/protocol_params.ak:105-113`,
-reached from `:264` and `:322`).
+reached from `:262` and `:326`).
 
 ```aiken
 pub type ProtocolParams {
@@ -572,14 +573,14 @@ pub type ProtocolParams {
 |---|---|---|---|
 | 0 | `programmable_logic_global_cred` | `programmable_logic_base`, once per programmable input | `validators/programmable_logic_base.ak:66` |
 | 1 | `issuance_logic_cred` | `issuance_mint`, once per issuance transaction | `validators/issuance_mint.ak:59` |
-| 2 | `transfer_cred` | `issuance_logic`, to locate the `transfer` withdraw-zero's redeemer | `validators/issuance_logic.ak:287` |
+| 2 | `transfer_cred` | `issuance_logic`, to locate the `transfer` withdraw-zero's redeemer | `validators/issuance_logic.ak:295` |
 | 3 | `third_party_cred` | `issuance_logic`, to locate the `third_party` withdraw-zero's redeemer | `validators/issuance_logic.ak:299` |
 | 4 | `upgrade_cred` | `protocol_params`, to decide who may rewrite this datum | `validators/protocol_params.ak:154` |
-| 5 | `pending_upgrade_cred` | `protocol_params`, the standing nomination | `validators/protocol_params.ak:186`, `:217` |
+| 5 | `pending_upgrade_cred` | `protocol_params`, the standing nomination | `validators/protocol_params.ak:186`, `:221` |
 
 Fields 0 to 3 have positional accessors that walk only as far as they must —
 four of them, and no more
-(`validators/programmable_logic/params.ak:149-175`). Fields 4 and 5 are reached
+(`validators/programmable_logic/params.ak:153-179`). Fields 4 and 5 are reached
 by deserialising the whole record instead, on `protocol_params`' cold path
 (`validators/protocol_params.ak:142`).
 
@@ -796,7 +797,7 @@ Line by line:
 | Mint deltas kept only for policies present in PLB inputs | `validators/programmable_logic/transfer.ak:108-111`, `:146-171` |
 | PLB outputs collected, shape-checked | `validators/programmable_logic/transfer.ak:42-46`, via `lib/prog_assets.ak:208-226` |
 | One proof per input policy, in ascending policy order, list exactly consumed | `validators/programmable_logic/transfer.ak:51-56`, `:180-240` |
-| `TokenExists`: node key matches, transfer logic invoked | `validators/programmable_logic/transfer.ak:255`, `:264` |
+| `TokenExists`: node key matches, transfer logic invoked | `validators/programmable_logic/transfer.ak:255`, `:258` |
 | `TokenDoesNotExist`: covering node | `validators/programmable_logic/transfer.ak:267-268` |
 | Output tokens for the policy contain the input tokens | `validators/programmable_logic/transfer.ak:208-212` |
 
@@ -833,9 +834,9 @@ withdraw-zero then carries a `ThirdPartyRedeemer`. It differs from a transfer:
    datum and reference script byte for byte
    (`validators/programmable_logic/third_party.ak:204-206`), and every
    non-subject policy's tokens must be byte-identical across the pair
-   (`:254-257`). Only the subject policy's amount may move. Lovelace is
+   (`:250-253`). Only the subject policy's amount may move. Lovelace is
    ratcheted rather than frozen — the paired output must carry at least the
-   input's (`:217`) — so a rise in the min-ADA parameter cannot make an existing
+   input's (`:221`) — so a rise in the min-ADA parameter cannot make an existing
    UTxO permanently unseizable.
 5. **Anti-injection.** The paired input must already hold the subject policy
    (`validators/programmable_logic/third_party.ak:249`), so the policy can
@@ -896,10 +897,10 @@ carries **two** withdraw-zeros:
    script ran, so the same check is the invocation check.
 
 `issuance_logic` then validates the issuance itself, per policy
-(`validators/issuance_logic.ak:69-83`): the registry proof, the custody of the
+(`validators/issuance_logic.ak:74-88`): the registry proof, the custody of the
 minted supply, and the shape of every output that carries the policy
-(`validators/issuance_logic.ak:190-214`). It locates the protocol-params UTxO
-itself, without an index hint (`validators/issuance_logic.ak:267-281`).
+(`validators/issuance_logic.ak:195-219`). It locates the protocol-params UTxO
+itself, without an index hint (`validators/issuance_logic.ak:275-289`).
 
 Splitting issuance this way is what makes the rules upgradable. The permanent
 policy's bytes never move — its hash is the token's policy id — so rewriting
@@ -948,24 +949,24 @@ token** must:
   any validator can authorise.
 
 The first three bullets are one predicate, `is_seizable_output_shape_bounded`
-(`lib/prog_assets.ak:279-290`), applied at every site that creates a PLB
+(`lib/prog_assets.ak:292-303`), applied at every site that creates a PLB
 output: the transfer gate
 (`validators/programmable_logic/transfer.ak:42`, via
 `lib/prog_assets.ak:208-226`), third-party destinations
-(`validators/programmable_logic/third_party.ak:91`, `:157-161`), unfracking
+(`validators/programmable_logic/third_party.ak:89`, `:164-168`), unfracking
 destinations (`validators/programmable_logic/unfracking.ak:219-223`,
-`:258-262`), and issuance (`validators/issuance_logic.ak:194`). At the issuance
+`:258-262`), and issuance (`validators/issuance_logic.ak:199`). At the issuance
 site the datum **bound** applies only to outputs that carry the policy being
-minted (`validators/issuance_logic.ak:193-197`); a PLB output that does not
-carry it gets the unbounded shape check (`:208`), so no datum hash and no
+minted (`validators/issuance_logic.ak:198-202`); a PLB output that does not
+carry it gets the unbounded shape check (`:204`), so no datum hash and no
 reference script, but its size is the responsibility of the transfer or
 third-party path that produced its contents.
 
 The fourth bullet is a separate check: the predicate reads `output.datum` and
 `output.reference_script` only, and never looks at the address. The inline
 stake credential is required at `lib/prog_assets.ak:218` on the transfer path,
-at `validators/programmable_logic/third_party.ak:89` and `:156` on the
-third-party path, and at `validators/issuance_logic.ak:193` at issuance.
+at `validators/programmable_logic/third_party.ak:89` and `:163` on the
+third-party path, and at `validators/issuance_logic.ak:198` at issuance.
 Unfracking does not re-check it: its fresh destination outputs must sit at the
 owner address (`validators/programmable_logic/unfracking.ak:216`, `:255`), and
 that address is pinned from the first PLB input and authorised there
@@ -988,10 +989,10 @@ and nothing in the protocol will ever have to move it.
 `transfer` (`validators/transfer.ak:35`), `third_party`
 (`validators/third_party.ak:44`), `unfracking`
 (`validators/unfracking.ak:58`) and `issuance_logic`
-(`validators/issuance_logic.ak:61`).
+(`validators/issuance_logic.ak:60`).
 
 **All four must be deployed with the same value.** Each of the four passes its
-own parameter to the same predicate (`lib/prog_assets.ak:279-290`) and applies
+own parameter to the same predicate (`lib/prog_assets.ak:292-303`) and applies
 it only to the outputs it creates, and each parameter is baked into a different
 script hash, so no validator ever sees another's value: there is no comparison
 to enforce. A UTxO born under a laxer bound than the one `transfer` or
@@ -1003,7 +1004,7 @@ Seizure is a different case, and not a validator rule of the same kind:
 `third_party` does not re-apply the bound to a paired continuing output
 (`validators/programmable_logic/third_party.ak:153-155`, and the paired walk at
 `:187-267` never calls the predicate), so a seizure still validates — but it
-must reproduce the input's datum byte for byte in that output (`:197`), which
+must reproduce the input's datum byte for byte in that output (`validators/programmable_logic/third_party.ak:205`), which
 puts the practical limit on a seizure at `maxTxSize` rather than at a validator
 check, in the sense the output-shape rules above are written for. Correctness
 here is by composition, at deployment.
@@ -1048,7 +1049,7 @@ what they resolve to rather than trusted — and one is not:
 
 - `params_idx` addresses `reference_inputs`; the addressed UTxO must carry the
   protocol-params NFT policy
-  (`validators/programmable_logic/params.ak:124-144`).
+  (`validators/programmable_logic/params.ak:126-146`).
 - `registry_node_idx` addresses `reference_inputs`; the addressed UTxO's first
   non-ADA policy must be the registry NFT policy
   (`validators/third_party.ak:91-97`).
@@ -1057,11 +1058,11 @@ what they resolve to rather than trusted — and one is not:
   (`lib/registry_node.ak:98-99`), and the node it resolves to must then either
   carry the proven policy as its key
   (`validators/programmable_logic/transfer.ak:255`) or cover it,
-  `key < policy < next` (`:273-274`).
+  `key < policy < next` (`:267-268`).
 - `index`, one per `MintingRegistryProof`, addresses `outputs` on the
   `OutputIndex` branch and `reference_inputs` on the `RefInput` branch; either
   way the UTxO it resolves to must pass `verify_registry_node` for the policy
-  being issued (`validators/issuance_logic.ak:149`, `:155`).
+  being issued (`validators/issuance_logic.ak:154`, `:160`).
 - `wdrl_idx` addresses the **ledger-ordered** withdrawal map — script
   credentials before verification-key credentials, bytewise within each group —
   and the entry it resolves to must equal `programmable_logic_global_cred`
@@ -1091,19 +1092,19 @@ The protocol's mutable wiring lives in the protocol-params datum, not in script
 parameters, so the dispatch layer and the issuance rules can be replaced without
 moving `programmable_logic_base`'s hash — and therefore without moving a single
 token address. The UTxO that carries the datum is guarded by
-`protocol_params`' spend handler (`validators/protocol_params.ak:276-341`).
+`protocol_params`' spend handler (`validators/protocol_params.ak:280-345`).
 
 Every spend of that UTxO, whichever arm it takes, must satisfy the structural
-rails first (`validators/protocol_params.ak:290-322`):
+rails first (`validators/protocol_params.ak:294-326`):
 
 - exactly one continuing output at the same address (`:304-307`);
-- no reference script on it (`:310`);
+- no reference script on it (`:314`);
 - non-ADA value matching the input exactly, so the params NFT continues and no
-  junk token joins it (`:315`);
+  junk token joins it (`:319`);
 - an inline datum that decodes as `ProtocolParams` and whose credentials are all
-  28 bytes, with the nomination well formed (`:321-322`, via `:105-113`).
+  28 bytes, with the nomination well formed (`:325-326`, via `:105-113`).
 
-The same rails hold at genesis (`validators/protocol_params.ak:264`), with one
+The same rails hold at genesis (`validators/protocol_params.ak:268`), with one
 addition: `is_init: True` forbids a nomination baked into the genesis datum
 (`validators/protocol_params.ak:127-135`), so a protocol cannot be born
 mid-handover.
@@ -1111,13 +1112,13 @@ mid-handover.
 ### Who may initialise
 
 `protocol_params` is parameterised by a single `utxo_ref`
-(`validators/protocol_params.ak:222`); its `mint` handler requires that UTxO
-be spent (`:228-231`), so the policy can mint the `ProtocolParams` NFT once.
+(`validators/protocol_params.ak:226`); its `mint` handler requires that UTxO
+be spent (`:232-235`), so the policy can mint the `ProtocolParams` NFT once.
 Choosing `utxo_ref` is the one irreversible decision genesis makes: a UTxO can
 be spent once, so every distinct choice commits to a distinct policy id, and —
 because `protocol_params` shares one script hash across both handlers — a
 distinct address (`nft_output.address == address.from_script(own_policy)`,
-`:267`).
+`:271`).
 
 That policy id, not an address, is what every other validator treats as the
 protocol's identity. `protocol_params` needs no address parameter — the mint
@@ -1127,9 +1128,9 @@ already made the policy id unique (`validators/protocol_params.ak:8-16`).
 Every reader that must find the live wiring — `programmable_logic_base`,
 `issuance_mint`, `issuance_logic` — takes this policy id as a parameter, not
 an address, and locates the UTxO by NFT presence
-(`validators/programmable_logic/params.ak:140-141`) or, at genesis, by
+(`validators/programmable_logic/params.ak:144-145`) or, at genesis, by
 `has_nft_strict`, where the whole value must be exactly that one token
-(`validators/protocol_params.ak:245`) — never by comparing addresses. An
+(`validators/protocol_params.ak:249`) — never by comparing addresses. An
 address is one property a UTxO happens to have; a one-shot NFT policy id
 cannot coincide across two deployments, which is why it is what the protocol
 treats as itself. The SDK consequence — the params address collapsing to one
@@ -1176,7 +1177,7 @@ authority chose when it compiled them
 `validators/programmable_logic/params.ak:31-38`). That is the same authority
 acting in the same transaction that names the new dispatcher, not a separate
 escape route — and it reaches `is_seizable_output_shape_bounded`
-(`lib/prog_assets.ak:279-289`) and every other rule compiled into the four
+(`lib/prog_assets.ak:292-302`) and every other rule compiled into the four
 delegates the same way: only by shipping new delegates and re-pointing field
 0 at them, never by rewriting a datum field alone.
 
@@ -1214,7 +1215,8 @@ next spend.
 
 So the sitting authority **nominates** into field 5, and the nominee
 **activates** itself by presenting its own withdraw-zero — which is what proves
-it exists, runs, and consents (`validators/protocol_params.ak:213`). Until it
+it exists, can produce a withdrawal — a script that runs, or a key that signs
+— and consents (`validators/protocol_params.ak:221`). Until it
 does, the sitting authority can clear the nomination. Nomination and revocation
 race by construction, and if the nominee wins that race the outcome is exactly
 the handover the sitting authority had consented to, never a handover plus an
@@ -1238,16 +1240,16 @@ being replaced (`validators/upgrade_multisig.ak:146-151`).
 
 Both write paths hold the tree to `well_formed` — the mint at
 `validators/upgrade_multisig.ak:92` and the spend at `:143`. That predicate
-(`lib/multisig.ak:129-134`) requires:
+(`lib/multisig.ak:133-138`) requires:
 
 - every `Signature` and `Script` leaf names a 28-byte hash, since a shorter one
   can never match and an authority nobody can satisfy is a permanent brick
-  (`lib/multisig.ak:138-139`);
+  (`lib/multisig.ak:142-143`);
 - every list node is non-empty and free of duplicate children — `AllOf []` is
   vacuously true, which is a permissionless authority
-  (`lib/multisig.ak:150-157`);
+  (`lib/multisig.ak:154-161`);
 - every `AtLeast` has `1 <= required <= length(scripts)`
-  (`lib/multisig.ak:144-148`);
+  (`lib/multisig.ak:148-152`);
 - the whole tree fits under `max_size` (`lib/multisig.ak:113`), so an authority
   cannot write itself a tree too expensive to evaluate.
 
@@ -1257,14 +1259,14 @@ so authorising an upgrade pays only for `satisfied`.
 **What `well_formed` deliberately does not check.** It constrains the tree's *shape*, not who can
 satisfy it, and two consequences follow that an authority configuring itself must handle on its own.
 
-A tree needs no evidence leaf. `Before` and `After` carry no constraint (`lib/multisig.ak:138-139`),
+A tree needs no evidence leaf. `Before` and `After` carry no constraint (`lib/multisig.ak:142-143`),
 so a tree built only from time bounds is well-formed and installable, and `withdraw` then authorises
 it with no signatories and no withdrawals for as long as the validity range satisfies it — a validity
 range is evidence of *when*, never of *who*. The two leaves are mirror images, and the direction
 matters: `After` is unsatisfiable until its bound and permissionless afterwards, while `Before` is
 permissionless until its bound and unsatisfiable afterwards. So a `Before`-only tree is not a lock
 that opens later; it is one that is open now and bricks the authority when the bound passes. And the duplicate-child rule compares children structurally
-(`lib/multisig.ak:154`), so it rejects `[sig(A), sig(A)]` but admits
+(`lib/multisig.ak:158`), so it rejects `[sig(A), sig(A)]` but admits
 `[AllOf { scripts: [sig(A)] }, sig(A)]`, in which one party satisfies an `AtLeast` of two.
 
 Both shapes require satisfying the *existing* tree in order to install, so neither is reachable by
@@ -1287,7 +1289,7 @@ is a limit built into a different script than `protocol_params`.
    rewrites protocol-params field 0, it does not redeploy PLB
    (`validators/programmable_logic_base.ak:6-16`).
 2. **Un-seize a programmable output.** `is_seizable_output_shape_bounded`
-   (`lib/prog_assets.ak:279-289`) is compiled logic in the scripts that
+   (`lib/prog_assets.ak:292-302`) is compiled logic in the scripts that
    create PLB outputs, not a protocol-params read — no `ProtocolUpgrade` can
    loosen it for the delegates currently wired, and an output that already
    exists cannot have its on-chain shape rewritten in place. The one-hop
@@ -1323,9 +1325,9 @@ one-shot policy, and each rail is chosen for its job:
 - the protocol-params UTxO is found by policy presence on the hot path
   (`validators/programmable_logic/params.ak:139-140`) and by
   `assets.has_nft_strict` where the whole value must be exactly that NFT
-  (`validators/protocol_params.ak:249-254`, `validators/issuance_logic.ak:271-275`);
+  (`validators/protocol_params.ak:253-258`, `validators/issuance_logic.ak:279-283`);
 - a registry node is authenticated by its first non-ADA policy being the
-  registry NFT policy (`validators/third_party.ak:91`,
+  registry NFT policy (`validators/third_party.ak:97`,
   `lib/registry_node.ak:98-99`);
 - the upgrade authority's config UTxO is found by policy presence
   (`validators/upgrade_multisig.ak:163-166`).

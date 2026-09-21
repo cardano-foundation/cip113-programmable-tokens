@@ -281,10 +281,13 @@ pub fn is_seizable_output_shape(output: Output) -> Bool {
 /// each of the four scripts bounds only the outputs IT creates, so all four
 /// must be deployed with the same value (or, minimally, every creator's
 /// bound ≤ every carrier's). A UTxO born under a laxer bound cannot carry
-/// that datum forward — `transfer` bounds every PLB output it creates — but
-/// it is neither frozen nor unseizable: its tokens can move to a compliant
-/// output, and a paired continuing output on the third-party path is not
-/// re-bounded, so a seizure still validates. Correct by composition, at
+/// that datum forward — `transfer` bounds every PLB output it creates. No
+/// validator refuses to SPEND it: its tokens can move to a compliant output,
+/// and a paired continuing output on the third-party path is not re-bounded,
+/// so a seizure passes every on-chain check. The limit is feasibility, not
+/// validation — the seizure must reproduce that datum byte for byte, which
+/// collapses how many UTxOs fit in one transaction and, past `maxTxSize`,
+/// leaves no constructible seizure at all. Correct by composition, at
 /// deployment.
 pub fn is_seizable_output_shape_bounded(
   output: Output,
