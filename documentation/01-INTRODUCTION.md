@@ -150,7 +150,7 @@ graph TB
 The dispatcher — `programmable_logic_global` — requires the withdraw-zero of
 one delegate validator: `transfer` for an ordinary transfer,
 `third_party` for seizure or forced transfer, or `unfracking` for same-owner
-restructuring (`validators/programmable_logic_global.ak:66-72`). The diagram
+restructuring (`validators/programmable_logic_global.ak:71-77`). The diagram
 above follows the transfer path; [Key Components](#key-components) below
 covers all three.
 
@@ -184,10 +184,10 @@ Different tokens can use different substandards — each substandard is register
 #### 4. Dispatcher (`programmable_logic_global`)
 Spending a programmable-token UTxO always runs `programmable_logic_base` (PLB), the shared validator behind every programmable logic address. PLB does the smallest possible job: it reads one credential from the protocol-params reference input and requires that credential's withdraw-zero (`validators/programmable_logic_base.ak:58-66`). That credential names `programmable_logic_global`, the dispatcher.
 
-The dispatcher has exactly one job of its own: given the action the redeemer names — an ordinary transfer, a third-party action, or an unfracking restructuring — require the withdraw-zero of the delegate validator responsible for that action (`validators/programmable_logic_global.ak:66-72`). It reads no datum and looks up nothing in the registry; that work belongs to the delegate.
+The dispatcher has exactly one job of its own: given the action the redeemer names — an ordinary transfer, a third-party action, or an unfracking restructuring — require the withdraw-zero of the delegate validator responsible for that action (`validators/programmable_logic_global.ak:71-77`). It reads no datum and looks up nothing in the registry; that work belongs to the delegate.
 
 #### 5. Delegate Validators (`transfer`, `third_party`, `unfracking`)
-The dispatcher's redeemer names one delegate and requires its withdraw-zero (`validators/programmable_logic_global.ak:66-72`); the check is a lower bound; it does not exclude some other script's withdraw-zero also being present. Each delegate is a standalone withdraw-zero validator:
+The dispatcher's redeemer names one delegate and requires its withdraw-zero (`validators/programmable_logic_global.ak:71-77`); the check is a lower bound; it does not exclude some other script's withdraw-zero also being present. Each delegate is a standalone withdraw-zero validator:
 - **`transfer`** — the ordinary path. It walks the registry proofs supplied in its own redeemer, requires the withdraw-zero of the substandard's own transfer logic script for every registered policy touched, checks that the tokens reappear with the correct value, and confirms whoever owns the spent input consented — a signature for a verification-key owner, that script's withdraw-zero for a script owner (`validators/programmable_logic/owner.ak:27-38`, called from `validators/programmable_logic/transfer.ak:96`).
 - **`third_party`** — seize, clawback, freeze enforcement. Authorised by the policy's own third-party logic script, not by the holder (`validators/programmable_logic/third_party.ak:28`).
 - **`unfracking`** — holder-driven, same-owner restructuring. Requires the policy's unfracking logic script's withdraw-zero, when the registry node sets one (`validators/programmable_logic/unfracking.ak:119`).

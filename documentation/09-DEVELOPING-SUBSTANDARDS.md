@@ -56,7 +56,7 @@ PLB requires exactly one thing: the withdraw-zero of the **dispatcher**,
 datum (`validators/programmable_logic_base.ak:64-66`). The dispatcher, in turn,
 requires the withdraw-zero of one of three **delegate** validators —
 `transfer`, `third_party`, `unfracking` — selected by its own redeemer
-(`validators/programmable_logic_global.ak:66-72`). The delegate then requires
+(`validators/programmable_logic_global.ak:71-77`). The delegate then requires
 the credential your registry node names for that kind of action.
 
 ```
@@ -419,7 +419,7 @@ A credential cannot appear in a transaction's withdrawals until its stake
 address is **registered**, and after Conway registering a *script* credential
 requires that script's consent. Every withdraw-zero validator in the core
 protocol therefore carries a `publish` handler accepting `RegisterCredential`
-and refusing every other certificate (`validators/programmable_logic_global.ak:75-80`,
+and refusing every other certificate (`validators/programmable_logic_global.ak:80-85`,
 `validators/transfer.ak:59-64`, `validators/third_party.ak:70-75`,
 `validators/unfracking.ak:95-100`, `validators/issuance_logic.ak:89-94`).
 **The same obligation falls on each of your four credentials.** A substandard
@@ -432,7 +432,7 @@ phase-1 ledger rejection with no validator trace to read.
 1. A user builds a transfer transaction
 2. The transaction includes withdraw-zero entries for the dispatcher, the `transfer` delegate, and your transfer logic validator
 3. The PLB spending validator runs once per spent input, reads `programmable_logic_global_cred` from the protocol-params datum, and requires that credential at the withdrawal index its redeemer witnesses (`validators/programmable_logic_base.ak:58-66`)
-4. The dispatcher runs once, and under a `TransferAct` redeemer requires the `transfer` validator's withdraw-zero (`validators/programmable_logic_global.ak:66-72`)
+4. The dispatcher runs once, and under a `TransferAct` redeemer requires the `transfer` validator's withdraw-zero (`validators/programmable_logic_global.ak:71-77`)
 5. The `transfer` validator runs once: it resolves one registry proof per distinct spent policy and, for each registered policy, requires that policy's `transfer_logic_script` withdraw-zero (`validators/programmable_logic/transfer.ak:250-258`)
 6. Your transfer logic withdrawal validator runs and either succeeds or fails
 7. If all validators pass, the transaction is valid

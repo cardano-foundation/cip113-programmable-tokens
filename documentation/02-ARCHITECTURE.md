@@ -156,7 +156,7 @@ order. A parameter is applied at deployment and baked into the script hash.
 | `issuance_logic` | withdraw, publish | `programmable_logic_base_cred: Credential`, `registry_node_cs: PolicyId`, `params_policy: PolicyId`, `max_inline_datum_bytes: Int` (4) | `validators/issuance_logic.ak:44-62` | The protocol's replaceable issuance rules: registry proof, custody of the minted supply, output shape. One entry per policy issued (`:74-88`). |
 | `issuance_mint` | mint | `minting_logic_cred: Credential`, `params_policy: PolicyId` (2) | `validators/issuance_mint.ak:34-41` | The permanent per-token minting policy. Its hash IS the token's policy id. Requires the substandard's minting logic (`:46`) and the protocol's issuance logic covering this policy (`:52-63`). |
 | `programmable_logic_base` | spend | `params_policy: PolicyId` (1) | `validators/programmable_logic_base.ak:42` | Custody of every programmable-token UTxO. Reads one credential from the protocol-params datum and requires its withdraw-zero (`:58-66`). |
-| `programmable_logic_global` | withdraw, publish | `transfer_hash: ScriptHash`, `third_party_hash: ScriptHash`, `unfracking_hash: ScriptHash` (3) | `validators/programmable_logic_global.ak:48-52` | The dispatcher. Turns the redeemer's action into a requirement that the matching delegate ran (`:66-72`). |
+| `programmable_logic_global` | withdraw, publish | `transfer_hash: ScriptHash`, `third_party_hash: ScriptHash`, `unfracking_hash: ScriptHash` (3) | `validators/programmable_logic_global.ak:48-52` | The dispatcher. Turns the redeemer's action into a requirement that the matching delegate ran (`:71-77`). |
 | `protocol_params` | mint, spend | `utxo_ref: OutputReference` (1) | `validators/protocol_params.ak:232` | One-shot mint of the protocol-params NFT (`:229-273`) and the guard on the UTxO that carries it (`:280-345`). |
 | `registry` | mint, spend | `utxo_ref: OutputReference`, `issuance_cbor_hex_cs: PolicyId` (2) | `validators/registry.ak:40` | The sorted linked list of registered policies: the mint handler owns list structure and the token-id binding (`:50-172`), the spend handler guards every node (`:174-238`). |
 | `third_party` | withdraw, publish | `programmable_logic_base_cred: Credential`, `registry_node_cs: PolicyId`, `max_inline_datum_bytes: Int` (3) | `validators/third_party.ak:41-45` | Third-party actions — forced transfer, seizure, freeze enforcement, burn — for exactly one policy per transaction. |
@@ -241,7 +241,7 @@ See [Upgradability](#upgradability).
 delegate hashes as parameters, so it never reads the protocol-params datum; its
 redeemer selects one and requires that script's withdraw-zero:
 
-- `TransferAct` → the `transfer` validator, `validators/programmable_logic_global.ak:67`
+- `TransferAct` → the `transfer` validator, `validators/programmable_logic_global.ak:72`
 - `ThirdPartyAct` → the `third_party` validator, `:65`
 - `UnfrackingAct` → the `unfracking` validator, `:66`
 
@@ -253,7 +253,7 @@ The delegate does the work. Each one runs **once per transaction**, reads the
 subject policy's registry node as a reference input, and requires that node's
 credential for its own kind of action. No delegate is ever reached through
 another: a transaction loads PLB, `programmable_logic_global`, and at least the
-delegate its redeemer names (`validators/programmable_logic_global.ak:66-72`).
+delegate its redeemer names (`validators/programmable_logic_global.ak:71-77`).
 
 The arms of `ProgrammableLogicGlobalRedeemer` carry no payload
 (`lib/types.ak:100-109`). Everything a delegate needs — registry proofs, node
@@ -304,7 +304,7 @@ withdrawals:
 - PLB requires `programmable_logic_global_cred`,
   `validators/programmable_logic_base.ak:64-66`.
 - `programmable_logic_global` requires `transfer` under `TransferAct`,
-  `validators/programmable_logic_global.ak:67`, `:72`.
+  `validators/programmable_logic_global.ak:72`, `:77`.
 - `transfer` requires the registry node's `transfer_logic_script` for every
   policy proved present, `validators/programmable_logic/transfer.ak:258`.
 
@@ -792,7 +792,7 @@ Line by line:
 | Step | Enforced at |
 |---|---|
 | PLB requires the dispatcher's withdraw-zero | `validators/programmable_logic_base.ak:64-66` |
-| `programmable_logic_global` requires `transfer` | `validators/programmable_logic_global.ak:67`, `:72` |
+| `programmable_logic_global` requires `transfer` | `validators/programmable_logic_global.ak:72`, `:77` |
 | Every PLB input authorised by its stake credential | `validators/programmable_logic/transfer.ak:90-106`, via `validators/programmable_logic/owner.ak:27-38` |
 | Mint deltas kept only for policies present in PLB inputs | `validators/programmable_logic/transfer.ak:108-111`, `:146-171` |
 | PLB outputs collected, shape-checked | `validators/programmable_logic/transfer.ak:42-46`, via `lib/prog_assets.ak:208-226` |
@@ -818,7 +818,7 @@ Forced transfer, seizure, freeze enforcement and burn run through
 
 A spend reaches it the same way every spend does: PLB requires the dispatcher,
 and the dispatcher requires `third_party` under `ThirdPartyAct`
-(`validators/programmable_logic_global.ak:68`, `:72`). The `third_party`
+(`validators/programmable_logic_global.ak:73`, `:77`). The `third_party`
 withdraw-zero then carries a `ThirdPartyRedeemer`. It differs from a transfer:
 
 1. **No ownership check.** The subject policy's `third_party_logic_script`
@@ -862,7 +862,7 @@ A holder restructures the PLB UTxOs they already own for **one** registered
 policy — the motivating case being a UTxO holding several policies, where a
 freeze scoped to one of them immobilises the rest. The dispatcher requires
 `unfracking` under `UnfrackingAct`
-(`validators/programmable_logic_global.ak:69`, `:72`), and the validator
+(`validators/programmable_logic_global.ak:74`, `:77`), and the validator
 enforces:
 
 - `tx.mint` is zero — the action is strictly value-preserving
@@ -1031,7 +1031,7 @@ every other certificate:
 
 | Validator | `publish` at |
 |---|---|
-| `programmable_logic_global` | `validators/programmable_logic_global.ak:75-80` |
+| `programmable_logic_global` | `validators/programmable_logic_global.ak:80-85` |
 | `transfer` | `validators/transfer.ak:59-64` |
 | `third_party` | `validators/third_party.ak:70-75` |
 | `unfracking` | `validators/unfracking.ak:95-100` |

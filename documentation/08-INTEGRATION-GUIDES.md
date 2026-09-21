@@ -172,10 +172,10 @@ the policy's substandard logic script  withdraw
 ```
 
 - `programmable_logic_base` reads one field out of the protocol-params datum — `programmable_logic_global_cred`, field 0 — and requires that credential's withdraw-zero at the index its redeemer witnesses (`validators/programmable_logic_base.ak:58-66`). It has no action arm: **every** programmable spend requires the dispatcher, whether it is a transfer, a seizure, or an unfracking.
-- `programmable_logic_global` takes the three delegate hashes as compile-time parameters and turns its redeemer's action into a requirement that the matching delegate ran: `TransferAct` → `transfer`, `ThirdPartyAct` → `third_party`, `UnfrackingAct` → `unfracking` (`validators/programmable_logic_global.ak:66-73`).
+- `programmable_logic_global` takes the three delegate hashes as compile-time parameters and turns its redeemer's action into a requirement that the matching delegate ran: `TransferAct` → `transfer`, `ThirdPartyAct` → `third_party`, `UnfrackingAct` → `unfracking` (`validators/programmable_logic_global.ak:71-78`).
 - The delegate does the work, once per transaction: `transfer` (`validators/programmable_logic/transfer.ak:15-56`), `third_party` (`validators/programmable_logic/third_party.ak:16-58`), `unfracking` (`validators/programmable_logic/unfracking.ak:96-153`). Each resolves the subject policy's registry node from a reference input and requires the credential that node names for its kind of action.
 
-The dispatcher's redeemer names the one delegate that **must** have run, and requires that delegate's withdraw-zero to be in the set (`validators/programmable_logic_global.ak:66-72`). That is a lower bound, not an exclusion: nothing in the dispatcher, in `programmable_logic_base` or in any delegate forbids a transaction from also carrying a second delegate's withdraw-zero, and every withdrawal in the map runs its script, so any delegate present enforces its own rules in full. Classify a transaction by the dispatcher's redeemer, not by delegate presence alone. A redeemer naming the wrong action resolves to a delegate that is not in the withdrawal set, so it can only invalidate its own transaction.
+The dispatcher's redeemer names the one delegate that **must** have run, and requires that delegate's withdraw-zero to be in the set (`validators/programmable_logic_global.ak:71-77`). That is a lower bound, not an exclusion: nothing in the dispatcher, in `programmable_logic_base` or in any delegate forbids a transaction from also carrying a second delegate's withdraw-zero, and every withdrawal in the map runs its script, so any delegate present enforces its own rules in full. Classify a transaction by the dispatcher's redeemer, not by delegate presence alone. A redeemer naming the wrong action resolves to a delegate that is not in the withdrawal set, so it can only invalidate its own transaction.
 
 ### Required withdrawals
 
@@ -183,9 +183,9 @@ Every withdrawal below is for **zero ADA**. Omitting any one of them fails the t
 
 | Action | Required withdraw-zero credentials | Enforced by |
 |---|---|---|
-| **Transfer** | `programmable_logic_global_cred`; `transfer`; the policy's `transfer_logic_script`; plus the owner's credential when the owner is a `Script` | `validators/programmable_logic_base.ak:64-66`; `validators/programmable_logic_global.ak:67`, `:72`; `validators/programmable_logic/transfer.ak:258`; `validators/programmable_logic/owner.ak:36` |
-| **Seize / third party** | `programmable_logic_global_cred`; `third_party`; the policy's `third_party_logic_script` | `validators/programmable_logic_base.ak:64-66`; `validators/programmable_logic_global.ak:68`, `:72`; `validators/programmable_logic/third_party.ak:28` |
-| **Unfracking** | `programmable_logic_global_cred`; `unfracking`; the policy's `unfracking_logic_script`; plus the owner's credential when the owner is a `Script` | `validators/programmable_logic_base.ak:64-66`; `validators/programmable_logic_global.ak:69`, `:72`; `validators/programmable_logic/unfracking.ak:119`; `validators/programmable_logic/owner.ak:36` |
+| **Transfer** | `programmable_logic_global_cred`; `transfer`; the policy's `transfer_logic_script`; plus the owner's credential when the owner is a `Script` | `validators/programmable_logic_base.ak:64-66`; `validators/programmable_logic_global.ak:72`, `:77`; `validators/programmable_logic/transfer.ak:258`; `validators/programmable_logic/owner.ak:36` |
+| **Seize / third party** | `programmable_logic_global_cred`; `third_party`; the policy's `third_party_logic_script` | `validators/programmable_logic_base.ak:64-66`; `validators/programmable_logic_global.ak:73`, `:77`; `validators/programmable_logic/third_party.ak:28` |
+| **Unfracking** | `programmable_logic_global_cred`; `unfracking`; the policy's `unfracking_logic_script`; plus the owner's credential when the owner is a `Script` | `validators/programmable_logic_base.ak:64-66`; `validators/programmable_logic_global.ak:74`, `:77`; `validators/programmable_logic/unfracking.ak:119`; `validators/programmable_logic/owner.ak:36` |
 | **Issuance (mint or burn)** | the substandard's `minting_logic_cred`; the protocol's `issuance_logic_cred` | `validators/issuance_mint.ak:46`; `validators/issuance_mint.ak:52-63` |
 
 Three consequences worth stating plainly:
@@ -291,7 +291,7 @@ In the Conway era, registering a *script* credential requires that script's cons
 
 | Validator | `publish` at |
 |---|---|
-| `programmable_logic_global` | `validators/programmable_logic_global.ak:75-80` |
+| `programmable_logic_global` | `validators/programmable_logic_global.ak:80-85` |
 | `transfer` | `validators/transfer.ak:59-64` |
 | `third_party` | `validators/third_party.ak:70-75` |
 | `unfracking` | `validators/unfracking.ak:95-100` |
@@ -441,7 +441,7 @@ Redeemer (third_party_logic_script, once):
 
 Transcription notes:
 
-- **`valid_seize_tx` carries one withdrawal**, `third_party_logic_script`. It is a unit fixture that calls the `third_party` delegate directly, so it does not build the PLB and dispatcher links. A whole transaction carries all three, which is what `withdrawals_third_party` holds; the delegate's own requirement is `validators/programmable_logic/third_party.ak:28`, the other two are `validators/programmable_logic_base.ak:64-66` and `validators/programmable_logic_global.ak:68`.
+- **`valid_seize_tx` carries one withdrawal**, `third_party_logic_script`. It is a unit fixture that calls the `third_party` delegate directly, so it does not build the PLB and dispatcher links. A whole transaction carries all three, which is what `withdrawals_third_party` holds; the delegate's own requirement is `validators/programmable_logic/third_party.ak:28`, the other two are `validators/programmable_logic_base.ak:64-66` and `validators/programmable_logic_global.ak:73`.
 - **Both of the fixture's outputs sit at the same owner.** That is a fixture simplification: the paired output's address is pinned to its input's, but the destination output beyond the paired region is constrained only by the PLB payment credential and the output-shape rule. A real seizure sends it to the issuer's own programmable address.
 - **`outputs_start_idx` is where the paired region begins.** Outputs before it are scanned for subject-policy tokens and folded into the conservation total; outputs from that index on are paired positionally with the PLB inputs. The per-pair rules and the aggregate conservation rail are stated in one place at `validators/programmable_logic/third_party.ak:102-127` and implemented at `:128-276`.
 - **No owner signature and no owner withdrawal.** The holder does not consent to a seizure and is not asked to.
@@ -734,7 +734,7 @@ Indexers serving enterprise clients therefore need to:
 
 #### Identifying transfer, third-party and unfracking transactions
 
-Every programmable-token **spend** carries the `programmable_logic_global` withdraw-zero, so that credential is the marker of a programmable spend as such. An issuance that spends no programmable input never invokes `programmable_logic_base`, and so carries no dispatcher withdrawal at all — see the required-withdrawals table above. What distinguishes the three actions is **the redeemer on the dispatcher's withdraw-zero**. Each redeemer arm requires the matching delegate's withdraw-zero as well (`validators/programmable_logic_global.ak:66-72`), so the delegate is a reliable corroboration — but only the redeemer is decisive, because that requirement is a lower bound and a transaction may carry a second delegate's withdraw-zero too:
+Every programmable-token **spend** carries the `programmable_logic_global` withdraw-zero, so that credential is the marker of a programmable spend as such. An issuance that spends no programmable input never invokes `programmable_logic_base`, and so carries no dispatcher withdrawal at all — see the required-withdrawals table above. What distinguishes the three actions is **the redeemer on the dispatcher's withdraw-zero**. Each redeemer arm requires the matching delegate's withdraw-zero as well (`validators/programmable_logic_global.ak:71-77`), so the delegate is a reliable corroboration — but only the redeemer is decisive. That requirement is a lower bound: it obliges the named delegate and does not forbid another. The action itself is never in doubt, because the withdrawal map holds one entry per reward account, so the dispatcher runs once with one redeemer. In practice a transaction carries exactly the delegate its redeemer names; a second one only adds constraints, for no benefit. Classify on the redeemer and the edge case costs you nothing:
 
 | Transaction type | Dispatcher redeemer → delegate withdraw-zero | Characteristics |
 |---|---|---|
@@ -774,7 +774,7 @@ For tokens using the freeze-and-seize substandard, indexers should additionally 
 | Missing script owners | If only `VerificationKey` credentials are indexed, script-held tokens (dApps, DAOs) are invisible. |
 | Confusing payment keys in stake slots | A credential hash in the stake slot may be a payment key hash. Do not assume it corresponds to a registered stake address. |
 | Classifying by the base-spend redeemer | `BaseSpendRedeemer` is identical for all three actions. Classify by the `programmable_logic_global` redeemer, which names the delegate that had to run. |
-| Treating delegate presence as exclusive | The dispatcher requires one named delegate's withdraw-zero (`validators/programmable_logic_global.ak:66-72`); it does not forbid another delegate's from also being present. An indexer that assumes at most one delegate appears will mis-classify, or crash on, such a transaction. |
+| Treating delegate presence as exclusive | The dispatcher requires one named delegate's withdraw-zero (`validators/programmable_logic_global.ak:71-77`); it does not forbid another delegate's from also being present. An indexer that assumes at most one delegate appears will mis-classify, or crash on, such a transaction. |
 | Treating third-party actions as transfers | A transaction whose **dispatcher redeemer is `ThirdPartyAct`** is a third-party action, not a user-initiated transfer. Classify on the redeemer, not on the delegate's presence. Display it differently and flag it for compliance. |
 | Ignoring registry changes | New registrations change which policies are programmable, and node updates change who governs an existing one. An indexer that snapshots the registry once misses both. |
 
@@ -799,7 +799,7 @@ To authorize spending from this address, the owner check resolves the `Script` b
 Script(_hash) -> has_withdrawal(stake_cred)
 ```
 
-`validators/programmable_logic/owner.ak:36`. This is the **delegate's** check — it runs inside `transfer` (`validators/programmable_logic/transfer.ak:96`) and inside `unfracking` (`validators/programmable_logic/unfracking.ak:169`). `programmable_logic_global` never inspects an input's stake credential; it only requires the delegate's withdraw-zero (`validators/programmable_logic_global.ak:66-73`).
+`validators/programmable_logic/owner.ak:36`. This is the **delegate's** check — it runs inside `transfer` (`validators/programmable_logic/transfer.ak:96`) and inside `unfracking` (`validators/programmable_logic/unfracking.ak:169`). `programmable_logic_global` never inspects an input's stake credential; it only requires the delegate's withdraw-zero (`validators/programmable_logic_global.ak:71-78`).
 
 So your dApp's script must be **invokable as a stake validator via withdraw-zero**:
 

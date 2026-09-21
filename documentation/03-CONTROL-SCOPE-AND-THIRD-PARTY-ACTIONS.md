@@ -111,7 +111,7 @@ does: `programmable_logic_base` requires the dispatcher's withdraw-zero
 (`programmable_logic_global_cred`, protocol-params field 0 —
 `validators/programmable_logic_base.ak:64-66`), and the dispatcher requires
 `third_party`'s withdraw-zero under a `ThirdPartyAct` redeemer
-(`validators/programmable_logic_global.ak:68`, `:72`). The subject of the
+(`validators/programmable_logic_global.ak:73`, `:77`). The subject of the
 action is **policy A** — the registry node pointed to by `registry_node_idx`
 (`lib/types.ak:50-55`). Everything else in the transaction is "non-subject".
 

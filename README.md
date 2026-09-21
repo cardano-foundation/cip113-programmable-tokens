@@ -230,7 +230,7 @@ All programmable tokens are locked at a shared smart contract address. When a tr
 
 1. The transaction spends a token UTxO from the shared `programmable_logic_base` address (`validators/programmable_logic_base.ak:42`).
 2. `programmable_logic_base` reads the dispatcher credential off the protocol-params datum and requires the `programmable_logic_global` dispatcher's withdraw-zero (`validators/programmable_logic_base.ak:64-66`).
-3. `programmable_logic_global` requires the withdraw-zero of the delegate the redeemer names — `transfer`, for an ordinary transfer (`validators/programmable_logic_global.ak:66-72`).
+3. `programmable_logic_global` requires the withdraw-zero of the delegate the redeemer names — `transfer`, for an ordinary transfer (`validators/programmable_logic_global.ak:71-77`).
 4. `transfer` walks a registry proof per distinct policy touched and requires that policy's registered transfer-logic script's withdraw-zero (`validators/programmable_logic/transfer.ak:175-274`), then checks ownership of every spent input (`validators/programmable_logic/transfer.ak:73-112`, `validators/programmable_logic/owner.ak:27-39`) and that outputs contain at least the input tokens at a valid PLB shape (`validators/programmable_logic/transfer.ak:208-212`, `lib/prog_assets.ak:208-225`).
 5. Tokens land back at the `programmable_logic_base` address, under the new owner's stake credential.
 

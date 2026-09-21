@@ -57,12 +57,17 @@ validator programmable_logic_global(
   ) {
     trace @"Starting programmable_logic_global dispatch"
 
-    // One lookup, against a hash that is part of this script's identity. This
-    // is a REQUIREMENT, not an exclusion: nothing here forbids a second
-    // delegate's withdraw-zero from also being present. A redeemer naming an
-    // action whose delegate is absent fails here; naming one that IS present
-    // merely subjects the transaction to that delegate's rules in full. Either
-    // way no authority is created, because every script present must pass.
+    // One lookup, against a hash that is part of this script's identity.
+    //
+    // The action is never ambiguous: a withdrawal map holds one entry per
+    // reward account, so this handler runs ONCE per transaction, with one
+    // redeemer naming one action. Read the action here and nowhere else.
+    //
+    // What this line does is REQUIRE the named delegate. It does not forbid
+    // the other two from also being present. A builder has no reason to
+    // include one — a second delegate only adds constraints — but if one is
+    // there it simply runs in full, and no authority is created either way,
+    // because every script present must pass.
     let required = when redeemer is {
       TransferAct -> transfer_hash
       ThirdPartyAct -> third_party_hash
