@@ -202,7 +202,7 @@ implemented at `:128-276`).
 > it.** Ada is peeled off both sides of each pair before the asset lists are
 > compared, and it is **ratcheted, not conserved**: the paired continuing
 > output must carry *at least* the input's lovelace
-> (`validators/programmable_logic/third_party.ak:220-226`). `>=` rather than
+> (`validators/programmable_logic/third_party.ak:225-231`). `>=` rather than
 > `==` because exact equality forbade the top-up that absorbs a rise in the
 > min-ADA protocol parameter, which would make a third-party action on an
 > existing UTxO unsatisfiable forever; and `>=` rather than free because

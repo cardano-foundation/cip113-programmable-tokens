@@ -55,7 +55,7 @@ This means:
   no owner that `owner.ak` can ever authorise, so it would be permanently
   unspendable. The rule is enforced wherever a PLB output is created —
   `lib/prog_assets.ak:218` for transfers,
-  `validators/programmable_logic/third_party.ak:168` for third-party
+  `validators/programmable_logic/third_party.ak:173` for third-party
   destinations, `validators/issuance_logic.ak:198` at issuance.
 - **Wallets need integration.** The tokens are ordinary native assets at the
   ledger level, but a wallet must resolve stake-credential ownership at a shared
@@ -829,28 +829,28 @@ withdraw-zero then carries a `ThirdPartyRedeemer`. It differs from a transfer:
    (`validators/third_party.ak:86-99`).
 3. **Positional pairing.** Each spent PLB input is paired with a continuing
    output, the first pair at `outputs_start_idx`
-   (`validators/programmable_logic/third_party.ak:30-37`, `:192-203`).
+   (`validators/programmable_logic/third_party.ak:30-37`, `:197-208`).
 4. **Preservation.** The paired output must reproduce the input's address,
    datum and reference script byte for byte
-   (`validators/programmable_logic/third_party.ak:209-211`), and every
+   (`validators/programmable_logic/third_party.ak:214-216`), and every
    non-subject policy's tokens must be byte-identical across the pair
    (`:250-253`). Only the subject policy's amount may move. Lovelace is
    ratcheted rather than frozen — the paired output must carry at least the
    input's (`:221`) — so a rise in the min-ADA parameter cannot make an existing
    UTxO permanently unseizable.
 5. **Anti-injection.** The paired input must already hold the subject policy
-   (`validators/programmable_logic/third_party.ak:254`), so the policy can
+   (`validators/programmable_logic/third_party.ak:259`), so the policy can
    neither be injected onto a UTxO that never held it nor be dragged in via an
    unrelated UTxO.
 6. **Aggregate conservation.** Once the inputs are exhausted, the subject
    policy's total across all PLB outputs must contain its total across all PLB
    inputs plus any mint or burn
-   (`validators/programmable_logic/third_party.ak:193-196`). Tokens are
+   (`validators/programmable_logic/third_party.ak:198-201`). Tokens are
    redistributed inside the programmable address; they are never created from
    nothing and never escape.
 7. **Fresh destinations stay seizable.** Any newly created PLB output must carry
    an inline stake credential and the bounded output shape
-   (`validators/programmable_logic/third_party.ak:168-173`).
+   (`validators/programmable_logic/third_party.ak:173-178`).
 
 Splitting this logic into its own script keeps it off the transfer path: a
 seizure loads `third_party` instead of `transfer`, so neither transaction pays
@@ -953,7 +953,7 @@ The first three bullets are one predicate, `is_seizable_output_shape_bounded`
 output: the transfer gate
 (`validators/programmable_logic/transfer.ak:42`, via
 `lib/prog_assets.ak:208-226`), third-party destinations
-(`validators/programmable_logic/third_party.ak:89`, `:169-173`), unfracking
+(`validators/programmable_logic/third_party.ak:89`, `:174-178`), unfracking
 destinations (`validators/programmable_logic/unfracking.ak:219-223`,
 `:258-262`), and issuance (`validators/issuance_logic.ak:199`). At the issuance
 site the datum **bound** applies only to outputs that carry the policy being
@@ -965,7 +965,7 @@ third-party path that produced its contents.
 The fourth bullet is a separate check: the predicate reads `output.datum` and
 `output.reference_script` only, and never looks at the address. The inline
 stake credential is required at `lib/prog_assets.ak:218` on the transfer path,
-at `validators/programmable_logic/third_party.ak:89` and `:168` on the
+at `validators/programmable_logic/third_party.ak:89` and `:173` on the
 third-party path, and at `validators/issuance_logic.ak:198` at issuance.
 Unfracking does not re-check it: its fresh destination outputs must sit at the
 owner address (`validators/programmable_logic/unfracking.ak:216`, `:255`), and
@@ -1004,7 +1004,7 @@ Seizure is a different case, and not a validator rule of the same kind:
 `third_party` does not re-apply the bound to a paired continuing output
 (`validators/programmable_logic/third_party.ak:153-155`, and the paired walk at
 `:187-267` never calls the predicate), so a seizure still validates — but it
-must reproduce the input's datum byte for byte in that output (`validators/programmable_logic/third_party.ak:210`), which
+must reproduce the input's datum byte for byte in that output (`validators/programmable_logic/third_party.ak:215`), which
 puts the practical limit on a seizure at `maxTxSize` rather than at a validator
 check, in the sense the output-shape rules above are written for. Correctness
 here is by composition, at deployment.
@@ -1080,7 +1080,7 @@ what they resolve to rather than trusted — and one is not:
   to a value the protocol computes for itself. A wrong offset shifts every
   pair, and the transaction then fails the per-pair address, datum and
   reference-script equalities
-  (`validators/programmable_logic/third_party.ak:209-211`,
+  (`validators/programmable_logic/third_party.ak:214-216`,
   `validators/programmable_logic/unfracking.ak:284-286`) — validation is
   indirect, through the pairing the offset produces.
 
@@ -1350,7 +1350,7 @@ the transaction. `unfracking` applies the same rule to a single pinned owner
 For every policy proved programmable, the tokens in PLB outputs must contain the
 tokens taken from PLB inputs (`validators/programmable_logic/transfer.ak:208-212`).
 The third-party path has its own aggregate rail
-(`validators/programmable_logic/third_party.ak:193-196`) and the unfracking path
+(`validators/programmable_logic/third_party.ak:198-201`) and the unfracking path
 a strict equality (`validators/programmable_logic/unfracking.ak:269`).
 Programmable tokens cannot move to a non-programmable address.
 

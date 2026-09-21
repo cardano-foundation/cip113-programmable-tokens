@@ -159,9 +159,14 @@ fn validate_io_constraints_and_balance(
             // one has no owner `owner.ak` can authorise, so no holder-driven
             // path can ever spend it — not `transfer`, not `unfracking`. A
             // third-party action still could, since it does not consult the
-            // owner, but only into a continuing output at the same ownerless
-            // address with the lovelace ratcheted in place. Refusing to create
-            // one keeps that dead end out of the token's history.
+            // owner, and it can route the acted policy's tokens to a fresh,
+            // well-formed destination: the checks here bind a destination to
+            // being a valid programmable output, not to the address it came
+            // from. So the TOKENS are recoverable by the policy's authority.
+            // What stays at the ownerless address is its lovelace, ratcheted
+            // by the paired rule, and any non-acted policy, pinned
+            // byte-identical. Refusing to create one keeps a UTxO only a
+            // third party can ever touch out of the token's history.
             // `issuance_logic` skips `no_escape` when it delegates custody
             // here, so this is the only place that catches a mint composed
             // with a seize.

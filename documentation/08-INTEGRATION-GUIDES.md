@@ -276,11 +276,11 @@ The predicate is `lib/prog_assets.ak:292-303` (`is_seizable_output_shape_bounded
 
 `max_inline_datum_bytes` is a compile-time parameter of four scripts — `transfer` (`validators/transfer.ak:35`), `third_party` (`validators/third_party.ak:44`), `unfracking` (`validators/unfracking.ak:62`) and `issuance_logic` (`validators/issuance_logic.ak:60`) — and **all four are deployed with the same value**. Read it from the deployment's blueprint, not from the protocol-params datum: it is not a field there.
 
-One exception a seizure builder needs: the **paired continuing output** of a third-party action is not re-checked against the bound. It is instead required to be byte-identical to the input it is paired with — address, datum and reference script (`validators/programmable_logic/third_party.ak:209-211`) — so its datum is whatever the input already carried and was bounded when that input was created. Fresh destination outputs get the full check (`validators/programmable_logic/third_party.ak:168-173`).
+One exception a seizure builder needs: the **paired continuing output** of a third-party action is not re-checked against the bound. It is instead required to be byte-identical to the input it is paired with — address, datum and reference script (`validators/programmable_logic/third_party.ak:214-216`) — so its datum is whatever the input already carried and was bounded when that input was created. Fresh destination outputs get the full check (`validators/programmable_logic/third_party.ak:173-178`).
 
 **Lovelace is not covered by any of these byte-identity rules.** Both pairing validators strip ADA off the two sides before comparing them, and then treat it differently:
 
-- a third-party pair **ratchets** it — the paired continuing output must carry **at least** the input's lovelace, `expect (output_lovelace >= input_lovelace)?` (`validators/programmable_logic/third_party.ak:226`). Byte-identity applies to the ADA-stripped halves, i.e. to the non-ADA policies (`:255-258`). Equality is deliberately *not* required: it would leave a UTxO whose lovelace sits below a later min-UTxO rise permanently unseizable. A builder may therefore top the paired output up to the current min-UTxO, and must never give it less than the input had;
+- a third-party pair **ratchets** it — the paired continuing output must carry **at least** the input's lovelace, `expect (output_lovelace >= input_lovelace)?` (`validators/programmable_logic/third_party.ak:231`). Byte-identity applies to the ADA-stripped halves, i.e. to the non-ADA policies (`:260-263`). Equality is deliberately *not* required: it would leave a UTxO whose lovelace sits below a later min-UTxO rise permanently unseizable. A builder may therefore top the paired output up to the current min-UTxO, and must never give it less than the input had;
 - an unfracking pair leaves it **unconstrained** — the lovelace is not even read (`validators/programmable_logic/unfracking.ak:288-298`). A builder redistributes the input's ADA across the owner's outputs as min-UTxO requires, and needs no extra funding input to do it.
 
 ### Stake-credential registration and the `publish` handlers
@@ -413,7 +413,7 @@ Outputs:
       amount; lovelace is EXEMPT from byte-identity and RATCHETED -- give
       this output AT LEAST the input's lovelace, and top it up freely if
       min-UTxO requires it
-      (validators/programmable_logic/third_party.ak:226)
+      (validators/programmable_logic/third_party.ak:231)
   [1] the destination output at the PLB payment credential, holding the
       seized tokens
 
@@ -740,7 +740,7 @@ Every programmable-token **spend** carries the `programmable_logic_global` withd
 |---|---|---|
 | **Transfer** | `TransferAct` → `transfer` (`TransferRedeemer { proofs }`) | Owner-authorized. The stake credential owner signed or invoked. Input and output may have different stake credentials. |
 | **Unfracking** | `UnfrackingAct` → `unfracking` (`UnfrackingRedeemer { registry_node_idx, outputs_start_idx }`) | Owner-authorized, same-owner, value-preserving restructuring of one policy across the holder's own PLB UTxOs. No transfer logic runs; the policy's unfracking hook does. Mint and burn are both empty. |
-| **Third-party** | `ThirdPartyAct` → `third_party` (`ThirdPartyRedeemer { registry_node_idx, outputs_start_idx }`) | Authorised by the policy's third-party logic script (forced transfer, seizure, burn). The holder's consent is neither required nor checked — the delegate never consults `owner.ak`, so the holder's signature or withdrawal may be present for unrelated reasons and proves nothing either way. The paired continuing output preserves the holder's address, datum and reference script; among non-ADA policies only the subject policy's tokens change, while its lovelace may rise (`validators/programmable_logic/third_party.ak:226`). An indexer must not read a lovelace increase on that output as a payment. |
+| **Third-party** | `ThirdPartyAct` → `third_party` (`ThirdPartyRedeemer { registry_node_idx, outputs_start_idx }`) | Authorised by the policy's third-party logic script (forced transfer, seizure, burn). The holder's consent is neither required nor checked — the delegate never consults `owner.ak`, so the holder's signature or withdrawal may be present for unrelated reasons and proves nothing either way. The paired continuing output preserves the holder's address, datum and reference script; among non-ADA policies only the subject policy's tokens change, while its lovelace may rise (`validators/programmable_logic/third_party.ak:231`). An indexer must not read a lovelace increase on that output as a payment. |
 
 The base-spend redeemer does **not** distinguish them: `BaseSpendRedeemer` is a single-constructor record carrying two indices (`lib/types.ak:79-84`), identical in all three cases.
 

@@ -156,7 +156,6 @@ committee decision (decision-doc-in-place-upgradability.md).
 | `UnfrackingRedeemer` | gains a leading **`params_idx: Int`** | **YES** — unfracking builder |
 | Tx shape | Builders compute the params UTxO's position in the ledger-sorted `reference_inputs` and pass it in every redeemer above; a wrong index fails the params-NFT `expect` | Builder change |
 
-Details: `cip113-api-changes-post-audit.md` §16.
 
 ### Upgradability in place — validator split (`feat/plg-third-party-split`, PR #110 vs `main`) — PROVISIONAL
 
