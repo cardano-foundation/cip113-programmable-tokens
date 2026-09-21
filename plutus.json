@@ -1100,7 +1100,7 @@
             },
             {
               "title": "issuance_logic_cred",
-              "description": "Field 1 — credential of the `issuance_logic` withdraw-0 validator (issue\n #129). Read ONLY by `issuance_mint`, the permanent per-token policy, to\n learn which script currently carries the protocol's issuance rules and\n to require its withdraw-0. Rewriting this field is how those rules are\n upgraded for EVERY token, including ones already minted — the permanent\n policy's bytes never move, so neither does any policy id. Sits at 1 because\n it is read once per ISSUANCE transaction — every mint and burn — which is\n the second-hottest read after PLB's.",
+              "description": "Field 1 — credential of the `issuance_logic` withdraw-0 validator (issue\n #129). Read ONLY by `issuance_mint`, the permanent per-token policy, to\n learn which script currently carries the protocol's issuance rules and\n to require its withdraw-0. Rewriting this field is how those rules are\n upgraded for EVERY token, including ones already minted — the permanent\n policy's bytes never move, so neither does any policy id. Sits at 1\n because it is read once per `issuance_mint` EXECUTION — the ledger runs\n that policy once per programmable policy minted or burned, so a\n multi-policy transaction repeats the read — which is the second-hottest\n read after PLB's.",
               "$ref": "#/definitions/cardano~1address~1Credential"
             },
             {

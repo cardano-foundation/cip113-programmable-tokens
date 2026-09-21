@@ -172,7 +172,7 @@ A sorted linked list of registered programmable token policies, stored as on-cha
 - The unfracking logic script credential, invoked by the `unfracking` delegate when set — left unset, it forbids unfracking for that policy
 - An optional global-state currency symbol (e.g., a denylist)
 
-A registry proof is a **direct index into the transaction's reference inputs**, supplied by the redeemer and authenticated against the registry NFT policy, rather than a walk of the list. Its cost does not grow with the size of the registry; it grows only with the position of the referenced node among the reference inputs (`lib/registry_node.ak:83-108`, `validators/programmable_logic/transfer.ak:249-261`).
+A registry proof is a **direct index into the transaction's reference inputs**, supplied by the redeemer and authenticated against the registry NFT policy, rather than a walk of the list. Its cost does not grow with the size of the registry. Beyond that the two delegates differ: `third_party` jumps straight to the index, so it pays only for the node's position among the reference inputs (`validators/third_party.ak:91`); `transfer` builds a lookup over the whole reference-input list first, one closure per element, before any index is known, so it pays for the list's length whichever node is addressed, and resolution then costs one comparison per reference input *after* the addressed one (`lib/registry_node.ak:83-108`, `validators/programmable_logic/transfer.ak:249-261`).
 
 #### 3. Validation Scripts (Substandards)
 Pluggable stake validators defined by substandards that enforce token-specific rules:
@@ -261,7 +261,7 @@ Let's walk through a simple transfer:
 - Tokens remain native assets at the ledger level
 
 **Transparent Rules**:
-- Validation logic is public; any change goes through the registry's authorized update path and is visible on-chain
+- Validation logic is public, and every change to it is visible on-chain through one of two authorized paths: a policy's own logic scripts change through the registry's update path — the four mutable `RegistryNode` fields, rewritten under that node's minting-logic withdraw-zero (`lib/linked_list.ak:181-206`) — while the shared dispatcher and issuance logic change through a `ProtocolUpgrade` spend that rewrites fields 0 and 1 of the protocol-params datum
 - Users know exactly what restrictions apply (by reading the live registry entry)
 - No hidden centralized controls (beyond those explicitly coded)
 

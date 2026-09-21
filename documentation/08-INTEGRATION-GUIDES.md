@@ -315,7 +315,7 @@ Because `issuance_logic_cred` is a datum field rather than a parameter, replacin
 
 ## Transaction Skeletons
 
-Each skeleton below is transcribed from a test fixture in this repository, named in the citation line above it. The fixtures are executable and run under `aiken check`, so a skeleton that drifts from the protocol will be caught by a failing test rather than by a reader.
+Each skeleton below is transcribed from a test fixture in this repository, named in the citation line above it. The fixtures are executable and run under `aiken check`, so the protocol behaviour they encode stays honest. The transcription itself is not checked by anything: nothing in CI compares a skeleton on this page against the fixture it names, so a fixture that changes without its skeleton being updated fails no test. Follow the citation to the fixture when a detail matters.
 
 Two reading rules apply throughout:
 
@@ -507,7 +507,7 @@ Transcription notes:
 
 - **`transfer_logic_script` is here as the owner's consent, not as a transfer rule.** In the fixture the holder's stake credential is the same script as policy P's `transfer_logic_script`, so one withdrawal serves. A holder with a `VerificationKey` credential signs instead and the set is three entries. The `transfer` validator is *not* part of an unfracking transaction.
 - **`unfracking_logic_script` is default-deny.** It is registry-node field 5 (`lib/registry_node.ak:78`), and an issuer who never set it leaves it at `empty_vkey` — a zero-byte key hash (`lib/registry_node.ak:26`). No ledger transaction can carry a withdrawal keyed by an empty hash, so the unconditional requirement at `validators/programmable_logic/unfracking.ak:119` forbids unfracking outright for such a policy.
-- **Every output stays at the same owner.** Unfracking restructures the holder's own UTxOs; it cannot move value to anyone else.
+- **The acted-on policy's tokens stay at the same owner.** Every output carrying tokens of policy P sits at the pinned owner address, and the total across them must equal the input-side total exactly (`validators/programmable_logic/unfracking.ak:269`); tokens of other policies are pinned in the paired output. Lovelace is the exception — it is unconstrained across the pair, as above, so unfracking restructures the holder's programmable tokens, not the ADA carrying them.
 
 ### Issuance (mint or burn)
 
@@ -853,7 +853,7 @@ Note the ordering hazard: `dapp_script` is a `Script` credential, so it sorts am
 
 ### What your script must handle
 
-Your dApp's `withdraw` handler is the gate for all spending of programmable tokens held by your dApp. It must:
+Your dApp's `withdraw` handler is the gate for every **owner-authorised** spend of programmable tokens held by your dApp — that is, `transfer` and `unfracking`, the two actions that consult the holder (`validators/programmable_logic/owner.ak`). It is **not** consulted for third-party actions: `third_party` never asks the owner, and its only authorization is the policy's `third_party_logic_script` withdraw-zero (`validators/programmable_logic/third_party.ak:28`), so a seizure spends your UTxO with no withdrawal from your credential at all. For the spends it does gate, it must:
 
 1. **Validate your business logic** — whatever the dApp's purpose is (swap, lend, vote), this is where you enforce it.
 2. **Enumerate the PLB inputs it is authorizing.** One withdrawal of your credential satisfies the owner check for **every** PLB input in the transaction whose stake credential is your script: the check is per input (`validators/programmable_logic/transfer.ak:90-102`) but is satisfied by set membership (`validators/programmable_logic/transfer.ak:59-71`). Your handler cannot assume it is being asked about a single UTxO — if it approves at all, it approves all of them.

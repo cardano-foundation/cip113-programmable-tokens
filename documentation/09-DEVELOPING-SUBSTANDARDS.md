@@ -321,9 +321,18 @@ The `minting_logic_script` (your issuance logic credential) is both **stored in 
 
 ### The `max_inline_datum_bytes` deployment invariant
 
-Every PLB output must carry no datum hash, no reference script, and — where it
-carries a programmable policy — an inline datum serialising to at most
+Every PLB output **that carries programmable tokens** must carry no datum hash,
+no reference script, and an inline datum serialising to at most
 `max_inline_datum_bytes` (`lib/prog_assets.ak:279-290`).
+
+The qualifier is load-bearing. A PLB address is not a gate: creating an output
+invokes nothing, so anyone can pay ada or non-programmable tokens to that
+payment credential, with any datum, and no script runs. Such a UTxO is inert —
+it carries no programmable token, so no delegate has anything to say about it,
+and nothing in the protocol will ever have to move it. The invariant holds for
+outputs that do carry programmable tokens, because every path by which such a
+token reaches a PLB output — mint, transfer, third-party action, unfracking —
+applies these checks before it will validate.
 
 That bound is **not** a protocol-params datum field. It is a compile-time
 parameter of four scripts, and **all four must be deployed with the same value**:
@@ -345,8 +354,13 @@ unseizable** — permanently, with no repair path. The rule is stated at
 carrier's), "correct by composition, at deployment" — and again at
 `validators/issuance_logic.ak:54-60`, which draws out the consequence for the
 issuance path in as many words: a datum born under a laxer bound than the one
-`transfer` or `third_party` must later carry it under is a frozen, unseizable
-UTxO, and nothing on-chain can compare the four values.
+`transfer` must later carry it under cannot be carried forward, because
+`transfer` bounds every PLB output it creates. The UTxO is neither frozen nor
+unseizable — its tokens can move to a compliant output, and `third_party` does
+not re-apply the bound to a paired continuing output, so a seizure still
+validates. What a mismatch costs is a substandard whose transfer logic needs
+the datum to continue, and seizure batch size. Nothing on-chain can compare
+the four values.
 
 **What this means for you.** Your substandard does not take this parameter, so
 you cannot set it wrongly yourself — but your issuance logic decides what datum
@@ -674,15 +688,23 @@ So **your issuance-logic validator runs in all three** — and by default, whoev
 can mint can also register and reconfigure the registry entry (transfer logic,
 third-party logic, unfracking hook, global state).
 
-> **The in-place update path requires a *script* `minting_logic_script`.**
-> The `registry` spend handler authorises a node update by checking that
-> `minting_logic_script`'s withdraw-0 is present — which is only possible for a
-> `Script` credential. The `VerificationKey` arm returns `False` outright
-> (`validators/registry.ak:227-234`), so it denies the update rather than
-> aborting. If your `minting_logic_script` is a plain `VerificationKey`, you
-> can mint and register but you **cannot update the node in place**; the node's
-> configuration is effectively frozen. Choose a script credential if you want
-> upgradeable transfer / third-party / unfracking logic.
+> **`minting_logic_script` must be a *script* credential.**
+> Registration derives the policy id by applying the issuance template to that
+> credential's hash, and the derivation opens with
+> `expect Script(hashed_param) = minting_logic_script` (`lib/utils.ak:90`). A
+> `VerificationKey` aborts there, so the registration transaction never
+> validates and the policy id it would have keyed could never be derived in the
+> first place — `registry_insert_fails_verification_key_substandard`
+> (`validators/registry.test.ak:985`) pins that. A verification key is not a
+> way to get a frozen node; it is a way to get no node.
+>
+> The spend handler's `VerificationKey` arm, which denies a node update outright
+> (`validators/registry.ak:223-230`), is therefore unreachable: no node holding
+> a verification-key `minting_logic_script` can exist to be spent. It is
+> defence-in-depth, not a configuration choice.
+>
+> If you want the node's configuration immutable, write a minting-logic script
+> that refuses node-update transactions. That is the only way to get one.
 
 **If issuance and registry-lifecycle should be *different* authorities, your
 issuance logic must distinguish them itself** — e.g. by inspecting whether the
@@ -815,8 +837,8 @@ validator transfer {
 
 ### Key takeaways
 
-1. **Minimal structure**: two `withdraw` validators — that is the absolute minimum for a token that mints and transfers
-2. **Reusing a credential is legitimate**: nothing requires the four registry fields to be four distinct scripts
+1. **The framework's floor is one script**: `issuance_mint` and `transfer` each do nothing but test that their credential appears in the transaction's withdrawal set (`validators/issuance_mint.ak:47`, `validators/programmable_logic/transfer.ak:258`), and nothing requires the registry node's credential fields to be distinct. A single `withdraw` validator registered in all of them satisfies every check
+2. **This walkthrough keeps two anyway, for a reason**: a merged credential is invoked once per transaction, with one redeemer, and so cannot tell mint from transfer without inspecting the transaction itself. Two scripts get that distinction from the script hash; one script has to earn it by reading the context
 3. **No transaction inspection**: the validators don't even look at the transaction — they just check a magic number
 4. **Separate compile targets**: `issue` and `transfer` compile to separate scripts with separate script hashes, and each must be registered as a stake address before it can be invoked
 
@@ -937,7 +959,7 @@ Denylist management transaction:
 
 1. **Parameterized validators**: transfer logic takes the PLB credential and the denylist policy ID as parameters — different deployments can have different denylists
 2. **Reference inputs for state**: the denylist is read via reference inputs, not consumed. Multiple transfers can read the same denylist concurrently
-3. **Separated concerns**: denylist management (mint/spend) is independent from transfer validation. You can add or remove denylist entries without affecting transfers in progress
+3. **Separated concerns, up to the node an update consumes**: denylist management (mint/spend) is independent from transfer validation, and readers never contend with each other. They do contend with the update: an insert or a removal **spends** the covering node UTxO, as the diagram above shows, so a transfer already built against that node names a reference input that no longer exists and the ledger rejects it in phase 1, before any script runs. A builder who hits this must re-resolve the covering node and rebuild
 4. **Covering-node proofs**: non-membership is proven by a direct index into the reference inputs, constant in the length of the denylist
 
 ---
@@ -953,8 +975,12 @@ two different means, and neither covers the other:
 
 - **The redeemer shapes and index semantics** come from test fixtures in this
   repository, named in the citation line above each block. Those fixtures are
-  executable and run under `aiken check`, so a redeemer shape that drifts from
-  the protocol is caught by a failing test rather than by a reader.
+  executable and run under `aiken check`, so the protocol behaviour they encode
+  stays honest. The transcription into the blocks below is not checked by
+  anything: CI runs the formatter, the test suite twice, the build and a
+  citation checker, and none of them compares a Markdown code block against the
+  fixture it names. A fixture that changes without its block being updated fails
+  no test, so follow the citation when a detail matters.
 - **The TypeScript itself** type-checks against `@evolution-sdk/evolution`
   `0.5.9` under TypeScript `5.9.3`, extracted block by block with the
   `declare const` preamble each block carries. That catches a wrong field name,
@@ -1082,9 +1108,10 @@ let tx = client
 
 // 5. A MINT creates a PLB output for the recipient: no datum hash, no reference
 //    script, inline datum within max_inline_datum_bytes
-//    (lib/prog_assets.ak:279-290). A BURN creates no such output — an output
-//    cannot carry a negative quantity, and the tokens being burned come from a
-//    PLB INPUT, not from a new output.
+//    (lib/prog_assets.ak:279-290). A FULL burn creates no such output — an
+//    output cannot carry a negative quantity, and the tokens being burned come
+//    from a PLB INPUT, not from a new output. A PARTIAL burn does create one,
+//    for the remaining balance; see the note below.
 if (quantity > 0n) {
   let outAssets = Assets.fromLovelace(1_500_000n);
   outAssets = Assets.addByHex(outAssets, tokenPolicyId, assetNameHex, quantity);
@@ -1101,13 +1128,23 @@ await signed.submit();
 ```
 
 **A burn is not this transaction with the sign flipped.** The negative mint entry
-is right, but a burn additionally **spends** the PLB UTxO holding the tokens, and
-it builds **no** PLB output for the burned policy. So a burn carries the two
-issuance withdraw-zeros above *plus* the full spend chain of whichever action
-releases the tokens — dispatcher, delegate, and the policy's logic credential for
-that action. Build it as the transfer below, with the mint and the two issuance
-withdrawals added. `validators/issuance_logic.ak:183-215` constrains PLB outputs
-that carry the policy; it never requires one to exist.
+is right, but a burn additionally **spends** the PLB UTxO holding the tokens. So
+a burn carries the two issuance withdraw-zeros above *plus* the full spend chain
+of whichever action releases the tokens — dispatcher, delegate, and the policy's
+logic credential for that action. Build it as the transfer below, with the mint
+and the two issuance withdrawals added.
+
+**Whether it builds a PLB output depends on how much it burns.** The example
+above is written for a full burn: every token of the policy held by the spent
+UTxOs goes into the negative mint entry, nothing of that policy is left over,
+and no output for it is created. A **partial** burn must return the remainder to
+a PLB output. `transfer` applies the mint to each spent policy and then requires
+the paired outputs to contain what is left, unless the policy was consumed
+entirely (`validators/programmable_logic/transfer.ak:191-212`); `no_escape`
+independently forbids the remainder landing at any address other than the base
+(`validators/issuance_logic.ak:174-206`). So `issuance_logic` constrains the
+shape of PLB outputs that carry the policy and never requires one to exist — it
+is the *full* burn, not burning as such, that produces none.
 
 ### Transferring tokens
 

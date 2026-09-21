@@ -132,7 +132,7 @@ node — at build time, freshly. Do not hardcode the mapping.
 
 This is the highest-impact and most subtle change. A registered node's
 *governance fields* can be changed after holders already hold the token, by
-re-spending the node UTxO through `validators/registry_spend.ak`
+re-spending the node UTxO through the `validators/registry.ak` spend handler
 (`is_field_updated_registry_node` in `lib/linked_list.ak` defines the rules):
 
 | Field | Mutable? | Notes |
@@ -147,9 +147,10 @@ re-spending the node UTxO through `validators/registry_spend.ak`
 | `protected_prefixes` | *(removed — added in #82, removed again in #97; not part of current `main`, see §0)* |
 
 Authority to update is **the `minting_logic_script` itself**: the update is only
-valid if `minting_logic_script` is a `Script` credential *and* its withdraw-0 is
-invoked in the update transaction (`registry_spend.ak`). A `VerificationKey`
-minting logic can never update — updates are script-gated by construction.
+valid if its withdraw-0 is invoked in the update transaction (the
+`validators/registry.ak` spend handler). Updates are script-gated by
+construction, because `minting_logic_script` can only ever be a `Script`
+credential — registration aborts on a `VerificationKey` (`lib/utils.ak:90`).
 
 **Why your substandard cares — two consequences:**
 
@@ -158,7 +159,7 @@ minting logic can never update — updates are script-gated by construction.
    changeable (e.g. rotate a compliance provider, tighten seizure rules), encode
    that policy in your minting-logic withdraw-0 — it is the gatekeeper of node
    updates. If you want them *immutable*, make your minting-logic script refuse
-   all node-update transactions (or make it a verification key).
+   all node-update transactions.
 2. **Every integrator must treat governance fields as live, not frozen.** A
    holder who cached "policy X uses transfer logic L" at mint time can have that
    silently invalidated by a later update. This is the marquee SILENT breakage
@@ -237,12 +238,17 @@ asset from an admin action is a substandard-layer responsibility now — see
 
 New action `ProgrammableLogicGlobalRedeemer.UnfrackingAct` (Finding 17) lets a
 holder redistribute the programmable tokens they already hold across their own
-PLB UTxOs — value-preserving, same-owner, **no substandard logic invoked**. Its
-purpose is to split multi-policy UTxOs into single-policy UTxOs, so a freeze on
-one policy cannot collaterally freeze unrelated policies sharing a UTxO. The
-invariants live in a standalone `unfracking` withdraw-0 validator; PLG checks
-that validator is invoked, and the validator itself additionally requires the
-acted-on policy's `RegistryNode.unfracking_logic_script` withdraw-0.
+PLB UTxOs — value-preserving, same-owner, authorised by the **holder** and
+gated by the policy's **own** unfracking hook; what is not invoked is the
+transfer logic. Its purpose is to split multi-policy UTxOs into single-policy
+UTxOs, so a freeze on one policy cannot collaterally freeze unrelated policies
+sharing a UTxO. The invariants live in a standalone `unfracking` withdraw-0
+validator; PLG checks that validator is invoked, and the validator itself
+authorises the holder (`validators/programmable_logic/owner.ak`) and
+unconditionally requires the acted-on policy's
+`RegistryNode.unfracking_logic_script` withdraw-0
+(`validators/programmable_logic/unfracking.ak:119`) — a policy that leaves that
+field unset has unfracking forbidden outright.
 
 **Why your substandard cares:** two points. (a) Unfracking runs *without* your
 transfer logic, so do not assume your transfer logic sees every movement of your
@@ -458,8 +464,8 @@ Ordered so that CBOR/parameter breakage (which blocks everything) comes first.
 | Concept | Source |
 |---|---|
 | Registry node datum & field mutability | `lib/registry_node.ak:RegistryNode`, `lib/linked_list.ak:is_field_updated_registry_node` |
-| Node update path & authority (R-01) | `validators/registry_spend.ak` |
-| Registration flows (with/without first mint) | `lib/types.ak:RegistryRedeemer`, `validators/registry_mint.ak` |
+| Node update path & authority (R-01) | `validators/registry.ak`, spend handler |
+| Registration flows (with/without first mint) | `lib/types.ak:RegistryRedeemer`, `validators/registry.ak`, mint handler |
 | Issuance / delegation / custody | `validators/issuance_mint.ak` (the permanent per-token policy) and `validators/issuance_logic.ak:delegate_covers_own_registry_node` (the replaceable protocol rules, incl. `transfer_scope_covers`) — split by #129, superseding the single-script form this document describes |
 | Transfer proof contract | `validators/programmable_logic/transfer.ak:verify_proofs` |
 | Third-party scope (protected prefixes since removed, see §0) | `validators/third_party.ak`, invariants in `validators/programmable_logic/third_party.ak` |

@@ -23,10 +23,16 @@ registry-node shape and lifecycle mechanics referenced throughout are
 ### What CIP-113 controls
 
 A registered policy's **user token** is subject to programmable control: every
-ownership change / transfer is gated by the policy's `transfer_logic_script`,
-enforced at the `programmable_logic_base` (PLB) address via the withdraw-zero
-pattern. This is the framework's entire remit — *custody and movement of the
-user token*.
+spend of a holder's UTxO is enforced at the `programmable_logic_base` (PLB)
+address via the withdraw-zero pattern. Which script gates it depends on the
+action. An **owner-initiated transfer** is gated by the policy's
+`transfer_logic_script`. The two other spend paths have their own gates: a
+**third-party action** is gated by `third_party_logic_script` alone
+(`validators/programmable_logic/third_party.ak:28`) and does not consult the
+holder at all, and **unfracking** is gated by the policy's
+`unfracking_logic_script` (`validators/programmable_logic/unfracking.ak:119`)
+on top of the holder's own consent. This is the framework's entire remit —
+*custody and movement of the user token*.
 
 ### What CIP-113 does NOT control
 

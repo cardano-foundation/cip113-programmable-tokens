@@ -353,10 +353,17 @@ Each node is a UTxO with:
 ### Membership proofs
 
 A proof is a **direct index into `reference_inputs`**, supplied by the redeemer,
-not a walk of the list. Its cost is constant in the length of the registry and
-grows only with the position of the node in the reference-input list
-(`aiken_list.expect_at`, `validators/third_party.ak:91`;
-`new_registry_node_getter`, `lib/registry_node.ak:83-108`). A wrong index
+not a walk of the list. Its cost is constant in the length of the registry, but
+the two delegates reach the node by different mechanisms. `third_party`
+resolves the index directly with `aiken_list.expect_at`, so it pays only for
+the position of the node in the reference-input list
+(`validators/third_party.ak:91`). `transfer` goes through
+`new_registry_node_getter`, which recurses over the entire reference-input list
+and wraps one closure per element before any index is known: construction costs
+the length of the list whichever node is addressed, and because the last
+element's closure ends up outermost, resolution costs one comparison per
+reference input following the addressed one — the earlier the node sits, the
+more it costs (`lib/registry_node.ak:83-108`). A wrong index
 resolves to a UTxO that fails authentication — the addressed node's first
 non-ADA policy must be the registry NFT policy
 (`lib/registry_node.ak:98-99`, `validators/third_party.ak:91`).
@@ -565,8 +572,8 @@ pub type ProtocolParams {
 |---|---|---|---|
 | 0 | `programmable_logic_global_cred` | `programmable_logic_base`, once per programmable input | `validators/programmable_logic_base.ak:66` |
 | 1 | `issuance_logic_cred` | `issuance_mint`, once per issuance transaction | `validators/issuance_mint.ak:59` |
-| 2 | `transfer_cred` | `issuance_logic`, to locate the `transfer` withdraw-zero's redeemer | `validators/issuance_logic.ak:280` |
-| 3 | `third_party_cred` | `issuance_logic`, to locate the `third_party` withdraw-zero's redeemer | `validators/issuance_logic.ak:292` |
+| 2 | `transfer_cred` | `issuance_logic`, to locate the `transfer` withdraw-zero's redeemer | `validators/issuance_logic.ak:287` |
+| 3 | `third_party_cred` | `issuance_logic`, to locate the `third_party` withdraw-zero's redeemer | `validators/issuance_logic.ak:299` |
 | 4 | `upgrade_cred` | `protocol_params`, to decide who may rewrite this datum | `validators/protocol_params.ak:154` |
 | 5 | `pending_upgrade_cred` | `protocol_params`, the standing nomination | `validators/protocol_params.ak:186`, `:217` |
 
@@ -1244,10 +1251,13 @@ so authorising an upgrade pays only for `satisfied`.
 **What `well_formed` deliberately does not check.** It constrains the tree's *shape*, not who can
 satisfy it, and two consequences follow that an authority configuring itself must handle on its own.
 
-A tree needs no evidence leaf. `Before` and `After` carry no constraint (`lib/multisig.ak:140-141`),
+A tree needs no evidence leaf. `Before` and `After` carry no constraint (`lib/multisig.ak:138-139`),
 so a tree built only from time bounds is well-formed and installable, and `withdraw` then authorises
-it with no signatories and no withdrawals once the bound has passed — a validity range is evidence of
-*when*, never of *who*. And the duplicate-child rule compares children structurally
+it with no signatories and no withdrawals for as long as the validity range satisfies it — a validity
+range is evidence of *when*, never of *who*. The two leaves are mirror images, and the direction
+matters: `After` is unsatisfiable until its bound and permissionless afterwards, while `Before` is
+permissionless until its bound and unsatisfiable afterwards. So a `Before`-only tree is not a lock
+that opens later; it is one that is open now and bricks the authority when the bound passes. And the duplicate-child rule compares children structurally
 (`lib/multisig.ak:154`), so it rejects `[sig(A), sig(A)]` but admits
 `[AllOf { scripts: [sig(A)] }, sig(A)]`, in which one party satisfies an `AtLeast` of two.
 

@@ -189,8 +189,12 @@ fn nominate_authority(
 }
 
 /// `PromoteAuthority`: phase 2. The standing nominee presents its OWN
-/// withdraw-0 — the evidence that it exists, is a script that can run, and
-/// consents to take over — and becomes the authority.
+/// withdraw-0 — the evidence that its reward account is registered, that it
+/// can produce a withdrawal (a script that runs, or a key that signs), and
+/// that it consents to take over — and becomes the authority. Both
+/// credential forms are accepted: `pending_well_formed` requires only a
+/// 28-byte hash, and a stake key's reward account keys the withdrawal map
+/// by `VerificationKey`.
 ///
 /// The promotion is PURE, as one record equality: the only permitted
 /// difference is that the nomination has become the authority. Written

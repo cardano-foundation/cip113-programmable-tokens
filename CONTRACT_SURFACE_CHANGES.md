@@ -20,23 +20,42 @@ once the audit branch work settles.
   changes come from the PR diffs.
 - Open PRs are listed as **PROVISIONAL — subject to change** until
   merged. Last refreshed: **2026-09-02** (dispatcher reintroduction + params-spend rename +
-  registry merge + params datum reduced to four fields).
+  registry merge + params datum reduction). `ProtocolParams` carries six
+  fields (`validators/programmable_logic/params.ak`).
 
-## Systemic note: every merge re-hashes everything
+## Systemic note: what a code change re-hashes
 
-Independent of schema changes, ANY validator code change produces new
-script hashes, and the protocol's parameter chaining cascades it
-everywhere: `issuance_mint`'s template bytes feed the `IssuanceCborHex`
-reference datum (prefix/postfix), `registry_mint` is parameterised by
-`issuance_cbor_hex_cs` and `registry_spend_cred`, the protocol-params
-datum embeds `prog_logic_cred`, and `programmable_logic_base` is
-parameterised by PLG's credential. Consequently **every merged PR below
-implies a full protocol redeployment** (new addresses, new
-IssuanceCborHex data, new params NFT) even when marked "no schema
-change". The SDK fetches blueprints from the backend API so hashes flow
-through automatically — the breakage points are the **hand-coded
-builders** (datums, redeemers, parameter application arity/order) and
-**tx-shape requirements** listed below.
+Independent of schema changes, ANY validator code change produces a new
+script hash. How far that cascades depends on which validator changed,
+because only part of the protocol is chained by compile-time parameters:
+
+- `issuance_mint`'s template bytes feed the `IssuanceCborHex` reference
+  datum (prefix/postfix), and its applied hash IS a token's policy id;
+- `registry` is ONE validator with two parameters, `utxo_ref` and
+  `issuance_cbor_hex_cs` (`validators/registry.ak:40`) — not a split
+  mint/spend pair — and its own hash is the registry NFT policy;
+- `programmable_logic_base` is parameterised by `params_policy: PolicyId`
+  alone (`validators/programmable_logic_base.ak:42`). The dispatcher's
+  credential is NOT a parameter: PLB reads it at runtime from the
+  protocol-params datum's `programmable_logic_global_cred` field, so no
+  token address depends on the dispatcher's hash;
+- `programmable_logic_global` takes the three delegate hashes as
+  compile-time parameters, and `issuance_mint` reaches `issuance_logic`
+  through the params datum's `issuance_logic_cred` field.
+
+So the rule is per-validator, not per-merge:
+
+- a change to `protocol_params`, `issuance_mint` or `registry` implies a
+  **full protocol redeployment** — new addresses, new IssuanceCborHex
+  data, new params NFT;
+- a change confined to the dispatcher, a delegate (`transfer`,
+  `third_party`, `unfracking`) or `issuance_logic` is a **params-datum
+  rewrite**: addresses and policy ids are preserved.
+
+The SDK fetches blueprints from the backend API so hashes flow through
+automatically — the breakage points are the **hand-coded builders**
+(datums, redeemers, parameter application arity/order) and **tx-shape
+requirements** listed below.
 
 ---
 
@@ -568,7 +587,7 @@ a new params field.
 | **Upgrade property gained** | Rewriting `issuance_logic_cred` in the params datum changes the issuance rules for EVERY token, minted or not; no policy id moves. A retired issuance-logic script is refused even if it still runs (`fails_stale_issuance_logic`) | the point of the change |
 | Trust | none added: the upgrade authority could already drain every token via a permissive `plg_cred`; a permissive `issuance_logic_cred` is the same authority, same act | — |
 | **Inline-datum bound on minted outputs** (#106 vector 3, the issuance residual) | `issuance_logic` takes `max_inline_datum_bytes` like `transfer`, `third_party` and `unfracking`, and applies `is_seizable_output_shape_bounded` to every PLB output that CARRIES the minted policy; PLB outputs without it keep the shape check only; non-PLB outputs unchanged. "Every PLB UTxO is within the bound" is a core guarantee now, not only "every holder-created one" | **YES for issuers** — a mint whose PLB output carries a datum over the bound is refused. CIP-68 reference tokens with data-URI logos become unmintable on the core path; URI logos (~150–300 B) fit under a 1,024 bound. +2.45 M cpu per bounded output, once per mint |
-| **⚑ Deployment invariant, not checkable on-chain** | Four scripts now carry `N`, each bounding only the outputs IT creates; nothing compares them. A UTxO born under a laxer `N` than `transfer` or `third_party` must later carry it under is frozen AND unseizable — vector 3 reintroduced by a mismatch between two correct scripts. Rule: **one `N` for all four**, applied by the deployment tooling and read back from the four applied blueprints to assert equality. Correct by composition | **YES for the deploy runbook / SDK** |
+| **⚑ Deployment invariant, not checkable on-chain** | Four scripts now carry `N`, each bounding only the outputs IT creates; nothing compares them. A UTxO born under a laxer `N` than `transfer` must later carry it under cannot carry that datum forward — but it is neither frozen nor unseizable: its tokens can move to a compliant output, and a paired continuing output on the third-party path is not re-bounded, so a seizure still validates. The cost is a substandard needing datum continuity, and seizure batch size. Rule: **one `N` for all four**, applied by the deployment tooling and read back from the four applied blueprints to assert equality. Correct by composition | **YES for the deploy runbook / SDK** |
 
 **Footprint.** `issuance_mint` 1,943 → **679 B** (the permanent bytes); `issuance_logic` **2,128 B** new (2,018 before the datum bound);
 `protocol_params` 1,929 → 1,993 (+64). PLB, the delegates and the registry byte-identical to HEAD.
