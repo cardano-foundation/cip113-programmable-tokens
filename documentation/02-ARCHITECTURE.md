@@ -932,7 +932,8 @@ a datum or redeemer type.
 
 ### PLB output shape
 
-Every output at the PLB payment credential must:
+Every output at the PLB payment credential **that carries a programmable
+token** must:
 
 - carry **no datum hash**. To spend a datum-hash UTxO the ledger requires the
   preimage in the witness set, so a holder could pin an output nobody else can
@@ -973,8 +974,13 @@ that address is pinned from the first PLB input and authorised there
 carry their input's address unchanged
 (`validators/programmable_logic/unfracking.ak:284`).
 
-Because every creation site applies both, the property holds inductively for
-every PLB UTxO.
+Because every path by which a programmable token can reach a PLB output
+applies both, the property holds inductively for every PLB UTxO that carries
+one. The qualifier is load-bearing: a PLB address is not itself a gate.
+Creating an output invokes no script, so anyone may pay ada or
+non-programmable assets to that payment credential in any shape at all. Such a
+UTxO holds no programmable token, so no delegate has anything to say about it
+and nothing in the protocol will ever have to move it.
 
 ### The `max_inline_datum_bytes` deployment invariant
 
@@ -1364,10 +1370,12 @@ of each can ever exist, and every deployment gets a distinct hash.
 
 ### Seizability is inductive
 
-Every PLB output is created by one of four scripts, and all four apply the same
-shape rule — see [PLB output shape](#plb-output-shape). No holder, and no
-substandard, can produce a programmable UTxO that a third-party action cannot
-later reproduce.
+Every PLB output that carries a programmable token is created by one of four
+scripts, and all four apply the same shape rule — see
+[PLB output shape](#plb-output-shape). No holder, and no substandard, can
+produce a programmable UTxO that a third-party action cannot later reproduce.
+A token-free deposit at the same address is created by no script and bound by
+no rule, and is equally beyond the reach of any action.
 
 ### Lifecycle and issuance are separate transactions
 

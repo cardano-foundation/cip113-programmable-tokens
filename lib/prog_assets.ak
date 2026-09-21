@@ -244,8 +244,13 @@ pub fn collect_output_assets(
 ///     parameter of every script that creates PLB outputs, retuned by a
 ///     redeploy as DeFi order/loan state grows.
 ///
-/// Enforced at every PLB-output creation site (transfer, mint, unfracking
-/// destinations) so the property holds inductively for all PLB UTxOs.
+/// Enforced at every site that creates a PLB output carrying a programmable
+/// token — the transfer gate, the fresh destinations of a third-party or
+/// unfracking action, and issuance — so the property holds inductively for
+/// every PLB UTxO that holds one. It does NOT hold for arbitrary PLB UTxOs:
+/// creating an output runs no script, so anyone may pay ada or
+/// non-programmable assets to this address in any shape. Such a UTxO carries
+/// nothing the protocol must ever move.
 pub fn is_seizable_output_shape(output: Output) -> Bool {
   let datum_is_not_hash = when output.datum is {
     DatumHash(_) -> False
@@ -258,9 +263,10 @@ pub fn is_seizable_output_shape(output: Output) -> Bool {
 /// vector 3): the serialised datum must fit in `max_inline_datum_bytes`, a
 /// compile-time parameter of every script that creates PLB outputs.
 ///
-/// Used at EVERY PLB-output creation site: the transfer gate, the fresh
-/// destination outputs of a third-party or unfracking action, and
-/// `issuance_logic`, for PLB outputs that carry the policy being minted.
+/// Used at every site that creates a PLB output carrying a programmable
+/// token: the transfer gate, the fresh destination outputs of a third-party
+/// or unfracking action, and `issuance_logic`, for PLB outputs that carry the
+/// policy being minted.
 ///
 /// The SUBSTANDARD's minting logic remains the right place for anything
 /// finer than a byte bound — it knows what its outputs should look like.
