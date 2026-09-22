@@ -42,7 +42,7 @@ pub fn validate_third_party(
   // - burns (negative quantity) reduces the expected output
   // - mints (positive quantity) increases it
   //
-  // At the end, all programmable tokens must be account for.
+  // At the end, all programmable tokens must be accounted for.
   let minted_or_burned = self.mint |> value.tokens(policy_id)
 
   validate_io_constraints_and_balance(
@@ -149,7 +149,7 @@ fn validate_io_constraints_and_balance(
             // fresh PLB outputs (the destinations the seized tokens land in),
             // and those must stay seizable in turn — no datum hash, no
             // reference script. Without this a third-party action, or a hostile
-            // substandard's third-party logic, could produce a UTxO nobody can
+            // token module's third-party logic, could produce a UTxO nobody can
             // ever seize again. The PAIRED outputs need no check here: they are
             // byte-identical to their inputs, which were themselves shape-checked
             // when created.

@@ -26,7 +26,7 @@ use third_party
 use types.{ThirdPartyRedeemer}
 
 /// Arbitrary credential representing an ISSUER's third-party transfer logic
-/// script (e.g. a seize/freeze substandard) whose withdraw-0 must accompany
+/// script (e.g. a seize/freeze token module) whose withdraw-0 must accompany
 /// every third-party action on its policy. Distinct from the framework
 /// `third_party` validator's own credential (that one is checked by PLB).
 const test_third_party_cred: Credential =
@@ -1169,7 +1169,7 @@ test third_party_act_pair_foreign_policy_injection_still_fails() fail {
 // A third-party action creates fresh PLB UTxOs: the destinations the seized
 // tokens land in. They are not paired outputs (those are byte-identical to
 // their inputs and so inherit their shape), and until now nothing constrained
-// them — so a third-party action, or a hostile substandard's third-party logic,
+// them — so a third-party action, or a hostile token module's third-party logic,
 // could seize tokens into a UTxO that could never be seized again. Each test
 // below is ONE delta from `valid_seize_tx`: the destination output's shape.
 

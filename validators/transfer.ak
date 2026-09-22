@@ -6,7 +6,7 @@
 //// `TransferAct` redeemer, requires THIS script's withdraw-0 against the hash
 //// baked into it. This script then runs ONCE per transaction and enforces the
 //// transfer invariants over the whole transaction: registry proofs,
-//// substandard transfer-logic invocation, value containment.
+//// token module transfer-logic invocation, value containment.
 ////
 //// It reads no PROTOCOL-PARAMS datum — `programmable_logic_base_cred`,
 //// `registry_node_cs` and the seizure datum bound are compile-time parameters —

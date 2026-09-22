@@ -190,7 +190,7 @@ test collect_output_assets_accepts_inline_datum_within_bound() {
 // -------------------------------------------- mint path: bound NOT applied
 
 // The unbounded predicate is what `issuance_mint`'s `no_escape` uses: a mint
-// is gated by the substandard's minting logic, so the party choosing the datum
+// is gated by the token module's minting logic, so the party choosing the datum
 // is the issuing side, not the holder. A large mint datum (CIP-68 reference
 // token metadata, say) is accepted where the holder-driven transfer gate would
 // reject it. Same output as `seizable_rejects_inline_datum_over_the_bound`;

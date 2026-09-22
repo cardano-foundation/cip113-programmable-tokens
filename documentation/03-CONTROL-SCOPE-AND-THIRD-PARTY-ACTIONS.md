@@ -43,8 +43,8 @@ level**, assigning different rules to different roles (user token vs reference
 NFT vs royalty token) under the same policy. Baking companion-asset semantics
 into the framework would overpower it and collide with those adjacent standards.
 
-Companion assets are therefore handled by **substandards layered on top**: a
-substandard's issuance/transfer logic can be CIP-68/102-aware and mint, move, or
+Companion assets are therefore handled by **modules layered on top**: a
+module's issuance/transfer logic can be CIP-68/102-aware and mint, move, or
 lock reference/royalty tokens however those standards require. The framework
 neither knows nor enforces companion-asset roles.
 
@@ -56,16 +56,16 @@ PLB the custody guarantee is void and re-entry/escape ambiguity follows. This is
 a deliberate design choice.
 
 Companion assets are accommodated **inside the PLB, under the same policy**, by a
-CIP-68/102-aware substandard:
+CIP-68/102-aware module:
 
 - The reference NFT (CIP-67 label 100) or royalty token (label 500) lives at the
   PLB like any token of the policy.
 - **Transferring them is allowed** through the (owner-authorized) transfer path
-  — the substandard's CIP-68/102-aware transfer and minting logic is responsible
+  — the module's CIP-68/102-aware transfer and minting logic is responsible
   for ensuring it happens the *proper* way: moving the token, updating a
   reference NFT's datum (the transfer path does not pin output datums, so a
-  CIP-68-aware substandard can permit datum updates), or handling royalty
-  payouts. This is the substandard author's responsibility, not the framework's.
+  CIP-68-aware module can permit datum updates), or handling royalty
+  payouts. This is the module author's responsibility, not the framework's.
 - **The third-party path reaches them like any other subject-policy token.** A
   `RegistryNode` has no asset-name-scoped field — its seven fields are `key`,
   `next`, and five credential/currency fields, none of them a label list
@@ -77,10 +77,10 @@ CIP-68/102-aware substandard:
   user token is — a third-party action may decrease, remove, increase, or leave it
   unchanged on each paired output, the same as any other subject-policy token
   (§2.1).
-- **Protecting a companion asset from a third-party action is a substandard
+- **Protecting a companion asset from a third-party action is a module
   decision, not a framework guarantee** — the same "framework provides
-  primitives, the substandard composes the policy" pattern as holder scope
-  (§2.3). Two substandard-level options: (a) the policy's
+  primitives, the module composes the policy" pattern as holder scope
+  (§2.3). Two module-level options: (a) the policy's
   `third_party_logic_script` — the script whose withdraw-zero the base layer
   requires present (`validators/programmable_logic/third_party.ak:28`) — runs
   with full visibility into the transaction and can itself refuse to authorise
@@ -97,7 +97,7 @@ CIP-68/102-aware substandard:
 In short: keep everything in the mini-ledger, and decide deliberately how — or
 whether — to keep a companion asset out of a third-party action's reach on policy A.
 The framework does not decide this for you; it gives you the same policy id
-(reachable, substandard-enforced protection if you want it) or a distinct
+(reachable, module-enforced protection if you want it) or a distinct
 policy id (framework-enforced conservation, by construction) to choose from.
 
 ---
@@ -118,7 +118,7 @@ action is **policy A** — the registry node pointed to by `registry_node_idx`
 ### 2.1 Structural guarantees the base layer enforces
 
 These hold unconditionally for every third-party action, independent of any
-substandard:
+module:
 
 | Guarantee | Enforced by |
 |---|---|
@@ -155,7 +155,7 @@ mint of A.
 The two powers are **asymmetric**:
 
 - **Freeze** (declining to authorise a spend) is **unconditional** — a
-  substandard's `transfer_logic` can always refuse a transfer.
+  module's `transfer_logic` can always refuse a transfer.
 - **Extract** (seizing/removing tokens via the `third_party` path) is the **gated,
   conditional** power described in §2.1.
 
@@ -165,20 +165,20 @@ refuses to authorise spends become unspendable *to the holder too*. So gating
 extraction (but not freeze) is safe — there is no construction that both evades
 seizure and keeps the tokens usable.
 
-### 2.3 Holder scope is substandard policy, not framework
+### 2.3 Holder scope is module policy, not framework
 
-**Which holders are seizable is a substandard decision, not a framework rule.**
+**Which holders are seizable is a module decision, not a framework rule.**
 The only on-chain signal of who holds a token is the UTxO's **stake credential**:
 
 - **VerificationKey** stake credential → a directly-held user wallet. Extraction
-  is appropriate: the holder accepted the substandard's authority by using
+  is appropriate: the holder accepted the module's authority by using
   CIP-113 tokens at all.
 - **Script** stake credential → **ambiguous**. It could be a smart-contract
   wallet, or a DEX / lending pool / escrow. These are indistinguishable as
   `Credential`s. Any hard-coded framework rule ("script-staked is seizable", or
   "is not") is wrong for someone.
 
-The framework therefore provides **primitives**; the substandard composes the
+The framework therefore provides **primitives**; the module composes the
 policy. The guiding principle (and the real-world and DeFi-empirical norm —
 secured-creditor priority cannot be unilaterally overridden, and `forcedTransfer`
 against pooled contracts is socially uncallable):
@@ -190,11 +190,11 @@ Example: a lending protocol holding policy-A collateral at the PLB is in scope
 for seizure *as the base layer is written* (§2.1). Whether seizing it is
 correct — given the borrower's debt and other lenders' claims — is exactly the
 kind of judgement the framework cannot make for every case, and must be left to
-the substandard.
+the module.
 
-### 2.4 DeFi-aware substandard reference pattern
+### 2.4 DeFi-aware module reference pattern
 
-A substandard that wants to respect script-owned positions can gate extraction
+A module that wants to respect script-owned positions can gate extraction
 of **script-staked** inputs with one of two patterns:
 
 - **Allowlist** — a script-staked input is seizable only if its stake script is
@@ -204,7 +204,7 @@ of **script-staked** inputs with one of two patterns:
   seizure).
 
 Both gate **extraction only**; freeze remains unconditional (§2.2). Note this is
-substandard-level guidance — the base framework does not enforce it, precisely
+module-level guidance — the base framework does not enforce it, precisely
 because no single rule is correct for every script (§2.3).
 
 ---
@@ -254,9 +254,9 @@ and integrators must read the current node, never cache its logic credentials.
 **Lifecycle is not issuance — but shares a credential.** The authorising
 credential (`minting_logic_script`) is also the token's *issuance* authority, so
 by default the party that can mint can also register and update the node. A
-substandard that wants these to be distinct powers must separate them inside its
+module that wants these to be distinct powers must separate them inside its
 issuance logic (see
-[`09-DEVELOPING-SUBSTANDARDS.md`](./09-DEVELOPING-SUBSTANDARDS.md#registry-lifecycle--upgradeability)).
+[`09-DEVELOPING-MODULES.md`](./09-DEVELOPING-MODULES.md#registry-lifecycle--upgradeability)).
 Independently, the base layer forbids a node-spend — an update, or the
 covering-node spend of an insert — from minting or burning **that node's own
 token** in the same transaction: the `registry` validator's `spend` handler
@@ -288,12 +288,12 @@ action to account for:
   with the usual exposure window between them.
 - This is inherent to the eUTxO model, not a framework defect: there is no
   account-style "seize the whole balance in one call". Holder-driven
-  consolidation (the Unfracking action) and substandard-level UTxO-shape
+  consolidation (the Unfracking action) and module-level UTxO-shape
   guidance reduce fragmentation in practice, but a third-party action cannot assume
   a holder's balance lives in a single UTxO.
 
 ---
 
 *See also: [`02-ARCHITECTURE.md`](./02-ARCHITECTURE.md) for the validator
-architecture and the third-party flow; [`09-DEVELOPING-SUBSTANDARDS.md`](./09-DEVELOPING-SUBSTANDARDS.md)
+architecture and the third-party flow; [`09-DEVELOPING-MODULES.md`](./09-DEVELOPING-MODULES.md)
 for writing transfer and third-party logic.*

@@ -143,7 +143,7 @@ pub type ProtocolParamsRedeemer {
 /// subsequent mint (registry node already exists), or an `OutputIndex` for
 /// the first mint (registry node being created in the same tx).
 ///
-/// The substandard's withdraw-0 invocation (proof of instance) is checked by
+/// The token module's withdraw-0 invocation (proof of instance) is checked by
 /// `issuance_mint` directly against its `minting_logic_cred` parameter — no
 /// separate redeemer field needed. The validator parameter is baked into
 /// the policy id at compile time and pinned to `registry.minting_logic_script`
@@ -181,7 +181,7 @@ pub type RegistryRedeemer {
   RegistryInit
   /// Insert a new programmable token policy into the registry.
   ///
-  /// `minting_logic_script` is the credential of the substandard's
+  /// `minting_logic_script` is the credential of the token module's
   /// withdraw-0 minting logic. The `registry` mint handler enforces that:
   ///   * the new node's datum field `minting_logic_script` equals this
   ///     value (datum-matches-redeemer check, prevents the registrar
@@ -192,15 +192,15 @@ pub type RegistryRedeemer {
   ///     policy id derivation is the inner 28-byte hash of this
   ///     credential — derived inside the validator, NOT supplied as a
   ///     separate redeemer field);
-  ///   * the substandard's withdraw-0 logic is invoked
+  ///   * the token module's withdraw-0 logic is invoked
   ///     (`minting_logic_script` in `tx.withdrawals`).
   ///
   /// Whether the registration also carries a first mint of the new
   /// policy is NOT constrained by the `registry` mint handler: a first mint in the
   /// same tx is validated by `issuance_mint` as usual, and registering
   /// without any mint is equally valid (useful for real-world-asset
-  /// issuance or supply-aware substandards that must initialise global
-  /// state before any token exists). A substandard that wants a strict
+  /// issuance or supply-aware token modules that must initialise global
+  /// state before any token exists). A token module that wants a strict
   /// register-then-mint lifecycle must enforce it in its own minting
   /// logic.
   RegistryInsert { key: ByteArray, minting_logic_script: Credential }

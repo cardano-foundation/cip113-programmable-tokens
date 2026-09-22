@@ -125,7 +125,7 @@ pub fn is_inserted_registry_node(
     // The new node's `minting_logic_script` datum
     // field MUST equal the redeemer's `minting_logic_script`. Prevents a
     // benign-looking redeemer from producing a node datum that points at
-    // a different substandard credential than the one claimed.
+    // a different token module credential than the one claimed.
     node.minting_logic_script == minting_logic_script,
     is_28_byte_credential(node.minting_logic_script)?,
     // CIP-113 normative MAY: global_state_cs is 0 (absent) or 28 (a policy id)

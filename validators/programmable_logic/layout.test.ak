@@ -52,8 +52,9 @@ fn int_fields(ints: List<Int>) -> List<Data> {
 
 // ------------------------------------------------------ protocol-params datum
 
-// `ProtocolParams`: constructor 0, FOUR fields, in this order:
-//   0 plg_cred, 1 transfer_cred, 2 third_party_cred, 3 upgrade_cred.
+// `ProtocolParams`: constructor 0, SIX fields, in this order:
+//   0 plg_cred, 1 issuance_logic_cred, 2 transfer_cred, 3 third_party_cred,
+//   4 upgrade_cred, 5 pending_upgrade_cred (`Option<Credential>`).
 //
 // Field order is load-bearing on two counts. Every accessor is a `tail_list`
 // walk, so position IS cost — `programmable_logic_global_cred` sits at 0 because PLB reads it once
@@ -62,40 +63,47 @@ fn int_fields(ints: List<Int>) -> List<Data> {
 // hash, hence every token address) is a function of `protocol_params`,
 // which deserialises this exact shape.
 //
-// Every field here has a named on-chain reader: `programmable_logic_global_cred` <-
-// programmable_logic_base, `transfer_cred` / `third_party_cred` <-
-// issuance_mint, `upgrade_cred` <- protocol_params (spend handler).
+// Every field here has a named on-chain reader:
+// `programmable_logic_global_cred` <- programmable_logic_base,
+// `issuance_logic_cred` <- issuance_mint, `transfer_cred` /
+// `third_party_cred` <- issuance_logic, `upgrade_cred` /
+// `pending_upgrade_cred` <- protocol_params (both handlers).
 //
-// This shape REPLACED a six-field one — `{ registry_node_cs(0),
+// Compare it against the registry-first delegate set — `{ registry_node_cs(0),
 // prog_logic_cred(1), plg_cred(2), transfer_cred(3), third_party_cred(4),
-// upgrade_cred(5) }`. `registry_node_cs` and `prog_logic_cred` were removed
-// because nothing reads them any more: both are compile-time parameters of the
-// delegates now.
+// upgrade_cred(5) }`. That set holds six fields as well, so ARITY does not
+// separate the two: `registry_node_cs` and `prog_logic_cred` carry no on-chain
+// reader here (both are compile-time parameters of the delegates), and the
+// slots they occupied hold delegate credentials instead.
 //
 // **SILENT-MISREAD HAZARD for off-chain builders** — the same family as the
-// `BaseSpendRedeemer` warning below, and sharper. Only the FIRST field's
-// removal is loud:
+// `BaseSpendRedeemer` warning below, and sharper. Reading the registry-first
+// set's positions against this one, only the outer two slots differ LOUDLY,
+// by type:
 //
-//   old 0 registry_node_cs (ByteArray) -> plg_cred (Credential) .. LOUD (type)
-//   old 1 prog_logic_cred              -> transfer_cred ........... SILENT
-//   old 2 plg_cred                     -> third_party_cred ........ SILENT  <-- worst
-//   old 3 transfer_cred                -> upgrade_cred ............ SILENT
-//   old 4, 5                           -> absent .................. LOUD
+//   reg-first 0 registry_node_cs (ByteArray)
+//                    -> plg_cred (Credential) ................ LOUD (type)
+//   reg-first 1 prog_logic_cred -> issuance_logic_cred ........ SILENT
+//   reg-first 2 plg_cred        -> transfer_cred ............. SILENT  <-- worst
+//   reg-first 3 transfer_cred   -> third_party_cred ........... SILENT
+//   reg-first 4 third_party_cred -> upgrade_cred .............. SILENT
+//   reg-first 5 upgrade_cred (Credential)
+//                    -> pending_upgrade_cred (Option) ......... LOUD (type)
 //
-// The third row is the dangerous one: a builder computing PLB's dispatch
-// target from index 2 silently reads `third_party_cred`. On-chain this is
-// safe — every reader in this repo moved in the same change set — so the whole
+// The `plg_cred` row is the dangerous one: a builder computing PLB's dispatch
+// target from index 2 silently reads `transfer_cred`. On-chain this is
+// safe — every reader in this repo names its own position — so the whole
 // hazard is off-chain, and it is why
 // `layout_params_six_field_shape_does_not_decode` below pins the decode
 // direction too.
 //
-// Issue #125 added `pending_upgrade_cred`, and it is the CONTRASTING case
-// worth keeping beside that table: appending a field produces NO silent
-// misread in either direction. A stale four-field reader looking at a
-// five-field datum still finds every field it knows at the index it expects
-// and simply never looks at 4; a five-field reader handed a four-field datum
+// Appending a field, as `pending_upgrade_cred` was appended (issue #125), is
+// the CONTRASTING case worth keeping beside that table: an append produces NO
+// silent misread in either direction. A reader that knows only the first N
+// fields still finds every field it knows at the index it expects and simply
+// never looks past N; a reader expecting N+1 fields handed an N-field datum
 // aborts on arity, loudly. That asymmetry is the entire argument for the
-// append-only rule stated on the type, and it is why this change needed one
+// append-only rule stated on the type, and it is why such a change needs one
 // new golden rather than a re-audit of every position.
 /// The at-rest nomination, bound with a type so it can be encoded as `Data`
 /// (Aiken takes no inline annotation in expression position).
@@ -109,7 +117,9 @@ test layout_params_datum_six_fields_in_order() {
     field(fields, 0) == as_data(
       fixture.credential_validator_programmable_logic_global,
     ),
-    // Field 1 (#129): read once per issuance transaction, so second-hottest.
+    // Field 1: read once per `issuance_mint` EXECUTION — the ledger runs that
+    // policy once per programmable policy minted or burned, not once per
+    // transaction — which makes it the second-hottest read.
     // Placed here PRE-GENESIS, when no datum exists to be misread — the one
     // window in which reordering is free. After genesis: append only.
     field(fields, 1) == as_data(fixture.credential_validator_issuance_logic),
@@ -140,10 +150,11 @@ test layout_params_pending_option_wire_shape() {
   }
 }
 
-// The builtin accessors production reads through (PLB for `programmable_logic_global_cred`,
-// `issuance_mint` for the two delegate credentials) land on the positions the
-// type declares. `upgrade_cred` has no accessor: `protocol_params`
-// deserialises the whole record on its cold path.
+// The builtin accessors production reads through (PLB for
+// `programmable_logic_global_cred`, `issuance_mint` for `issuance_logic_cred`,
+// `issuance_logic` for the two delegate credentials) land on the positions the
+// type declares. `upgrade_cred` and `pending_upgrade_cred` have no accessor:
+// `protocol_params` deserialises the whole record on its cold path.
 test layout_params_accessors_match_raw_positions() {
   let (_, fields) = constr(as_data(fixture.protocol_params))
   and {
@@ -154,7 +165,7 @@ test layout_params_accessors_match_raw_positions() {
   }
 }
 
-// Decode direction: a hand-built constructor 0 with the five fields in that
+// Decode direction: a hand-built constructor 0 with the six fields in that
 // order is accepted as the params type with every field where expected
 // (what the `protocol_params` mint handler does).
 test layout_params_datum_decodes_from_raw_constructor() {

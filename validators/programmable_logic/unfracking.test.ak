@@ -856,7 +856,7 @@ test programmable_logic_base_dispatch_fails_on_legacy_two_field_params() fail {
 //   * unfracking.withdraw (invariants + issuer-hook gating).
 //
 // The transfer validator is not invoked. (The issuer's hook script itself is
-// substandard territory; the framework's obligation — that its withdrawal is
+// token module territory; the framework's obligation — that its withdrawal is
 // present — is what the unfracking validator asserts.)
 test programmable_logic_base_and_unfracking_withdraw_succeed_together() {
   let tx = valid_unfracking_tx()

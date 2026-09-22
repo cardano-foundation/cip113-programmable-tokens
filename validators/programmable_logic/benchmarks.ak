@@ -1,11 +1,24 @@
 //// End-to-end tests / benchmarks for the programmable-logic validators.
 ////
-//// Validator split (PR #110) — before/after record. The former
-//// `programmable_logic_global` coordinator dispatched transfer / third-party
-//// / unfracking itself; now `programmable_logic_base` dispatches straight to
-//// one of three standalone withdraw-0 validators (`transfer`, `third_party`,
-//// `unfracking`). Compiled reference-script sizes, measured with
-//// `aiken build` on this branch vs the pre-split base:
+//// The dispatch chain these harnesses exercise is three layers deep.
+//// `programmable_logic_base` (spend) reads `programmable_logic_global_cred`
+//// out of the protocol-params datum — field 0 — and requires that
+//// credential's withdraw-0. `programmable_logic_global` (withdraw) reads the
+//// ACTION from its own redeemer and requires the matching delegate's
+//// withdraw-0: `transfer`, `third_party` or `unfracking`. The delegate does
+//// the work. PLB's redeemer carries no action arm at all —
+//// `BaseSpendRedeemer` is `{ params_idx, wdrl_idx }` — so the choice of
+//// delegate belongs to PLG, and PLB never decodes a delegate selector.
+////
+//// The per-transaction reference-script footprint that chain implies is
+//// therefore THREE scripts, for every transaction kind: PLB + PLG + one
+//// delegate.
+////
+//// **Reference-script size record, measured on a TWO-LAYER chain** — PLB
+//// dispatching straight to a delegate, with no `programmable_logic_global`
+//// between them. Compiled sizes from `aiken build`; the per-transaction
+//// totals further down count two scripts and therefore omit the dispatcher:
+//// they are figures for that two-layer shape, not for the chain above.
 ////
 ////   validator                 before   after    delta
 ////   transfer (was PLG)          3163    2177     -986   (-31.2%)
@@ -15,42 +28,45 @@
 ////   issuance_mint               1925    2063     +138
 ////
 //// Reference scripts are attached once and paid for (as a size-proportional
-//// fee) by EVERY transaction that references them, so what matters is the
-//// per-transaction reference-script footprint, which is now exactly
-//// PLB + ONE delegate for every transaction kind:
+//// fee) by EVERY transaction that references them, which is why the
+//// per-transaction footprint is the number worth watching. These two-script
+//// totals are the two-layer figures:
 ////
 ////   * transfer   tx (PLB + transfer) ..... 3659 -> 3045 B = -614 B  every transfer
 ////   * seize      tx (PLB + third_party) .. 3659 -> 2674 B = -985 B  every seize
 ////   * unfracking tx (PLB + unfracking) ... 5491 -> 2700 B = -2791 B every unfracking
 ////
-//// The transfer hot path shrinks because the transfer validator no longer
-//// carries the seize invariants nor the unfracking gate; the seize and
-//// unfracking paths shrink MORE because they no longer load the transfer
-//// script at all — each loads only PLB + its own script.
+//// The transfer row is the smallest of the three because the transfer
+//// validator carries neither the seize invariants nor the unfracking gate;
+//// the seize and unfracking rows are smaller still because neither loads the
+//// transfer script at all — each loads only its own.
 ////
-//// Replace double datum unwrapping — record (2026-08-24).
-//// `programmable_logic_base` used to unwrap its redeemer twice: once for
-//// `params_idx`, once again to pick the delegate credential. It now decodes
-//// once and hoists the whole shared body — params lookup, withdrawal
-//// resolution, comparison — into one function taking the differing field
-//// accessor as an argument, leaving each arm a one-line call. Net: 868 B ->
-//// 829 B and -1.22M cpu per invocation, so cheaper on BOTH axes — no
-//// size-versus-cpu trade to weigh. (The validator runs once per programmable
-//// input; these harnesses call `spend` once, so cpu figures are per
-//// invocation and the ledger multiplies them.)
+//// **Redeemer-unwrapping record (2026-08-24), same two-layer chain**, where
+//// PLB picked the delegate credential itself and unwrapped its redeemer
+//// twice: once for `params_idx`, once again for the credential. Decoding once
+//// and hoisting the shared body — params lookup, withdrawal resolution,
+//// comparison — into one function taking the differing field accessor as an
+//// argument measured 868 B -> 829 B and -1.22M cpu per invocation: cheaper on
+//// BOTH axes, no size-versus-cpu trade to weigh. In the chain above PLB has
+//// one field to read, so no accessor is passed and only that shared body is
+//// left. (The validator runs once per programmable input; these harnesses
+//// call `spend` once, so cpu figures are per invocation and the ledger
+//// multiplies them.)
 ////
-//// Measured and rejected: selecting the credential by an integer tag (the tag
-//// comparison outweighed the decode it removed); inlining the withdrawal
-//// lookup per arm instead of sharing it (+25 B for no cpu gain). Does not
-//// compile: returning the field accessor inside a TUPLE — tuple inhabitants
-//// must be serialisable to Data. Passing a function as an argument is fine,
-//// which is what makes the shipped shape possible.
+//// Measured and rejected on that shape: selecting the credential by an
+//// integer tag (the tag comparison outweighed the decode it removed);
+//// inlining the withdrawal lookup per arm instead of sharing it (+25 B for no
+//// cpu gain). Does not compile: returning the field accessor inside a TUPLE —
+//// tuple inhabitants must be serialisable to Data. Passing a function as an
+//// argument is fine, which is what made that shape possible.
 ////
-//// Execution (CPU/mem) on the composed happy paths below is roughly neutral:
-//// the PLB spend gains a 3-arm dispatch (a few M cpu at withdrawal-index 0,
-//// where the old `has_key_or_fail` scan also stopped at the first entry);
-//// the unfracking path additionally drops a whole validator run (the former
-//// PLG gate).
+//// Execution (CPU/mem) on the composed happy paths below was roughly neutral
+//// across that record: PLB's in-script dispatch cost a few M cpu at
+//// withdrawal-index 0, where a `has_key_or_fail` scan also stops at the first
+//// entry. In the chain above the action dispatch lives in PLG instead — a
+//// separate withdraw-0 run of one `when` and one withdrawal lookup — and the
+//// composed benches below invoke it explicitly alongside PLB and the
+//// delegate.
 ////
 //// **Basis, for anyone turning these into a capacity claim.** These harnesses
 //// call `spend` ONCE while the ledger runs it once per programmable input, so
@@ -114,9 +130,9 @@ fn transfer_logic(self: Transaction, redeemer: TransferRedeemer) -> Bool {
   }
 }
 
-/// Third-party (seize) composition: the base spend dispatches via
-/// BaseSpendRedeemer to the standalone third_party validator — the transfer
-/// validator is not invoked at all on a third-party transaction.
+/// Third-party (seize) composition: the base spend requires PLG, and PLG's
+/// `ThirdPartyAct` requires the standalone third_party validator — the
+/// transfer validator is not invoked at all on a third-party transaction.
 fn third_party_logic(self: Transaction, redeemer: ThirdPartyRedeemer) -> Bool {
   and {
     programmable_logic_base.programmable_logic_base.spend(

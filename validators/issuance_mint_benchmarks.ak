@@ -99,8 +99,9 @@ fn registry_node_ref_input() -> Input {
 }
 
 /// The protocol-params UTxO as a reference input (mirror of the test file's
-/// helper): protocol-params NFT + datum whose field 1 is the live transfer-validator
-/// credential. Fields issuance_mint never reads carry placeholders.
+/// helper): protocol-params NFT + datum whose field 2 is the live
+/// transfer-validator credential. Fields `issuance_logic` never reads carry
+/// placeholders.
 fn params_ref_input(transfer_cred: Credential) -> Input {
   Input {
     output_reference: dummy_oref,

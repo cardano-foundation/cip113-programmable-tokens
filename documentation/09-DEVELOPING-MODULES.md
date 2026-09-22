@@ -1,6 +1,6 @@
-# Developing a New Substandard
+# Developing a New Module
 
-This guide is for developers who want to create new substandards for CIP-113 programmable tokens. A substandard defines the rules that govern how a specific programmable token can be issued, transferred, restructured, and acted on through its third-party logic.
+This guide is for developers who want to create new modules for CIP-113 programmable tokens. A module defines the rules that govern how a specific programmable token can be issued, transferred, restructured, and acted on through its third-party logic.
 
 **Target audience**: Cardano developers familiar with Aiken and the UTXO model who want to implement custom token compliance logic (e.g., BaFin, CMTA, or other regulatory frameworks).
 
@@ -8,46 +8,46 @@ This guide is for developers who want to create new substandards for CIP-113 pro
 
 ## Table of Contents
 
-1. [What is a Substandard?](#what-is-a-substandard)
+1. [What is a Module?](#what-is-a-module)
 2. [The Core Infrastructure](#the-core-infrastructure)
 3. [What You Must Implement](#what-you-must-implement)
 4. [The Withdraw-Zero Pattern](#the-withdraw-zero-pattern)
 5. [Global State](#global-state)
-6. [Token Lifecycle from the Substandard's Perspective](#token-lifecycle-from-the-substandards-perspective)
+6. [Token Lifecycle from the Module's Perspective](#token-lifecycle-from-the-modules-perspective)
 7. [Registry Lifecycle & Upgradeability](#registry-lifecycle--upgradeability)
-8. [Walkthrough: Dummy Substandard](#walkthrough-dummy-substandard)
-9. [Walkthrough: Freeze-and-Seize Substandard](#walkthrough-freeze-and-seize-substandard)
+8. [Walkthrough: Dummy Module](#walkthrough-dummy-module)
+9. [Walkthrough: Freeze-and-Seize Module](#walkthrough-freeze-and-seize-module)
 10. [Off-Chain Integration (Evolution SDK)](#off-chain-integration-evolution-sdk)
-11. [Testing Your Substandard](#testing-your-substandard)
+11. [Testing Your Module](#testing-your-module)
 
 ---
 
-## What is a Substandard?
+## What is a Module?
 
-CIP-113 follows a layered design. The **core standard** provides shared infrastructure — a token registry, a custody model, a dispatcher and three delegate validators — that is deployed once and used by all programmable tokens. **Substandards** are pluggable policy modules that define the actual rules a specific token must obey.
+CIP-113 follows a layered design. The **core standard** provides shared infrastructure — a token registry, a custody model, a dispatcher and three delegate validators — that is deployed once and used by all programmable tokens. **Modules** are pluggable policy modules that define the actual rules a specific token must obey.
 
-Think of the core standard as the operating system and a substandard as an application that runs on it. Different tokens can use different substandards depending on their compliance requirements:
+Think of the core standard as the operating system and a module as an application that runs on it. Different tokens can use different modules depending on their compliance requirements:
 
-- A stablecoin might use a **freeze-and-seize** substandard for sanctions compliance
-- A tokenized security might use a **whitelist** substandard for investor accreditation
-- A regulated fund token might use a **BaFin** or **CMTA** substandard for jurisdiction-specific rules
+- A stablecoin might use a **freeze-and-seize** module for sanctions compliance
+- A tokenized security might use a **whitelist** module for investor accreditation
+- A regulated fund token might use a **BaFin** or **CMTA** module for jurisdiction-specific rules
 
-Two reference substandards exist:
+Two reference modules exist:
 
-| Substandard | Purpose | Complexity |
+| Module | Purpose | Complexity |
 |-------------|---------|------------|
 | **Dummy** | Minimal reference implementation | Very low — checks a redeemer value |
 | **Freeze-and-Seize** | Denylist-aware transfers, token seizure | Medium — on-chain denylist linked list |
 
 Both live outside this repository. This guide describes the **interface** the core standard presents to them; it does not describe their source files.
 
-The goal is for the community to build many more substandards for various regulatory frameworks and use cases.
+The goal is for the community to build many more modules for various regulatory frameworks and use cases.
 
 ---
 
 ## The Core Infrastructure
 
-As a substandard developer, you do **not** implement or modify the core CIP-113 infrastructure. The following components are deployed once by the protocol operator and shared by all programmable tokens.
+As a module developer, you do **not** implement or modify the core CIP-113 infrastructure. The following components are deployed once by the protocol operator and shared by all programmable tokens.
 
 Throughout this document we use one abbreviation — **Programmable Logic Base
 (PLB)**, the spending validator that custodies all programmable token UTxOs.
@@ -91,7 +91,7 @@ the credential your registry node names for that kind of action.
 └────────────────────────────────────────────────────────────────────────────┘
                                    │
                          ┌─────────┴──────────┐
-                         │  YOUR SUBSTANDARD  │
+                         │  YOUR MODULE  │
                          │                    │
                          │  - Issuance logic  │
                          │  - Transfer logic  │
@@ -108,16 +108,16 @@ the credential your registry node names for that kind of action.
 | **`programmable_logic_base` (PLB)** | Spending validator that custodies all programmable token UTxOs. Reads one credential out of the protocol-params datum — `programmable_logic_global_cred`, field 0 — and requires that credential's withdraw-zero at the index its redeemer witnesses (`validators/programmable_logic_base.ak:58-66`). It has no action arm. | Every token holder's UTxO lives at a PLB address; its hash is baked into every one of those addresses, so it can never be replaced. |
 | **`programmable_logic_global`** | The dispatcher. Its redeemer names an action, and it requires the matching delegate's withdraw-zero against a hash baked in at compile time (`validators/programmable_logic_global.ak:48-78`). It reads no datum and touches no value. | It is the link that turns "some dispatcher ran" into "the right delegate ran". Replacing the dispatch layer is a protocol-params datum rewrite, not a token migration. |
 | **`transfer` / `third_party` / `unfracking`** | The three delegates, each a withdraw-zero validator running once per transaction. Each resolves the subject policy's registry node from a reference input and requires the credential that node names for its kind of action (`validators/programmable_logic/transfer.ak:250-258`, `validators/programmable_logic/third_party.ak:23-28`, `validators/programmable_logic/unfracking.ak:107-120`). | They call *your* validators — you don't call them. |
-| **`registry`** | One validator, two handlers on one hash (`validators/registry.ak:40`): `mint` builds and extends the sorted linked list of registered policies, `spend` guards every node UTxO. Each node stores which substandard credentials govern that token. | Your token gets registered here, but you don't modify the registry validator. |
+| **`registry`** | One validator, two handlers on one hash (`validators/registry.ak:40`): `mint` builds and extends the sorted linked list of registered policies, `spend` guards every node UTxO. Each node stores which module credentials govern that token. | Your token gets registered here, but you don't modify the registry validator. |
 | **Issuance infrastructure** | `issuance_mint` — the permanent per-token policy whose applied hash **is** the token's policy id (`validators/issuance_mint.ak:34-41`); `issuance_logic` — the protocol's replaceable issuance rules, named live by the protocol-params datum (`validators/issuance_logic.ak:44-62`); `issuance_cbor_hex_mint`; `protocol_params` (mint + spend on one hash, `validators/protocol_params.ak:232`); `always_fail`. | Handles the mechanics of minting and custody. Your issuance logic validator is invoked *by* `issuance_mint`. |
 
-**Key insight**: Your substandard validators are invoked by the core infrastructure, not the other way around. The delegate validator looks up your token in the registry, finds your validator credentials, and requires that they are present in the transaction's withdrawals.
+**Key insight**: Your module validators are invoked by the core infrastructure, not the other way around. The delegate validator looks up your token in the registry, finds your validator credentials, and requires that they are present in the transaction's withdrawals.
 
 ---
 
 ## What You Must Implement
 
-A substandard registers **four credentials** in its token's registry node
+A module registers **four credentials** in its token's registry node
 (`lib/registry_node.ak:51-81`). Three are required for the token to function;
 the fourth is an opt-in.
 
@@ -279,7 +279,7 @@ behave a particular way, your hook is where that rule goes.
 
 ```
 ┌────────────────────────────────────────────────────────────────────────┐
-│                    YOUR SUBSTANDARD (4 credentials)                    │
+│                    YOUR MODULE (4 credentials)                    │
 │                                                                        │
 │  ┌──────────────┐ ┌──────────────┐ ┌──────────────┐ ┌───────────────┐  │
 │  │Issuance Logic│ │Transfer Logic│ │ 3rd Party    │ │Unfracking Hook│  │
@@ -317,7 +317,7 @@ pub type RegistryNode {
 
 The `minting_logic_script` (your issuance logic credential) is both **stored in the registry node** and **baked into the `issuance_mint` policy** as a compile-time parameter. The `registry` validator's mint handler cryptographically binds the two at registration: the issuance template parameterised with this credential must hash to `key` (`expect_programmable_token_id_valid`, `validators/registry.ak:91-97`), so the two can never disagree. It is frozen for the life of the node and doubles as the registry-lifecycle authority — see [Registry Lifecycle & Upgradeability](#registry-lifecycle--upgradeability).
 
-> **Note**: For simple substandards, you can reuse the same validator for multiple purposes. The dummy substandard registers one script for both transfer and third-party logic. The freeze-and-seize substandard registers its issuer-admin script for both issuance and third-party logic — seizure is authorized by the same admin credential that controls minting. Design your validators based on which operations share the same authorization model.
+> **Note**: For simple modules, you can reuse the same validator for multiple purposes. The dummy module registers one script for both transfer and third-party logic. The freeze-and-seize module registers its issuer-admin script for both issuance and third-party logic — seizure is authorized by the same admin credential that controls minting. Design your validators based on which operations share the same authorization model.
 
 ### The `max_inline_datum_bytes` deployment invariant
 
@@ -359,11 +359,11 @@ issuance path in as many words: a datum born under a laxer bound than the one
 `transfer` bounds every PLB output it creates. The UTxO is neither frozen nor
 unseizable — its tokens can move to a compliant output, and `third_party` does
 not re-apply the bound to a paired continuing output, so a seizure still
-validates. What a mismatch costs is a substandard whose transfer logic needs
+validates. What a mismatch costs is a module whose transfer logic needs
 the datum to continue, and seizure batch size. Nothing on-chain can compare
 the four values.
 
-**What this means for you.** Your substandard does not take this parameter, so
+**What this means for you.** Your module does not take this parameter, so
 you cannot set it wrongly yourself — but your issuance logic decides what datum
 a minted PLB output carries, and that datum must fit the bound every one of the
 four deployed scripts was compiled with. Read the deployed value from the
@@ -376,7 +376,7 @@ replacement for them (`lib/prog_assets.ak:293-296`).
 
 ## The Withdraw-Zero Pattern
 
-All substandard validators use the **withdraw-zero pattern**. This is a Cardano technique where a stake validator is invoked by including a 0-ADA withdrawal in the transaction:
+All module validators use the **withdraw-zero pattern**. This is a Cardano technique where a stake validator is invoked by including a 0-ADA withdrawal in the transaction:
 
 ```
 Transaction withdrawals (a transfer) — listed by role, NOT in ledger order:
@@ -422,7 +422,7 @@ protocol therefore carries a `publish` handler accepting `RegisterCredential`
 and refusing every other certificate (`validators/programmable_logic_global.ak:80-85`,
 `validators/transfer.ak:59-64`, `validators/third_party.ak:70-75`,
 `validators/unfracking.ak:88-93`, `validators/issuance_logic.ak:89-94`).
-**The same obligation falls on each of your four credentials.** A substandard
+**The same obligation falls on each of your four credentials.** A module
 script with no `publish` handler, or one that rejects `RegisterCredential`, can
 never be registered and therefore can never be invoked — and the failure is a
 phase-1 ledger rejection with no validator trace to read.
@@ -439,12 +439,12 @@ phase-1 ledger rejection with no validator trace to read.
 
 ### Finding your own policy id
 
-A common need in substandard logic is to know **which programmable token
+A common need in module logic is to know **which programmable token
 policy you govern** — for example, to isolate your token's entries from other
 policies co-located in the same transaction, or to assert that `tx.mint`
 carries nothing under your policy.
 
-The first thing to understand is that **your substandard's own script hash is
+The first thing to understand is that **your module's own script hash is
 not the token's policy id.** Your transfer / third-party / issuance validators
 run as *withdraw-0 stake validators*; the token's policy id is the hash of the
 `issuance_mint` script, which is parameterized (among other things) by your
@@ -472,13 +472,13 @@ whose relevant logic field equals `account`, and read its `key`.
 //   - issuance logic          → match node.minting_logic_script == account
 ```
 
-One substandard credential can govern **several** tokens (many nodes can point
+One module credential can govern **several** tokens (many nodes can point
 at the same logic script), so treat this as "find *all* nodes referencing me"
 when your rules span more than one of your policies, not just the first.
 
 **2. Bake it in as a compile-time parameter.** Alternatively, parameterize your
 validator with the policy id directly. This is the cheapest option (no scan) and
-is what the example substandards do for related values (e.g. the PLB credential,
+is what the example modules do for related values (e.g. the PLB credential,
 `global_state_cs`). It works because the policy id depends on your **issuance**
 (`minting_logic_script`) credential — not on your transfer credential — so you
 can compute it before compiling your transfer and third-party validators.
@@ -501,11 +501,11 @@ being *created* in the same transaction rather than referenced.
 
 ## Global State
 
-Most real-world substandards need on-chain state — denylists, whitelists, configuration parameters, permissioned keys, etc. The CIP-113 registry supports this via the `global_state_cs` field in `RegistryNode` (field 6, `lib/registry_node.ak:79-80`).
+Most real-world modules need on-chain state — denylists, whitelists, configuration parameters, permissioned keys, etc. The CIP-113 registry supports this via the `global_state_cs` field in `RegistryNode` (field 6, `lib/registry_node.ak:79-80`).
 
 ### How it works
 
-`global_state_cs` is a **currency symbol** (policy ID) that your substandard uses to manage its on-chain state. The pattern is:
+`global_state_cs` is a **currency symbol** (policy ID) that your module uses to manage its on-chain state. The pattern is:
 
 1. **Create a minting policy** for your state NFTs/tokens (e.g., denylist node tokens, whitelist node tokens, config NFTs)
 2. **Create a spending validator** that guards the UTxOs holding your state
@@ -516,7 +516,7 @@ The field is either empty or a 28-byte policy id; the registry enforces exactly 
 
 ### Example: Denylist (Freeze-and-Seize)
 
-The freeze-and-seize substandard uses `global_state_cs` to point to a denylist:
+The freeze-and-seize module uses `global_state_cs` to point to a denylist:
 
 ```
 global_state_cs = denylist minting policy ID
@@ -542,7 +542,7 @@ During a transfer, the transfer logic validator:
 
 ### State management validators
 
-If your substandard has on-chain state, you'll typically need additional validators beyond the four withdraw-zero credentials:
+If your module has on-chain state, you'll typically need additional validators beyond the four withdraw-zero credentials:
 
 - **State minting policy** — controls creation/deletion of state entries
 - **State spending validator** — guards state UTxOs, usually just checks that the minting policy is active
@@ -551,7 +551,7 @@ These are standard Aiken validators, not withdraw-zero validators. They follow t
 
 ---
 
-## Token Lifecycle from the Substandard's Perspective
+## Token Lifecycle from the Module's Perspective
 
 ### 1. Registration
 
@@ -563,14 +563,14 @@ When a new programmable token is registered, a `RegistryNode` entry is created i
 - Your **unfracking hook** credential (or `empty_vkey` to forbid unfracking)
 - Your **global state** currency symbol (if applicable)
 
-The registry mechanics are handled by the core infrastructure (`registry`'s mint handler, `validators/registry.ak:41`), but **your issuance logic withdraw-0 runs at registration** — the mint handler requires it in `tx.withdrawals` as proof that your substandard instance authorises the registration (the *proof of instance* check, `validators/registry.ak:99-110`). So your validators must be compiled, deployed, their stake addresses registered, and able to validate a registration transaction before the token can be registered.
+The registry mechanics are handled by the core infrastructure (`registry`'s mint handler, `validators/registry.ak:41`), but **your issuance logic withdraw-0 runs at registration** — the mint handler requires it in `tx.withdrawals` as proof that your module instance authorises the registration (the *proof of instance* check, `validators/registry.ak:99-110`). So your validators must be compiled, deployed, their stake addresses registered, and able to validate a registration transaction before the token can be registered.
 
 A registration **may or may not mint the first tokens in the same transaction** — the framework supports both and does not constrain the choice (`validators/registry.ak:106-108`):
 
 - **Register and mint**: `tx.mint` carries the first batch under the new policy; `issuance_mint` runs and validates it as usual.
 - **Register only**: no entries under the new policy in `tx.mint`; `issuance_mint` never runs. Useful for RWA issuance, or for initialising global state before any token exists.
 
-**If your substandard requires a strict register-then-mint lifecycle** (no minting during registration), you must enforce it yourself — see [Your issuance logic must know why it is running](#your-issuance-logic-must-know-why-it-is-running).
+**If your module requires a strict register-then-mint lifecycle** (no minting during registration), you must enforce it yourself — see [Your issuance logic must know why it is running](#your-issuance-logic-must-know-why-it-is-running).
 
 ### 2. Minting
 
@@ -583,7 +583,7 @@ issuance_mint fires
 
 Your **issuance logic withdraw** validator is invoked. It should verify that the minting is authorized (e.g., an authorised signature, governance approval).
 
-Tokens are minted to the PLB address with the recipient's stake credential. `issuance_logic` enforces this — no token of the policy may sit at a non-PLB output, and every PLB output carrying the policy must have an inline stake credential and a bounded inline datum (`validators/issuance_logic.ak:188-220`). Your substandard doesn't need to check it.
+Tokens are minted to the PLB address with the recipient's stake credential. `issuance_logic` enforces this — no token of the policy may sit at a non-PLB output, and every PLB output carrying the policy must have an inline stake credential and a bounded inline datum (`validators/issuance_logic.ak:188-220`). Your module doesn't need to check it.
 
 ### 3. Transfer (Owner-Initiated)
 
@@ -695,7 +695,7 @@ third-party logic, unfracking hook, global state).
 > `expect Script(hashed_param) = minting_logic_script` (`lib/utils.ak:90`). A
 > `VerificationKey` aborts there, so the registration transaction never
 > validates and the policy id it would have keyed could never be derived in the
-> first place — `registry_insert_fails_verification_key_substandard`
+> first place — `registry_insert_fails_verification_key_token_module`
 > (`validators/registry.test.ak:985`) pins that. A verification key is not a
 > way to get a frozen node; it is a way to get no node.
 >
@@ -715,7 +715,7 @@ issuance logic must distinguish them itself** — e.g. by inspecting whether the
 transaction spends or mints a registry node versus mints the programmable
 token, and applying different rules (different signers, thresholds,
 timelocks). The framework hands your validator the full transaction context; how
-finely to separate these powers is a substandard decision, not a framework
+finely to separate these powers is a module decision, not a framework
 default.
 
 ### Your issuance logic must know why it is running
@@ -729,7 +729,7 @@ of instance, and if a mint is present `issuance_mint` runs too — with your
 (`validators/registry.ak:99-110`). A validator that rubber-stamps registrations
 therefore silently authorises co-mints as well.
 
-**If your substandard's policy is "register first, mint later", enforce it
+**If your module's policy is "register first, mint later", enforce it
 explicitly.** The recommended pattern is a redeemer on your issuance
 withdraw-0 that names the running mode:
 
@@ -757,7 +757,7 @@ Each arm validates only its own context:
 Cross-check the claimed mode against the transaction shape (registry node
 minted / spent / untouched, programmable-token entries in `tx.mint`) so a
 caller cannot pick a permissive arm for the wrong context. If instead your
-substandard is happy with atomic register-and-mint (the common case), a single
+module is happy with atomic register-and-mint (the common case), a single
 arm that validates both concerns together is fine — just make that a
 deliberate choice, not an accident.
 
@@ -781,16 +781,16 @@ spend handler is the sole spender of every node. Consequences:
 ### When you still need a migration
 
 The update path cannot change the frozen fields (`key`, `next`, `minting_logic_script`)
-or perform a wholesale substandard swap. For those, migrate:
+or perform a wholesale module swap. For those, migrate:
 
-1. **Pause the old token** — if your substandard supports pausing (e.g., via a global state flag), pause transfers first
-2. **Deploy + register the new substandard** — compile new validator scripts and create a new `RegistryNode`
+1. **Pause the old token** — if your module supports pausing (e.g., via a global state flag), pause transfers first
+2. **Deploy + register the new module** — compile new validator scripts and create a new `RegistryNode`
 3. **Migrate balances** — use either:
    - **A third-party action** (the dispatcher's `ThirdPartyAct` plus a `ThirdPartyRedeemer`) on the old token to move balances from holders to a migration address, then mint equivalent new tokens
    - **Burn old + mint new** in coordinated transactions
 4. **Decommission the old token** — the old registry entry remains but the token is effectively deprecated (there is no de-registration; see [`03-CONTROL-SCOPE-AND-THIRD-PARTY-ACTIONS.md`](./03-CONTROL-SCOPE-AND-THIRD-PARTY-ACTIONS.md) §3.3)
 
-**Recommendation**: design your substandard for upgradeability from the start.
+**Recommendation**: design your module for upgradeability from the start.
 Put behavior that may need tuning (thresholds, permissioned keys) behind a global-state
 config NFT so you can adjust it without even a node update, and decide up front
 whether issuance and registry-lifecycle should be the same authority or distinct
@@ -798,9 +798,9 @@ ones.
 
 ---
 
-## Walkthrough: Dummy Substandard
+## Walkthrough: Dummy Module
 
-The dummy substandard is the simplest possible implementation: the smallest
+The dummy module is the simplest possible implementation: the smallest
 thing that satisfies the interface. Its sources live outside this repository;
 what follows describes the interface it fills, not its file layout.
 
@@ -850,11 +850,11 @@ This is obviously not secure for production use, but it demonstrates the interfa
 
 ---
 
-## Walkthrough: Freeze-and-Seize Substandard
+## Walkthrough: Freeze-and-Seize Module
 
-The freeze-and-seize substandard is a real-world implementation for regulated
+The freeze-and-seize module is a real-world implementation for regulated
 stablecoins. It maintains an on-chain denylist and validates every transfer
-against it. As with the dummy substandard, its sources live outside this
+against it. As with the dummy module, its sources live outside this
 repository; what follows is the interface it fills.
 
 ### How it maps onto the four registry credentials
@@ -864,7 +864,7 @@ repository; what follows is the interface it fills.
 | `minting_logic_script` | an issuer-admin script, parameterized by a permitted credential |
 | `transfer_logic_script` | a denylist-checking transfer script |
 | `third_party_logic_script` | the **same** issuer-admin script — whoever can mint can seize |
-| `unfracking_logic_script` | the substandard's choice; `empty_vkey` forbids restructuring, a script credential lets the issuer gate it |
+| `unfracking_logic_script` | the module's choice; `empty_vkey` forbids restructuring, a script credential lets the issuer gate it |
 | `global_state_cs` | the denylist minting policy id |
 
 ### Issuance / third-party logic: an issuer-admin script
@@ -920,7 +920,7 @@ What it does:
 ### State management: the denylist
 
 The denylist is a sorted linked list stored on-chain, managed by two additional
-validators of the substandard's own:
+validators of the module's own:
 
 - a **minting policy** with three operations — create the origin node (one-shot, consuming a specific UTxO), insert a credential, remove a credential — the last two gated on a manager signature, all three enforcing the linked-list invariants: sorted order, covering-node correctness, single mint per operation;
 - a **spending validator** that permits spending a denylist node UTxO only while the minting policy is active in the same transaction, delegating all logic to the policy:
@@ -970,7 +970,7 @@ Denylist management transaction:
 
 ## Off-Chain Integration (Evolution SDK)
 
-This section shows how to build transactions for your substandard using the
+This section shows how to build transactions for your module using the
 [Evolution SDK](https://github.com/IntersectMBO/evolution-sdk)
 (`@evolution-sdk/evolution`).
 
@@ -1088,7 +1088,7 @@ let tx = client
   .withdraw({
     stakeCredential: scriptCred(yourMintingLogicHash),
     amount: 0n,
-    redeemer: yourIssuanceRedeemer,   // e.g. Data.int(100n) for the dummy substandard
+    redeemer: yourIssuanceRedeemer,   // e.g. Data.int(100n) for the dummy module
   })
   .attachScript({ script: yourMintingLogicScript })
 
@@ -1222,7 +1222,7 @@ const registryProof = Data.constr(0n, [Data.int(registryIdx)]);
 // per DISTINCT policy in the spent inputs, in ascending policy order.
 const transferRedeemer = Data.constr(0n, [Data.list([registryProof])]);
 
-const yourTransferLogicRedeemer = Data.int(200n);   // your substandard's rule
+const yourTransferLogicRedeemer = Data.int(200n);   // your module's rule
 
 // --- Build ------------------------------------------------------------------
 const scriptCred = (hash: string) =>
@@ -1296,7 +1296,7 @@ Transcription notes:
   derives the index from the two reference inputs it actually adds.
 - **The fixture's owner credential is also the policy's `transfer_logic_script`**
   (`validators/programmable_logic/fixture.ak:113`, `:278`), so its three
-  withdrawals cover both the substandard's rule and the owner's consent. When
+  withdrawals cover both the module's rule and the owner's consent. When
   the owner is a *different* `Script`, the set grows to four.
 
 Where the owner is a **`Script`** rather than a key, drop `addSigner` and add
@@ -1450,7 +1450,7 @@ function withdrawalIndexOf(all: readonly WithdrawalKey[], target: WithdrawalKey)
 
 **A worked example, because the intuition is wrong.** Take this repository's
 own transfer fixture, `validators/programmable_logic/fixture.ak:103-114`. It
-writes its three credentials in role order — dispatcher, delegate, substandard —
+writes its three credentials in role order — dispatcher, delegate, module —
 and that is *not* the order the ledger hands them over. Running the rule above
 over the fixture's actual hashes:
 
@@ -1458,9 +1458,9 @@ over the fixture's actual hashes:
 |---|---|---:|---:|
 | `programmable_logic_global` | `…00000101` | 0 | **0** |
 | `transfer` (the delegate) | `…0001091c` | 1 | **2** |
-| `transfer_logic_script` (the substandard) | `…00000b0b` | 2 | **1** |
+| `transfer_logic_script` (the module) | `…00000b0b` | 2 | **1** |
 
-The delegate and the substandard script swap. `wdrl_idx` here happens to be `0`
+The delegate and the module script swap. `wdrl_idx` here happens to be `0`
 either way, only because the dispatcher's hash is the byte-minimum of this
 particular set — a property of these three arbitrary test hashes, not of the
 protocol. With your own deployment's hashes the dispatcher can sit anywhere.
@@ -1475,14 +1475,14 @@ declared at `validators/programmable_logic/params.ak:55-61`, accessor at
 withdrawal set, after the builder has added everything. A key-hash withdrawal
 appended late is harmless; a second script withdrawal is not.
 
-#### Substandard-specific reference inputs
+#### Module-specific reference inputs
 
-If your substandard uses global state (e.g., denylist nodes), those UTxOs must
+If your module uses global state (e.g., denylist nodes), those UTxOs must
 also be included as reference inputs. Add them to the set **before** computing
 any index: they take positions in the same canonical ordering as the params
 UTxO and the registry node.
 
-#### Parameterizing substandard scripts
+#### Parameterizing module scripts
 
 If your validators take parameters — as the freeze-and-seize transfer logic
 takes the PLB credential and the denylist policy id — apply them with
@@ -1508,7 +1508,7 @@ exactly: a `Credential` is a constructor, a `PolicyId` is a bare byte string, an
 
 ---
 
-## Testing Your Substandard
+## Testing Your Module
 
 ### Unit testing withdraw validators
 
@@ -1553,9 +1553,9 @@ test denylist_insert_maintains_sorted_order() {
 
 ### Integration testing
 
-For full integration tests that exercise the core infrastructure + your substandard together, see the test files in this repository:
+For full integration tests that exercise the core infrastructure + your module together, see the test files in this repository:
 
-- `validators/transfer.test.ak`, `validators/third_party.test.ak`, `validators/programmable_logic/unfracking.test.ak` — the transfer / third-party / unfracking flows with mock substandard validators
+- `validators/transfer.test.ak`, `validators/third_party.test.ak`, `validators/programmable_logic/unfracking.test.ak` — the transfer / third-party / unfracking flows with mock module validators
 - `validators/programmable_logic_base.test.ak`, `validators/programmable_logic_global.test.ak` — the two links above the delegates
 - `validators/issuance_mint.test.ak`, `validators/issuance_logic.test.ak` — the two halves of issuance
 - `validators/registry.test.ak` — registration, register-only, and the in-place node update
@@ -1565,7 +1565,7 @@ For full integration tests that exercise the core infrastructure + your substand
 ### Running tests
 
 ```bash
-# In your substandard directory
+# In your module directory
 aiken check
 
 # Run tests whose NAME matches a substring (-m matches test names, not modules)

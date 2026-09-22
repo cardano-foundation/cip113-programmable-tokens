@@ -91,7 +91,7 @@ use types.{
 /// the brick can still take over. An unsatisfiable `programmable_logic_global_cred`
 /// makes every programmable token UTxO unspendable. `programmable_logic_global_cred`
 /// is checked first because it is on the programmable-token spend path
-/// (`programmable_logic_base.ak:74`), the widest brick this validator can
+/// (`programmable_logic_base.ak:64-66`), the widest brick this validator can
 /// prevent.
 ///
 /// Shared by BOTH handlers on purpose: the mint refuses to create a state the

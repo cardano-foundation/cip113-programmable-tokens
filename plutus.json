@@ -1129,7 +1129,7 @@
     },
     "registry_node/RegistryNode": {
       "title": "RegistryNode",
-      "description": "Registry node in the linked list of registered programmable token policies\n This represents an entry in the CIP-113 registry.\n\n Field order is load-bearing: it determines the CBOR layout consumed by both\n on-chain and off-chain code. The three script-credential fields are ordered\n by the natural lifecycle of a programmable token — `minting_logic_script`\n (mint), `transfer_logic_script` (transfer), `third_party_logic_script`\n (third-party) — with `minting_logic_script` first because registration is the\n earliest event in a token's lifetime.",
+      "description": "Registry node in the linked list of registered programmable token policies\n This represents an entry in the CIP-113 registry.\n\n Field order is load-bearing: it determines the CBOR layout consumed by both\n on-chain and off-chain code. The four script-credential fields are ordered\n by the natural lifecycle of a programmable token — `minting_logic_script`\n (mint), `transfer_logic_script` (transfer), `third_party_logic_script`\n (third-party), `unfracking_logic_script` (unfracking) — with\n `minting_logic_script` first because registration is the earliest event in a\n token's lifetime.",
       "anyOf": [
         {
           "title": "RegistryNode",
@@ -1148,7 +1148,7 @@
             },
             {
               "title": "minting_logic_script",
-              "description": "The minting logic script credential. The substandard's withdraw-0 minting\n logic finds its own registry node by equality on this field — that gives\n it the `key` (the policy id) without recomputing the issuance hash.\n The `registry` validator's mint handler also cryptographically binds\n this field to the policy id\n via `expect_programmable_token_id_valid`, so the field cannot lie.",
+              "description": "The minting logic script credential. The token module's withdraw-0 minting\n logic finds its own registry node by equality on this field — that gives\n it the `key` (the policy id) without recomputing the issuance hash.\n The `registry` validator's mint handler also cryptographically binds\n this field to the policy id\n via `expect_programmable_token_id_valid`, so the field cannot lie.",
               "$ref": "#/definitions/cardano~1address~1Credential"
             },
             {
@@ -1227,7 +1227,7 @@
     },
     "types/MintingRegistryProof": {
       "title": "MintingRegistryProof",
-      "description": "Per-policy registry proof carried in `IssuanceLogicRedeemer`.\n\n The redeemer is the registry proof itself — a `RefInput` index for a\n subsequent mint (registry node already exists), or an `OutputIndex` for\n the first mint (registry node being created in the same tx).\n\n The substandard's withdraw-0 invocation (proof of instance) is checked by\n `issuance_mint` directly against its `minting_logic_cred` parameter — no\n separate redeemer field needed. The validator parameter is baked into\n the policy id at compile time and pinned to `registry.minting_logic_script`\n by the cryptographic binding in the registry validator's mint handler, so\n collision-resistance of blake2b_224 forces credential agreement without a\n runtime equality check on the redeemer.",
+      "description": "Per-policy registry proof carried in `IssuanceLogicRedeemer`.\n\n The redeemer is the registry proof itself — a `RefInput` index for a\n subsequent mint (registry node already exists), or an `OutputIndex` for\n the first mint (registry node being created in the same tx).\n\n The token module's withdraw-0 invocation (proof of instance) is checked by\n `issuance_mint` directly against its `minting_logic_cred` parameter — no\n separate redeemer field needed. The validator parameter is baked into\n the policy id at compile time and pinned to `registry.minting_logic_script`\n by the cryptographic binding in the registry validator's mint handler, so\n collision-resistance of blake2b_224 forces credential agreement without a\n runtime equality check on the redeemer.",
       "anyOf": [
         {
           "title": "RefInput",
@@ -1350,7 +1350,7 @@
         },
         {
           "title": "RegistryInsert",
-          "description": "Insert a new programmable token policy into the registry.\n\n `minting_logic_script` is the credential of the substandard's\n withdraw-0 minting logic. The `registry` mint handler enforces that:\n   * the new node's datum field `minting_logic_script` equals this\n     value (datum-matches-redeemer check, prevents the registrar\n     from writing a different credential into the datum than they\n     claim in the redeemer);\n   * the issuance template parameterised with this credential hashes\n     to `key` (cryptographic binding: the `hashed_param` used in the\n     policy id derivation is the inner 28-byte hash of this\n     credential — derived inside the validator, NOT supplied as a\n     separate redeemer field);\n   * the substandard's withdraw-0 logic is invoked\n     (`minting_logic_script` in `tx.withdrawals`).\n\n Whether the registration also carries a first mint of the new\n policy is NOT constrained by the `registry` mint handler: a first mint in the\n same tx is validated by `issuance_mint` as usual, and registering\n without any mint is equally valid (useful for real-world-asset\n issuance or supply-aware substandards that must initialise global\n state before any token exists). A substandard that wants a strict\n register-then-mint lifecycle must enforce it in its own minting\n logic.",
+          "description": "Insert a new programmable token policy into the registry.\n\n `minting_logic_script` is the credential of the token module's\n withdraw-0 minting logic. The `registry` mint handler enforces that:\n   * the new node's datum field `minting_logic_script` equals this\n     value (datum-matches-redeemer check, prevents the registrar\n     from writing a different credential into the datum than they\n     claim in the redeemer);\n   * the issuance template parameterised with this credential hashes\n     to `key` (cryptographic binding: the `hashed_param` used in the\n     policy id derivation is the inner 28-byte hash of this\n     credential — derived inside the validator, NOT supplied as a\n     separate redeemer field);\n   * the token module's withdraw-0 logic is invoked\n     (`minting_logic_script` in `tx.withdrawals`).\n\n Whether the registration also carries a first mint of the new\n policy is NOT constrained by the `registry` mint handler: a first mint in the\n same tx is validated by `issuance_mint` as usual, and registering\n without any mint is equally valid (useful for real-world-asset\n issuance or supply-aware token modules that must initialise global\n state before any token exists). A token module that wants a strict\n register-then-mint lifecycle must enforce it in its own minting\n logic.",
           "dataType": "constructor",
           "index": 1,
           "fields": [

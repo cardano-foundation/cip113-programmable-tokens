@@ -380,7 +380,7 @@ fn find_transfer_redeemer(
 ///
 /// The `unfracking` validator is deliberately NOT a delegate: unfracking is
 /// value-preserving, same-owner PLB restructuring with NO mint (enforced at
-/// `programmable_logic/unfracking.ak:105`), so it never validates an
+/// `programmable_logic/unfracking.ak:104`), so it never validates an
 /// issuance's custody and cannot cover one (Finding 04 precise delegation).
 fn transfer_scope_covers(
   transfer_redeemer: TransferRedeemer,

@@ -59,9 +59,9 @@ fn oref(i: Int) -> OutputReference {
   }
 }
 
-/// The protocol-params UTxO: params NFT + a datum whose field 5 names the
+/// The protocol-params UTxO: params NFT + a datum whose field 1 names the
 /// live issuance-logic credential. Every other field is a placeholder; the
-/// permanent policy reads field 5 alone.
+/// permanent policy reads field 1 alone.
 fn params_ref_input() -> Input {
   Input {
     output_reference: oref(0),

@@ -55,7 +55,7 @@ const test_transfer_cred: Credential =
   Script(#"a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1")
 
 /// The standalone third_party (seize) validator credential carried by the
-/// protocol-params datum (field 2, `third_party_cred`) — the delegate a mint
+/// protocol-params datum (field 3, `third_party_cred`) — the delegate a mint
 /// co-occurring with a seize defers custody to.
 const test_tp_cred: Credential =
   Script(#"c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3")
@@ -232,9 +232,10 @@ fn some_input(output: Output) -> Input {
 
 /// The protocol-params UTxO as a reference input: carries the protocol-params
 /// NFT (under `test_params_policy`) and the protocol-params datum whose
-/// field 1 (`transfer_cred`) is the LIVE transfer-validator credential the
-/// validator must resolve. `programmable_logic_global_cred` / `upgrade_cred` are never read by
-/// issuance_mint, so any placeholder credential is fine.
+/// field 2 (`transfer_cred`) is the LIVE transfer-validator credential the
+/// validator must resolve. `programmable_logic_global_cred` / `upgrade_cred`
+/// are never read by `issuance_logic`, so any placeholder credential is
+/// fine.
 fn params_ref_input(transfer_cred: Credential) -> Input {
   some_ref_input(
     Output {
@@ -772,7 +773,7 @@ test multi_token_burn() {
 
 // Phase-4 (PR #110 validator split): a mint that co-occurs with a third-party SEIZE of the
 // same policy delegates custody to the standalone `third_party` validator, whose
-// redeemer (at `third_party_cred`, field 2) names our registry node. To isolate
+// redeemer (at `third_party_cred`, field 3) names our registry node. To isolate
 // the delegation DECISION, the minted subject tokens go to a NON-PLB output —
 // local `no_escape` alone would reject this, but delegation short-circuits it.
 // This is deliberately NOT a valid transaction end to end: the composed
@@ -1238,11 +1239,11 @@ test case4_programmable_logic_base_input_without_transfer_cred_does_not_delegate
 // ========================================================================
 // Live transfer-validator delegation via the protocol-params datum (in-place upgradability)
 //
-// The validator's 4th parameter is now `params_policy` (the protocol-params
-// NFT policy), not a frozen transfer-validator credential. Delegation resolves the LIVE
-// the transfer validator credential from the protocol-params UTxO's datum (field 1), so an
-// in-place transfer-validator upgrade automatically retires the old credential as a
-// mint-custody delegate.
+// The validator's THIRD parameter is `params_policy` (the protocol-params
+// NFT policy), not a frozen transfer-validator credential. Delegation resolves
+// the LIVE transfer-validator credential from the protocol-params UTxO's datum
+// (field 2), so an in-place transfer-validator upgrade automatically retires
+// the old credential as a mint-custody delegate.
 // ========================================================================
 
 // In-place upgradability follow-up (2026-08-13 naming review, finding 2):
@@ -1304,7 +1305,7 @@ test delegation_survives_in_place_transfer_validator_upgrade() {
 
 // In-place upgradability follow-up (2026-08-13 naming review, finding 2):
 // THE falsification test. The protocol-params datum names `test_upgraded_transfer_cred`
-// as the live the transfer validator, but the tx invokes only the launch-era
+// as the live transfer validator, but the tx invokes only the launch-era
 // `test_transfer_cred` (withdrawal + covering `TokenExists { node_idx: 0 }`),
 // with custody violated. The retired credential must NOT delegate: the
 // lookup keyed on the datum-resolved v2 finds no redeemer, delegation is
@@ -1687,7 +1688,7 @@ test outputindex_covering_node_mint_escape_fails() fail {
 // in `validate_third_party` is what says no.
 
 /// A PLB output in the seizing authority's custody (stake credential of the
-/// substandard's escrow logic) holding `qty` subject tokens.
+/// token module's escrow logic) holding `qty` subject tokens.
 fn seized_output(qty: Int) -> Output {
   Output {
     address: Address {

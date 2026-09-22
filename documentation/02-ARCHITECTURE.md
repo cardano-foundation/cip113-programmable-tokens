@@ -83,7 +83,7 @@ The protocol is twelve validators. `plutus.json` carries one blueprint entry per
 handler, including each validator's `else` fallback.
 
 The chain that authorises an ordinary spend has three links plus the
-substandard's own script:
+module's own script:
 
 ```mermaid
 graph TB
@@ -117,7 +117,7 @@ graph TB
         UM["upgrade_multisig<br/><i>mint + spend + withdraw</i>"]
     end
 
-    subgraph "Substandard — separate repository"
+    subgraph "Module — separate repository"
         SUB["minting / transfer / third-party / unfracking logic<br/><i>withdraw</i>"]
     end
 
@@ -143,9 +143,9 @@ graph TB
 ```
 
 Solid arrows are requirements one script imposes on another within a
-transaction; dotted arrows are reference-input reads. The substandard box is a
+transaction; dotted arrows are reference-input reads. The module box is a
 different repository — see
-[`substandards/`](https://github.com/cardano-foundation/cip113-programmable-tokens-platform/tree/main/src/substandards).
+[`modules/`](https://github.com/cardano-foundation/cip113-programmable-tokens-platform/tree/main/src/modules).
 
 ### Validator reference
 
@@ -157,7 +157,7 @@ order. A parameter is applied at deployment and baked into the script hash.
 | `always_fail` | spend | `_nonce: ByteArray` (1) | `validators/always_fail.ak:5` | Unspendable address. Locks the issuance-template NFT. The nonce makes each deployment a distinct hash. |
 | `issuance_cbor_hex_mint` | mint | `utxo_ref: OutputReference`, `always_fail_hash: ByteArray` (2) | `validators/issuance_cbor_hex_mint.ak:13-16` | One-shot mint of the reference NFT holding the issuance script template, locked at `always_fail_hash` (`:34`, `:49`). |
 | `issuance_logic` | withdraw, publish | `programmable_logic_base_cred: Credential`, `registry_node_cs: PolicyId`, `params_policy: PolicyId`, `max_inline_datum_bytes: Int` (4) | `validators/issuance_logic.ak:44-62` | The protocol's replaceable issuance rules: registry proof, custody of the minted supply, output shape. One entry per policy issued (`:74-88`). |
-| `issuance_mint` | mint | `minting_logic_cred: Credential`, `params_policy: PolicyId` (2) | `validators/issuance_mint.ak:34-41` | The permanent per-token minting policy. Its hash IS the token's policy id. Requires the substandard's minting logic (`:46`) and the protocol's issuance logic covering this policy (`:52-63`). |
+| `issuance_mint` | mint | `minting_logic_cred: Credential`, `params_policy: PolicyId` (2) | `validators/issuance_mint.ak:34-41` | The permanent per-token minting policy. Its hash IS the token's policy id. Requires the module's minting logic (`:46`) and the protocol's issuance logic covering this policy (`:52-63`). |
 | `programmable_logic_base` | spend | `params_policy: PolicyId` (1) | `validators/programmable_logic_base.ak:42` | Custody of every programmable-token UTxO. Reads one credential from the protocol-params datum and requires its withdraw-zero (`:58-66`). |
 | `programmable_logic_global` | withdraw, publish | `transfer_hash: ScriptHash`, `third_party_hash: ScriptHash`, `unfracking_hash: ScriptHash` (3) | `validators/programmable_logic_global.ak:48-52` | The dispatcher. Turns the redeemer's action into a requirement that the matching delegate ran (`:71-77`). |
 | `protocol_params` | mint, spend | `utxo_ref: OutputReference` (1) | `validators/protocol_params.ak:232` | One-shot mint of the protocol-params NFT (`:229-273`) and the guard on the UTxO that carries it (`:280-345`). |
@@ -289,7 +289,7 @@ address, which makes the ledger execute that script's `withdraw` handler.
 2. **Composable validation.** Several stake validators run in the same
    transaction, each checking a different thing — the dispatcher, the delegate,
    and the policy's own logic.
-3. **Pluggable logic.** A substandard's scripts are registered in the on-chain
+3. **Pluggable logic.** A module's scripts are registered in the on-chain
    registry as credentials (`lib/registry_node.ak:62-78`), so new logic is
    deployed without touching any core validator.
 
@@ -410,7 +410,7 @@ Inserting a policy (`RegistryInsert`, `validators/registry.ak:73-170`):
 5. prove `new_key` is a legitimate programmable-token policy id, by
    reconstructing the issuance script from the `IssuanceCborHex` template and
    hashing it (`:91-97`);
-6. present the substandard's `minting_logic_script` withdraw-zero (`:109-110`).
+6. present the module's `minting_logic_script` withdraw-zero (`:109-110`).
 
 ```
 Before:  [covering: key=A, next=C]
@@ -421,7 +421,7 @@ The `RegistryInsert` branch places no constraint on whether a first mint of the
 new policy rides along in the same transaction. If one does, `issuance_mint`
 validates it as any other mint (`validators/issuance_mint.ak:42-64`); a
 registration carrying no mint at all is equally valid, which is why the
-substandard's withdraw-zero is required explicitly at
+module's withdraw-zero is required explicitly at
 `validators/registry.ak:109-110` rather than inferred from a mint.
 
 ### Node updates
@@ -476,14 +476,14 @@ time-critical operation.
 ## Denylist System
 
 > **Note:** the denylist belongs to the
-> [freeze-and-seize substandard](https://github.com/cardano-foundation/cip113-programmable-tokens-platform/tree/main/src/substandards/freeze-and-seize),
+> [freeze-and-seize module](https://github.com/cardano-foundation/cip113-programmable-tokens-platform/tree/main/src/modules/freeze-and-seize),
 > not to the core framework, and its rules are enforced in that repository. It
-> is described here because it illustrates how a substandard extends the core.
+> is described here because it illustrates how a module extends the core.
 > This section is the one exception to the citation rule above: nothing it
 > states is verifiable from this repository, because nothing it describes is
 > defined here — `BlacklistNode`, the operations table and the non-membership
 > proof all live in `cip113-programmable-tokens-platform`, under
-> `src/substandards/freeze-and-seize`.
+> `src/modules/freeze-and-seize`.
 
 The denylist uses the same sorted-linked-list shape as the registry, keyed on
 credential hashes instead of policy ids.
@@ -505,7 +505,7 @@ Each `BlacklistNode` carries:
 
 ### Non-membership proofs in transfers
 
-The substandard's transfer logic extracts the stake credential of every
+The module's transfer logic extracts the stake credential of every
 programmable-token input, requires a `NonmembershipProof { node_idx }` per
 distinct credential, and checks `node.key < credential_hash < node.next` for
 each. A denylisted credential has no covering node, so the transaction fails.
@@ -544,7 +544,7 @@ pub type RegistryNode {
   (`validators/programmable_logic/unfracking.ak:119`).
 - Fields 3, 4, 5 and 6 are the mutable set (`lib/linked_list.ak:190-193`).
 
-### BlacklistNode (freeze-and-seize substandard)
+### BlacklistNode (freeze-and-seize module)
 
 ```aiken
 type BlacklistNode {
@@ -575,7 +575,7 @@ pub type ProtocolParams {
 | # | Field | Read by | At |
 |---|---|---|---|
 | 0 | `programmable_logic_global_cred` | `programmable_logic_base`, once per programmable input | `validators/programmable_logic_base.ak:66` |
-| 1 | `issuance_logic_cred` | `issuance_mint`, once per issuance transaction | `validators/issuance_mint.ak:59` |
+| 1 | `issuance_logic_cred` | `issuance_mint`, once per execution — that is, once per policy minted or burned | `validators/issuance_mint.ak:59` |
 | 2 | `transfer_cred` | `issuance_logic`, to locate the `transfer` withdraw-zero's redeemer | `validators/issuance_logic.ak:295` |
 | 3 | `third_party_cred` | `issuance_logic`, to locate the `third_party` withdraw-zero's redeemer | `validators/issuance_logic.ak:299` |
 | 4 | `upgrade_cred` | `protocol_params`, to decide who may rewrite this datum | `validators/protocol_params.ak:154` |
@@ -664,8 +664,13 @@ pub type IssuanceMintRedeemer {
 }
 ```
 
-**`issuance_logic` withdraw** (`lib/types.ak:184-185`, `:162-165`) — one entry
-per policy issued in the transaction. The keys are the frozen interface between
+**`issuance_logic` withdraw** (`lib/types.ak:184-185`, `:162-165`) — at least
+one entry for every policy issued in the transaction. That is a coverage
+floor, not an exact cardinality: `issuance_mint` requires its own policy to be
+a key and `issuance_logic` validates every entry supplied, but nothing
+compares the key set against `tx.mint` or rejects a duplicate, so a valid
+extra entry for another registered policy is accepted. The keys are the frozen
+interface between
 the two scripts: `issuance_mint` decodes this value only as far as
 `Pairs<PolicyId, Data>` and asks whether its own policy is a key
 (`validators/issuance_mint.ak:88-92`).
@@ -702,7 +707,7 @@ pub type ProtocolParamsRedeemer {
 }
 ```
 
-**Denylist proofs** (`BlacklistProof`, freeze-and-seize substandard):
+**Denylist proofs** (`BlacklistProof`, freeze-and-seize module):
 
 ```aiken
 type BlacklistProof {
@@ -786,8 +791,8 @@ sequenceDiagram
     end
 
     TR->>TR: Proof list exactly consumed
-    TX->>TL: Withdraw 0 (substandard redeemer)
-    TL-->>TX: substandard rules applied
+    TX->>TL: Withdraw 0 (module redeemer)
+    TL-->>TX: module rules applied
 ```
 
 Line by line:
@@ -890,7 +895,7 @@ enforces:
 Minting or burning a programmable token runs two scripts, and the transaction
 carries **two** withdraw-zeros:
 
-1. `issuance_mint`, the permanent per-token policy, requires the substandard's
+1. `issuance_mint`, the permanent per-token policy, requires the module's
    `minting_logic_cred` withdraw-zero — proof of instance
    (`validators/issuance_mint.ak:46`);
 2. it then reads `issuance_logic_cred` from protocol-params field 1 and requires
@@ -919,7 +924,7 @@ ones already minted.
    - finds the `IssuanceCborHex` reference input (`:75-84`);
    - requires `blake2b_224(version_header ++ prefix ++ hashed_param ++ postfix)`
      to equal the key being inserted (`:91-97`);
-   - requires the substandard's `minting_logic_script` withdraw-zero (`:109-110`);
+   - requires the module's `minting_logic_script` withdraw-zero (`:109-110`);
    - requires exactly one node NFT minted, named `key` (`:113`);
    - requires exactly one node input, the covering node (`:121-124`), and
      exactly two node outputs, whose keys and pointers maintain sorted order
@@ -1017,7 +1022,7 @@ here is by composition, at deployment.
 
 A mint or a burn of a programmable token carries both:
 
-- the substandard's `minting_logic_cred`, `validators/issuance_mint.ak:46`;
+- the module's `minting_logic_cred`, `validators/issuance_mint.ak:46`;
 - the protocol's `issuance_logic_cred` from protocol-params field 1, whose
   redeemer is a `Pairs<PolicyId, _>` that must have the minted policy as a key,
   `validators/issuance_mint.ak:52-63` and `:88-92`.
@@ -1315,7 +1320,7 @@ is a limit built into a different script than `protocol_params`.
    token is validated against — registry proofs, custody, output shape — and
    applies uniformly to every policy, already-issued ones included (see
    [What an upgrade can reach](#what-an-upgrade-can-reach)); it is not a way
-   to reach a single token's own substandard hooks.
+   to reach a single token's own module hooks.
 
 ---
 
@@ -1378,7 +1383,7 @@ of each can ever exist, and every deployment gets a distinct hash.
 
 Every PLB output that carries a programmable token is created by one of four
 scripts, and all four apply the same shape rule — see
-[PLB output shape](#plb-output-shape). No holder, and no substandard, can
+[PLB output shape](#plb-output-shape). No holder, and no module, can
 produce a programmable UTxO that a third-party action cannot later reproduce.
 A token-free deposit at the same address is created by no script and bound by
 no rule, and is equally beyond the reach of any action.
@@ -1393,10 +1398,10 @@ registry lifecycle operation can therefore never double as an issuance of the
 same policy.
 
 Note that the authorising credential, `minting_logic_script`, is shared between
-issuance and lifecycle. A substandard that needs those authorities separated
+issuance and lifecycle. A module that needs those authorities separated
 must separate them in its own minting logic — see
 [`03-CONTROL-SCOPE-AND-THIRD-PARTY-ACTIONS.md`](./03-CONTROL-SCOPE-AND-THIRD-PARTY-ACTIONS.md).
 
 ---
 
-**Next**: [Developing Substandards](./09-DEVELOPING-SUBSTANDARDS.md) for a guide on implementing custom substandards | **Back to**: [README](../README.md) | [Introduction](./01-INTRODUCTION.md)
+**Next**: [Developing Modules](./09-DEVELOPING-MODULES.md) for a guide on implementing custom modules | **Back to**: [README](../README.md) | [Introduction](./01-INTRODUCTION.md)

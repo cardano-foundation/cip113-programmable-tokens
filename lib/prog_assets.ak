@@ -268,10 +268,10 @@ pub fn is_seizable_output_shape(output: Output) -> Bool {
 /// or unfracking action, and `issuance_logic`, for PLB outputs that carry the
 /// policy being minted.
 ///
-/// The SUBSTANDARD's minting logic remains the right place for anything
+/// The Token module's minting logic remains the right place for anything
 /// finer than a byte bound — it knows what its outputs should look like.
 /// This bound is the floor under it, not a replacement for it: without it,
-/// an issuer (or a hostile substandard) could mint a PLB output with a
+/// an issuer (or a hostile token module) could mint a PLB output with a
 /// datum too large to reproduce in a seizure transaction, making it
 /// unseizable by construction — CIP-68 reference tokens with data-URI
 /// logos are the standing example of a datum large enough to matter.
