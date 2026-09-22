@@ -106,7 +106,7 @@ the credential your registry node names for that kind of action.
 | Component | What it does | Why you don't touch it |
 |-----------|-------------|----------------------|
 | **`programmable_logic_base` (PLB)** | Spending validator that custodies all programmable token UTxOs. Reads one credential out of the protocol-params datum — `programmable_logic_global_cred`, field 0 — and requires that credential's withdraw-zero at the index its redeemer witnesses (`validators/programmable_logic_base.ak:58-66`). It has no action arm. | Every token holder's UTxO lives at a PLB address; its hash is baked into every one of those addresses, so it can never be replaced. |
-| **`programmable_logic_global`** | The dispatcher. Its redeemer names an action, and it requires the matching delegate's withdraw-zero against a hash baked in at compile time (`validators/programmable_logic_global.ak:48-69`). It reads no datum and touches no value. | It is the link that turns "some dispatcher ran" into "the right delegate ran". Replacing the dispatch layer is a protocol-params datum rewrite, not a token migration. |
+| **`programmable_logic_global`** | The dispatcher. Its redeemer names an action, and it requires the matching delegate's withdraw-zero against a hash baked in at compile time (`validators/programmable_logic_global.ak:48-78`). It reads no datum and touches no value. | It is the link that turns "some dispatcher ran" into "the right delegate ran". Replacing the dispatch layer is a protocol-params datum rewrite, not a token migration. |
 | **`transfer` / `third_party` / `unfracking`** | The three delegates, each a withdraw-zero validator running once per transaction. Each resolves the subject policy's registry node from a reference input and requires the credential that node names for its kind of action (`validators/programmable_logic/transfer.ak:250-258`, `validators/programmable_logic/third_party.ak:23-28`, `validators/programmable_logic/unfracking.ak:107-120`). | They call *your* validators — you don't call them. |
 | **`registry`** | One validator, two handlers on one hash (`validators/registry.ak:40`): `mint` builds and extends the sorted linked list of registered policies, `spend` guards every node UTxO. Each node stores which substandard credentials govern that token. | Your token gets registered here, but you don't modify the registry validator. |
 | **Issuance infrastructure** | `issuance_mint` — the permanent per-token policy whose applied hash **is** the token's policy id (`validators/issuance_mint.ak:34-41`); `issuance_logic` — the protocol's replaceable issuance rules, named live by the protocol-params datum (`validators/issuance_logic.ak:44-62`); `issuance_cbor_hex_mint`; `protocol_params` (mint + spend on one hash, `validators/protocol_params.ak:232`); `always_fail`. | Handles the mechanics of minting and custody. Your issuance logic validator is invoked *by* `issuance_mint`. |
@@ -202,7 +202,7 @@ implemented at `:128-276`).
 > it.** Ada is peeled off both sides of each pair before the asset lists are
 > compared, and it is **ratcheted, not conserved**: the paired continuing
 > output must carry *at least* the input's lovelace
-> (`validators/programmable_logic/third_party.ak:225-231`). `>=` rather than
+> (`validators/programmable_logic/third_party.ak:235-241`). `>=` rather than
 > `==` because exact equality forbade the top-up that absorbs a rise in the
 > min-ADA protocol parameter, which would make a third-party action on an
 > existing UTxO unsatisfiable forever; and `>=` rather than free because
@@ -341,7 +341,7 @@ parameter of four scripts, and **all four must be deployed with the same value**
 |---|---|
 | `transfer` | `validators/transfer.ak:35` |
 | `third_party` | `validators/third_party.ak:44` |
-| `unfracking` | `validators/unfracking.ak:62` |
+| `unfracking` | `validators/unfracking.ak:65` |
 | `issuance_logic` | `validators/issuance_logic.ak:60` |
 
 **Why this is safety-critical, and why nothing on-chain can enforce it.** Each of
@@ -421,7 +421,7 @@ requires that script's consent. Every withdraw-zero validator in the core
 protocol therefore carries a `publish` handler accepting `RegisterCredential`
 and refusing every other certificate (`validators/programmable_logic_global.ak:80-85`,
 `validators/transfer.ak:59-64`, `validators/third_party.ak:70-75`,
-`validators/unfracking.ak:95-100`, `validators/issuance_logic.ak:89-94`).
+`validators/unfracking.ak:88-93`, `validators/issuance_logic.ak:89-94`).
 **The same obligation falls on each of your four credentials.** A substandard
 script with no `publish` handler, or one that rejects `RegisterCredential`, can
 never be registered and therefore can never be invoked — and the failure is a

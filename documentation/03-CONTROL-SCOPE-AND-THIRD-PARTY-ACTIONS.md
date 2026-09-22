@@ -111,7 +111,7 @@ does: `programmable_logic_base` requires the dispatcher's withdraw-zero
 (`programmable_logic_global_cred`, protocol-params field 0 —
 `validators/programmable_logic_base.ak:64-66`), and the dispatcher requires
 `third_party`'s withdraw-zero under a `ThirdPartyAct` redeemer
-(`validators/programmable_logic_global.ak:73`, `:77`). The subject of the
+(`validators/programmable_logic_global.ak:81`, `:77`). The subject of the
 action is **policy A** — the registry node pointed to by `registry_node_idx`
 (`lib/types.ak:50-55`). Everything else in the transaction is "non-subject".
 
@@ -123,11 +123,11 @@ substandard:
 | Guarantee | Enforced by |
 |---|---|
 | A's `third_party_logic_script` is invoked (withdraw-0) | `validators/programmable_logic/third_party.ak:28` |
-| Each spent PLB UTxO is paired 1:1 with a continuing output preserving **address, datum, and reference script** byte-for-byte | `validators/programmable_logic/third_party.ak:214-216` |
-| Lovelace is **ratcheted, not frozen** — the paired output must carry at least the input's lovelace, never less | `validators/programmable_logic/third_party.ak:225-231` |
-| **Non-subject** token quantities are conserved per pair, byte-for-byte — no other policy can be injected, redirected, split, or destroyed | `validators/programmable_logic/third_party.ak:235-243`, `:260-263` |
+| Each spent PLB UTxO is paired 1:1 with a continuing output preserving **address, datum, and reference script** byte-for-byte | `validators/programmable_logic/third_party.ak:224-226` |
+| Lovelace is **ratcheted, not frozen** — the paired output must carry at least the input's lovelace, never less | `validators/programmable_logic/third_party.ak:235-241` |
+| **Non-subject** token quantities are conserved per pair, byte-for-byte — no other policy can be injected, redirected, split, or destroyed | `validators/programmable_logic/third_party.ak:245-253`, `:270-273` |
 | The paired input **must already hold** policy A — a third-party action cannot conjure A onto a UTxO that never held it (anti-injection), nor drag an unrelated UTxO into the action (anti-DoS) | `validators/programmable_logic/third_party.ak:259` |
-| The subject delta across all pairs reconciles against A's `mint`/burn; nothing escapes the PLB | `validators/programmable_logic/third_party.ak:198-201` |
+| The subject delta across all pairs reconciles against A's `mint`/burn; nothing escapes the PLB | `validators/programmable_logic/third_party.ak:208-211` |
 | The action resolves exactly **one** registry node (`registry_node_idx`), hence exactly one policy per transaction (see §3.1) | `lib/types.ak:50-55` |
 
 A single third-party action may act on **multiple UTxOs of the same policy A** in

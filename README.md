@@ -141,7 +141,7 @@ A sorted linked list of registered programmable token policies, implemented as o
 
 #### 2. Programmable Logic Base, Dispatcher, and Delegate Validators
 
-A shared spending validator, `programmable_logic_base` (PLB), holds every programmable token (`validators/programmable_logic_base.ak:42`). PLB runs once per spent programmable input — the only per-input cost in the protocol — and does the smallest possible job: read one credential from the protocol-params datum, the `programmable_logic_global` dispatcher's, and require that credential's withdraw-zero at a witnessed index (`validators/programmable_logic_base.ak:64-66`). `programmable_logic_global` holds the three delegate script hashes as compile-time parameters and requires whichever one the redeemer names — `transfer` (ordinary transfers), `third_party` (seize / clawback / freeze enforcement) or `unfracking` (holder-driven, same-owner restructuring) — running once per transaction regardless of how many inputs it covers (`validators/programmable_logic_global.ak:48-70`).
+A shared spending validator, `programmable_logic_base` (PLB), holds every programmable token (`validators/programmable_logic_base.ak:42`). PLB runs once per spent programmable input — the only per-input cost in the protocol — and does the smallest possible job: read one credential from the protocol-params datum, the `programmable_logic_global` dispatcher's, and require that credential's withdraw-zero at a witnessed index (`validators/programmable_logic_base.ak:64-66`). `programmable_logic_global` holds the three delegate script hashes as compile-time parameters and requires whichever one the redeemer names — `transfer` (ordinary transfers), `third_party` (seize / clawback / freeze enforcement) or `unfracking` (holder-driven, same-owner restructuring) — running once per transaction regardless of how many inputs it covers (`validators/programmable_logic_global.ak:48-78`).
 
 #### 3. Minting Policies
 
@@ -169,10 +169,10 @@ Substandard implementations live in the platform repository:
 | Validator | Handlers | Purpose |
 |-----------|----------|---------|
 | `programmable_logic_base` | Spend | Custody of every programmable-token UTxO; reads the dispatcher credential off the protocol-params datum and requires its withdraw-zero (`validators/programmable_logic_base.ak:42-72`) |
-| `programmable_logic_global` | Withdraw, Publish | Dispatcher: proves the redeemer-named delegate (`transfer`, `third_party` or `unfracking`) was invoked (`validators/programmable_logic_global.ak:48-71`) |
+| `programmable_logic_global` | Withdraw, Publish | Dispatcher: proves the redeemer-named delegate (`transfer`, `third_party` or `unfracking`) was invoked (`validators/programmable_logic_global.ak:48-78`) |
 | `transfer` | Withdraw, Publish | Transfer delegate — the hot path. Walks a registry proof per policy and requires that policy's registered transfer-logic script's withdraw-zero (`validators/programmable_logic/transfer.ak:175-274`). Checks ownership of every spent input (`validators/programmable_logic/transfer.ak:73-112`, `validators/programmable_logic/owner.ak:27-39`) and that outputs contain at least the input tokens at a valid PLB shape (`validators/programmable_logic/transfer.ak:208-212`, `lib/prog_assets.ak:208-225`) |
 | `third_party` | Withdraw, Publish | Seize / clawback / freeze-enforcement delegate (`validators/third_party.ak:41-80`) |
-| `unfracking` | Withdraw, Publish | Holder-driven, same-owner restructuring delegate (`validators/unfracking.ak:59-98`) |
+| `unfracking` | Withdraw, Publish | Holder-driven, same-owner restructuring delegate (`validators/unfracking.ak:62-101`) |
 | `issuance_mint` | Mint | Permanent per-token minting/burning policy; its applied hash IS the token's policy id (`validators/issuance_mint.ak:34-64`) |
 | `issuance_logic` | Withdraw, Publish | Replaceable per-transaction issuance rules, upgradable via the protocol-params `issuance_logic_cred` field (`validators/issuance_logic.ak:44-89`) |
 | `issuance_cbor_hex_mint` | Mint | One-shot mint of the issuance script template reference NFT (`validators/issuance_cbor_hex_mint.ak:13-51`) |
