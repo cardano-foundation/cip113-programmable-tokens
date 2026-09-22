@@ -11,11 +11,13 @@
 //// preservation, datum well-formedness, credential well-formedness, and
 //// authorisation.
 ////
-//// ## Designed out by the four-field params datum
+//// ## Designed out by the params datum's field set
 ////
-//// `ProtocolParams` dropped `registry_node_cs` and
-//// `programmable_logic_base_cred` when their last on-chain readers went away. FOUR tests
-//// went with them. Two of the four lived in THIS file, and a reader who finds
+//// `ProtocolParams` carries neither `registry_node_cs` nor
+//// `programmable_logic_base_cred`: neither has an on-chain reader, and both
+//// are compile-time parameters of the delegates. FOUR tests that asserted on
+//// those two fields are absent as a result. Two of the four lived in THIS
+//// file, and a reader who finds
 //// two deleted security tests deserves to know which of the two reasons
 //// applies to each:
 ////
@@ -44,10 +46,13 @@
 ////     — same: one assertion, on `registry_node_cs`.
 ////
 //// What still guards this validator's mutable surface is the five
-//// `is_28_byte_credential` rails below (one per credential, nominee included),
-//// exact non-ADA conservation (lovelace is free since #118), the singleton
+//// `is_28_byte_credential` rails on the mandatory credentials
+//// (`programmable_logic_global_cred`, `issuance_logic_cred`, `transfer_cred`,
+//// `third_party_cred`, `upgrade_cred`), the nominee rail that holds
+//// `pending_upgrade_cred` to the same 28-byte standard whenever a handover is
+//// in flight, exact non-ADA conservation (lovelace is free), the singleton
 //// in/out structure, the no-reference-script rail and the three-arm
-//// authorisation read from the OLD datum (#125).
+//// authorisation read from the OLD datum.
 
 use cardano/address.{Address, Credential, Inline, Script, VerificationKey}
 use cardano/assets.{Value, ada_asset_name, ada_policy_id}

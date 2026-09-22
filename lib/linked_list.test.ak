@@ -132,12 +132,14 @@ test origin_node_empty_keys() {
 }
 
 // ========================================================================
-// NEW-1 FIX: is_updated_directory_node now REJECTS tampered datum fields
+// NEW-1: is_updated_registry_node REJECTS tampered datum fields
 //
-// Previously these tests PASSED (demonstrating the vulnerability).
-// After the fix, is_updated_directory_node compares ALL five fields of the
-// RegistryNode against the original, matching Plutarch's pisInsertedOnNode.
-// Tampered nodes are now correctly rejected.
+// An insert may move `next` and nothing else. `is_updated_registry_node`
+// compares ALL SEVEN fields of the RegistryNode against the original: `key`,
+// `minting_logic_script`, `transfer_logic_script`, `third_party_logic_script`,
+// `unfracking_logic_script` and `global_state_cs` must be unchanged, and
+// `next` must equal the inserted key — matching Plutarch's
+// pisInsertedOnNode. Tampered nodes are rejected.
 // ========================================================================
 
 /// transfer_logic_script swap is now REJECTED.
@@ -167,7 +169,7 @@ test is_updated_directory_node_rejects_transfer_logic_swap() fail {
   is_updated_registry_node(tampered_node, original, #"bb")
 }
 
-/// third_party_transfer_logic_script swap is now REJECTED.
+/// third_party_logic_script swap is REJECTED.
 /// Attacker cannot replace the seize/freeze logic with their own script.
 test is_updated_directory_node_rejects_third_party_logic_swap() fail {
   let original = RegistryNode {

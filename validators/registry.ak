@@ -91,7 +91,7 @@ validator registry(utxo_ref: OutputReference, issuance_cbor_hex_cs: PolicyId) {
             minting_logic_script,
           )
 
-        // Substandard authorises this registration: the substandard's
+        // Token module authorises this registration: the token module's
         // withdraw-0 logic must appear in tx.withdrawals. This is the
         // "proof of instance" check, required explicitly here because a
         // registration may carry no first mint, in which case issuance_mint

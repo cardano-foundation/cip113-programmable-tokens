@@ -43,17 +43,18 @@ pub const origin_node: RegistryNode =
 /// This represents an entry in the CIP-113 registry.
 ///
 /// Field order is load-bearing: it determines the CBOR layout consumed by both
-/// on-chain and off-chain code. The three script-credential fields are ordered
+/// on-chain and off-chain code. The four script-credential fields are ordered
 /// by the natural lifecycle of a programmable token — `minting_logic_script`
 /// (mint), `transfer_logic_script` (transfer), `third_party_logic_script`
-/// (third-party) — with `minting_logic_script` first because registration is the
-/// earliest event in a token's lifetime.
+/// (third-party), `unfracking_logic_script` (unfracking) — with
+/// `minting_logic_script` first because registration is the earliest event in a
+/// token's lifetime.
 pub type RegistryNode {
   /// The key (currency symbol) of the programmable token policy
   key: ByteArray,
   /// The next key in lexicographical order (for linked list traversal)
   next: ByteArray,
-  /// The minting logic script credential. The substandard's withdraw-0 minting
+  /// The minting logic script credential. The token module's withdraw-0 minting
   /// logic finds its own registry node by equality on this field — that gives
   /// it the `key` (the policy id) without recomputing the issuance hash.
   /// The `registry` validator's mint handler also cryptographically binds
@@ -113,7 +114,7 @@ pub fn new_registry_node_getter(
 /// linked list contract when producing the datum.
 ///
 /// This even makes the contract more 'interoperable', as the linked-list datum
-/// can change in addititive manner without invalidating this contract.
+/// can change in additive manner without invalidating this contract.
 pub fn with_key_and_transfer_logic(
   data: Data,
   return: fn(ByteArray, Credential) -> result,
@@ -159,7 +160,7 @@ pub fn with_key_and_third_party_logic(
 }
 
 /// Extract `key` and `minting_logic_script` from a `RegistryNode` datum.
-/// Useful for substandard withdraw-0 scripts that need to find their own
+/// Useful for token module withdraw-0 scripts that need to find their own
 /// node (via credential equality on `minting_logic_script`) and read the
 /// policy id (`key`) without recomputing the issuance hash.
 pub fn with_key_and_minting_logic(

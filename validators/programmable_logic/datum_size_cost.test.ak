@@ -12,7 +12,7 @@
 //// every size, which is what makes the rest pure validator cost.
 ////
 //// WHERE THE COST COMES FROM. Delete `expect output.datum == input.datum`
-//// (`third_party.ak:183`) and every size below collapses to one identical
+//// (`third_party.ak:214-216`) and every size below collapses to one identical
 //// figure. That single comparison is 100% of the size-dependent cost.
 ////
 //// SEIZE, flat ByteArray — the CHEAPEST shape per byte:
@@ -55,7 +55,7 @@
 ////
 //// COST OF THE CAP ITSELF (`cost_outdatum_*`, guard =
 //// `bytearray.length(builtin.serialise_data(d)) <= N`): +31 B of script on
-//// transfer / third_party / unfracking / issuance_mint, and +2.72M cpu per
+//// transfer / third_party / unfracking / issuance_logic, and +2.72M cpu per
 //// programmable output — paid even for a 3-byte unit datum, because
 //// serialiseData's intercept dominates at small sizes — then +26,650 cpu
 //// per further serialised byte. A fast path short-circuiting the unit datum
@@ -236,7 +236,7 @@ fn transfer_tx(datum: Data) -> Transaction {
 }
 
 /// `plutarch_baseline_transfer` with the two continuing programmable OUTPUTS
-/// carrying `datum` — the honest case a substandard with per-UTxO state
+/// carrying `datum` — the honest case a token module with per-UTxO state
 /// creates, and the one a creation-side size cap has to pay for.
 fn transfer_out_tx(datum: Data) -> Transaction {
   Transaction {

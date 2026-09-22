@@ -42,7 +42,7 @@ pub fn validate_third_party(
   // - burns (negative quantity) reduces the expected output
   // - mints (positive quantity) increases it
   //
-  // At the end, all programmable tokens must be account for.
+  // At the end, all programmable tokens must be accounted for.
   let minted_or_burned = self.mint |> value.tokens(policy_id)
 
   validate_io_constraints_and_balance(
@@ -149,17 +149,27 @@ fn validate_io_constraints_and_balance(
             // fresh PLB outputs (the destinations the seized tokens land in),
             // and those must stay seizable in turn — no datum hash, no
             // reference script. Without this a third-party action, or a hostile
-            // substandard's third-party logic, could produce a UTxO nobody can
+            // token module's third-party logic, could produce a UTxO nobody can
             // ever seize again. The PAIRED outputs need no check here: they are
             // byte-identical to their inputs, which were themselves shape-checked
             // when created.
             //
             // The inline stake credential is required for the same reason
             // `no_escape` requires it on the issuance path: a PLB output without
-            // one has no owner `owner.ak` can ever authorise, so it is
-            // permanently unspendable. `issuance_logic` skips `no_escape` when it
-            // delegates custody here, so this is the only place that catches a
-            // mint composed with a seize.
+            // one has no owner `owner.ak` can authorise, so no holder-driven
+            // path can ever spend it — not `transfer`, not `unfracking`. A
+            // third-party action still could, since it does not consult the
+            // owner, and it can route the acted policy's tokens to a fresh,
+            // well-formed destination: the checks here bind a destination to
+            // being a valid programmable output, not to the address it came
+            // from. So the TOKENS are recoverable by the policy's authority.
+            // What stays at the ownerless address is its lovelace, ratcheted
+            // by the paired rule, and any non-acted policy, pinned
+            // byte-identical. Refusing to create one keeps a UTxO only a
+            // third party can ever touch out of the token's history.
+            // `issuance_logic` skips `no_escape` when it delegates custody
+            // here, so this is the only place that catches a mint composed
+            // with a seize.
             expect Some(Inline(..)) = output.address.stake_credential
             expect
               prog_assets.is_seizable_output_shape_bounded(

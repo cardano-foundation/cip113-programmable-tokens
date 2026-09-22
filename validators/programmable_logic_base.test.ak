@@ -120,7 +120,7 @@ fn params_ref_input_with_delegates(
 }
 
 /// A params reference input carrying an arbitrary (typically legacy-shaped)
-/// datum in place of the current four-field one.
+/// datum in place of the current six-field one.
 fn params_ref_input_with_datum(datum: Data) -> Input {
   let modern = params_ref_input()
   Input {

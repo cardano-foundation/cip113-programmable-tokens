@@ -48,10 +48,15 @@ validator issuance_logic(
   // Inline-datum size bound for PLB outputs that carry the minted policy
   // (issue #106, vector 3). The same parameter `transfer`, `third_party` and
   // `unfracking` take, and it MUST be deployed with the same value: each
-  // script bounds only the outputs it creates, and a datum born under a laxer
-  // bound than the one `transfer` or `third_party` must later carry it under
-  // is a frozen, unseizable UTxO. Nothing on-chain can compare the four
-  // values — correctness here is by composition, at deployment.
+  // script bounds only the outputs it creates, so a datum born under a laxer
+  // bound cannot be carried forward: `transfer` bounds every PLB output it
+  // creates. No validator refuses to spend such a UTxO — `third_party` does
+  // not re-apply the bound to a paired continuing output, so a seizure
+  // passes every on-chain check. The limit is feasibility: the seizure must
+  // reproduce that datum byte for byte, which collapses seizure batch size
+  // and, past `maxTxSize`, leaves no constructible seizure at all. Nothing
+  // on-chain can compare the four values — correctness here is by
+  // composition, at deployment.
   max_inline_datum_bytes: Int,
 ) {
   withdraw(
@@ -248,9 +253,12 @@ fn verify_registry_node(
 /// invoked, or a delegate's redeemer naming a different registry node — each
 /// of these three cases returns False, falling back to local custody. The
 /// protocol-params locate is deliberately non-failing (`list.find` +
-/// `has_nft_strict`) so non-delegating RefInput mints need no protocol-params
-/// ref input. A located params UTxO whose datum does not decode aborts the
-/// script; it does not fall back.
+/// `has_nft_strict`): a missing params UTxO falls back to local custody
+/// instead of aborting here. It saves no reference input — `issuance_mint`
+/// reads the params UTxO by index on every mint AND burn
+/// (`validators/issuance_mint.ak:53`), so any transaction that actually
+/// issues carries it regardless. A located params UTxO whose datum does not
+/// decode aborts the script; it does not fall back.
 fn delegate_covers_own_registry_node(
   redeemers: Pairs<ScriptPurpose, Data>,
   reference_inputs: List<Input>,
@@ -372,7 +380,7 @@ fn find_transfer_redeemer(
 ///
 /// The `unfracking` validator is deliberately NOT a delegate: unfracking is
 /// value-preserving, same-owner PLB restructuring with NO mint (enforced at
-/// `programmable_logic/unfracking.ak:105`), so it never validates an
+/// `programmable_logic/unfracking.ak:104`), so it never validates an
 /// issuance's custody and cannot cover one (Finding 04 precise delegation).
 fn transfer_scope_covers(
   transfer_redeemer: TransferRedeemer,

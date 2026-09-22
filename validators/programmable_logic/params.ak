@@ -61,9 +61,11 @@ pub type ProtocolParams {
   /// learn which script currently carries the protocol's issuance rules and
   /// to require its withdraw-0. Rewriting this field is how those rules are
   /// upgraded for EVERY token, including ones already minted — the permanent
-  /// policy's bytes never move, so neither does any policy id. Sits at 1 because
-  /// it is read once per ISSUANCE transaction — every mint and burn — which is
-  /// the second-hottest read after PLB's.
+  /// policy's bytes never move, so neither does any policy id. Sits at 1
+  /// because it is read once per `issuance_mint` EXECUTION — the ledger runs
+  /// that policy once per programmable policy minted or burned, so a
+  /// multi-policy transaction repeats the read — which is the second-hottest
+  /// read after PLB's.
   issuance_logic_cred: Credential,
   /// Field 2 — credential of the `transfer` withdraw-0 validator. Read ONLY by
   /// `issuance_logic`, to locate that validator's redeemer and check it names
@@ -136,7 +138,9 @@ pub fn with_protocol_params_fields(
   // UTxO bearing it is the genuine params UTxO. A wrong index fails here
   // rather than silently reading some other UTxO's datum. Kept as a bare
   // policy-presence test (not the stricter name+quantity check) because this
-  // runs on the hot path — per delegate withdrawal and per PLB input.
+  // runs on the hot path — per PLB input and per `issuance_mint` execution.
+  // The action delegates never reach here: they take `registry_node_cs` and
+  // `programmable_logic_base_cred` as compile-time parameters instead.
   expect
     has_currency_symbol(protocol_params_ref.output.value, protocol_params_cs)
 
@@ -153,7 +157,8 @@ pub fn programmable_logic_global_cred_field(fields: List<Data>) -> Credential {
 }
 
 /// Field 1: the `issuance_logic` withdraw-0 credential. Read by
-/// `issuance_mint` once per issuance transaction: one `tail_list`.
+/// `issuance_mint` once per execution — that is, once per policy minted or
+/// burned, not once per transaction: one `tail_list`.
 pub fn issuance_logic_cred_field(fields: List<Data>) -> Credential {
   expect issuance_logic_cred: Credential = head_list(tail_list(fields))
   issuance_logic_cred

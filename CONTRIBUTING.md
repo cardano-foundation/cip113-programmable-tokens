@@ -2,7 +2,7 @@
 
 Thanks for considering contributing and helping us build this project!
 
-This repository contains the **on-chain** Aiken implementation of CIP-113 programmable tokens. For off-chain work (reference frontend, Java backend, substandard implementations), see the [platform repository](https://github.com/cardano-foundation/cip113-programmable-tokens-platform).
+This repository contains the **on-chain** Aiken implementation of CIP-113 programmable tokens. For off-chain work (reference frontend, Java backend, module implementations), see the [platform repository](https://github.com/cardano-foundation/cip113-programmable-tokens-platform).
 
 The best way to contribute right now is to try things out and provide feedback, but we also accept contributions to the documentation and obviously to the code itself.
 
@@ -28,9 +28,9 @@ Also, take a look at the tests. Making sure we have the best high-quality test s
 Documentation is available in:
 
 - This [README](./README.md) — Overview, quick start, and component reference
-- The [`documentation/`](./documentation/) directory — Architecture, integration guides, and substandard development
+- The [`documentation/`](./documentation/) directory — Architecture, integration guides, and module development
 
-For off-chain documentation (frontend, backend, substandards), see the [platform repository](https://github.com/cardano-foundation/cip113-programmable-tokens-platform).
+For off-chain documentation (frontend, backend, modules), see the [platform repository](https://github.com/cardano-foundation/cip113-programmable-tokens-platform).
 
 ### Bug reports
 
@@ -109,10 +109,10 @@ In general regarding code style, take a look at the existing sources and make yo
 
 ### Cross-repository changes
 
-Changes that span on-chain and off-chain (e.g. a new substandard or a protocol change affecting transaction building) may require coordinated pull requests in both:
+Changes that span on-chain and off-chain (e.g. a new module or a protocol change affecting transaction building) may require coordinated pull requests in both:
 
 - This repository — on-chain validators and core framework
-- The [platform repository](https://github.com/cardano-foundation/cip113-programmable-tokens-platform) — off-chain code and substandard implementations
+- The [platform repository](https://github.com/cardano-foundation/cip113-programmable-tokens-platform) — off-chain code and module implementations
 
 Please reference related pull requests in both descriptions so reviewers have the full picture.
 

@@ -30,8 +30,8 @@ use types.{IssuanceMintRedeemer}
 use unsafe_pairs
 
 validator issuance_mint(
-  // The substandard's minting-logic credential. Its withdraw-0 is the proof
-  // of instance (`issuance_mint.ak:46`), and it is the per-token entropy in
+  // The token module's minting-logic credential. Its withdraw-0 is the proof
+  // of instance (`issuance_mint.ak:47`), and it is the per-token entropy in
   // this policy id.
   minting_logic_cred: Credential,
   // One-shot protocol-params NFT policy — the protocol's permanent anchor,
@@ -43,7 +43,7 @@ validator issuance_mint(
   mint(redeemer: IssuanceMintRedeemer, own_policy: PolicyId, self: Transaction) {
     trace @"Starting issuance_mint validation"
 
-    // 1. The substandard's minting logic must be invoked (proof of instance).
+    // 1. The token module's minting logic must be invoked (proof of instance).
     expect unsafe_pairs.has_key_or_fail(self.withdrawals, minting_logic_cred)
 
     // 2. The protocol's issuance logic must be invoked AND must have covered

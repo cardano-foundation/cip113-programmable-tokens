@@ -12,49 +12,74 @@
 ////   (c) split (current production) — extract only the fields the
 ////       redeemer branch needs via the `*_field` accessors.
 ////
-//// Datum generations: 2-field (pre-Finding-17), 3-field (Finding 17
-//// added `unfracking_cred`), a 6-field generation from the upgradability +
-//// validator-split work, and now the 4-field PRODUCTION datum, ordered by
-//// read-frequency: `programmable_logic_global_cred` (0, read by programmable_logic_base once per
-//// programmable INPUT), `transfer_cred` (1) and `third_party_cred` (2) (read
-//// by `issuance_mint` on a delegating mint), `upgrade_cred` (3, read only by
-//// the `protocol_params` spend handler on an upgrade). The 6-field generation carried
-//// `registry_node_cs` (0) and `programmable_logic_base_cred` (1) ahead of all of those;
-//// both lost their last on-chain reader and became compile-time parameters of
-//// the delegates, which is what let `programmable_logic_global_cred` move to depth ZERO. The 2- and
-//// 3-field shapes are kept as local types so their measurements stay
-//// reproducible after the production type moved on.
+//// Datum generations are named here by their FIELD SET, never by arity: two
+//// of them hold six fields, so "six-field" on its own does not identify a
+//// layout.
 ////
-//// Representative run (aiken v1.1.23+8949565, 2026-09-02; ABSOLUTE mem/cpu per
-//// test — compare rows, they share one reference-input layout. Since the #103
-//// index change the split path locates the params UTxO by index while the
-//// baseline scans, so subtracting the baseline no longer isolates pure
-//// extraction cost; read the rows against each other instead):
+////   * registry set (2 fields) — `registry_node_cs` (0),
+////     `programmable_logic_base_cred` (1).
+////   * registry + unfracking set (3 fields) — the same pair, then
+////     `unfracking_cred` (2).
+////   * registry-first delegate set (6 fields) — `registry_node_cs` (0),
+////     `programmable_logic_base_cred` (1),
+////     `programmable_logic_global_cred` (2), `transfer_cred` (3),
+////     `third_party_cred` (4), `upgrade_cred` (5).
+////   * four-credential set (4 fields) — `programmable_logic_global_cred` (0),
+////     `transfer_cred` (1), `third_party_cred` (2), `upgrade_cred` (3). The
+////     representative run recorded below was measured on THIS set.
+////   * PRODUCTION set (6 fields), ordered by read frequency —
+////     `programmable_logic_global_cred` (0, read by `programmable_logic_base`
+////     once per programmable INPUT), `issuance_logic_cred` (1, read by
+////     `issuance_mint` once per EXECUTION, i.e. once per programmable policy
+////     minted or burned), `transfer_cred` (2) and `third_party_cred` (3)
+////     (read by `issuance_logic`, which locates a delegate's redeemer on a
+////     delegating mint), `upgrade_cred` (4) and `pending_upgrade_cred` (5)
+////     (read only by `protocol_params`, which deserialises the whole record).
 ////
-////   locate + unwrap baseline (4-field) ......... 459.8k mem / 146.7M cpu
-////   (b) 4-field full expect .................... 515.7k mem / 166.3M cpu
-////   (c) split, fields 0-1 ...................... 494.8k mem / 156.7M cpu
-////   (c) split, transfer_cred field 1 ........... 482.9k mem / 152.3M cpu
-////   (c) split, plg_cred field 0 (PLB HOT PATH) . 482.7k mem / 152.2M cpu
-////   (c) split, every accessor (3 of them) ...... 506.1k mem / 161.2M cpu
+//// `registry_node_cs` and `programmable_logic_base_cred` have no on-chain
+//// reader in the production set — both are compile-time parameters of the
+//// delegates — which is what puts `programmable_logic_global_cred` at depth
+//// ZERO. The 2- and 3-field shapes live on as local types in this module so
+//// their measurements stay reproducible against the production type.
 ////
-//// (Legacy 2-/3-field full-expect rows, kept for reproducibility: 488.5k/
-//// 154.9M and 503.0k/160.4M — validating more fields costs strictly more.)
+//// Representative run (aiken v1.1.23+8949565, 2026-09-02) on the
+//// FOUR-CREDENTIAL set; ABSOLUTE mem/cpu per test — compare rows, they share
+//// one reference-input layout. The split path locates the params UTxO by
+//// index while the baseline scans, so subtracting the baseline does not
+//// isolate pure extraction cost; read the rows against each other instead.
+//// Rows name accessors rather than depths, because the depths below are the
+//// ones that set gave each field — plg_cred 0, transfer_cred 1,
+//// third_party_cred 2:
 ////
-//// **What the four-field datum bought PLB.** `programmable_logic_global_cred` moved from two
-//// `tail_list` steps to zero. `cost_six_field_params_split_programmable_logic_global_only` — the entire datum-read
-//// cost PLB pays, once per programmable input — went
+////   locate + unwrap baseline ................... 459.8k mem / 146.7M cpu
+////   (b) full expect ............................ 515.7k mem / 166.3M cpu
+////   (c) split, plg_cred + transfer_cred ........ 494.8k mem / 156.7M cpu
+////   (c) split, transfer_cred only .............. 482.9k mem / 152.3M cpu
+////   (c) split, plg_cred only (PLB HOT PATH) .... 482.7k mem / 152.2M cpu
+////   (c) split, three accessors ................. 506.1k mem / 161.2M cpu
+////
+//// (Full-expect rows for the 2- and 3-field sets, kept for reproducibility:
+//// 488.5k/154.9M and 503.0k/160.4M — validating more fields costs strictly
+//// more.)
+////
+//// **What the four-credential set bought PLB, against the registry-first
+//// set.** `programmable_logic_global_cred` sits at depth 0 in the
+//// four-credential set and in the production set alike — two `tail_list`
+//// steps shallower than the registry-first set placed it.
+//// `cost_six_field_params_split_programmable_logic_global_only` — the entire
+//// datum-read cost PLB pays, once per programmable input — measured
 //// **483,167 -> 482,703 mem (-464) and 152,393,931 -> 152,166,605 cpu
-//// (-227,326, -0.149%)**.
+//// (-227,326, -0.149%)** across that pair.
 ////
 //// That delta is depth ALONE, not the smaller fixture. Control: a throwaway
 //// probe reading ONE credential at depth 2 (`third_party_cred_field`) off the
-//// NEW 4-field fixture measured 483,167 / 152,393,931 — reproducing the
-//// pre-slice depth-2 figure bit for bit. A read that never walks past its own
-//// field is indifferent to how many fields follow it, so the fixture shrink
-//// contributes nothing here and the whole delta is the two `tail_list` steps.
-//// Cross-check: `cost_six_field_params_split_transfer_only` also moved two steps shallower
-//// (field 3 -> field 1) and fell by exactly the same -464 / -227,326. One
+//// four-credential fixture measured 483,167 / 152,393,931 — reproducing the
+//// registry-first depth-2 figure bit for bit. A read that never walks past its
+//// own field is indifferent to how many fields follow it, so the fixture
+//// shrink contributes nothing here and the whole delta is the two `tail_list`
+//// steps. Cross-check: `cost_six_field_params_split_transfer_only` sat two
+//// steps shallower too (depth 3 -> depth 1) and fell by exactly the same
+//// -464 / -227,326. One
 //// `tail_list` step over this datum therefore costs ~232 mem / ~113,663 cpu.
 ////
 //// **The confound, stated rather than left implicit.** The fixture DID get
@@ -68,25 +93,27 @@
 //// re-auditing this record should reproduce the control, not the difference.
 //// Likewise `cost_six_field_params_split_all_four` fell 509,873 -> 506,079 mem (-3,794) and
 //// 162,363,784 -> 161,240,024 cpu (-1,123,760). That one is PARTLY depth: its
-//// three surviving accessors each moved two slots shallower (depths {2,3,4} ->
-//// {0,1,2}), and six steps at the rate above is ~681,978 cpu / ~1,392 mem, so
+//// three accessors each sat two slots shallower (depths {2,3,4} in the
+//// registry-first set -> {0,1,2} in the four-credential set), and six steps at
+//// the rate above is ~681,978 cpu / ~1,392 mem, so
 //// at least 60% of the cpu movement is depth before the dropped fourth
 //// accessor call contributes anything. Both movements are
 //// innocent; both are disclosed here so the argument can be checked rather
 //// than trusted.
 ////
 //// The rows that ROSE did so for an honest reason, not a regression:
-//// `cost_six_field_params_split_first_two` (+8.5k mem / +3.6M cpu vs the 6-field run) now
-//// reads two `Credential`s where it used to read a `ByteArray` and a
-//// `Credential` — decoding a constr costs more than decoding bytes. It is a
+//// `cost_six_field_params_split_first_two` (+8.5k mem / +3.6M cpu against the
+//// registry-first run) reads two `Credential`s where the registry-first set
+//// put a `ByteArray` and a `Credential` — decoding a constr costs more than
+//// decoding bytes. It is a
 //// bookkeeping row, not a production path: no caller reads exactly that pair.
-//// `cost_six_field_params_full_expect` FELL (530.0k/169.3M -> 515.7k/166.3M) because there
-//// are two fewer fields to validate.
+//// `cost_six_field_params_full_expect` FELL (530.0k/169.3M -> 515.7k/166.3M)
+//// because the four-credential set gives it two fewer fields to validate.
 ////
 //// i.e. the hot path pays ~+5.5M cpu / ~+22.9k mem over the bare
 //// locate+unwrap to extract its one credential, versus ~+19.6M cpu / ~+55.9k
 //// mem to `expect` the whole record — the split saves the hot path from
-//// validating three fields it never reads. Skipping whole-record validation is
+//// validating every field it never reads. Skipping whole-record validation is
 //// safe because the protocol_params mint handler fully deserialises the datum at mint time
 //// (see `with_protocol_params_fields` docs).
 ////
@@ -141,7 +168,7 @@ const three_field_params: ThreeFieldParams =
   }
 
 /// Reference inputs as they appear in the tx fixtures, with an
-/// arbitrary datum in place of the current 4-field one.
+/// arbitrary datum in place of the production one.
 fn ref_inputs_with_datum(datum: Data) -> List<Input> {
   let modern = fixture.some_reference_input_protocol_params(
     fixture.protocol_params,
@@ -170,7 +197,7 @@ fn three_field_params_ref_inputs() -> List<Input> {
   ref_inputs_with_datum(as_data(three_field_params))
 }
 
-/// Same layout with the current (4-field) params datum.
+/// Same layout with the production params datum.
 fn six_field_params_ref_inputs() -> List<Input> {
   [
     fixture.some_reference_input_protocol_params(
@@ -240,7 +267,7 @@ test cost_baseline_locate_and_unwrap_three_field_params() {
   datum == as_data(three_field_params)
 }
 
-/// Same cost floor over the current 4-field inputs (their construction
+/// Same cost floor over the production inputs (their construction
 /// cost differs slightly, so each family gets its own baseline).
 test cost_baseline_locate_and_unwrap_six_field_params() {
   let input = locate_params_ref(
@@ -296,7 +323,7 @@ test cost_three_field_params_full_expect() {
   }
 }
 
-// ----------------------------------------- v6 datum (current, 4 fields)
+// -------------------------------------- production datum (6 fields)
 
 /// (b) Full `expect` deserialisation of the current datum — what the
 /// simplest implementation would pay on EVERY redeemer branch.
@@ -315,9 +342,9 @@ test cost_six_field_params_full_expect() {
   }
 }
 
-/// (c) The two shallowest fields, 0-1 — `programmable_logic_global_cred` and `transfer_cred`. No
-/// production caller reads exactly this pair; the row exists to keep the
-/// "shallow split" measurement comparable across datum generations.
+/// (c) `programmable_logic_global_cred` (field 0) and `transfer_cred` (field
+/// 2). No production caller reads exactly this pair; the row exists to keep
+/// the "shallow split" measurement comparable across datum generations.
 test cost_six_field_params_split_first_two() {
   let fields <- with_protocol_params_fields(
     six_field_params_ref_inputs(),
@@ -330,8 +357,8 @@ test cost_six_field_params_split_first_two() {
   }
 }
 
-/// (c) `transfer_cred` (field 1) only — one of the two credentials
-/// `issuance_mint` pays for on a delegating mint. NOT on the spend path.
+/// (c) `transfer_cred` (field 2) only — one of the two delegate credentials
+/// `issuance_logic` pays for on a delegating mint. NOT on the spend path.
 test cost_six_field_params_split_transfer_only() {
   let fields <- with_protocol_params_fields(
     six_field_params_ref_inputs(),
@@ -354,11 +381,14 @@ test cost_six_field_params_split_programmable_logic_global_only() {
   programmable_logic_global_cred_field(fields) == fixture.credential_validator_programmable_logic_global
 }
 
-/// (c) Split upper bound: every accessor the module has. The name is
-/// historical — it was four fields when the datum had six; the four-field
-/// datum has three accessors, `upgrade_cred` having none (its only reader
-/// deserialises the whole record on a cold path). Kept under the old name so
-/// the row stays comparable against earlier cost records.
+/// (c) Split upper bound for the dispatch + delegation path: the three
+/// accessors it touches — `programmable_logic_global_cred` (0),
+/// `transfer_cred` (2) and `third_party_cred` (3). The module also exposes
+/// `issuance_logic_cred_field` (1), which this row does not call;
+/// `upgrade_cred` (4) and `pending_upgrade_cred` (5) have no accessor at all,
+/// their only reader deserialising the whole record on a cold path. The name
+/// is historical, kept so the row stays comparable against earlier cost
+/// records.
 test cost_six_field_params_split_all_four() {
   let fields <- with_protocol_params_fields(
     six_field_params_ref_inputs(),

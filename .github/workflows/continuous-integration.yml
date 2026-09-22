@@ -20,3 +20,7 @@ jobs:
       # pre-condition. Without this step that assertion never executes.
       - run: aiken check -D --env with_assertions
       - run: aiken build
+      # Prose cites the validators by line. Nothing else in CI reads prose, so
+      # those anchors rot silently -- a comment-only edit moves every line
+      # below it and no test notices. This fails the build instead.
+      - run: python3 .github/scripts/check-doc-line-citations.py

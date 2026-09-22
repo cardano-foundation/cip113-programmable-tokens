@@ -17,7 +17,7 @@ source = "github"
 
 [[dependencies]]
 name = "aiken-lang/fuzz"
-version = "main"
+version = "v2.2.0"
 source = "github"
 
 [config]

@@ -182,7 +182,7 @@ const test_postfix = #"0304"
 const test_hashed_param =
   #"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
 
-/// Substandard minting-logic credential placed in the new RegistryNode's
+/// Token module minting-logic credential placed in the new RegistryNode's
 /// `minting_logic_script` field AND in the matching `RegistryInsert`
 /// redeemer. Its inner 28-byte hash equals `test_hashed_param`, so the
 /// `expect_programmable_token_id_valid` check passes.
@@ -660,7 +660,7 @@ fn valid_insert_tx() -> Transaction {
     // Must mint both the registry node token AND a programmable token under `key` as policy
     mint: from_asset(registry_script_hash, key, 1)
       |> assets.add(key, #"746f6b656e", 100),
-    // The substandard's withdraw-0 logic MUST be invoked at registration
+    // The token module's withdraw-0 logic MUST be invoked at registration
     // (always required by the mint handler).
     withdrawals: [Pair(test_inserted_minting_logic_cred, 0)],
   }
@@ -789,7 +789,7 @@ test registry_insert_fails_wrong_output_address() fail {
 // Register-only registration (no first mint)
 //
 // A registration need not mint any programmable tokens of `key` in the
-// same tx — useful for RWA issuance, supply-aware substandards that need
+// same tx — useful for RWA issuance, supply-aware token modules that need
 // to initialise global state before any token exists, etc. The mint
 // handler does not constrain the first-mint shape under `key` at all; a
 // first mint, when present, is validated by `issuance_mint` as usual. Both
@@ -797,13 +797,13 @@ test registry_insert_fails_wrong_output_address() fail {
 // with a first mint (`registry_insert_valid` above) and without
 // (`registry_insert_register_only_valid` below).
 //
-// In BOTH shapes the substandard's `minting_logic_script` MUST appear in
+// In BOTH shapes the token module's `minting_logic_script` MUST appear in
 // `tx.withdrawals` (proof of instance, always required).
 //
 // Coverage in this block:
 //   1. Register-only happy path (mirror of the register-and-mint happy
 //      path above).
-//   2. Substandard-not-invoked failures (per mint shape).
+//   2. Token module-not-invoked failures (per mint shape).
 //   3. Datum-vs-redeemer mismatch on the `minting_logic_script` field
 //      (defense-in-depth #2).
 //   4. Cryptographic binding failure (correct field shape, wrong content).
@@ -821,31 +821,31 @@ fn valid_register_only_tx() -> Transaction {
   }
 }
 
-// Register-only happy path: substandard invoked via withdraw-0, no
+// Register-only happy path: token module invoked via withdraw-0, no
 // programmable tokens of `key` in mint. Locks in that the RegistryInsert
 // redeemer covers the no-first-mint shape.
 test registry_insert_register_only_valid() {
   call_insert_validator(valid_insert_redeemer(), valid_register_only_tx())
 }
 
-// Substandard withdraw-0 not invoked (register-only): the mint handler MUST
+// Token module withdraw-0 not invoked (register-only): the mint handler MUST
 // reject even though all other invariants hold. Without this check the
-// registrar could pin any substandard credential into a registry node the
-// substandard itself never authorised. Critical in this shape: no tokens
+// registrar could pin any token module credential into a registry node the
+// token module itself never authorised. Critical in this shape: no tokens
 // are minted, so `issuance_mint` never runs and cannot enforce it
 // transitively.
-test registry_insert_register_only_fails_substandard_not_invoked() fail {
+test registry_insert_register_only_fails_token_module_not_invoked() fail {
   let tx = Transaction { ..valid_register_only_tx(), withdrawals: [] }
   call_insert_validator(valid_insert_redeemer(), tx)
 }
 
-// Substandard withdraw-0 not invoked (register-and-mint): same protection
+// Token module withdraw-0 not invoked (register-and-mint): same protection
 // when a first mint is present. In a real first-mint tx `issuance_mint`
-// would also require the substandard withdrawal (transitively, because
+// would also require the token module withdrawal (transitively, because
 // tokens are minted), but the mint handler MUST enforce it directly so the
 // protection doesn't depend on `issuance_mint` behaviour or on tokens
 // actually being minted.
-test registry_insert_fails_substandard_not_invoked() fail {
+test registry_insert_fails_token_module_not_invoked() fail {
   let tx = Transaction { ..valid_insert_tx(), withdrawals: [] }
   call_insert_validator(valid_insert_redeemer(), tx)
 }
@@ -926,20 +926,20 @@ test registry_insert_fails_wrong_minting_logic_for_key() fail {
     ..valid_insert_tx(),
     outputs: [updated_covering_node_output(), inserted_with_wrong_cred],
     // wrong_cred must be invoked too, otherwise the test would fail
-    // at the substandard-invocation check instead of the binding check.
+    // at the token module-invocation check instead of the binding check.
     withdrawals: [Pair(wrong_cred, 0)],
   }
   call_insert_validator(rdmr, tx)
 }
 
-// Finding 07: the substandard-invocation check matches BY credential —
-// having *some* other substandard withdraw in the same tx does not
+// Finding 07: the token module-invocation check matches BY credential —
+// having *some* other token module withdraw in the same tx does not
 // authorise this registration. Companion to
-// `registry_insert_fails_substandard_not_invoked` (which uses
+// `registry_insert_fails_token_module_not_invoked` (which uses
 // `withdrawals: []`) — this test uses a non-empty withdrawals list
 // containing the WRONG credential, isolating the "must match
 // minting_logic_script" property.
-test registry_insert_fails_wrong_substandard_in_withdrawals() fail {
+test registry_insert_fails_wrong_token_module_in_withdrawals() fail {
   let other_cred = Script(
     #"abababababababababababababababababababababababababababab",
   )
@@ -950,13 +950,13 @@ test registry_insert_fails_wrong_substandard_in_withdrawals() fail {
   call_insert_validator(valid_insert_redeemer(), tx)
 }
 
-// Finding 07: the substandard-invocation check uses `list.any`
-// semantics — the substandard's withdrawal must be PRESENT, not SOLE.
+// Finding 07: the token module-invocation check uses `list.any`
+// semantics — the token module's withdrawal must be PRESENT, not SOLE.
 // Multiple reward addresses withdrawing in the same tx are fine;
 // registration succeeds as long as `minting_logic_script` appears
 // somewhere in `tx.withdrawals`. Locks in that the new check composes
 // with unrelated stake activity in the same block.
-test registry_insert_succeeds_substandard_among_other_withdrawals() {
+test registry_insert_succeeds_token_module_among_other_withdrawals() {
   let other_cred = Script(
     #"abababababababababababababababababababababababababababab",
   )
@@ -973,7 +973,7 @@ test registry_insert_succeeds_substandard_among_other_withdrawals() {
   call_insert_validator(valid_insert_redeemer(), tx)
 }
 
-// Finding 07 + post-fix tightening: substandards MUST be `Script`
+// Finding 07 + post-fix tightening: token modules MUST be `Script`
 // credentials. A `VerificationKey`-credentialed redeemer is rejected
 // by `expect_programmable_token_id_valid` (lib/utils.ak) even when all
 // structural invariants are otherwise satisfied — datum/redeemer
@@ -982,7 +982,7 @@ test registry_insert_succeeds_substandard_among_other_withdrawals() {
 // hash-derivation would compute the correct policy id. The only
 // failure point is the `expect Script(_)` in
 // `expect_programmable_token_id_valid`.
-test registry_insert_fails_verification_key_substandard() fail {
+test registry_insert_fails_verification_key_token_module() fail {
   let vk_cred: Credential = VerificationKey(test_hashed_param)
   let inserted_with_vk = Output {
     ..inserted_node_output(),

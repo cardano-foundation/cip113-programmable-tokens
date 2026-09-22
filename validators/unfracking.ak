@@ -12,7 +12,8 @@
 //// every transfer, forever. Hosting the unfracking logic here moves its
 //// cost onto the only transactions that use it — unfracking ones, which
 //// reference this script INSTEAD of `transfer`, so an unfracking transaction
-//// never loads the transfer reference script at all.
+//// need not load the transfer reference script at all. Nothing enforces
+//// that: it is the shape a builder has no reason to depart from.
 ////
 //// Composition of an unfracking transaction (four withdraw-0s at most):
 ////
@@ -30,8 +31,10 @@
 ////   * the owner's stake-script withdraw-0 (or a vkey signature) —
 ////     holder authorisation, same pattern as a transfer.
 ////
-//// Security shape: this delegation is purely RESTRICTIVE. This script is
-//// reached only through an `UnfrackingAct` dispatch; bolting its withdrawal
+//// Security shape: this delegation is purely RESTRICTIVE. This script is the
+//// delegate an `UnfrackingAct` dispatch REQUIRES; its own withdraw handler
+//// runs whenever its withdrawal is present, and checks neither the
+//// dispatcher nor its redeemer. Bolting its withdrawal
 //// onto some other transaction (e.g. a transfer) only ADDS constraints —
 //// every script present must still pass — so no new authority is created
 //// in either direction.

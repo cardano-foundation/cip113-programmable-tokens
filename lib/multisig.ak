@@ -121,9 +121,13 @@ pub const max_size: Int = 20
 ///
 /// Time leaves carry no constraint: any `Int` is a valid POSIX time bound —
 /// nothing here requires a tree to contain an evidence leaf at all, so a
-/// tree of `Before`/`After` leaves alone is well-formed and permissionless
-/// once its time bound has passed; that configuration is the authority's own
-/// responsibility, not a shape this rail refuses.
+/// tree of `Before`/`After` leaves alone is well-formed and is permissionless
+/// for as long as the validity range satisfies it. Note the two are mirror
+/// images: `After` is unsatisfiable UNTIL its bound and permissionless
+/// after, while `Before` is permissionless UNTIL its bound and unsatisfiable
+/// after — so a `Before`-only tree is open now and bricks itself later. That
+/// configuration is the authority's own responsibility, not a shape this
+/// rail refuses.
 pub fn well_formed(script: MultisigScript) -> Bool {
   and {
     size(script) <= max_size,
