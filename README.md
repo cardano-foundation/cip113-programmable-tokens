@@ -32,7 +32,11 @@ This codebase has been adapted to align with the requirements of **CIP-113**, wh
 
 ### Audit and Production Readiness
 
-This codebase has been through a professional security audit, and the findings from that review are resolved. CIP-113 has been accepted by the CIP editors and is awaiting merge — see the [CIP-113 pull request](https://github.com/cardano-foundation/CIPs/pull/444).
+This codebase has undergone professional security audits. The findings have
+been resolved or explicitly acknowledged as residual design limitations, as
+described in the applicable audit reports. An audit does not by itself
+guarantee production safety. CIP-113 has been accepted by the CIP editors and
+is awaiting merge — see the [CIP-113 pull request](https://github.com/cardano-foundation/CIPs/pull/444).
 
 ---
 

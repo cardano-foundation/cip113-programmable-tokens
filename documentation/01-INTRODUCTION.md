@@ -293,7 +293,11 @@ Let's walk through a simple transfer:
 
 This implementation targets **[CIP-113 (Programmable token-like assets)](https://github.com/cardano-foundation/CIPs/pull/444)**, which defines the framework for programmable tokens on Cardano. The proposal has been **accepted** by the CIP editors and is awaiting merge.
 
-This codebase has been through a professional security audit, and the findings from that review are resolved. CIP-113 has been accepted by the CIP editors and is awaiting merge — track it at the link above.
+This codebase has undergone professional security audits. The findings have
+been resolved or explicitly acknowledged as residual design limitations, as
+described in the applicable audit reports. An audit does not by itself
+guarantee production safety. CIP-113 has been accepted by the CIP editors and
+is awaiting merge — track it at the link above.
 
 ### Lineage: CIP-143
 
