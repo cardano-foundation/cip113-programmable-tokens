@@ -207,10 +207,8 @@ test genesis_fails_when_utxo_not_consumed() fail {
 
 test genesis_fails_with_wrong_token_name() fail {
   let tx = Transaction {
-    ..transaction.placeholder,
-    inputs: [valid_input()],
+    ..valid_transaction(),
     mint: from_asset(own_policy_id, "WrongName", 1),
-    outputs: [valid_nft_output()],
   }
   call_validator(genesis_utxo_ref, tx)
 }
@@ -224,10 +222,8 @@ test genesis_fails_with_wrong_token_name() fail {
 
 test genesis_fails_when_quantity_is_not_one() fail {
   let tx = Transaction {
-    ..transaction.placeholder,
-    inputs: [valid_input()],
+    ..valid_transaction(),
     mint: from_asset(own_policy_id, protocol_params_token, 2),
-    outputs: [valid_nft_output()],
   }
   call_validator(genesis_utxo_ref, tx)
 }
@@ -241,11 +237,9 @@ test genesis_fails_when_quantity_is_not_one() fail {
 
 test genesis_fails_with_multiple_token_names_minted() fail {
   let tx = Transaction {
-    ..transaction.placeholder,
-    inputs: [valid_input()],
+    ..valid_transaction(),
     mint: from_asset(own_policy_id, protocol_params_token, 1)
       |> assets.add(own_policy_id, "ExtraToken", 1),
-    outputs: [valid_nft_output()],
   }
   call_validator(genesis_utxo_ref, tx)
 }
@@ -260,10 +254,8 @@ test genesis_fails_with_multiple_token_names_minted() fail {
 test genesis_fails_when_no_tokens_minted_from_own_policy() fail {
   let other_policy: PolicyId = #"1111111111111111111111111111111111111111111111111111111111"
   let tx = Transaction {
-    ..transaction.placeholder,
-    inputs: [valid_input()],
+    ..valid_transaction(),
     mint: from_asset(other_policy, "SomeToken", 1),
-    outputs: [valid_nft_output()],
   }
   call_validator(genesis_utxo_ref, tx)
 }
@@ -271,9 +263,8 @@ test genesis_fails_when_no_tokens_minted_from_own_policy() fail {
 // ========================================================================
 // No output at the protocol-params address
 //
-// The NFT goes to a completely different address.
-// `expect Some(nft_output) = list.find(...)` crashes because no output
-// matches the expected protocol-params address.
+// The NFT goes to a completely different address. The asset finder still
+// identifies that output; the final own-address equality rejects it.
 // ========================================================================
 
 test genesis_fails_when_no_output_at_params_spend_address() fail {
@@ -284,9 +275,7 @@ test genesis_fails_when_no_output_at_params_spend_address() fail {
     stake_credential: None,
   }
   let tx = Transaction {
-    ..transaction.placeholder,
-    inputs: [valid_input()],
-    mint: from_asset(own_policy_id, protocol_params_token, 1),
+    ..valid_transaction(),
     outputs: [
       Output {
         address: wrong_address,
@@ -309,9 +298,7 @@ test genesis_fails_when_no_output_at_params_spend_address() fail {
 
 test genesis_fails_when_nft_missing_from_params_output() fail {
   let tx = Transaction {
-    ..transaction.placeholder,
-    inputs: [valid_input()],
-    mint: from_asset(own_policy_id, protocol_params_token, 1),
+    ..valid_transaction(),
     outputs: [
       // Output at protocol-params address but WITHOUT the NFT
       Output {
@@ -334,9 +321,7 @@ test genesis_fails_when_nft_missing_from_params_output() fail {
 
 test genesis_fails_when_no_inline_datum() fail {
   let tx = Transaction {
-    ..transaction.placeholder,
-    inputs: [valid_input()],
-    mint: from_asset(own_policy_id, protocol_params_token, 1),
+    ..valid_transaction(),
     outputs: [Output { ..valid_nft_output(), datum: NoDatum }],
   }
   call_validator(genesis_utxo_ref, tx)
@@ -351,9 +336,7 @@ test genesis_fails_when_no_inline_datum() fail {
 
 test genesis_fails_with_invalid_datum_type() fail {
   let tx = Transaction {
-    ..transaction.placeholder,
-    inputs: [valid_input()],
-    mint: from_asset(own_policy_id, protocol_params_token, 1),
+    ..valid_transaction(),
     outputs: [Output { ..valid_nft_output(), datum: InlineDatum(as_data(42)) }],
   }
   call_validator(genesis_utxo_ref, tx)
