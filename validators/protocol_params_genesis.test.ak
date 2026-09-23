@@ -6,8 +6,9 @@
 //// - Token name and quantity checks
 //// - Protocol-params address enforcement
 //// - InlineDatum and ProgrammableLogicGlobalParams datum validation
+//// - Initial upgrade-authority activation through its declared withdraw-0
 
-use cardano/address.{Address, Script, VerificationKey}
+use cardano/address.{Address, Credential, Script, VerificationKey}
 use cardano/assets.{PolicyId, ada_asset_name, ada_policy_id, from_asset}
 use cardano/transaction.{
   InlineDatum, Input, NoDatum, Output, OutputReference, Transaction,
@@ -28,6 +29,14 @@ const genesis_utxo_ref =
 const own_policy_id: PolicyId =
   #"cccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
 
+/// The authority written into the genesis datum. Genesis must carry this
+/// exact credential's withdraw-0 before it can become canonical.
+const upgrade_authority_cred: Credential =
+  Script(#"000000000000000000000000000000000000000000000000009c6ade")
+
+const other_authority_cred: Credential =
+  Script(#"dddddddddddddddddddddddddddddddddddddddddddddddddddddddd")
+
 const min_ada =
   assets.zero
     |> assets.add(ada_policy_id, ada_asset_name, 2_000_000)
@@ -42,7 +51,7 @@ fn params_spend_address() -> Address {
   Address { payment_credential: Script(own_policy_id), stake_credential: None }
 }
 
-fn valid_params_datum() -> Data {
+fn params_datum_with_authority(upgrade_cred: Credential) -> Data {
   as_data(
     ProtocolParams {
       programmable_logic_global_cred: Script(
@@ -54,15 +63,17 @@ fn valid_params_datum() -> Data {
       third_party_cred: Script(
         #"00000000000000000000000000000000000000000000000000731d3a",
       ),
-      upgrade_cred: Script(
-        #"000000000000000000000000000000000000000000000000009c6ade",
-      ),
+      upgrade_cred,
       pending_upgrade_cred: None,
       issuance_logic_cred: Script(
         #"000000000000000000000000000000000000000000000000001550ab",
       ),
     },
   )
+}
+
+fn valid_params_datum() -> Data {
+  params_datum_with_authority(upgrade_authority_cred)
 }
 
 fn valid_nft_output() -> Output {
@@ -98,6 +109,7 @@ fn valid_transaction() -> Transaction {
     inputs: [valid_input()],
     mint: from_asset(own_policy_id, protocol_params_token, 1),
     outputs: [valid_nft_output()],
+    withdrawals: [Pair(upgrade_authority_cred, 0)],
   }
 }
 
@@ -116,6 +128,62 @@ fn call_validator(utxo_ref: OutputReference, tx: Transaction) -> Bool {
 
 test genesis_valid() {
   call_validator(genesis_utxo_ref, valid_transaction())
+}
+
+// Genesis refuses to make an authority canonical until its exact withdraw-0
+// is present. On-chain, a script credential's entry exists only when that
+// script is invoked and succeeds.
+test genesis_fails_without_upgrade_authority_withdrawal() fail {
+  call_validator(
+    genesis_utxo_ref,
+    Transaction { ..valid_transaction(), withdrawals: [] },
+  )
+}
+
+// Some other authority running does not activate the credential written into
+// the protocol-params datum.
+test genesis_fails_with_wrong_upgrade_authority_withdrawal() fail {
+  call_validator(
+    genesis_utxo_ref,
+    Transaction {
+      ..valid_transaction(),
+      withdrawals: [Pair(other_authority_cred, 0)],
+    },
+  )
+}
+
+// Unrelated withdrawals may coexist with activation; only presence of the
+// declared credential matters.
+test genesis_allows_additional_withdrawals() {
+  call_validator(
+    genesis_utxo_ref,
+    Transaction {
+      ..valid_transaction(),
+      withdrawals: [
+        Pair(other_authority_cred, 0), Pair(upgrade_authority_cred, 0),
+      ],
+    },
+  )
+}
+
+// The protocol remains authority-implementation agnostic. A verification-key
+// stake credential is activated by the corresponding ledger withdrawal
+// witness, just as a script credential is activated by its validator.
+test genesis_accepts_verification_key_upgrade_authority() {
+  let key_authority = VerificationKey(
+    #"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  )
+  let tx = Transaction {
+    ..valid_transaction(),
+    outputs: [
+      Output {
+        ..valid_nft_output(),
+        datum: InlineDatum(params_datum_with_authority(key_authority)),
+      },
+    ],
+    withdrawals: [Pair(key_authority, 0)],
+  }
+  call_validator(genesis_utxo_ref, tx)
 }
 
 // ========================================================================

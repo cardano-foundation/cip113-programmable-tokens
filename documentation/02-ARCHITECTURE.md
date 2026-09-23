@@ -160,7 +160,7 @@ order. A parameter is applied at deployment and baked into the script hash.
 | `issuance_mint` | mint | `minting_logic_cred: Credential`, `params_policy: PolicyId` (2) | `validators/issuance_mint.ak:34-41` | The permanent per-token minting policy. Its hash IS the token's policy id. Requires the module's minting logic (`:46`) and the protocol's issuance logic covering this policy (`:52-63`). |
 | `programmable_logic_base` | spend | `params_policy: PolicyId` (1) | `validators/programmable_logic_base.ak:42` | Custody of every programmable-token UTxO. Reads one credential from the protocol-params datum and requires its withdraw-zero (`:58-66`). |
 | `programmable_logic_global` | withdraw, publish | `transfer_hash: ScriptHash`, `third_party_hash: ScriptHash`, `unfracking_hash: ScriptHash` (3) | `validators/programmable_logic_global.ak:48-52` | The dispatcher. Turns the redeemer's action into a requirement that the matching delegate ran (`:71-77`). |
-| `protocol_params` | mint, spend | `utxo_ref: OutputReference` (1) | `validators/protocol_params.ak:232` | One-shot mint of the protocol-params NFT (`:229-273`) and the guard on the UTxO that carries it (`:280-345`). |
+| `protocol_params` | mint, spend | `utxo_ref: OutputReference` (1) | `validators/protocol_params.ak:234` | One-shot mint of the protocol-params NFT (`:235-285`) and the guard on the UTxO that carries it (`:288-354`). |
 | `registry` | mint, spend | `utxo_ref: OutputReference`, `issuance_cbor_hex_cs: PolicyId` (2) | `validators/registry.ak:40` | The sorted linked list of registered policies: the mint handler owns list structure and the token-id binding (`:50-172`), the spend handler guards every node (`:174-238`). |
 | `third_party` | withdraw, publish | `programmable_logic_base_cred: Credential`, `registry_node_cs: PolicyId`, `max_inline_datum_bytes: Int` (3) | `validators/third_party.ak:41-45` | Third-party actions — forced transfer, seizure, freeze enforcement, burn — for exactly one policy per transaction. |
 | `transfer` | withdraw, publish | `programmable_logic_base_cred: Credential`, `registry_node_cs: PolicyId`, `max_inline_datum_bytes: Int` (3) | `validators/transfer.ak:32-36` | Ordinary transfers: ownership, registry proofs, containment at PLB. |
@@ -1113,10 +1113,12 @@ rails first (`validators/protocol_params.ak:294-326`):
 - an inline datum that decodes as `ProtocolParams` and whose credentials are all
   28 bytes, with the nomination well formed (`:325-326`, via `:105-113`).
 
-The same rails hold at genesis (`validators/protocol_params.ak:268`), with one
-addition: `is_init: True` forbids a nomination baked into the genesis datum
-(`validators/protocol_params.ak:127-135`), so a protocol cannot be born
-mid-handover.
+The same rails hold at genesis (`validators/protocol_params.ak:263-285`), with
+two additions: `is_init: True` forbids a nomination baked into the genesis
+datum (`validators/protocol_params.ak:135-143`), so a protocol cannot be born
+mid-handover; and the exact `upgrade_cred` written into that datum must present
+its withdraw-zero (`validators/protocol_params.ak:269-274`). The latter proves
+that the initial authority can execute before genesis makes it canonical.
 
 ### Who may initialise
 
@@ -1127,7 +1129,10 @@ Choosing `utxo_ref` is the one irreversible decision genesis makes: a UTxO can
 be spent once, so every distinct choice commits to a distinct policy id, and —
 because `protocol_params` shares one script hash across both handlers — a
 distinct address (`nft_output.address == address.from_script(own_policy)`,
-`:271`).
+`:284`). Genesis is not authorised by possession of that seed alone: the
+initial `upgrade_cred` must also appear in `tx.withdrawals` (`:274`). For a
+script credential, the ledger therefore runs that script; for a verification
+key credential, it verifies the corresponding withdrawal witness.
 
 That policy id, not an address, is what every other validator treats as the
 protocol's identity. `protocol_params` needs no address parameter — the mint
@@ -1246,6 +1251,13 @@ to be satisfied against the transaction's signatories, validity range and
 withdrawals (`validators/upgrade_multisig.ak:154-174`, via
 `lib/multisig.ak:42-84`). Rotating the tree is a spend, authorised by the tree
 being replaced (`validators/upgrade_multisig.ak:146-151`).
+
+When this implementation is selected as the initial `upgrade_cred`, its config
+UTxO must already exist and its stake credential must already be registered.
+Protocol-params genesis references that config UTxO and invokes the multisig's
+withdraw-zero, so the configured threshold is exercised before the authority
+becomes canonical (`validators/protocol_params.ak:269-274`;
+`validators/upgrade_multisig.ak:148-168`).
 
 Both write paths hold the tree to `well_formed` — the mint at
 `validators/upgrade_multisig.ak:92` and the spend at `:143`. That predicate
