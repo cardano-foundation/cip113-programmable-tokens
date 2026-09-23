@@ -351,6 +351,9 @@ test genesis_fails_with_invalid_datum_type() fail {
 /// byte + 28-byte hash, so this credential can never appear in `tx.withdrawals`
 /// — the protocol would be born with an authority that can never authorise
 /// anything, and no repair path exists.
+const short_upgrade_authority_cred: Credential =
+  Script(#"0000000000000000000000000000000000000000000000000000009c6a")
+
 fn short_upgrade_cred_datum() -> Data {
   as_data(
     ProtocolParams {
@@ -363,9 +366,7 @@ fn short_upgrade_cred_datum() -> Data {
       third_party_cred: Script(
         #"00000000000000000000000000000000000000000000000000731d3a",
       ),
-      upgrade_cred: Script(
-        #"0000000000000000000000000000000000000000000000000000009c6a",
-      ),
+      upgrade_cred: short_upgrade_authority_cred,
       pending_upgrade_cred: None,
       issuance_logic_cred: Script(
         #"000000000000000000000000000000000000000000000000001550ab",
@@ -375,6 +376,9 @@ fn short_upgrade_cred_datum() -> Data {
 }
 
 // M4: genesis may not install an unsatisfiable upgrade authority.
+// The synthetic withdrawal map deliberately carries the malformed credential:
+// the ledger could never construct it, but doing so here isolates the length
+// rail from the later activation check.
 test genesis_fails_wrong_length_upgrade_cred() fail {
   let tx = Transaction {
     ..valid_transaction(),
@@ -384,6 +388,7 @@ test genesis_fails_wrong_length_upgrade_cred() fail {
         datum: InlineDatum(short_upgrade_cred_datum()),
       },
     ],
+    withdrawals: [Pair(short_upgrade_authority_cred, 0)],
   }
   call_validator(genesis_utxo_ref, tx)
 }
