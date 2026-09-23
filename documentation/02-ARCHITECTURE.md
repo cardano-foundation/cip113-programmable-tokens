@@ -160,7 +160,7 @@ order. A parameter is applied at deployment and baked into the script hash.
 | `issuance_mint` | mint | `minting_logic_cred: Credential`, `params_policy: PolicyId` (2) | `validators/issuance_mint.ak:34-41` | The permanent per-token minting policy. Its hash IS the token's policy id. Requires the module's minting logic (`:46`) and the protocol's issuance logic covering this policy (`:52-63`). |
 | `programmable_logic_base` | spend | `params_policy: PolicyId` (1) | `validators/programmable_logic_base.ak:42` | Custody of every programmable-token UTxO. Reads one credential from the protocol-params datum and requires its withdraw-zero (`:58-66`). |
 | `programmable_logic_global` | withdraw, publish | `transfer_hash: ScriptHash`, `third_party_hash: ScriptHash`, `unfracking_hash: ScriptHash` (3) | `validators/programmable_logic_global.ak:48-52` | The dispatcher. Turns the redeemer's action into a requirement that the matching delegate ran (`:71-77`). |
-| `protocol_params` | mint, spend | `utxo_ref: OutputReference` (1) | `validators/protocol_params.ak:232` | One-shot mint of the protocol-params NFT (`:229-273`) and the guard on the UTxO that carries it (`:280-345`). |
+| `protocol_params` | mint, spend | `utxo_ref: OutputReference` (1) | `validators/protocol_params.ak:234` | One-shot mint of the protocol-params NFT (`:235-285`) and the guard on the UTxO that carries it (`:288-354`). |
 | `registry` | mint, spend | `utxo_ref: OutputReference`, `issuance_cbor_hex_cs: PolicyId` (2) | `validators/registry.ak:40` | The sorted linked list of registered policies: the mint handler owns list structure and the token-id binding (`:50-172`), the spend handler guards every node (`:174-238`). |
 | `third_party` | withdraw, publish | `programmable_logic_base_cred: Credential`, `registry_node_cs: PolicyId`, `max_inline_datum_bytes: Int` (3) | `validators/third_party.ak:41-45` | Third-party actions — forced transfer, seizure, freeze enforcement, burn — for exactly one policy per transaction. |
 | `transfer` | withdraw, publish | `programmable_logic_base_cred: Credential`, `registry_node_cs: PolicyId`, `max_inline_datum_bytes: Int` (3) | `validators/transfer.ak:32-36` | Ordinary transfers: ownership, registry proofs, containment at PLB. |
@@ -558,8 +558,9 @@ type BlacklistNode {
 Six fields, `validators/programmable_logic/params.ak:54-103`. The datum lives in
 the UTxO marked by the one-shot protocol-params NFT. Each field below names its
 **sole on-chain reader** besides `protocol_params` itself, which validates the
-whole record on both of its handlers (`validators/protocol_params.ak:105-113`,
-reached from `:262` and `:326`).
+whole record on both of its handlers (`validators/protocol_params.ak:108-117`,
+reached from `validators/protocol_params.ak:269` and
+`validators/protocol_params.ak:335`).
 
 ```aiken
 pub type ProtocolParams {
@@ -578,14 +579,14 @@ pub type ProtocolParams {
 | 1 | `issuance_logic_cred` | `issuance_mint`, once per execution — that is, once per policy minted or burned | `validators/issuance_mint.ak:59` |
 | 2 | `transfer_cred` | `issuance_logic`, to locate the `transfer` withdraw-zero's redeemer | `validators/issuance_logic.ak:295` |
 | 3 | `third_party_cred` | `issuance_logic`, to locate the `third_party` withdraw-zero's redeemer | `validators/issuance_logic.ak:299` |
-| 4 | `upgrade_cred` | `protocol_params`, to decide who may rewrite this datum | `validators/protocol_params.ak:154` |
-| 5 | `pending_upgrade_cred` | `protocol_params`, the standing nomination | `validators/protocol_params.ak:186`, `:221` |
+| 4 | `upgrade_cred` | `protocol_params`, to decide who may rewrite this datum | `validators/protocol_params.ak:153-175` |
+| 5 | `pending_upgrade_cred` | `protocol_params`, the standing nomination | `validators/protocol_params.ak:185-197`, `:218-230` |
 
 Fields 0 to 3 have positional accessors that walk only as far as they must —
 four of them, and no more
 (`validators/programmable_logic/params.ak:153-179`). Fields 4 and 5 are reached
 by deserialising the whole record instead, on `protocol_params`' cold path
-(`validators/protocol_params.ak:142`).
+(`validators/protocol_params.ak:143-146`).
 
 The three delegates read this datum **zero** times: the values they need are
 compile-time parameters (`validators/transfer.ak:32-36`,
@@ -1101,33 +1102,43 @@ The protocol's mutable wiring lives in the protocol-params datum, not in script
 parameters, so the dispatch layer and the issuance rules can be replaced without
 moving `programmable_logic_base`'s hash — and therefore without moving a single
 token address. The UTxO that carries the datum is guarded by
-`protocol_params`' spend handler (`validators/protocol_params.ak:280-345`).
+`protocol_params`' spend handler (`validators/protocol_params.ak:288-354`).
 
 Every spend of that UTxO, whichever arm it takes, must satisfy the structural
-rails first (`validators/protocol_params.ak:294-326`):
+rails first (`validators/protocol_params.ak:299-335`):
 
-- exactly one continuing output at the same address (`:304-307`);
-- no reference script on it (`:314`);
+- exactly one continuing output at the same address
+  (`validators/protocol_params.ak:317-320`);
+- no reference script on it (`validators/protocol_params.ak:322-323`);
 - non-ADA value matching the input exactly, so the params NFT continues and no
-  junk token joins it (`:319`);
+  junk token joins it (`validators/protocol_params.ak:325-328`);
 - an inline datum that decodes as `ProtocolParams` and whose credentials are all
-  28 bytes, with the nomination well formed (`:325-326`, via `:105-113`).
+  28 bytes, with the nomination well formed
+  (`validators/protocol_params.ak:334-335`, via
+  `validators/protocol_params.ak:108-117`).
 
-The same rails hold at genesis (`validators/protocol_params.ak:268`), with one
-addition: `is_init: True` forbids a nomination baked into the genesis datum
-(`validators/protocol_params.ak:127-135`), so a protocol cannot be born
-mid-handover.
+The same rails hold at genesis (`validators/protocol_params.ak:263-285`), with
+two additions: `is_init: True` forbids a nomination baked into the genesis
+datum (`validators/protocol_params.ak:130-138`), so a protocol cannot be born
+mid-handover; and the exact `upgrade_cred` written into that datum must present
+its withdraw-zero (`validators/protocol_params.ak:269-274`). The latter proves
+that the initial authority can execute before genesis makes it canonical.
 
 ### Who may initialise
 
 `protocol_params` is parameterised by a single `utxo_ref`
-(`validators/protocol_params.ak:226`); its `mint` handler requires that UTxO
-be spent (`:232-235`), so the policy can mint the `ProtocolParams` NFT once.
+(`validators/protocol_params.ak:234`); its `mint` handler requires that UTxO
+be spent (`validators/protocol_params.ak:238-243`), so the policy can mint the
+`ProtocolParams` NFT once.
 Choosing `utxo_ref` is the one irreversible decision genesis makes: a UTxO can
 be spent once, so every distinct choice commits to a distinct policy id, and —
 because `protocol_params` shares one script hash across both handlers — a
 distinct address (`nft_output.address == address.from_script(own_policy)`,
-`:271`).
+`validators/protocol_params.ak:284`). Genesis is not authorised by possession
+of that seed alone: the initial `upgrade_cred` must also appear in
+`tx.withdrawals` (`validators/protocol_params.ak:274`). For a script credential,
+the ledger therefore runs that script; for a verification key credential, it
+verifies the corresponding withdrawal witness.
 
 That policy id, not an address, is what every other validator treats as the
 protocol's identity. `protocol_params` needs no address parameter — the mint
@@ -1139,7 +1150,7 @@ Every reader that must find the live wiring — `programmable_logic_base`,
 an address, and locates the UTxO by NFT presence
 (`validators/programmable_logic/params.ak:144-145`) or, at genesis, by
 `has_nft_strict`, where the whole value must be exactly that one token
-(`validators/protocol_params.ak:249`) — never by comparing addresses. An
+(`validators/protocol_params.ak:249-258`) — never by comparing addresses. An
 address is one property a UTxO happens to have; a one-shot NFT policy id
 cannot coincide across two deployments, which is why it is what the protocol
 treats as itself. The SDK consequence — the params address collapsing to one
@@ -1154,9 +1165,9 @@ datum being spent.
 
 | Arm | May change | Authorised by | At |
 |---|---|---|---|
-| `ProtocolUpgrade` | fields 0–3: the dispatcher, the issuance logic, and the two delegate credentials `issuance_logic` reads. Freezes `upgrade_cred` and the nomination | the sitting `upgrade_cred`'s withdraw-zero | `validators/protocol_params.ak:162-172` |
-| `NominateAuthority` | `pending_upgrade_cred` only — `Some(c)` nominates or re-nominates, `None` revokes. Everything else frozen by one record equality | the sitting `upgrade_cred`'s withdraw-zero | `validators/protocol_params.ak:181-193` |
-| `PromoteAuthority` | the standing nominee becomes `upgrade_cred` and the nomination clears; nothing else moves | the **nominee's** own withdraw-zero | `validators/protocol_params.ak:212-226` |
+| `ProtocolUpgrade` | fields 0–3: the dispatcher, the issuance logic, and the two delegate credentials `issuance_logic` reads. Freezes `upgrade_cred` and the nomination | the sitting `upgrade_cred`'s withdraw-zero | `validators/protocol_params.ak:166-175` |
+| `NominateAuthority` | `pending_upgrade_cred` only — `Some(c)` nominates or re-nominates, `None` revokes. Everything else frozen by one record equality | the sitting `upgrade_cred`'s withdraw-zero | `validators/protocol_params.ak:185-197` |
+| `PromoteAuthority` | the standing nominee becomes `upgrade_cred` and the nomination clears; nothing else moves | the **nominee's** own withdraw-zero | `validators/protocol_params.ak:218-231` |
 
 Declaring the action is what makes the three rule sets mutually exclusive.
 Because `ProtocolUpgrade` freezes the nomination and `NominateAuthority` freezes
@@ -1225,11 +1236,11 @@ next spend.
 So the sitting authority **nominates** into field 5, and the nominee
 **activates** itself by presenting its own withdraw-zero — which is what proves
 it exists, can produce a withdrawal — a script that runs, or a key that signs
-— and consents (`validators/protocol_params.ak:221`). Until it
+— and consents (`validators/protocol_params.ak:223-225`). Until it
 does, the sitting authority can clear the nomination. Nomination and revocation
 race by construction, and if the nominee wins that race the outcome is exactly
 the handover the sitting authority had consented to, never a handover plus an
-arbitrary change (`validators/protocol_params.ak:214-218`).
+arbitrary change (`validators/protocol_params.ak:213-230`).
 
 ### `upgrade_multisig` — one possible authority
 
@@ -1246,6 +1257,13 @@ to be satisfied against the transaction's signatories, validity range and
 withdrawals (`validators/upgrade_multisig.ak:154-174`, via
 `lib/multisig.ak:42-84`). Rotating the tree is a spend, authorised by the tree
 being replaced (`validators/upgrade_multisig.ak:146-151`).
+
+When this implementation is selected as the initial `upgrade_cred`, its config
+UTxO must already exist and its stake credential must already be registered.
+Protocol-params genesis references that config UTxO and invokes the multisig's
+withdraw-zero, so the configured threshold is exercised before the authority
+becomes canonical (`validators/protocol_params.ak:269-274`;
+`validators/upgrade_multisig.ak:148-168`).
 
 Both write paths hold the tree to `well_formed` — the mint at
 `validators/upgrade_multisig.ak:92` and the spend at `:143`. That predicate
@@ -1334,7 +1352,7 @@ one-shot policy, and each rail is chosen for its job:
 - the protocol-params UTxO is found by policy presence on the hot path
   (`validators/programmable_logic/params.ak:139-140`) and by
   `assets.has_nft_strict` where the whole value must be exactly that NFT
-  (`validators/protocol_params.ak:253-258`, `validators/issuance_logic.ak:279-283`);
+  (`validators/protocol_params.ak:254-258`, `validators/issuance_logic.ak:279-283`);
 - a registry node is authenticated by its first non-ADA policy being the
   registry NFT policy (`validators/third_party.ak:97`,
   `lib/registry_node.ak:98-99`);
@@ -1372,7 +1390,7 @@ proofs stay valid.
 
 ### One-shot policies
 
-The protocol-params NFT (`validators/protocol_params.ak:232-241`), the registry
+The protocol-params NFT (`validators/protocol_params.ak:238-247`), the registry
 (`validators/registry.ak:54-58`), the issuance template NFT
 (`validators/issuance_cbor_hex_mint.ak:19-31`) and the upgrade authority's
 config NFT (`validators/upgrade_multisig.ak:79-86`) are each parameterised by a

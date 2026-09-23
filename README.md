@@ -166,11 +166,11 @@ A shared spending validator, `programmable_logic_base` (PLB), holds every progra
 
 - **Issuance** (`issuance_mint`, `issuance_logic`) — `issuance_mint` is permanent per token: its applied hash IS the token's policy id. It requires two withdraw-zeros: the module's own `minting_logic_cred` (which doubles as the token's **registry-lifecycle authority**) and the protocol's `issuance_logic`, named by the protocol-params datum's `issuance_logic_cred` field, proving it covered this policy id (`validators/issuance_mint.ak:34-64`). `issuance_logic` is the replaceable half — its rules can be upgraded for every existing token by rewriting one datum field, with no policy id moving (`validators/issuance_logic.ak:44-97`).
 - **Registry Policy** (`registry`) — one script, two handlers: `mint` manages the sorted linked list of registered tokens, `spend` guards every node (`validators/registry.ak:40`, `:169`).
-- **Protocol Params Policy** (`protocol_params`) — one-shot mint of the protocol-parameters NFT; `spend` enforces the three upgrade-path transaction shapes (`validators/protocol_params.ak:232`, `:275`).
+- **Protocol Params Policy** (`protocol_params`) — one-shot mint of the protocol-parameters NFT, requiring the initial `upgrade_cred` to prove itself through its withdraw-zero; `spend` enforces the three upgrade-path transaction shapes (`validators/protocol_params.ak:234-285`, `validators/protocol_params.ak:288-354`).
 
 #### 4. Upgrade Authority
 
-`upgrade_multisig` holds the upgrade authority as a `MultisigScript` approval tree (Sundae's native-script ADT, `lib/multisig.ak`) inside a config UTxO it owns. `protocol_params` names this script's withdraw-zero credential as `upgrade_cred`; rotating signers is a config-UTxO update, not a script redeploy — the credential itself never moves (`validators/upgrade_multisig.ak:66-186`).
+`upgrade_multisig` holds the upgrade authority as a `MultisigScript` approval tree (Sundae's native-script ADT, `lib/multisig.ak`) inside a config UTxO it owns. `protocol_params` names this script's withdraw-zero credential as `upgrade_cred` and requires that withdrawal during protocol genesis, exercising the configured approval tree before the authority becomes canonical. Rotating signers is a config-UTxO update, not a script redeploy — the credential itself never moves (`validators/protocol_params.ak:261-274`; `validators/upgrade_multisig.ak:148-168`).
 
 ### Modules (Pluggable Token Rules)
 
@@ -196,7 +196,7 @@ Module implementations live in the platform repository:
 | `issuance_logic` | Withdraw, Publish | Replaceable per-transaction issuance rules, upgradable via the protocol-params `issuance_logic_cred` field (`validators/issuance_logic.ak:44-89`) |
 | `issuance_cbor_hex_mint` | Mint | One-shot mint of the issuance script template reference NFT (`validators/issuance_cbor_hex_mint.ak:13-51`) |
 | `registry` | Mint, Spend | Sorted linked-list registry: `mint` manages insert/update (`validators/registry.ak:41-167`), `spend` guards every node (`:174-239`) |
-| `protocol_params` | Mint, Spend | One-shot mint of the protocol-parameters NFT (`validators/protocol_params.ak:232-279`); `spend` enforces the three upgrade-path shapes (`:280-346`) |
+| `protocol_params` | Mint, Spend | One-shot mint of the protocol-parameters NFT (`validators/protocol_params.ak:234-285`); `spend` enforces the three upgrade-path shapes (`validators/protocol_params.ak:288-354`) |
 | `upgrade_multisig` | Mint, Spend, Withdraw, Publish | Holds and evaluates the upgrade authority's multisig approval tree in a config UTxO (`validators/upgrade_multisig.ak:66-186`) |
 | `always_fail` | Spend | Permanently locks reference NFTs (e.g. `IssuanceCborHex`) so they can never be spent (`validators/always_fail.ak:5-10`) |
 

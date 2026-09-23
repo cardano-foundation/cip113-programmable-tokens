@@ -42,6 +42,14 @@
 ////     governance-action validator later) can be swapped by rewriting one datum
 ////     field, with no change here and no residue left behind.
 ////
+////     Genesis uses the same trampoline before the initial `upgrade_cred`
+////     becomes canonical. The mint transaction must carry that credential's
+////     withdraw-0, proving that the exact authority written into the datum can
+////     run and authorise a transaction. For `upgrade_multisig`, this exercises
+////     the configured tree through its real withdrawal handler; merely minting
+////     a well-formed config tree would not prove that the datum names it or
+////     that its approval path works.
+////
 ////     CHANGING that authority is two-phase — the one thing the sitting
 ////     authority cannot do in a single step. Phase 1, under
 ////     `NominateAuthority`: the sitting authority writes
@@ -259,6 +267,11 @@ validator protocol_params(utxo_ref: OutputReference) {
       // `is_init: True` is what additionally forbids a nomination baked into
       // the genesis datum — see `pending_well_formed`.
       params_well_formed(genesis_params, is_init: True)?,
+      // The initial authority must activate itself before it becomes
+      // canonical. This is deliberately the same withdraw-0 route used by
+      // every later upgrade, so a typo or unusable script hash is rejected
+      // before the protocol-params NFT exists.
+      pairs.has_key(self.withdrawals, genesis_params.upgrade_cred)?,
       // No reference script may be attached to the protocol-params UTxO, on
       // either handler: one here would be paid for by every transaction that
       // references this UTxO.

@@ -80,7 +80,7 @@ one script hash, so the params NFT policy id — the result of applying the
 one `utxo_ref` parameter — is the params address's payment credential
 (`validators/protocol_params.ak:8-16`;
 `nft_output.address == address.from_script(own_policy)`,
-`validators/protocol_params.ak:271`). There is no second parameter and no
+`validators/protocol_params.ak:284`). There is no second parameter and no
 address passed in from another deployment step; see
 [Who may initialise](./02-ARCHITECTURE.md#who-may-initialise).
 
@@ -99,19 +99,18 @@ through from a different deployment step.
 
 ### Deployment ordering
 
-The constraint that matters here is which script's compiled hash is a
-compile-time PARAMETER of another script. It is not an on-chain sequencing
-rule: none of these validators reads another validator's on-chain state to
-run, so "deployed" below means "applied and hashed", not "has processed a
-transaction".
+Two constraints matter: which script's compiled hash is a compile-time
+PARAMETER of another script, and the on-chain activation of the initial upgrade
+authority. Steps 1–6 below describe the hash dependency graph, so "deployed"
+there means "applied and hashed". The activation sequence after the list is a
+real transaction-ordering rule.
 
 1. `always_fail(nonce)`, `protocol_params(utxo_ref)` and
    `upgrade_multisig(utxo_ref)` need no other script's hash
-   (`validators/always_fail.ak:5`; `validators/protocol_params.ak:226`;
+   (`validators/always_fail.ak:5`; `validators/protocol_params.ak:234`;
    `validators/upgrade_multisig.ak:66`). `protocol_params` takes no address
-   parameter, so its own genesis needs nothing but a chosen `utxo_ref`: the
-   params mint no longer depends on a params spend address, because there is
-   no separate spend-address parameter to depend on.
+   parameter: the params mint no longer depends on a separately computed
+   params spend address.
 2. `issuance_cbor_hex_mint(utxo_ref, always_fail_hash)` needs `always_fail`'s
    hash (`validators/issuance_cbor_hex_mint.ak:13-16`).
 3. `registry(utxo_ref, issuance_cbor_hex_cs)` needs
@@ -138,15 +137,35 @@ transaction".
 7. Only once steps 1–6 are computed can the `protocol_params` genesis DATUM
    be written: fields 0–3 name step 6's dispatcher, step 5's
    `issuance_logic`, and the `transfer`/`third_party` hashes from step 5
-   directly (`validators/programmable_logic/params.ak:51-75`). The genesis
-   TRANSACTION has no on-chain prerequisite among these scripts — it
-   consumes only its own `utxo_ref` — but the datum it writes cannot be
-   assembled before those hashes exist.
+   directly (`validators/programmable_logic/params.ak:51-75`).
 
-Two consequences follow. The registry can be genesised before, after, or
-independently of `protocol_params`'s genesis, since neither reads the
-other's on-chain state. And an `issuance_cbor_hex_mint` genesis must precede
-any `RegistryInsert` that references it as a reference input
+If `upgrade_multisig` is the initial authority, complete this on-chain sequence
+after calculating the hashes:
+
+1. Register `Script(upgrade_multisig_hash)` as a stake credential.
+2. Mint the upgrade-multisig config NFT and create its config UTxO with the
+   reviewed approval tree.
+3. After that UTxO is confirmed, build protocol-params genesis with the config
+   UTxO as a reference input, a zero withdrawal for
+   `Script(upgrade_multisig_hash)`, its withdrawal redeemer, and enough real
+   witnesses to satisfy the tree. The datum's `upgrade_cred` must contain that
+   exact credential (`validators/protocol_params.ak:261-274`;
+   `validators/upgrade_multisig.ak:148-168`).
+
+The config mint and stake registration may share a transaction if the
+deployment tooling supports it. Protocol-params genesis must be later for two
+independent reasons: the confirmed config UTxO is a reference input, and a
+withdrawal credential must be registered on-chain in an EARLIER transaction
+before its first use, a zero withdrawal included. Inlining the config would
+not collapse the sequence; the registration rule would still hold it apart.
+
+Two consequences follow. The registry can still be genesised before, after, or
+independently of `protocol_params`'s genesis, since neither reads the other's
+on-chain state. The selected initial authority, however, must prove itself in
+the params genesis transaction; an authority that cannot participate in such
+a transaction can be installed later through nomination and self-promotion.
+And an `issuance_cbor_hex_mint` genesis must precede any `RegistryInsert` that
+references it as a reference input
 (`validators/registry.ak:69-74`), but a bare `RegistryInit` needs no
 reference input at all (`lib/linked_list.ak:64-87`).
 
