@@ -166,9 +166,15 @@ test genesis_allows_additional_withdrawals() {
   )
 }
 
-// The protocol remains authority-implementation agnostic. A verification-key
-// stake credential is activated by the corresponding ledger withdrawal
-// witness, just as a script credential is activated by its validator.
+// The protocol remains authority-implementation agnostic: this handler checks
+// for the credential's presence in `withdrawals` and nothing else, so a
+// verification-key stake credential is accepted as readily as a script one.
+// The LEDGER is not symmetric. In the Conway era a verification-key reward
+// account must have delegated its vote — to a DRep, or to Abstain / No
+// Confidence — before it can withdraw at all, a zero withdrawal included,
+// while a script credential carries no such requirement. That is a deployment
+// precondition this test cannot see: it proves what the validator accepts,
+// not what the ledger will let anyone submit.
 test genesis_accepts_verification_key_upgrade_authority() {
   let key_authority = VerificationKey(
     #"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",

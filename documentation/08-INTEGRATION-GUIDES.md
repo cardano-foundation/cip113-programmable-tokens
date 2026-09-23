@@ -153,8 +153,11 @@ after calculating the hashes:
    `validators/upgrade_multisig.ak:148-168`).
 
 The config mint and stake registration may share a transaction if the
-deployment tooling supports it. Protocol-params genesis must be later because
-the confirmed config UTxO is a reference input.
+deployment tooling supports it. Protocol-params genesis must be later for two
+independent reasons: the confirmed config UTxO is a reference input, and a
+withdrawal credential must be registered on-chain in an EARLIER transaction
+before its first use, a zero withdrawal included. Inlining the config would
+not collapse the sequence; the registration rule would still hold it apart.
 
 Two consequences follow. The registry can still be genesised before, after, or
 independently of `protocol_params`'s genesis, since neither reads the other's
