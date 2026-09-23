@@ -1,3 +1,4 @@
+use aiken/builtin
 use aiken/collection/dict
 use aiken/collection/list
 use aiken/fuzz
@@ -137,13 +138,15 @@ test collect_many_assets() {
     |> value.add("baz", "", 1)
     |> value.add("foo", "bar", 2)
     |> prog_assets.from_value
+    |> builtin.un_value_data
 
-  prog_assets.collect([out1, out2, out3], [], all) == expected
+  prog_assets.collect([out1, out2, out3], {}, all) == expected
 }
 
 test collect_mixed_mint_and_output() {
   let mint = value.from_asset("foo", "bar", 1)
     |> prog_assets.from_value
+    |> builtin.un_value_data
 
   let output_value = Output {
     ..output_placeholder,
@@ -153,6 +156,7 @@ test collect_mixed_mint_and_output() {
 
   let expected = value.from_asset("foo", "bar", 2)
     |> prog_assets.from_value
+    |> builtin.un_value_data
 
   prog_assets.collect([output_value], mint, all) == expected
 }
@@ -182,10 +186,11 @@ test collect_and_filter() {
 
   let expected = value.from_asset("foo", "bar", 2)
     |> prog_assets.from_value
+    |> builtin.un_value_data
 
   expected == prog_assets.collect(
     [out1, out2, out3],
-    [],
+    {},
     fn(o, keep, discard) {
       if o.address == other_address {
         discard()
@@ -194,19 +199,6 @@ test collect_and_filter() {
       }
     },
   )
-}
-
-test collect_keeps_null_policies() {
-  let out = Output {
-    ..output_placeholder,
-    value: value.from_lovelace(42) |> value.add("foo", "bar", 1),
-  }
-
-  let mint = value.from_asset("foo", "bar", -1) |> prog_assets.from_value
-
-  let expected = [Pair("foo", dict.empty)]
-
-  expected == prog_assets.collect([out], mint, all)
 }
 
 test prop_collect_never_contains_ada(
@@ -222,12 +214,11 @@ test prop_collect_never_contains_ada(
         Output { ..output_placeholder, value: assets_to_value(value) }
       },
     ),
-    zero,
+    builtin.un_value_data(zero),
     all,
   )
-    |> dict.from_pairs
-    |> dict.get(ada_policy_id)
-    |> fn(ada_tokens) { ada_tokens == None }
+    |> builtin.lookup_value(ada_policy_id, ada_asset_name, _)
+    |> fn(ada_tokens) { ada_tokens == 0 }
 }
 
 // ----------------------------------------------------------------------- union
