@@ -2,7 +2,7 @@ use aiken/builtin.{less_than_bytearray, less_than_equals_bytearray}
 use aiken/collection/dict
 use aiken/primitive/bytearray
 use cardano/address.{Credential, Inline}
-use cardano/assets.{AssetName, PolicyId, Value}
+use cardano/assets.{AssetName, PolicyId, Value as OldValue}
 use cardano/transaction.{DatumHash, InlineDatum, NoDatum, Output}
 use env
 use tokens.{Tokens}
@@ -14,8 +14,11 @@ pub type Assets =
 pub type SumStrategy<i> =
   fn(i, fn(Output) -> Assets, fn() -> Assets) -> Assets
 
+pub type SumStrategyValue<i> =
+  fn(i, fn(Output) -> Value, fn() -> Value) -> Value
+
 /// A Convenient helper to extract assets from values. Comes at no cost since it is usually inlined by the compiler.
-pub fn from_value(self: Value) -> Assets {
+pub fn from_value(self: OldValue) -> Assets {
   self |> assets.to_dict |> dict.to_pairs
 }
 
@@ -23,7 +26,10 @@ pub fn from_value(self: Value) -> Assets {
 /// assets. The ada entry (empty policy id) is guaranteed present in any
 /// ledger Value and sorts first, so it is peeled off the head; the function
 /// fails loudly on a Value without one.
-pub fn split_lovelace(self: Value, return: fn(Int, Assets) -> result) -> result {
+pub fn split_lovelace(
+  self: OldValue,
+  return: fn(Int, Assets) -> result,
+) -> result {
   expect [Pair("", ada), ..rest] = from_value(self)
   expect [Pair(_, lovelace)] = dict.to_pairs(ada)
   return(lovelace, rest)
@@ -32,7 +38,7 @@ pub fn split_lovelace(self: Value, return: fn(Int, Assets) -> result) -> result 
 /// Split an dictionnary at the given key. Returning the elements before (in reverse key order), the
 /// value at the key, and the elements after (in same key order).
 pub fn value_split_at(
-  self: Value,
+  self: OldValue,
   at: PolicyId,
   return: fn(Assets, Tokens, Assets) -> result,
 ) -> result {
@@ -92,7 +98,7 @@ pub fn expect_first_policy(self: Output) -> PolicyId {
 /// ```aiken
 /// collect(
 ///   self.inputs,
-///   [],
+///   {},
 ///   fn(input, select, discard) {
 ///     let output = input.output
 ///     if output.address.payment_credential == needle {
@@ -105,16 +111,24 @@ pub fn expect_first_policy(self: Output) -> PolicyId {
 /// ```
 ///
 /// /!\ PRE-CONDITION /!\
-/// The given zero assets is expected to not contain any Ada. This is enforced
+/// The given zero value is expected to not contain any Ada. This is enforced
 /// when assertions are enabled (`--env with_assertions`).
 ///
 /// This is generally true when the initial zero is an empty list or coming
 /// from the mint value.
-pub fn collect(elems: List<i>, zero: Assets, strategy: SumStrategy<i>) -> Assets {
+pub fn collect(
+  elems: List<i>,
+  zero: Value,
+  strategy: SumStrategyValue<i>,
+) -> Value {
   do_collect(elems, strategy, env.assert_no_ada_policy(zero))
 }
 
-fn do_collect(elems: List<i>, strategy: SumStrategy<i>, sum: Assets) -> Assets {
+fn do_collect(
+  elems: List<i>,
+  strategy: SumStrategyValue<i>,
+  sum: Value,
+) -> Value {
   when elems is {
     [] -> sum
     [head, ..tail] ->
@@ -129,13 +143,8 @@ fn do_collect(elems: List<i>, strategy: SumStrategy<i>, sum: Assets) -> Assets {
               |> from_value
               // Drop ADA, guaranteed to be present in outputs.
               |> unsafe_list.expect_tail
-              // NOTE: left-optimised union
-              // The `union` consumes the left argument into the right argument. So it is
-              // generally better to provide the smallest argument as left value. The `sum`
-              // will generally grow as large as outputs and in many scenario will no be much
-              // larger. However, it is very often smaller initially (often empty). Hence why
-              // we force it as first argument here.
-              |> union(sum, _)
+              |> builtin.un_value_data
+              |> builtin.union_value(sum, _)
           },
           // Output is discarded
           fn() { sum },
@@ -196,7 +205,7 @@ fn do_insert(self: Assets, k1: PolicyId, v1: Tokens) -> Assets {
 /// for "does this policy mint exactly this NFT". `protocol_params.mint` uses
 /// both, three lines apart, for those two different questions.
 pub fn expect_only_nft_of_policy(
-  value: Value,
+  value: OldValue,
   policy_id: PolicyId,
   asset_name: AssetName,
 ) -> Bool {
@@ -209,10 +218,10 @@ pub fn collect_output_assets(
   outputs: List<Output>,
   programmable_logic_base_cred: Credential,
   max_inline_datum_bytes: Int,
-) -> Assets {
+) -> Value {
   collect(
     outputs,
-    [],
+    {},
     fn(output, select, discard) {
       if output.address.payment_credential == programmable_logic_base_cred {
         expect Some(Inline(..)) = output.address.stake_credential

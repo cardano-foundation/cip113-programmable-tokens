@@ -11,7 +11,7 @@ test always_fail_spend_rejects() fail {
     None,
     Void,
     #"0000000000000000000000000000000000000000000000000000000000000000",
-    transaction.placeholder,
+    as_data(transaction.placeholder),
   )
 }
 
@@ -22,7 +22,7 @@ test always_fail_spend_rejects_with_different_nonce() fail {
     None,
     Void,
     #"0000000000000000000000000000000000000000000000000000000000000000",
-    transaction.placeholder,
+    as_data(transaction.placeholder),
   )
 }
 

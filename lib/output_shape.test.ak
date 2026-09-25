@@ -140,7 +140,7 @@ test collect_output_assets_rejects_datum_hash() fail {
     [programmable_logic_base_output(DatumHash(datum_hash_32), None)],
     prog_cred,
     unbounded,
-  ) == []
+  ) == {}
 }
 
 // ... and on a reference-script PLB output.
@@ -149,7 +149,7 @@ test collect_output_assets_rejects_reference_script() fail {
     [programmable_logic_base_output(NoDatum, Some(ref_script_28))],
     prog_cred,
     unbounded,
-  ) == []
+  ) == {}
 }
 
 // Control: inline-datum and no-datum PLB outputs pass the gate (ada-only, so
@@ -162,7 +162,7 @@ test collect_output_assets_accepts_clean_outputs() {
     ],
     prog_cred,
     unbounded,
-  ) == []
+  ) == {}
 }
 
 // ------------------------------------- transfer gate: the size bound applies
@@ -174,7 +174,7 @@ test collect_output_assets_rejects_oversized_inline_datum() fail {
     [programmable_logic_base_output(InlineDatum(as_data(payload_64)), None)],
     prog_cred,
     65,
-  ) == []
+  ) == {}
 }
 
 // Control for the above: the same output passes once the bound admits it.
@@ -184,7 +184,7 @@ test collect_output_assets_accepts_inline_datum_within_bound() {
     [programmable_logic_base_output(InlineDatum(as_data(payload_64)), None)],
     prog_cred,
     66,
-  ) == []
+  ) == {}
 }
 
 // -------------------------------------------- mint path: bound NOT applied
