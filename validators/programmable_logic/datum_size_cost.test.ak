@@ -405,7 +405,7 @@ test cost_fixture_flat_8192() {
 }
 
 // --- nested List<Int> datums (worst case per serialised byte) ---------
-const nested_0: Data = as_data([])
+const nested_0: Data = builtin.list_data([])
 
 const seize_tx_nested_0: Transaction = seize_tx(nested_0)
 
