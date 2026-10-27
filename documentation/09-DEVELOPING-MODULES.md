@@ -91,7 +91,7 @@ the credential your registry node names for that kind of action.
 └────────────────────────────────────────────────────────────────────────────┘
                                    │
                          ┌─────────┴──────────┐
-                         │  YOUR MODULE  │
+                         │  YOUR MODULE       │
                          │                    │
                          │  - Issuance logic  │
                          │  - Transfer logic  │
@@ -279,7 +279,7 @@ behave a particular way, your hook is where that rule goes.
 
 ```
 ┌────────────────────────────────────────────────────────────────────────┐
-│                    YOUR MODULE (4 credentials)                    │
+│                    YOUR MODULE (4 credentials)                         │
 │                                                                        │
 │  ┌──────────────┐ ┌──────────────┐ ┌──────────────┐ ┌───────────────┐  │
 │  │Issuance Logic│ │Transfer Logic│ │ 3rd Party    │ │Unfracking Hook│  │
