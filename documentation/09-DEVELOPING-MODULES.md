@@ -91,7 +91,7 @@ the credential your registry node names for that kind of action.
 └────────────────────────────────────────────────────────────────────────────┘
                                    │
                          ┌─────────┴──────────┐
-                         │  YOUR MODULE  │
+                         │  YOUR MODULE       │
                          │                    │
                          │  - Issuance logic  │
                          │  - Transfer logic  │
