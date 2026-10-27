@@ -279,7 +279,7 @@ behave a particular way, your hook is where that rule goes.
 
 ```
 ┌────────────────────────────────────────────────────────────────────────┐
-│                    YOUR MODULE (4 credentials)                    │
+│                    YOUR MODULE (4 credentials)                         │
 │                                                                        │
 │  ┌──────────────┐ ┌──────────────┐ ┌──────────────┐ ┌───────────────┐  │
 │  │Issuance Logic│ │Transfer Logic│ │ 3rd Party    │ │Unfracking Hook│  │
